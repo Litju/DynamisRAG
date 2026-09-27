@@ -1,0 +1,101 @@
+# Local runtime for the RES-130 foundation: PostgreSQL 18 and OpenSearch 3.x.
+#
+# Both services run as Linux containers through Docker Desktop on a native
+# Windows host. There is no WSL distribution, no bind mount into WSL and no
+# POSIX path in this file; named volumes keep all state inside the Docker
+# Desktop VM.
+#
+# Prerequisites and first run, from PowerShell in the repository root:
+#
+#     Copy-Item .env.example .env
+#     docker compose up -d
+#     docker compose ps
+#
+# Versions are pinned to exact patch releases so a teammate and CI observe the
+# same server behaviour. Bump them deliberately, in a commit of their own.
+#
+# Required variables (all provided by .env.example) are enforced with `:?` so a
+# missing or blank value fails immediately and loudly instead of silently
+# starting a database with an empty password.
+
+name: dynamisrag
+
+services:
+  postgres:
+    image: postgres:18.2-alpine
+    container_name: dynamisrag-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DYNAMISRAG_POSTGRES_USER:?set DYNAMISRAG_POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${DYNAMISRAG_POSTGRES_PASSWORD:?set DYNAMISRAG_POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${DYNAMISRAG_POSTGRES_DB:?set DYNAMISRAG_POSTGRES_DB in .env}
+      # PostgreSQL 18 moved the cluster out of /var/lib/postgresql/data and made
+      # /var/lib/postgresql the volume root. Both values below must agree.
+      PGDATA: /var/lib/postgresql/18/docker
+    # Loopback only: the development credentials in .env.example are published,
+    # so the port must not be reachable from the network.
+    #
+    # Host port 55432 rather than 5432: a workstation that already runs a local
+    # PostgreSQL would otherwise fail to start this stack. The in-container port
+    # is the PostgreSQL default and the DSN addresses the host port.
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
+          -h 127.0.0.1 -q
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    networks:
+      - dynamisrag
+
+  opensearch:
+    image: opensearchproject/opensearch:3.8.0
+    container_name: dynamisrag-opensearch
+    restart: unless-stopped
+    environment:
+      OPENSEARCH_INITIAL_ADMIN_PASSWORD: ${DYNAMISRAG_OPENSEARCH_PASSWORD:?set DYNAMISRAG_OPENSEARCH_PASSWORD in .env}
+      discovery.type: single-node
+      bootstrap.memory_lock: true
+      # Single-node development sizing. A heap of 1 GiB is the documented
+      # minimum for the bundled JVM on an 8 GB host.
+      OPENSEARCH_JAVA_OPTS: -Xms1g -Xmx1g
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    ports:
+      - "127.0.0.1:9200:9200"
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          curl -fsS -k -u "admin:$${OPENSEARCH_INITIAL_ADMIN_PASSWORD}"
+          "https://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=5s"
+          > /dev/null || exit 1
+      interval: 10s
+      timeout: 10s
+      retries: 40
+      start_period: 30s
+    networks:
+      - dynamisrag
+
+volumes:
+  postgres-data:
+  opensearch-data:
+
+networks:
+  dynamisrag:
+    name: dynamisrag
+    driver: bridge
