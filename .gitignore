@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Virtual environments (uv keeps the project environment in-tree)
+.venv/
+venv/
+ENV/
+
+# Environment / secrets -- .env is never committed
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# Test and tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyright/
+.hypothesis/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+junit*.xml
+report.xml
+
+# Ephemeral local run artefacts
+.tmp/
+out/
+*.log
+
+# Editors and OS
+.idea/
+.vscode/
+*.swp
+*~
+Thumbs.db
+ehthumbs.db
+Desktop.ini
