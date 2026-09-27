@@ -9,6 +9,14 @@ deliberately **not** implemented here; they are scoped to later Linear issues.
 
 ---
 
+Copyright © 2026 Julio Rodriguez. All rights reserved.
+
+The source code is publicly viewable. No license is granted to use, copy,
+modify, redistribute, sublicense, or create derivative works except where
+applicable law or GitHub's Terms of Service provide otherwise.
+
+---
+
 ## Platform
 
 | Component      | Version    | Notes                                             |
@@ -30,12 +38,13 @@ deliberately **not** implemented here; they are scoped to later Linear issues.
 - Windows 11 with **PowerShell** — the documented commands are PowerShell and
   are what CI mirrors.
 - [Docker Desktop](https://docs.docker.com/desktop/install/windows-install/)
-  with the Linux container engine. Docker Desktop runs Linux containers; it does
-  **not** require or use a WSL distribution, and nothing here assumes WSL paths,
-  mounts or shell behaviour.
+  with the Linux container engine. DynamisRAG development is native
+  Windows/PowerShell and does not depend on a user WSL distribution, WSL paths,
+  WSL shells, or a WSL-hosted checkout. Docker Desktop may use its own configured
+  virtualization backend internally.
 - [uv](https://docs.astral.sh/uv/) on `PATH`.
 
-**No WSL.** There is exactly one checkout of this repository, at
+There is exactly one checkout of this repository, at
 `E:\Data\Projects\DynamisRAG`, and no second worktree.
 
 ## Quick start
@@ -316,7 +325,8 @@ Not implemented here, by design: the scientific schema, passage mappings, BM25
 retrieval, embeddings, vectors, ANN, hybrid retrieval, and any LLM or agent
 code. Those belong to later Linear issues.
 
-## Licence
+## Copyright
 
-No licence has been chosen yet. Treat the repository as all-rights-reserved
-until one is added.
+This repository is public-source: the code is publicly viewable, but no
+software licence is granted. Copyright © 2026 Julio Rodriguez. All rights
+reserved. See the notice at the top of this README.
