@@ -1,0 +1,163 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_VERSION: "0.12.4"
+  UV_FROZEN: "1"
+
+jobs:
+  quality:
+    name: Lint, types, unit tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Windows is a first-class target, not an afterthought: this project is
+        # developed natively on Windows and every documented developer command is
+        # PowerShell, so the gates have to hold there too.
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+
+      - name: Install Python 3.12
+        run: uv python install 3.12
+
+      - name: Verify the lockfile matches pyproject.toml
+        run: uv lock --check
+
+      - name: Install locked dependencies
+        run: uv sync --locked
+
+      - name: Ruff format check
+        run: uv run ruff format --check .
+
+      - name: Ruff lint
+        run: uv run ruff check --output-format=github .
+
+      - name: Pyright (strict)
+        run: uv run pyright
+
+      - name: Unit tests
+        run: uv run pytest
+
+  integration:
+    name: Migrations, integration tests, live server
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+
+      - name: Install Python 3.12
+        run: uv python install 3.12
+
+      - name: Install locked dependencies
+        run: uv sync --locked
+
+      - name: Create .env from the committed template
+        # The template holds published, local-only development passwords, which
+        # is precisely why they are safe to materialise on a throwaway runner.
+        run: cp .env.example .env
+
+      - name: Start PostgreSQL 18 and OpenSearch 3
+        # The repository's own compose file is what gets validated, so a local
+        # stack and the CI stack cannot drift apart.
+        run: docker compose up -d --wait --wait-timeout 420
+
+      - name: Show service state
+        run: docker compose ps
+
+      - name: Apply migrations to an empty database
+        run: uv run alembic upgrade head
+
+      - name: Prove migrations are reversible
+        run: |
+          set -euo pipefail
+          uv run alembic downgrade base
+          uv run alembic upgrade head
+          uv run alembic current
+
+      - name: Integration tests
+        run: uv run pytest -m integration -v
+
+      - name: Exercise the real server over HTTP, including a dependency outage
+        run: |
+          set -euo pipefail
+          uv run python -m dynamisrag &
+          server_pid=$!
+          trap 'kill "$server_pid" || true' EXIT
+
+          for _ in $(seq 1 60); do
+            if curl -fsS -o /dev/null http://127.0.0.1:8000/healthz; then break; fi
+            sleep 2
+          done
+
+          echo "=== healthy: liveness ==="
+          curl -fsS -D headers-live.txt -o live.json http://127.0.0.1:8000/healthz
+          cat live.json
+          grep -q '^cache-control: no-store' <(tr -d '\r' < headers-live.txt)
+          grep -q '"status":"up"' live.json
+
+          echo "=== healthy: readiness ==="
+          curl -fsS -D headers-ready.txt -o ready.json http://127.0.0.1:8000/readyz
+          cat ready.json
+          grep -q '^cache-control: no-store' <(tr -d '\r' < headers-ready.txt)
+          grep -q '"status":"up"' ready.json
+          grep -q '"version":"18' ready.json
+          grep -q '"version":"3' ready.json
+
+          echo "=== degraded: stop opensearch ==="
+          docker compose stop opensearch
+          live_code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/healthz)
+          ready_code=$(curl -s -o degraded.json -w '%{http_code}' http://127.0.0.1:8000/readyz)
+          echo "liveness=$live_code readiness=$ready_code"
+          cat degraded.json
+          test "$live_code" = "200"
+          test "$ready_code" = "503"
+          grep -q '"status":"down"' degraded.json
+          grep -q '"opensearch":{"name":"opensearch","status":"down"' degraded.json
+          grep -q '"postgres":{"name":"postgres","status":"up"' degraded.json
+
+          echo "=== recovery: start opensearch ==="
+          docker compose start opensearch
+          for _ in $(seq 1 90); do
+            if [ "$(curl -s -o recovered.json -w '%{http_code}' http://127.0.0.1:8000/readyz)" = "200" ]; then
+              break
+            fi
+            sleep 5
+          done
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/readyz)" = "200"
+          cat recovered.json
+          grep -q '"opensearch":{"name":"opensearch","status":"up"' recovered.json
+
+      - name: Dump service logs
+        if: always()
+        run: docker compose logs --no-color --tail 200
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
