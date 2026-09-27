@@ -13,7 +13,7 @@ deliberately **not** implemented here; they are scoped to later Linear issues.
 
 | Component      | Version    | Notes                                             |
 | -------------- | ---------- | ------------------------------------------------- |
-| Python         | 3.12       | Pinned by `.python-version` and `requires-python`  |
+| Python         | 3.12.13    | Exact patch pinned in `.python-version` and CI |
 | uv             | 0.12+      | Locked dependency resolution via `uv.lock`         |
 | FastAPI        | 0.141.x    | Application factory, sync endpoints                |
 | PostgreSQL     | 18.2       | `postgres:18.2-alpine`, container port 5432        |
@@ -44,7 +44,7 @@ deliberately **not** implemented here; they are scoped to later Linear issues.
 Set-Location "E:\Data\Projects\DynamisRAG"
 
 # 1. Dependencies (creates .venv and installs the locked set)
-uv python install 3.12
+uv python install 3.12.13
 uv sync
 
 # 2. Local configuration. .env is git-ignored; never commit it.
