@@ -16,7 +16,7 @@ deliberately **not** implemented here; they are scoped to later Linear issues.
 | Python         | 3.12.13    | Exact patch pinned in `.python-version` and CI |
 | uv             | 0.12+      | Locked dependency resolution via `uv.lock`         |
 | FastAPI        | 0.141.x    | Application factory, sync endpoints                |
-| PostgreSQL     | 18.2       | `postgres:18.2-alpine`, container port 5432        |
+| PostgreSQL     | 18.6       | `postgres:18.6-alpine`, container port 5432        |
 | OpenSearch     | 3.8.0      | `opensearchproject/opensearch:3.8.0`               |
 | SQLAlchemy     | 2.1.x      | 2.x API, `postgresql+psycopg` dialect              |
 | psycopg        | 3.3.x      | psycopg 3 only                                     |
@@ -127,7 +127,7 @@ cases**, so a failure is machine-readable rather than a stack trace.
   "dependencies": {
     "postgres": {
       "name": "postgres", "status": "up", "latency_ms": 11,
-      "version": "18.2", "detail": null
+      "version": "18.6", "detail": null
     },
     "opensearch": {
       "name": "opensearch", "status": "up", "latency_ms": 90,
