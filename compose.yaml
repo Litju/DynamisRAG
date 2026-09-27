@@ -1,9 +1,9 @@
 # Local runtime for the RES-130 foundation: PostgreSQL 18 and OpenSearch 3.x.
 #
 # Both services run as Linux containers through Docker Desktop on a native
-# Windows host. There is no WSL distribution, no bind mount into WSL and no
-# POSIX path in this file; named volumes keep all state inside the Docker
-# Desktop VM.
+# Windows host. This project does not depend on a user WSL distribution, WSL
+# paths or WSL shells, and there is no POSIX path in this file; named volumes
+# keep all state inside the container runtime.
 #
 # Prerequisites and first run, from PowerShell in the repository root:
 #
