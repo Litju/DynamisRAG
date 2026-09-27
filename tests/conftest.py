@@ -19,25 +19,6 @@ _MISSING_ENVIRONMENT_HINT = (
 )
 
 
-def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
-    """Skip integration tests with an actionable message when infra is absent.
-
-    A bare ``pydantic.ValidationError`` about a missing DSN would be technically
-    correct but unhelpful. This only fires when *configuration* is absent, which
-    cannot happen in CI because the workflow creates ``.env`` first; a wrong DSN
-    with valid configuration still fails the tests loudly.
-    """
-    integration_items = [item for item in items if item.get_closest_marker("integration")]
-    if not integration_items:
-        return
-    try:
-        load_settings()
-    except ValidationError as error:
-        reason = f"{_MISSING_ENVIRONMENT_HINT} ({error.error_count()} invalid setting(s))"
-        for item in integration_items:
-            item.add_marker(pytest.mark.skip(reason=reason))
-
-
 @pytest.fixture
 def offline_settings() -> Settings:
     """Settings that point at closed loopback ports: every dependency is down."""
@@ -57,5 +38,18 @@ def offline_client(offline_settings: Settings) -> Iterator[TestClient]:
 
 @pytest.fixture
 def live_settings() -> Settings:
-    """Settings for the real local stack, read from the environment and ``.env``."""
-    return load_settings()
+    """Settings for the real local stack, read from the environment and ``.env``.
+
+    Fails loudly when the configuration is absent or invalid. An explicit
+    integration run must never degrade into a silent skip, so the actionable
+    setup hint is attached and the raw validation traceback suppressed. The
+    default ``uv run pytest`` run is unaffected: ``-m 'not integration'``
+    deselects these tests before this fixture is ever requested.
+    """
+    try:
+        return load_settings()
+    except ValidationError as error:
+        pytest.fail(
+            f"{_MISSING_ENVIRONMENT_HINT} ({error.error_count()} invalid setting(s))",
+            pytrace=False,
+        )

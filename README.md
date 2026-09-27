@@ -252,8 +252,11 @@ uv run pytest -m integration  # requires the live stack
 
 `-m 'not integration'` is set in `addopts`, so the default run cannot be broken
 by an absent database. The integration suite reads the same `.env` as the
-application, and skips with an actionable message if configuration is missing
-rather than failing on a raw validation error.
+application. An explicit `uv run pytest -m integration` run fails loudly with
+an actionable message when configuration is missing or invalid — it can never
+degrade into a silent skip. Unit-level regression tests
+(`tests/unit/test_integration_contract.py`) prove both halves of that contract
+in a subprocess, with no live services required.
 
 `pytest-asyncio` is **not** included: this slice is fully synchronous (readiness
 runs in FastAPI's threadpool), so the plugin would be an unused dependency.
