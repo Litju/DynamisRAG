@@ -44,6 +44,38 @@ _PMCID_FORMAT = "~ '^PMC[0-9]{1,12}$'"
 _LANGUAGE_FORMAT = "~ '^[a-z]{2,3}$'"
 _PATH_FORMAT = "~ '^[0-9]+(\\.[0-9]+)*$'"
 
+_CANONICAL_TABLES = (
+    "source_artifact",
+    "document",
+    "document_version",
+    "section",
+    "passage",
+    "citation",
+    "document_table",
+    "figure",
+)
+"""Every canonical table is append-only; immutable operational state, if it
+is ever needed, belongs on separate tables rather than on these records."""
+
+_IMMUTABLE_FUNCTION = """
+CREATE OR REPLACE FUNCTION dynamisrag_enforce_immutable()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RAISE EXCEPTION
+        'dynamisrag: % on canonical table % is prohibited; canonical records are append-only',
+        TG_OP, TG_TABLE_NAME
+    USING ERRCODE = 'P0001';
+END;
+$$;
+"""
+"""One small generic trigger function guards every canonical table.
+
+Only UPDATE and DELETE are blocked: appending is the supported write, and
+TRUNCATE is left to operations tooling rather than to row-level enforcement.
+"""
+
 _ROW_CREATED_AT = sa.Column(
     "row_created_at",
     sa.DateTime(timezone=True),
@@ -369,14 +401,29 @@ def upgrade() -> None:
     op.create_index("ix_figure_document_version_id", "figure", ["document_version_id"])
     op.create_index("ix_figure_section_id", "figure", ["section_id"])
 
+    op.execute(_IMMUTABLE_FUNCTION)
+    for _table in _CANONICAL_TABLES:
+        op.execute(
+            f"""
+            CREATE TRIGGER trg_{_table}_immutable
+            BEFORE UPDATE OR DELETE ON {_table}
+            FOR EACH ROW
+            EXECUTE FUNCTION dynamisrag_enforce_immutable();
+            """
+        )
+
 
 def downgrade() -> None:
     """Revert this revision: drop the canonical schema in dependency order.
 
-    Dropping each table drops its indexes, constraints and (added by the
-    hardening pass on this same revision) its immutability trigger with it,
-    leaving revision 0001's empty baseline behind.
+    Dropping each table drops its indexes and constraints with it; the
+    immutability triggers and their function are dropped explicitly so the
+    removal is obvious rather than incidental, leaving revision 0001's empty
+    baseline behind.
     """
+    for _table in _CANONICAL_TABLES:
+        op.execute(f"DROP TRIGGER IF EXISTS trg_{_table}_immutable ON {_table}")
+    op.execute("DROP FUNCTION IF EXISTS dynamisrag_enforce_immutable()")
     op.drop_table("figure")
     op.drop_table("document_table")
     op.drop_table("citation")
