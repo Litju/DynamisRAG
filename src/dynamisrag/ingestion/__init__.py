@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dynamisrag.ingestion.acquisition import AcquisitionResult, EuropePmcAcquisition
 from dynamisrag.ingestion.europe_pmc import (
     AcquiredFulltext,
     EuropePmcClient,
@@ -13,6 +14,8 @@ from dynamisrag.ingestion.europe_pmc import (
 
 __all__ = [
     "AcquiredFulltext",
+    "AcquisitionResult",
+    "EuropePmcAcquisition",
     "EuropePmcClient",
     "EuropePmcError",
     "EuropePmcInvalidPmcid",

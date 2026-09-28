@@ -58,6 +58,7 @@ __all__ = [
     "get_document_version",
     "get_section",
     "get_source_artifact",
+    "get_source_artifact_by_key",
     "insert_citation",
     "insert_citation_resolution",
     "insert_document",
@@ -458,6 +459,19 @@ def insert_figure(session: Session, figure: Figure) -> FigureRecord:
 
 def get_source_artifact(session: Session, artifact_id: UUID) -> SourceArtifactRecord | None:
     return session.get(SourceArtifactRecord, artifact_id)
+
+
+def get_source_artifact_by_key(session: Session, artifact_key: str) -> SourceArtifactRecord | None:
+    """Resolve an artifact by its deterministic canonical key, or ``None``.
+
+    This is the lookup that makes idempotent acquisition possible: the
+    ``artifact_key`` is a pure function of source system, external id and
+    content digest, so re-acquiring identical bytes resolves to the same row
+    instead of inserting a duplicate.
+    """
+    return session.scalars(
+        select(SourceArtifactRecord).where(SourceArtifactRecord.artifact_key == artifact_key)
+    ).first()
 
 
 def get_document(session: Session, document_id: UUID) -> DocumentRecord | None:
