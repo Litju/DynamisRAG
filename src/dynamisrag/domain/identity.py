@@ -106,9 +106,7 @@ def document_canonical_key(
     normalized_title = title.strip() if title else None
     if normalized_title:
         return f"title:{digest(normalized_title)}"
-    raise ValueError(
-        "document identity requires at least one of: doi, pmid, pmcid, title"
-    )
+    raise ValueError("document identity requires at least one of: doi, pmid, pmcid, title")
 
 
 def document_version_key(
@@ -161,7 +159,9 @@ def citation_key(
     """Identity of a bibliographic reference: its document version, its
     ordinal in the reference list, and the source anchor / raw text that pin
     it to the document."""
-    return digest(str(document_version_id), str(ordinal), *_optional(source_reference_id, raw_reference_text))
+    return digest(
+        str(document_version_id), str(ordinal), *_optional(source_reference_id, raw_reference_text)
+    )
 
 
 def document_table_key(
