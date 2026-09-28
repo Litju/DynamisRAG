@@ -39,6 +39,12 @@ _DOCUMENT_ID = UUID("22222222-2222-4222-8222-222222222222")
 _CONTENT_SHA = "a" * 64
 _NOW = datetime(2026, 9, 27, 12, 0, 0, tzinfo=UTC)
 
+_ARTIFACT_KEY = source_artifact_key("europe_pmc", "PMC123456", _CONTENT_SHA)
+_DOCUMENT_KEY = "doi:10.1038/nature12373"
+_VERSION_KEY = document_version_key(
+    _DOCUMENT_KEY, _ARTIFACT_KEY, "jats-1.2", "norm-v3", _CONTENT_SHA
+)
+
 
 class _ArtifactKwargs(TypedDict, total=False):
     source_system: str
@@ -63,7 +69,9 @@ class _DocumentKwargs(TypedDict, total=False):
 
 class _VersionKwargs(TypedDict, total=False):
     document_id: UUID
+    document_canonical_key: str
     source_artifact_id: UUID
+    source_artifact_key: str
     parser_revision: str
     normalizer_revision: str
     content_fingerprint: str
@@ -103,7 +111,9 @@ def _document_kwargs(**overrides: Unpack[_DocumentKwargs]) -> _DocumentKwargs:
 def _version_kwargs(**overrides: Unpack[_VersionKwargs]) -> _VersionKwargs:
     kwargs: _VersionKwargs = {
         "document_id": _DOCUMENT_ID,
+        "document_canonical_key": _DOCUMENT_KEY,
         "source_artifact_id": _ARTIFACT_ID,
+        "source_artifact_key": _ARTIFACT_KEY,
         "parser_revision": "jats-1.2",
         "normalizer_revision": "norm-v3",
         "content_fingerprint": _CONTENT_SHA,
@@ -251,7 +261,9 @@ def test_document_rejects_malformed_pmcid(bad: str) -> None:
 def test_document_version_derives_its_identity_key() -> None:
     version = DocumentVersion(**_version_kwargs())
 
-    expected = document_version_key(_DOCUMENT_ID, _ARTIFACT_ID, "jats-1.2", "norm-v3", _CONTENT_SHA)
+    expected = document_version_key(
+        _DOCUMENT_KEY, _ARTIFACT_KEY, "jats-1.2", "norm-v3", _CONTENT_SHA
+    )
     assert version.version_key == expected
 
 
@@ -294,21 +306,40 @@ def test_document_version_is_frozen() -> None:
 
 
 def test_section_derives_its_identity_key() -> None:
-    section = Section(document_version_id=_DOCUMENT_ID, ordinal=2, depth=1, structural_path="1.2")
+    section = Section(
+        document_version_id=_DOCUMENT_ID,
+        version_key=_VERSION_KEY,
+        ordinal=2,
+        depth=1,
+        structural_path="1.2",
+    )
 
-    assert section.section_key == section_key(_DOCUMENT_ID, "1.2")
+    assert section.section_key == section_key(_VERSION_KEY, "1.2")
 
 
 @pytest.mark.parametrize("bad_path", ["", "1.", ".1", "1..2", "a.b", "1.2.3."])
 def test_section_rejects_non_canonical_structural_paths(bad_path: str) -> None:
     with pytest.raises(ValidationError, match="structural_path"):
-        Section(document_version_id=_DOCUMENT_ID, ordinal=1, depth=0, structural_path=bad_path)
+        Section(
+            document_version_id=_DOCUMENT_ID,
+            version_key=_VERSION_KEY,
+            ordinal=1,
+            depth=0,
+            structural_path=bad_path,
+        )
 
 
 def test_section_accepts_root_and_nested_paths() -> None:
-    root = Section(document_version_id=_DOCUMENT_ID, ordinal=1, depth=0, structural_path="1")
+    root = Section(
+        document_version_id=_DOCUMENT_ID,
+        version_key=_VERSION_KEY,
+        ordinal=1,
+        depth=0,
+        structural_path="1",
+    )
     nested = Section(
         document_version_id=_DOCUMENT_ID,
+        version_key=_VERSION_KEY,
         ordinal=2,
         depth=2,
         structural_path="1.2.3",
@@ -320,13 +351,31 @@ def test_section_accepts_root_and_nested_paths() -> None:
 
 def test_section_rejects_negative_ordinal_and_depth() -> None:
     with pytest.raises(ValidationError, match="ordinal"):
-        Section(document_version_id=_DOCUMENT_ID, ordinal=-1, depth=0, structural_path="1")
+        Section(
+            document_version_id=_DOCUMENT_ID,
+            version_key=_VERSION_KEY,
+            ordinal=-1,
+            depth=0,
+            structural_path="1",
+        )
     with pytest.raises(ValidationError, match="depth"):
-        Section(document_version_id=_DOCUMENT_ID, ordinal=0, depth=-1, structural_path="1")
+        Section(
+            document_version_id=_DOCUMENT_ID,
+            version_key=_VERSION_KEY,
+            ordinal=0,
+            depth=-1,
+            structural_path="1",
+        )
 
 
 def test_section_is_frozen() -> None:
-    section = Section(document_version_id=_DOCUMENT_ID, ordinal=0, depth=0, structural_path="1")
+    section = Section(
+        document_version_id=_DOCUMENT_ID,
+        version_key=_VERSION_KEY,
+        ordinal=0,
+        depth=0,
+        structural_path="1",
+    )
 
     with pytest.raises(ValidationError, match="frozen"):
         section.title = "changed"
@@ -340,19 +389,21 @@ def test_section_is_frozen() -> None:
 def test_passage_derives_its_identity_key() -> None:
     passage = Passage(
         document_version_id=_DOCUMENT_ID,
+        version_key=_VERSION_KEY,
         chunker_revision="chunker-7",
         ordinal=4,
         text="A canonical passage of scientific content.",
         content_sha256=_CONTENT_SHA,
     )
 
-    assert passage.passage_key == passage_key(_DOCUMENT_ID, "chunker-7", 4)
+    assert passage.passage_key == passage_key(_VERSION_KEY, "chunker-7", 4)
 
 
 def test_passage_identity_is_independent_of_section_provenance() -> None:
     """Section is provenance, not identity: (version, chunker, ordinal) is the key."""
     first = Passage(
         document_version_id=_DOCUMENT_ID,
+        version_key=_VERSION_KEY,
         chunker_revision="chunker-7",
         ordinal=4,
         text="one",
@@ -360,6 +411,7 @@ def test_passage_identity_is_independent_of_section_provenance() -> None:
     )
     second = Passage(
         document_version_id=_DOCUMENT_ID,
+        version_key=_VERSION_KEY,
         chunker_revision="chunker-7",
         ordinal=4,
         text="two",
@@ -372,6 +424,7 @@ def test_passage_identity_is_independent_of_section_provenance() -> None:
 def test_passage_rejects_empty_text_and_negative_token_count() -> None:
     base: dict[str, Any] = {
         "document_version_id": _DOCUMENT_ID,
+        "version_key": _VERSION_KEY,
         "chunker_revision": "chunker-7",
         "ordinal": 0,
         "content_sha256": _CONTENT_SHA,
@@ -385,6 +438,7 @@ def test_passage_rejects_empty_text_and_negative_token_count() -> None:
 def test_passage_accepts_unknown_token_count() -> None:
     passage = Passage(
         document_version_id=_DOCUMENT_ID,
+        version_key=_VERSION_KEY,
         chunker_revision="chunker-7",
         ordinal=0,
         text="x",
@@ -401,17 +455,17 @@ def test_passage_accepts_unknown_token_count() -> None:
 
 
 def test_unresolved_citation_is_valid() -> None:
-    citation = Citation(document_version_id=_DOCUMENT_ID, ordinal=0)
+    citation = Citation(document_version_id=_DOCUMENT_ID, version_key=_VERSION_KEY, ordinal=0)
 
     assert citation.doi is None
     assert citation.pmid is None
-    assert citation.resolved_document_id is None
-    assert citation.citation_key == citation_key(_DOCUMENT_ID, 0, None, None)
+    assert citation.citation_key == citation_key(_VERSION_KEY, 0, None, None)
 
 
 def test_citation_derives_its_identity_key() -> None:
     citation = Citation(
         document_version_id=_DOCUMENT_ID,
+        version_key=_VERSION_KEY,
         ordinal=3,
         source_reference_id="ref-3",
         doi="10.1016/j.cell.2020.01.001",
@@ -420,22 +474,23 @@ def test_citation_derives_its_identity_key() -> None:
         title="A cited study",
         year=2020,
         raw_reference_text="Doe et al. (2020). A cited study. Cell.",
-        resolved_document_id=_DOCUMENT_ID,
     )
 
     assert citation.citation_key == citation_key(
-        _DOCUMENT_ID, 3, "ref-3", "Doe et al. (2020). A cited study. Cell."
+        _VERSION_KEY, 3, "ref-3", "Doe et al. (2020). A cited study. Cell."
     )
 
 
 @pytest.mark.parametrize("bad_year", [999, 2201, 0, -1])
 def test_citation_rejects_implausible_years(bad_year: int) -> None:
     with pytest.raises(ValidationError, match="year"):
-        Citation(document_version_id=_DOCUMENT_ID, ordinal=0, year=bad_year)
+        Citation(
+            document_version_id=_DOCUMENT_ID, version_key=_VERSION_KEY, ordinal=0, year=bad_year
+        )
 
 
 def test_citation_is_frozen() -> None:
-    citation = Citation(document_version_id=_DOCUMENT_ID, ordinal=0)
+    citation = Citation(document_version_id=_DOCUMENT_ID, version_key=_VERSION_KEY, ordinal=0)
 
     with pytest.raises(ValidationError, match="frozen"):
         citation.year = 2021
@@ -449,6 +504,7 @@ def test_citation_is_frozen() -> None:
 def test_document_table_derives_its_identity_key() -> None:
     table = DocumentTable(
         document_version_id=_DOCUMENT_ID,
+        version_key=_VERSION_KEY,
         ordinal=1,
         label="Table 1",
         caption="Baseline characteristics",
@@ -456,12 +512,12 @@ def test_document_table_derives_its_identity_key() -> None:
     )
 
     assert table.document_table_key == document_table_key(
-        _DOCUMENT_ID, 1, "Table 1", "Baseline characteristics", "table-wrap-1"
+        _VERSION_KEY, 1, "Table 1", "Baseline characteristics", "table-wrap-1"
     )
 
 
 def test_document_table_defaults_structured_representation_to_empty_mapping() -> None:
-    table = DocumentTable(document_version_id=_DOCUMENT_ID, ordinal=1)
+    table = DocumentTable(document_version_id=_DOCUMENT_ID, version_key=_VERSION_KEY, ordinal=1)
 
     assert table.structured_representation == {}
 
@@ -469,6 +525,7 @@ def test_document_table_defaults_structured_representation_to_empty_mapping() ->
 def test_figure_derives_its_identity_key() -> None:
     figure = Figure(
         document_version_id=_DOCUMENT_ID,
+        version_key=_VERSION_KEY,
         ordinal=2,
         label="Figure 2",
         caption="Pathway diagram",
@@ -476,12 +533,12 @@ def test_figure_derives_its_identity_key() -> None:
         asset_locator="s3://dynamisrag-artifacts/figures/fig-2.png",
     )
 
-    assert figure.figure_key == figure_key(_DOCUMENT_ID, 2, "Figure 2", "Pathway diagram", "fig-2")
+    assert figure.figure_key == figure_key(_VERSION_KEY, 2, "Figure 2", "Pathway diagram", "fig-2")
 
 
 @pytest.mark.parametrize("contract", [DocumentTable, Figure])
 def test_structural_objects_are_frozen(contract: type[DocumentTable] | type[Figure]) -> None:
-    instance = contract(document_version_id=_DOCUMENT_ID, ordinal=0)
+    instance = contract(document_version_id=_DOCUMENT_ID, version_key=_VERSION_KEY, ordinal=0)
 
     with pytest.raises(ValidationError, match="frozen"):
         instance.ordinal = 9

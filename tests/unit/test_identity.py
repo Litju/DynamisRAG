@@ -2,12 +2,16 @@
 
 These tests are infrastructure-free: identity is a pure function of its
 inputs, so the whole contract can be proven without a database.
+
+Every entity key derives from semantic parent keys — never from surrogate
+database ids — so these tests compose the pure functions exactly the way the
+contracts do: an artifact key feeds a document version key, which feeds the
+section/passage/citation/table/figure keys below it.
 """
 
 from __future__ import annotations
 
 import re
-from uuid import UUID, uuid4
 
 import pytest
 
@@ -26,9 +30,12 @@ from dynamisrag.domain.identity import (
 
 _SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
 
-_ARTIFACT_ID = UUID("11111111-1111-4111-8111-111111111111")
-_DOCUMENT_ID = UUID("22222222-2222-4222-8222-222222222222")
 _CONTENT_SHA = "a" * 64
+_ARTIFACT_KEY = source_artifact_key("europe_pmc", "PMC123456", _CONTENT_SHA)
+_DOCUMENT_KEY = document_canonical_key(doi="10.1038/nature12373", pmid=None, pmcid=None, title=None)
+_VERSION_KEY = document_version_key(
+    _DOCUMENT_KEY, _ARTIFACT_KEY, "jats-1.2", "norm-v3", _CONTENT_SHA
+)
 
 
 def test_digest_is_lowercase_sha256_hex() -> None:
@@ -129,89 +136,114 @@ def test_document_canonical_key_rejects_a_work_with_no_identity() -> None:
 
 
 def test_document_version_key_is_deterministic() -> None:
-    first = document_version_key(_ARTIFACT_ID, _DOCUMENT_ID, "parser-1", "norm-1", _CONTENT_SHA)
-    second = document_version_key(_ARTIFACT_ID, _DOCUMENT_ID, "parser-1", "norm-1", _CONTENT_SHA)
+    first = document_version_key(_DOCUMENT_KEY, _ARTIFACT_KEY, "parser-1", "norm-1", _CONTENT_SHA)
+    second = document_version_key(_DOCUMENT_KEY, _ARTIFACT_KEY, "parser-1", "norm-1", _CONTENT_SHA)
 
     assert first == second
     assert _SHA256_HEX.fullmatch(first)
 
 
 def test_document_version_key_changes_with_each_identity_input() -> None:
-    baseline = document_version_key(_ARTIFACT_ID, _DOCUMENT_ID, "parser-1", "norm-1", _CONTENT_SHA)
+    baseline = document_version_key(
+        _DOCUMENT_KEY, _ARTIFACT_KEY, "parser-1", "norm-1", _CONTENT_SHA
+    )
 
     assert baseline != document_version_key(
-        uuid4(), _DOCUMENT_ID, "parser-1", "norm-1", _CONTENT_SHA
+        "pmid:12345", _ARTIFACT_KEY, "parser-1", "norm-1", _CONTENT_SHA
     )
     assert baseline != document_version_key(
-        _ARTIFACT_ID, uuid4(), "parser-1", "norm-1", _CONTENT_SHA
+        _DOCUMENT_KEY, "b" * 64, "parser-1", "norm-1", _CONTENT_SHA
     )
     assert baseline != document_version_key(
-        _ARTIFACT_ID, _DOCUMENT_ID, "parser-2", "norm-1", _CONTENT_SHA
+        _DOCUMENT_KEY, _ARTIFACT_KEY, "parser-2", "norm-1", _CONTENT_SHA
     )
     assert baseline != document_version_key(
-        _ARTIFACT_ID, _DOCUMENT_ID, "parser-1", "norm-2", _CONTENT_SHA
+        _DOCUMENT_KEY, _ARTIFACT_KEY, "parser-1", "norm-2", _CONTENT_SHA
     )
     assert baseline != document_version_key(
-        _ARTIFACT_ID, _DOCUMENT_ID, "parser-1", "norm-1", "c" * 64
+        _DOCUMENT_KEY, _ARTIFACT_KEY, "parser-1", "norm-1", "c" * 64
     )
+
+
+def test_document_version_key_ignores_nothing_but_semantic_parents() -> None:
+    """Surrogate ids are not inputs at all: only the parent keys feed the digest.
+
+    Two independently computed views of the same logical document — different
+    database, different insertion run, different surrogate ids — carry the
+    same semantic parents and therefore the same version key.
+    """
+    rebuilt = document_version_key(
+        document_canonical_key(doi="10.1038/nature12373", pmid=None, pmcid=None, title=None),
+        source_artifact_key("europe_pmc", "PMC123456", _CONTENT_SHA),
+        "jats-1.2",
+        "norm-v3",
+        _CONTENT_SHA,
+    )
+
+    assert rebuilt == _VERSION_KEY
 
 
 def test_section_key_is_deterministic_and_path_sensitive() -> None:
-    first = section_key(_DOCUMENT_ID, "1.2.3")
-    second = section_key(_DOCUMENT_ID, "1.2.3")
+    first = section_key(_VERSION_KEY, "1.2.3")
+    second = section_key(_VERSION_KEY, "1.2.3")
 
     assert first == second
     assert _SHA256_HEX.fullmatch(first)
-    assert first != section_key(_DOCUMENT_ID, "1.2.4")
-    assert first != section_key(uuid4(), "1.2.3")
+    assert first != section_key(_VERSION_KEY, "1.2.4")
+    assert first != section_key(
+        document_version_key(_DOCUMENT_KEY, _ARTIFACT_KEY, "jats-1.3", "norm-v3", _CONTENT_SHA),
+        "1.2.3",
+    )
 
 
 def test_passage_key_is_deterministic_and_input_sensitive() -> None:
-    first = passage_key(_DOCUMENT_ID, "chunker-1", 7)
-    second = passage_key(_DOCUMENT_ID, "chunker-1", 7)
+    first = passage_key(_VERSION_KEY, "chunker-1", 7)
+    second = passage_key(_VERSION_KEY, "chunker-1", 7)
 
     assert first == second
     assert _SHA256_HEX.fullmatch(first)
-    assert first != passage_key(_DOCUMENT_ID, "chunker-2", 7)
-    assert first != passage_key(_DOCUMENT_ID, "chunker-1", 8)
-    assert first != passage_key(uuid4(), "chunker-1", 7)
+    assert first != passage_key(_VERSION_KEY, "chunker-2", 7)
+    assert first != passage_key(_VERSION_KEY, "chunker-1", 8)
+    assert first != passage_key("b" * 64, "chunker-1", 7)
 
 
 def test_citation_key_is_deterministic_and_input_sensitive() -> None:
-    first = citation_key(_DOCUMENT_ID, 3, "ref-3", "Smith et al., 2020")
-    second = citation_key(_DOCUMENT_ID, 3, "ref-3", "Smith et al., 2020")
+    first = citation_key(_VERSION_KEY, 3, "ref-3", "Smith et al., 2020")
+    second = citation_key(_VERSION_KEY, 3, "ref-3", "Smith et al., 2020")
 
     assert first == second
     assert _SHA256_HEX.fullmatch(first)
-    assert first != citation_key(_DOCUMENT_ID, 4, "ref-3", "Smith et al., 2020")
-    assert first != citation_key(_DOCUMENT_ID, 3, "ref-4", "Smith et al., 2020")
-    assert first != citation_key(_DOCUMENT_ID, 3, "ref-3", "Doe et al., 2021")
-    assert first != citation_key(uuid4(), 3, "ref-3", "Smith et al., 2020")
+    assert first != citation_key(_VERSION_KEY, 4, "ref-3", "Smith et al., 2020")
+    assert first != citation_key(_VERSION_KEY, 3, "ref-4", "Smith et al., 2020")
+    assert first != citation_key(_VERSION_KEY, 3, "ref-3", "Doe et al., 2021")
+    assert first != citation_key("b" * 64, 3, "ref-3", "Smith et al., 2020")
 
 
 def test_citation_key_treats_missing_optional_inputs_stably() -> None:
     """Unresolved citations still get a stable identity."""
-    unresolved = citation_key(_DOCUMENT_ID, 1, None, None)
+    unresolved = citation_key(_VERSION_KEY, 1, None, None)
 
-    assert unresolved == citation_key(_DOCUMENT_ID, 1, None, None)
-    assert unresolved != citation_key(_DOCUMENT_ID, 2, None, None)
+    assert unresolved == citation_key(_VERSION_KEY, 1, None, None)
+    assert unresolved != citation_key(_VERSION_KEY, 2, None, None)
 
 
 def test_document_table_key_is_deterministic_and_input_sensitive() -> None:
-    first = document_table_key(_DOCUMENT_ID, 1, "Table 1", "Caption", "anchor-1")
-    second = document_table_key(_DOCUMENT_ID, 1, "Table 1", "Caption", "anchor-1")
+    first = document_table_key(_VERSION_KEY, 1, "Table 1", "Caption", "anchor-1")
+    second = document_table_key(_VERSION_KEY, 1, "Table 1", "Caption", "anchor-1")
 
     assert first == second
     assert _SHA256_HEX.fullmatch(first)
-    assert first != document_table_key(_DOCUMENT_ID, 2, "Table 1", "Caption", "anchor-1")
-    assert first != document_table_key(_DOCUMENT_ID, 1, "Table 2", "Caption", "anchor-1")
+    assert first != document_table_key(_VERSION_KEY, 2, "Table 1", "Caption", "anchor-1")
+    assert first != document_table_key(_VERSION_KEY, 1, "Table 2", "Caption", "anchor-1")
+    assert first != document_table_key("b" * 64, 1, "Table 1", "Caption", "anchor-1")
 
 
 def test_figure_key_is_deterministic_and_input_sensitive() -> None:
-    first = figure_key(_DOCUMENT_ID, 2, "Figure 2", "Caption", "anchor-2")
-    second = figure_key(_DOCUMENT_ID, 2, "Figure 2", "Caption", "anchor-2")
+    first = figure_key(_VERSION_KEY, 2, "Figure 2", "Caption", "anchor-2")
+    second = figure_key(_VERSION_KEY, 2, "Figure 2", "Caption", "anchor-2")
 
     assert first == second
     assert _SHA256_HEX.fullmatch(first)
-    assert first != figure_key(_DOCUMENT_ID, 3, "Figure 2", "Caption", "anchor-2")
-    assert first != figure_key(_DOCUMENT_ID, 2, "Figure 3", "Caption", "anchor-2")
+    assert first != figure_key(_VERSION_KEY, 3, "Figure 2", "Caption", "anchor-2")
+    assert first != figure_key(_VERSION_KEY, 2, "Figure 3", "Caption", "anchor-2")
+    assert first != figure_key("b" * 64, 2, "Figure 2", "Caption", "anchor-2")

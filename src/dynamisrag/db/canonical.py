@@ -165,7 +165,14 @@ def insert_passage(session: Session, passage: Passage) -> PassageRecord:
 
 
 def insert_citation(session: Session, citation: Citation) -> CitationRecord:
-    """Persist one bibliographic reference and flush to enforce constraints."""
+    """Persist one immutable bibliographic reference and flush to enforce
+    constraints.
+
+    The canonical citation carries resolution content only. Linking a
+    citation to the document it resolved to is append-only state living on
+    ``citation_resolution`` records, so persisting an unresolved citation
+    never forecloses later resolution.
+    """
     record = CitationRecord(
         id=citation.id,
         document_version_id=citation.document_version_id,
@@ -177,7 +184,6 @@ def insert_citation(session: Session, citation: Citation) -> CitationRecord:
         title=citation.title,
         year=citation.year,
         raw_reference_text=citation.raw_reference_text,
-        resolved_document_id=citation.resolved_document_id,
         citation_key=citation.citation_key,
     )
     session.add(record)

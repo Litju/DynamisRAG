@@ -11,13 +11,20 @@ the model layer. A canonical key is a SHA-256 digest over the semantic
 inputs that define an entity's logical identity, so two independently
 computed views of the same logical record collide on purpose and any change
 to a relevant input changes the derived identity.
+
+Every entity key is derived from its *semantic parent keys*, never from the
+surrogate ``uuid4`` primary keys the database assigns: a section key digests
+its document version's ``version_key``, a passage key digests the same
+``version_key``, and so on up the hierarchy. The same semantic corpus
+processed with the same algorithms therefore produces the same canonical
+identities regardless of database instance, insertion order or random
+surrogate ids.
 """
 
 from __future__ import annotations
 
 import hashlib
 from collections.abc import Iterable
-from uuid import UUID
 
 __all__ = [
     "UNIT_SEPARATOR",
@@ -87,11 +94,13 @@ def document_canonical_key(
     pmcid: str | None,
     title: str | None,
 ) -> str:
-    """Stable identity of a logical scientific work across every acquired and
-    normalized version of it.
+    """Creation-time identity basis of a logical scientific work.
 
-    Strongest available identifier wins: DOI, then PMID, then PMCID, then a
-    digest of the normalized title. A work with none of these has no
+    Strongest identifier known when the document is first ingested wins: DOI,
+    then PMID, then PMCID, then a digest of the normalized title. The derived
+    key is fixed at creation and never recomputed: identifiers discovered
+    later are attached as ``document_identifier`` aliases and never change the
+    document's canonical identity. A work with none of these inputs has no
     deterministic identity and is rejected rather than guessed at.
     """
     normalized_doi = normalize_doi(doi)
@@ -110,77 +119,81 @@ def document_canonical_key(
 
 
 def document_version_key(
-    document_id: UUID,
-    source_artifact_id: UUID,
+    document_canonical_key: str,
+    source_artifact_key: str,
     parser_revision: str,
     normalizer_revision: str,
     content_fingerprint: str,
 ) -> str:
     """Identity of one immutable canonical version of a document.
 
-    Binds the logical document, the exact source artifact it was derived
-    from, the processing configuration (parser and normalizer revisions) and
-    the canonical content fingerprint. Re-persisting the same deterministic
-    version identity is therefore a no-op collision, not an ambiguous second
-    version.
+    Derived from the semantic parent identities — the document's canonical key
+    and the source artifact's artifact key — plus the processing configuration
+    (parser and normalizer revisions) and the canonical content fingerprint.
+    Never from surrogate database ids: the same logical document derived from
+    the same artifact under the same configuration is the same version in
+    every database, so re-persisting it collides on the unique
+    ``version_key`` instead of creating an ambiguous second version.
     """
     return digest(
-        str(document_id),
-        str(source_artifact_id),
+        document_canonical_key,
+        source_artifact_key,
         parser_revision,
         normalizer_revision,
         content_fingerprint,
     )
 
 
-def section_key(document_version_id: UUID, structural_path: str) -> str:
-    """Identity of a structural node: its document version plus its
-    dot-joined ordinal path from the root (``1``, ``1.2``, ``1.2.3``...)."""
-    return digest(str(document_version_id), structural_path)
+def section_key(version_key: str, structural_path: str) -> str:
+    """Identity of a structural node: its document version's canonical key
+    plus its dot-joined ordinal path from the root (``1``, ``1.2``,
+    ``1.2.3``...)."""
+    return digest(version_key, structural_path)
 
 
-def passage_key(document_version_id: UUID, chunker_revision: str, ordinal: int) -> str:
-    """Identity of a retrieval unit: document version, chunker revision and
-    the passage's deterministic ordinal within that chunker's output.
+def passage_key(version_key: str, chunker_revision: str, ordinal: int) -> str:
+    """Identity of a retrieval unit: the document version's canonical key, the
+    chunker revision and the passage's deterministic ordinal within that
+    chunker's output.
 
     Ordinals are unique across the whole document version for one chunker
     revision, so the triple never collides across sections. A different
     chunker revision produces an independent, coexisting passage set.
     """
-    return digest(str(document_version_id), chunker_revision, str(ordinal))
+    return digest(version_key, chunker_revision, str(ordinal))
 
 
 def citation_key(
-    document_version_id: UUID,
+    version_key: str,
     ordinal: int,
     source_reference_id: str | None,
     raw_reference_text: str | None,
 ) -> str:
-    """Identity of a bibliographic reference: its document version, its
-    ordinal in the reference list, and the source anchor / raw text that pin
-    it to the document."""
-    return digest(
-        str(document_version_id), str(ordinal), *_optional(source_reference_id, raw_reference_text)
-    )
+    """Identity of a bibliographic reference: its document version's canonical
+    key, its ordinal in the reference list, and the source anchor / raw text
+    that pin it to the document."""
+    return digest(version_key, str(ordinal), *_optional(source_reference_id, raw_reference_text))
 
 
 def document_table_key(
-    document_version_id: UUID,
+    version_key: str,
     ordinal: int,
     label: str | None,
     caption: str | None,
     source_anchor: str | None,
 ) -> str:
-    """Identity of a scientific table within a document version."""
-    return digest(str(document_version_id), str(ordinal), *_optional(label, caption, source_anchor))
+    """Identity of a scientific table within a document version, derived from
+    the version's canonical key plus the table's structural identity."""
+    return digest(version_key, str(ordinal), *_optional(label, caption, source_anchor))
 
 
 def figure_key(
-    document_version_id: UUID,
+    version_key: str,
     ordinal: int,
     label: str | None,
     caption: str | None,
     source_anchor: str | None,
 ) -> str:
-    """Identity of a scientific figure within a document version."""
-    return digest(str(document_version_id), str(ordinal), *_optional(label, caption, source_anchor))
+    """Identity of a scientific figure within a document version, derived from
+    the version's canonical key plus the figure's structural identity."""
+    return digest(version_key, str(ordinal), *_optional(label, caption, source_anchor))

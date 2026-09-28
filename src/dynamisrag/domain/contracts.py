@@ -17,7 +17,11 @@ Design rules enforced here:
 * **Deterministic identity.** Every entity carries a canonical key derived
   by the pure functions in :mod:`dynamisrag.domain.identity`. The key is
   computed on construction, is not accepted as caller input, and is what the
-  database uniqueness constraints enforce.
+  database uniqueness constraints enforce. Each key is derived from the
+  entity's *semantic parent keys* (a section digests its version's
+  ``version_key``, a passage digests the same ``version_key``, ...), never
+  from the surrogate ``uuid4`` primary keys, so the same semantic corpus
+  produces the same canonical identities in every database.
 """
 
 from __future__ import annotations
@@ -134,6 +138,13 @@ class DocumentVersion(BaseModel):
     """One immutable canonical version of a :class:`Document`, derived from one
     :class:`SourceArtifact` under one processing configuration.
 
+    ``document_canonical_key`` and ``source_artifact_key`` are the semantic
+    parent identities the version key derives from; ``document_id`` and
+    ``source_artifact_id`` are the surrogate database ids that the persistence
+    layer maps to foreign keys. The surrogate ids never participate in
+    identity, so the same logical document derived from the same artifact
+    under the same configuration is the same version in every database.
+
     The schema allows any number of versions per document; inserting a new
     version never mutates a previous one. Re-persisting the same deterministic
     version identity collides on the unique ``version_key`` instead of
@@ -144,7 +155,9 @@ class DocumentVersion(BaseModel):
 
     id: UUID = Field(default_factory=uuid4)
     document_id: UUID
+    document_canonical_key: str = Field(min_length=1)
     source_artifact_id: UUID
+    source_artifact_key: str = Field(min_length=1)
     parser_revision: RevisionTag
     normalizer_revision: RevisionTag
     content_fingerprint: Sha256Hex
@@ -160,8 +173,8 @@ class DocumentVersion(BaseModel):
             self,
             "version_key",
             document_version_key(
-                self.document_id,
-                self.source_artifact_id,
+                self.document_canonical_key,
+                self.source_artifact_key,
                 self.parser_revision,
                 self.normalizer_revision,
                 self.content_fingerprint,
@@ -177,12 +190,16 @@ class Section(BaseModel):
     one) must belong to the same version. The database enforces that
     invariant with a composite foreign key, so a cross-version parent is
     rejected no matter which layer issues the write.
+
+    ``version_key`` is the owning version's canonical key — the semantic
+    parent identity the section key derives from.
     """
 
     model_config = _ContractConfig
 
     id: UUID = Field(default_factory=uuid4)
     document_version_id: UUID
+    version_key: str = Field(min_length=1)
     parent_section_id: UUID | None = None
     ordinal: int = Field(ge=0)
     depth: int = Field(ge=0)
@@ -198,7 +215,7 @@ class Section(BaseModel):
         object.__setattr__(
             self,
             "section_key",
-            section_key(self.document_version_id, self.structural_path),
+            section_key(self.version_key, self.structural_path),
         )
         return self
 
@@ -211,12 +228,17 @@ class Passage(BaseModel):
     revision, ordinal)``, so one document version can carry passage sets from
     several chunker revisions side by side, and a repeated chunking run with
     the same revision collides instead of duplicating.
+
+    ``version_key`` is the owning version's canonical key — the semantic
+    parent identity the passage key derives from. The owning section (when
+    one is set) is provenance only and never participates in identity.
     """
 
     model_config = _ContractConfig
 
     id: UUID = Field(default_factory=uuid4)
     document_version_id: UUID
+    version_key: str = Field(min_length=1)
     section_id: UUID | None = None
     chunker_revision: RevisionTag
     ordinal: int = Field(ge=0)
@@ -231,23 +253,29 @@ class Passage(BaseModel):
         object.__setattr__(
             self,
             "passage_key",
-            passage_key(self.document_version_id, self.chunker_revision, self.ordinal),
+            passage_key(self.version_key, self.chunker_revision, self.ordinal),
         )
         return self
 
 
 class Citation(BaseModel):
-    """One bibliographic reference of a document version.
+    """One immutable, source-derived bibliographic reference of a document
+    version.
 
-    Unresolved citations are first-class records: every identifier field is
-    optional and ``resolved_document_id`` may point at a known
-    :class:`Document` when resolution succeeds — or stay ``None`` forever.
+    Unresolved citations are permanently valid first-class records: every
+    identifier field is optional and resolution state never lives here.
+    Resolving a citation later means appending a ``CitationResolution``
+    record, never updating the canonical citation.
+
+    ``version_key`` is the owning version's canonical key — the semantic
+    parent identity the citation key derives from.
     """
 
     model_config = _ContractConfig
 
     id: UUID = Field(default_factory=uuid4)
     document_version_id: UUID
+    version_key: str = Field(min_length=1)
     ordinal: int = Field(ge=0)
     source_reference_id: str | None = Field(default=None, min_length=1)
     doi: NormalizedDoi | None = None
@@ -256,7 +284,6 @@ class Citation(BaseModel):
     title: str | None = Field(default=None, min_length=1)
     year: int | None = Field(default=None, ge=1000, le=2200)
     raw_reference_text: str | None = Field(default=None, min_length=1)
-    resolved_document_id: UUID | None = None
     citation_key: str = Field(init=False, default="")
 
     @model_validator(mode="after")
@@ -265,7 +292,7 @@ class Citation(BaseModel):
             self,
             "citation_key",
             citation_key(
-                self.document_version_id,
+                self.version_key,
                 self.ordinal,
                 self.source_reference_id,
                 self.raw_reference_text,
@@ -286,6 +313,7 @@ class DocumentTable(BaseModel):
 
     id: UUID = Field(default_factory=uuid4)
     document_version_id: UUID
+    version_key: str = Field(min_length=1)
     section_id: UUID | None = None
     ordinal: int = Field(ge=0)
     label: str | None = Field(default=None, min_length=1)
@@ -301,7 +329,7 @@ class DocumentTable(BaseModel):
             self,
             "document_table_key",
             document_table_key(
-                self.document_version_id,
+                self.version_key,
                 self.ordinal,
                 self.label,
                 self.caption,
@@ -322,6 +350,7 @@ class Figure(BaseModel):
 
     id: UUID = Field(default_factory=uuid4)
     document_version_id: UUID
+    version_key: str = Field(min_length=1)
     section_id: UUID | None = None
     ordinal: int = Field(ge=0)
     label: str | None = Field(default=None, min_length=1)
@@ -337,7 +366,7 @@ class Figure(BaseModel):
             self,
             "figure_key",
             figure_key(
-                self.document_version_id,
+                self.version_key,
                 self.ordinal,
                 self.label,
                 self.caption,

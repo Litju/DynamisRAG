@@ -61,6 +61,7 @@ from dynamisrag.domain.contracts import (
     Section,
     SourceArtifact,
 )
+from dynamisrag.domain.identity import document_version_key, source_artifact_key
 from dynamisrag.domain.values import DocumentType
 
 pytestmark = pytest.mark.integration
@@ -68,6 +69,11 @@ pytestmark = pytest.mark.integration
 _NOW = datetime(2026, 9, 27, 12, 0, 0, tzinfo=UTC)
 _CONTENT_SHA = "a" * 64
 _ARTIFACT_SHA = "b" * 64
+_ARTIFACT_KEY = source_artifact_key("europe_pmc", "PMC123456", _ARTIFACT_SHA)
+_DOCUMENT_KEY = "doi:10.1038/nature12373"
+_VERSION_KEY = document_version_key(
+    _DOCUMENT_KEY, _ARTIFACT_KEY, "jats-1.2", "norm-v3", _CONTENT_SHA
+)
 
 _CANONICAL_TABLES = (
     "source_artifact",
@@ -131,7 +137,9 @@ def _make_version(
 ) -> DocumentVersion:
     kwargs: dict[str, Any] = {
         "document_id": document.id,
+        "document_canonical_key": document.canonical_key,
         "source_artifact_id": artifact.id,
+        "source_artifact_key": artifact.artifact_key,
         "parser_revision": "jats-1.2",
         "normalizer_revision": "norm-v3",
         "content_fingerprint": _CONTENT_SHA,
@@ -154,6 +162,7 @@ def _make_section(
 ) -> Section:
     kwargs: dict[str, Any] = {
         "document_version_id": version.id,
+        "version_key": version.version_key,
         "ordinal": ordinal,
         "depth": structural_path.count("."),
         "title": f"Section {structural_path}",
@@ -170,6 +179,7 @@ def _make_passage(
 ) -> Passage:
     kwargs: dict[str, Any] = {
         "document_version_id": version.id,
+        "version_key": version.version_key,
         "chunker_revision": chunker_revision,
         "ordinal": 0,
         "text": "A canonical passage of scientific content.",
@@ -179,16 +189,11 @@ def _make_passage(
     return Passage(**kwargs)
 
 
-def _make_citation(
-    version: DocumentVersion,
-    *,
-    resolved_document: Document | None = None,
-    **overrides: Any,
-) -> Citation:
+def _make_citation(version: DocumentVersion, **overrides: Any) -> Citation:
     kwargs: dict[str, Any] = {
         "document_version_id": version.id,
+        "version_key": version.version_key,
         "ordinal": 0,
-        "resolved_document_id": resolved_document.id if resolved_document else None,
     }
     kwargs.update(overrides)
     return Citation(**kwargs)
@@ -199,6 +204,7 @@ def _make_table(
 ) -> DocumentTable:
     kwargs: dict[str, Any] = {
         "document_version_id": version.id,
+        "version_key": version.version_key,
         "ordinal": 1,
         "label": "Table 1",
         "caption": "Baseline characteristics",
@@ -214,6 +220,7 @@ def _make_figure(
 ) -> Figure:
     kwargs: dict[str, Any] = {
         "document_version_id": version.id,
+        "version_key": version.version_key,
         "ordinal": 1,
         "label": "Figure 1",
         "caption": "Study overview",
@@ -675,6 +682,8 @@ def test_multiple_chunker_revisions_coexist_for_one_version(
 def test_unresolved_citation_is_a_valid_first_class_record(
     db_session: Session,
 ) -> None:
+    """An unresolved citation is permanently valid: no resolution state lives
+    on the canonical citation, so nothing forecloses resolving it later."""
     artifact = _make_artifact()
     document = _make_document()
     version = _make_version(document, artifact)
@@ -689,39 +698,7 @@ def test_unresolved_citation_is_a_valid_first_class_record(
     assert record.pmid is None
     assert record.pmcid is None
     assert record.year is None
-    assert record.resolved_document_id is None
     assert record.citation_key == citation.citation_key
-
-
-def test_resolved_citation_references_a_known_document(db_session: Session) -> None:
-    artifact = _make_artifact()
-    citing = _make_document(doi="10.1038/nature12373")
-    cited = _make_document(doi=None, pmid=None, pmcid=None, title="The cited work")
-    version = _make_version(citing, artifact)
-    insert_source_artifact(db_session, artifact)
-    insert_document(db_session, citing)
-    insert_document(db_session, cited)
-    insert_document_version(db_session, version)
-    citation = _make_citation(version, ordinal=0, resolved_document=cited)
-
-    record = insert_citation(db_session, citation)
-
-    assert record.resolved_document_id == cited.id
-
-
-def test_citation_with_unknown_resolved_document_is_rejected(
-    db_session: Session,
-) -> None:
-    artifact = _make_artifact()
-    document = _make_document()
-    version = _make_version(document, artifact)
-    insert_source_artifact(db_session, artifact)
-    insert_document(db_session, document)
-    insert_document_version(db_session, version)
-    citation = _make_citation(version, ordinal=0, resolved_document_id=uuid4())
-
-    with pytest.raises(IntegrityError, match="fk_citation_resolved_document"):
-        insert_citation(db_session, citation)
 
 
 # ---------------------------------------------------------------------------
