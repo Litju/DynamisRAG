@@ -15,6 +15,7 @@ from pydantic import ValidationError
 
 from dynamisrag.domain.contracts import (
     Citation,
+    CitationResolution,
     Document,
     DocumentIdentifier,
     DocumentTable,
@@ -26,6 +27,7 @@ from dynamisrag.domain.contracts import (
 )
 from dynamisrag.domain.identity import (
     citation_key,
+    citation_resolution_key,
     document_table_key,
     document_version_key,
     figure_key,
@@ -46,6 +48,7 @@ _DOCUMENT_KEY = "doi:10.1038/nature12373"
 _VERSION_KEY = document_version_key(
     _DOCUMENT_KEY, _ARTIFACT_KEY, "jats-1.2", "norm-v3", _CONTENT_SHA
 )
+_CITATION_KEY = citation_key(_VERSION_KEY, 3, "ref-3", "Smith et al., 2020")
 
 
 class _ArtifactKwargs(TypedDict, total=False):
@@ -574,6 +577,92 @@ def test_citation_is_frozen() -> None:
 
     with pytest.raises(ValidationError, match="frozen"):
         citation.year = 2021
+
+
+# ---------------------------------------------------------------------------
+# CitationResolution
+# ---------------------------------------------------------------------------
+
+
+def test_citation_resolution_derives_its_identity_key() -> None:
+    resolution = CitationResolution(
+        citation_id=_DOCUMENT_ID,
+        citation_key=_CITATION_KEY,
+        resolved_document_id=_DOCUMENT_ID,
+        resolved_document_canonical_key=_DOCUMENT_KEY,
+        resolver_revision="resolver-1",
+        resolved_at=_NOW,
+    )
+
+    assert resolution.resolution_key == citation_resolution_key(
+        _CITATION_KEY, _DOCUMENT_KEY, "resolver-1"
+    )
+
+
+def test_citation_resolution_key_changes_with_each_identity_input() -> None:
+    baseline = CitationResolution(
+        citation_id=_DOCUMENT_ID,
+        citation_key=_CITATION_KEY,
+        resolved_document_id=_DOCUMENT_ID,
+        resolved_document_canonical_key=_DOCUMENT_KEY,
+        resolver_revision="resolver-1",
+        resolved_at=_NOW,
+    )
+
+    other_citation = CitationResolution(
+        citation_id=_DOCUMENT_ID,
+        citation_key=citation_key(_VERSION_KEY, 4, "ref-4", "Smith et al., 2020"),
+        resolved_document_id=_DOCUMENT_ID,
+        resolved_document_canonical_key=_DOCUMENT_KEY,
+        resolver_revision="resolver-1",
+        resolved_at=_NOW,
+    )
+    other_document = CitationResolution(
+        citation_id=_DOCUMENT_ID,
+        citation_key=_CITATION_KEY,
+        resolved_document_id=_DOCUMENT_ID,
+        resolved_document_canonical_key="pmid:23656234",
+        resolver_revision="resolver-1",
+        resolved_at=_NOW,
+    )
+    other_resolver = CitationResolution(
+        citation_id=_DOCUMENT_ID,
+        citation_key=_CITATION_KEY,
+        resolved_document_id=_DOCUMENT_ID,
+        resolved_document_canonical_key=_DOCUMENT_KEY,
+        resolver_revision="resolver-2",
+        resolved_at=_NOW,
+    )
+
+    assert baseline.resolution_key != other_citation.resolution_key
+    assert baseline.resolution_key != other_document.resolution_key
+    assert baseline.resolution_key != other_resolver.resolution_key
+
+
+def test_citation_resolution_is_frozen() -> None:
+    resolution = CitationResolution(
+        citation_id=_DOCUMENT_ID,
+        citation_key=_CITATION_KEY,
+        resolved_document_id=_DOCUMENT_ID,
+        resolved_document_canonical_key=_DOCUMENT_KEY,
+        resolver_revision="resolver-1",
+        resolved_at=_NOW,
+    )
+
+    with pytest.raises(ValidationError, match="frozen"):
+        resolution.resolver_revision = "resolver-2"
+
+
+def test_citation_rejects_resolution_state_on_the_canonical_contract() -> None:
+    """Resolution state lives on CitationResolution, never on Citation."""
+    supplied = {
+        "document_version_id": _DOCUMENT_ID,
+        "version_key": _VERSION_KEY,
+        "ordinal": 0,
+        "resolved_document_id": _DOCUMENT_ID,
+    }
+    with pytest.raises(ValidationError, match=r"unexpected keyword|extra_forbidden|extra"):
+        Citation.model_validate(supplied)
 
 
 # ---------------------------------------------------------------------------

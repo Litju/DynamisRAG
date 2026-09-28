@@ -32,6 +32,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 __all__ = [
     "Base",
     "CitationRecord",
+    "CitationResolutionRecord",
     "DocumentIdentifierRecord",
     "DocumentRecord",
     "DocumentTableRecord",
@@ -108,6 +109,9 @@ class DocumentRecord(Base):
 
     versions: Mapped[list[DocumentVersionRecord]] = relationship(back_populates="document")
     identifiers: Mapped[list[DocumentIdentifierRecord]] = relationship(back_populates="document")
+    resolutions: Mapped[list[CitationResolutionRecord]] = relationship(
+        back_populates="resolved_document"
+    )
 
 
 class DocumentIdentifierRecord(Base):
@@ -312,23 +316,22 @@ class CitationRecord(Base):
             ["document_version.id"],
             name="fk_citation_document_version",
         ),
-        ForeignKeyConstraint(
-            ["resolved_document_id"], ["document.id"], name="fk_citation_resolved_document"
-        ),
         CheckConstraint("ordinal >= 0", name="ck_citation_ordinal_nonnegative"),
         CheckConstraint(
             "year IS NULL OR (year >= 1000 AND year <= 2200)",
             name="ck_citation_year_plausible",
         ),
         CheckConstraint(
-            "doi IS NULL OR doi ~ '^10\\.[0-9]{4,9}/\\S+$'", name="ck_citation_doi_format"
+            "doi IS NULL OR doi ~ '" + _DOI_VALUE_FORMAT + "'", name="ck_citation_doi_format"
         ),
-        CheckConstraint("pmid IS NULL OR pmid ~ '^[0-9]{1,10}$'", name="ck_citation_pmid_format"),
         CheckConstraint(
-            "pmcid IS NULL OR pmcid ~ '^PMC[0-9]{1,12}$'", name="ck_citation_pmcid_format"
+            "pmid IS NULL OR pmid ~ '" + _PMID_VALUE_FORMAT + "'", name="ck_citation_pmid_format"
+        ),
+        CheckConstraint(
+            "pmcid IS NULL OR pmcid ~ '" + _PMCID_VALUE_FORMAT + "'",
+            name="ck_citation_pmcid_format",
         ),
         Index("ix_citation_document_version_id", "document_version_id"),
-        Index("ix_citation_resolved_document_id", "resolved_document_id"),
     )
 
     id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
@@ -341,13 +344,45 @@ class CitationRecord(Base):
     title: Mapped[str | None] = mapped_column(Text, nullable=True)
     year: Mapped[int | None] = mapped_column(Integer, nullable=True)
     raw_reference_text: Mapped[str | None] = mapped_column(Text, nullable=True)
-    resolved_document_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
     citation_key: Mapped[str] = mapped_column(Text, nullable=False)
     row_created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
     document_version: Mapped[DocumentVersionRecord] = relationship(back_populates="citations")
+    resolutions: Mapped[list[CitationResolutionRecord]] = relationship(back_populates="citation")
+
+
+class CitationResolutionRecord(Base):
+    __tablename__ = "citation_resolution"
+
+    __table_args__ = (
+        PrimaryKeyConstraint("id", name="pk_citation_resolution"),
+        UniqueConstraint("resolution_key", name="uq_citation_resolution_resolution_key"),
+        ForeignKeyConstraint(
+            ["citation_id"], ["citation.id"], name="fk_citation_resolution_citation"
+        ),
+        ForeignKeyConstraint(
+            ["resolved_document_id"],
+            ["document.id"],
+            name="fk_citation_resolution_resolved_document",
+        ),
+        Index("ix_citation_resolution_citation_id", "citation_id"),
+        Index("ix_citation_resolution_resolved_document_id", "resolved_document_id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    citation_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    resolved_document_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    resolver_revision: Mapped[str] = mapped_column(Text, nullable=False)
+    resolved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    resolution_key: Mapped[str] = mapped_column(Text, nullable=False)
+    row_created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    citation: Mapped[CitationRecord] = relationship(back_populates="resolutions")
+    resolved_document: Mapped[DocumentRecord] = relationship(back_populates="resolutions")
 
 
 class DocumentTableRecord(Base):

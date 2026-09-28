@@ -17,6 +17,10 @@ set that makes the domain invariants enforceable by the database itself:
 * ``document.identifier`` aliases are globally unique per
   ``(namespace, normalized_value)`` and immutable, so identifier enrichment
   never re-identifies a document;
+* ``citation`` carries canonical reference content only; resolution state is
+  append-only on ``citation_resolution`` with a deterministic
+  ``resolution_key``, so an unresolved citation stays valid and resolving it
+  later never UPDATEs the canonical row;
 * every timestamp is ``TIMESTAMPTZ`` and every table has a
   ``row_created_at`` defaulted to the transaction timestamp.
 
@@ -56,6 +60,7 @@ _CANONICAL_TABLES = (
     "section",
     "passage",
     "citation",
+    "citation_resolution",
     "document_table",
     "figure",
 )
@@ -305,7 +310,6 @@ def upgrade() -> None:
         sa.Column("title", sa.Text, nullable=True),
         sa.Column("year", sa.Integer, nullable=True),
         sa.Column("raw_reference_text", sa.Text, nullable=True),
-        sa.Column("resolved_document_id", sa.Uuid, nullable=True),
         sa.Column("citation_key", sa.Text, nullable=False),
         _ROW_CREATED_AT,
         sa.PrimaryKeyConstraint("id", name="pk_citation"),
@@ -322,9 +326,6 @@ def upgrade() -> None:
             ["document_version.id"],
             name="fk_citation_document_version",
         ),
-        sa.ForeignKeyConstraint(
-            ["resolved_document_id"], ["document.id"], name="fk_citation_resolved_document"
-        ),
         sa.CheckConstraint("ordinal >= 0", name="ck_citation_ordinal_nonnegative"),
         sa.CheckConstraint(
             "year IS NULL OR (year >= 1000 AND year <= 2200)",
@@ -337,7 +338,33 @@ def upgrade() -> None:
         ),
     )
     op.create_index("ix_citation_document_version_id", "citation", ["document_version_id"])
-    op.create_index("ix_citation_resolved_document_id", "citation", ["resolved_document_id"])
+
+    op.create_table(
+        "citation_resolution",
+        sa.Column("id", sa.Uuid, nullable=False),
+        sa.Column("citation_id", sa.Uuid, nullable=False),
+        sa.Column("resolved_document_id", sa.Uuid, nullable=False),
+        sa.Column("resolver_revision", sa.Text, nullable=False),
+        sa.Column("resolved_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("resolution_key", sa.Text, nullable=False),
+        _ROW_CREATED_AT,
+        sa.PrimaryKeyConstraint("id", name="pk_citation_resolution"),
+        sa.UniqueConstraint("resolution_key", name="uq_citation_resolution_resolution_key"),
+        sa.ForeignKeyConstraint(
+            ["citation_id"], ["citation.id"], name="fk_citation_resolution_citation"
+        ),
+        sa.ForeignKeyConstraint(
+            ["resolved_document_id"],
+            ["document.id"],
+            name="fk_citation_resolution_resolved_document",
+        ),
+    )
+    op.create_index("ix_citation_resolution_citation_id", "citation_resolution", ["citation_id"])
+    op.create_index(
+        "ix_citation_resolution_resolved_document_id",
+        "citation_resolution",
+        ["resolved_document_id"],
+    )
 
     op.create_table(
         "document_table",
@@ -455,6 +482,7 @@ def downgrade() -> None:
     op.execute("DROP FUNCTION IF EXISTS dynamisrag_enforce_immutable()")
     op.drop_table("figure")
     op.drop_table("document_table")
+    op.drop_table("citation_resolution")
     op.drop_table("citation")
     op.drop_table("passage")
     op.drop_table("section")

@@ -24,12 +24,14 @@ from sqlalchemy.orm import Session
 from dynamisrag.config import Settings
 from dynamisrag.db import (
     create_database_engine,
+    get_citation_resolutions,
     get_document,
     get_document_identifiers,
     get_document_version,
     get_section,
     get_source_artifact,
     insert_citation,
+    insert_citation_resolution,
     insert_document,
     insert_document_identifier,
     insert_document_table,
@@ -46,6 +48,8 @@ from dynamisrag.db import (
     list_sections,
 )
 from dynamisrag.db.models import (
+    CitationRecord,
+    CitationResolutionRecord,
     DocumentIdentifierRecord,
     DocumentTableRecord,
     DocumentVersionRecord,
@@ -56,6 +60,7 @@ from dynamisrag.db.models import (
 )
 from dynamisrag.domain.contracts import (
     Citation,
+    CitationResolution,
     Document,
     DocumentIdentifier,
     DocumentTable,
@@ -87,6 +92,7 @@ _CANONICAL_TABLES = (
     "section",
     "passage",
     "citation",
+    "citation_resolution",
     "document_table",
     "figure",
 )
@@ -242,6 +248,21 @@ def _make_figure(
     return Figure(**kwargs)
 
 
+def _make_resolution(
+    citation: Citation, document: Document, **overrides: Any
+) -> CitationResolution:
+    kwargs: dict[str, Any] = {
+        "citation_id": citation.id,
+        "citation_key": citation.citation_key,
+        "resolved_document_id": document.id,
+        "resolved_document_canonical_key": document.canonical_key,
+        "resolver_revision": "resolver-1",
+        "resolved_at": _NOW,
+    }
+    kwargs.update(overrides)
+    return CitationResolution(**kwargs)
+
+
 def _full_graph(
     session: Session,
 ) -> tuple[
@@ -254,6 +275,8 @@ def _full_graph(
     Citation,
     DocumentTable,
     Figure,
+    Document,
+    CitationResolution,
 ]:
     """Insert one of every canonical entity and return the domain objects."""
     artifact = _make_artifact()
@@ -265,9 +288,12 @@ def _full_graph(
     citation = _make_citation(version)
     table = _make_table(version, section=root)
     figure = _make_figure(version, section=child)
+    cited = _make_document(doi=None, pmid=None, pmcid=None, title="The cited work")
+    resolution = _make_resolution(citation, cited)
 
     insert_source_artifact(session, artifact)
     insert_document(session, document)
+    insert_document(session, cited)
     insert_document_version(session, version)
     insert_section(session, root)
     insert_section(session, child)
@@ -275,12 +301,40 @@ def _full_graph(
     insert_citation(session, citation)
     insert_document_table(session, table)
     insert_figure(session, figure)
-    return artifact, document, version, root, child, passage, citation, table, figure
+    insert_citation_resolution(session, resolution)
+    return (
+        artifact,
+        document,
+        version,
+        root,
+        child,
+        passage,
+        citation,
+        table,
+        figure,
+        cited,
+        resolution,
+    )
 
 
 # ---------------------------------------------------------------------------
 # Round-trip
 # ---------------------------------------------------------------------------
+
+
+def _assert_resolution_round_trip(
+    db_session: Session, cited: Document, resolution: CitationResolution
+) -> None:
+    read_cited = get_document(db_session, cited.id)
+    assert read_cited is not None
+    assert read_cited.canonical_key == cited.canonical_key
+
+    resolutions = get_citation_resolutions(db_session, resolution.citation_id)
+    assert [item.id for item in resolutions] == [resolution.id]
+    assert resolutions[0].resolved_document_id == cited.id
+    assert resolutions[0].resolver_revision == "resolver-1"
+    assert resolutions[0].resolved_at == _NOW
+    assert resolutions[0].resolution_key == resolution.resolution_key
 
 
 def test_full_graph_round_trip(db_session: Session) -> None:
@@ -295,6 +349,8 @@ def test_full_graph_round_trip(db_session: Session) -> None:
         citation,
         table,
         figure,
+        cited,
+        resolution,
     ) = _full_graph(db_session)
 
     read_artifact = get_source_artifact(db_session, artifact.id)
@@ -348,6 +404,8 @@ def test_full_graph_round_trip(db_session: Session) -> None:
     assert [item.id for item in figures] == [figure.id]
     assert figures[0].section_id == child.id
     assert figures[0].asset_locator == figure.asset_locator
+
+    _assert_resolution_round_trip(db_session, cited, resolution)
 
 
 def test_list_sections_returns_every_inserted_section(db_session: Session) -> None:
@@ -906,6 +964,123 @@ def test_unresolved_citation_is_a_valid_first_class_record(
     assert record.pmcid is None
     assert record.year is None
     assert record.citation_key == citation.citation_key
+
+
+def _citation_graph(db_session: Session) -> tuple[Citation, Document]:
+    """Insert a document with one unresolved citation; return it and a
+    separate cited document for it to resolve to."""
+    artifact = _make_artifact()
+    document = _make_document()
+    version = _make_version(document, artifact)
+    insert_source_artifact(db_session, artifact)
+    insert_document(db_session, document)
+    insert_document_version(db_session, version)
+    citation = _make_citation(version, ordinal=0)
+    insert_citation(db_session, citation)
+    cited = _make_document(doi=None, pmid=None, pmcid=None, title="The cited work")
+    insert_document(db_session, cited)
+    return citation, cited
+
+
+def test_unresolved_citation_can_be_resolved_later_without_updating_the_citation(
+    db_session: Session,
+) -> None:
+    """The full append-only resolution flow: persist an unresolved citation,
+    append a resolution later, and prove the canonical citation is untouched."""
+    citation, cited = _citation_graph(db_session)
+
+    before = db_session.get(CitationRecord, citation.id)
+    assert before is not None
+    snapshot = (
+        before.ordinal,
+        before.source_reference_id,
+        before.doi,
+        before.pmid,
+        before.pmcid,
+        before.title,
+        before.year,
+        before.raw_reference_text,
+        before.citation_key,
+        before.row_created_at,
+    )
+    assert get_citation_resolutions(db_session, citation.id) == []
+
+    resolution = _make_resolution(citation, cited)
+    record = insert_citation_resolution(db_session, resolution)
+
+    assert record.resolved_document_id == cited.id
+    assert record.resolution_key == resolution.resolution_key
+
+    after = db_session.get(CitationRecord, citation.id)
+    assert after is not None
+    assert (
+        after.ordinal,
+        after.source_reference_id,
+        after.doi,
+        after.pmid,
+        after.pmcid,
+        after.title,
+        after.year,
+        after.raw_reference_text,
+        after.citation_key,
+        after.row_created_at,
+    ) == snapshot
+
+    resolutions = get_citation_resolutions(db_session, citation.id)
+    assert [item.id for item in resolutions] == [record.id]
+    assert resolutions[0].resolved_document_id == cited.id
+
+
+def test_citation_resolution_with_unknown_resolved_document_is_rejected(
+    db_session: Session,
+) -> None:
+    citation, _ = _citation_graph(db_session)
+    resolution = _make_resolution(
+        citation, _make_document(doi=None, pmid=None, pmcid=None, title="X")
+    )
+    object.__setattr__(resolution, "resolved_document_id", uuid4())
+
+    with pytest.raises(IntegrityError, match="fk_citation_resolution_resolved_document"):
+        insert_citation_resolution(db_session, resolution)
+
+
+def test_repeated_identical_resolution_is_rejected_not_duplicated(
+    db_session: Session,
+) -> None:
+    """The deterministic resolution key makes an identical re-resolution a
+    unique-constraint collision — never an ambiguous second row."""
+    citation, cited = _citation_graph(db_session)
+    first = insert_citation_resolution(db_session, _make_resolution(citation, cited))
+    repeat = _make_resolution(citation, cited)
+    assert repeat.resolution_key == first.resolution_key
+    assert repeat.id != first.id
+
+    with (
+        db_session.begin_nested(),
+        pytest.raises(IntegrityError, match="uq_citation_resolution_resolution_key"),
+    ):
+        insert_citation_resolution(db_session, repeat)
+
+    count = db_session.scalar(select(func.count()).select_from(CitationResolutionRecord))
+    assert count == 1
+
+
+def test_new_resolver_revision_coexists_as_a_separate_resolution(
+    db_session: Session,
+) -> None:
+    """Resolution records are versionable: a new resolver revision appends a
+    new, coexisting resolution instead of replacing the previous one."""
+    citation, cited = _citation_graph(db_session)
+    insert_citation_resolution(
+        db_session, _make_resolution(citation, cited, resolver_revision="resolver-1")
+    )
+    insert_citation_resolution(
+        db_session, _make_resolution(citation, cited, resolver_revision="resolver-2")
+    )
+
+    resolutions = get_citation_resolutions(db_session, citation.id)
+    assert [item.resolver_revision for item in resolutions] == ["resolver-1", "resolver-2"]
+    assert resolutions[0].resolution_key != resolutions[1].resolution_key
 
 
 # ---------------------------------------------------------------------------

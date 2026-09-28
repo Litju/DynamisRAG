@@ -17,6 +17,7 @@ import pytest
 
 from dynamisrag.domain.identity import (
     citation_key,
+    citation_resolution_key,
     digest,
     document_canonical_key,
     document_table_key,
@@ -37,6 +38,7 @@ _DOCUMENT_KEY = document_canonical_key(doi="10.1038/nature12373", pmid=None, pmc
 _VERSION_KEY = document_version_key(
     _DOCUMENT_KEY, _ARTIFACT_KEY, "jats-1.2", "norm-v3", _CONTENT_SHA
 )
+_CITATION_KEY = citation_key(_VERSION_KEY, 3, "ref-3", "Smith et al., 2020")
 
 
 def test_digest_is_lowercase_sha256_hex() -> None:
@@ -256,6 +258,17 @@ def test_citation_key_treats_missing_optional_inputs_stably() -> None:
 
     assert unresolved == citation_key(_VERSION_KEY, 1, None, None)
     assert unresolved != citation_key(_VERSION_KEY, 2, None, None)
+
+
+def test_citation_resolution_key_is_deterministic_and_input_sensitive() -> None:
+    first = citation_resolution_key(_CITATION_KEY, _DOCUMENT_KEY, "resolver-1")
+    second = citation_resolution_key(_CITATION_KEY, _DOCUMENT_KEY, "resolver-1")
+
+    assert first == second
+    assert _SHA256_HEX.fullmatch(first)
+    assert first != citation_resolution_key("b" * 64, _DOCUMENT_KEY, "resolver-1")
+    assert first != citation_resolution_key(_CITATION_KEY, "c" * 64, "resolver-1")
+    assert first != citation_resolution_key(_CITATION_KEY, _DOCUMENT_KEY, "resolver-2")
 
 
 def test_document_table_key_is_deterministic_and_input_sensitive() -> None:

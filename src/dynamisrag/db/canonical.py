@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from dynamisrag.db.models import (
     CitationRecord,
+    CitationResolutionRecord,
     DocumentIdentifierRecord,
     DocumentRecord,
     DocumentTableRecord,
@@ -29,6 +30,7 @@ from dynamisrag.db.models import (
 )
 from dynamisrag.domain.contracts import (
     Citation,
+    CitationResolution,
     Document,
     DocumentIdentifier,
     DocumentTable,
@@ -41,12 +43,14 @@ from dynamisrag.domain.contracts import (
 from dynamisrag.domain.values import IdentifierNamespace
 
 __all__ = [
+    "get_citation_resolutions",
     "get_document",
     "get_document_identifiers",
     "get_document_version",
     "get_section",
     "get_source_artifact",
     "insert_citation",
+    "insert_citation_resolution",
     "insert_document",
     "insert_document_identifier",
     "insert_document_table",
@@ -246,6 +250,29 @@ def insert_citation(session: Session, citation: Citation) -> CitationRecord:
     return record
 
 
+def insert_citation_resolution(
+    session: Session, resolution: CitationResolution
+) -> CitationResolutionRecord:
+    """Append one citation resolution and flush to enforce constraints.
+
+    The resolution references the immutable canonical citation and the
+    resolved document by foreign key; its deterministic identity collides
+    on a repeated identical resolution instead of duplicating. The canonical
+    citation row is never touched.
+    """
+    record = CitationResolutionRecord(
+        id=resolution.id,
+        citation_id=resolution.citation_id,
+        resolved_document_id=resolution.resolved_document_id,
+        resolver_revision=resolution.resolver_revision,
+        resolved_at=resolution.resolved_at,
+        resolution_key=resolution.resolution_key,
+    )
+    session.add(record)
+    session.flush()
+    return record
+
+
 def insert_document_table(session: Session, table: DocumentTable) -> DocumentTableRecord:
     """Persist one scientific table and flush to enforce constraints."""
     record = DocumentTableRecord(
@@ -357,6 +384,21 @@ def list_citations(session: Session, document_version_id: UUID) -> Sequence[Cita
             select(CitationRecord)
             .where(CitationRecord.document_version_id == document_version_id)
             .order_by(CitationRecord.ordinal)
+        )
+    )
+
+
+def get_citation_resolutions(
+    session: Session, citation_id: UUID
+) -> Sequence[CitationResolutionRecord]:
+    return list(
+        session.scalars(
+            select(CitationResolutionRecord)
+            .where(CitationResolutionRecord.citation_id == citation_id)
+            .order_by(
+                CitationResolutionRecord.resolver_revision,
+                CitationResolutionRecord.resolved_at,
+            )
         )
     )
 

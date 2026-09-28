@@ -30,6 +30,7 @@ from typing import Literal
 __all__ = [
     "UNIT_SEPARATOR",
     "citation_key",
+    "citation_resolution_key",
     "digest",
     "document_canonical_key",
     "document_table_key",
@@ -187,6 +188,22 @@ def citation_key(
     key, its ordinal in the reference list, and the source anchor / raw text
     that pin it to the document."""
     return digest(version_key, str(ordinal), *_optional(source_reference_id, raw_reference_text))
+
+
+def citation_resolution_key(
+    citation_key: str,
+    resolved_document_canonical_key: str,
+    resolver_revision: str,
+) -> str:
+    """Deterministic identity of one citation resolution.
+
+    Derived from the semantic parent identities — the citation's canonical
+    key and the resolved document's canonical key — plus the resolver
+    revision, never from surrogate ids. Repeating an identical resolution
+    collides on this key instead of creating an ambiguous duplicate; a
+    different resolver revision yields a new, coexisting resolution record.
+    """
+    return digest(citation_key, resolved_document_canonical_key, resolver_revision)
 
 
 def document_table_key(

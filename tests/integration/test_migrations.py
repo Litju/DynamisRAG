@@ -36,6 +36,7 @@ _CANONICAL_TABLES: Final[tuple[str, ...]] = (
     "section",
     "passage",
     "citation",
+    "citation_resolution",
     "document_table",
     "figure",
 )
@@ -48,6 +49,7 @@ _CANONICAL_UNIQUE_CONSTRAINTS: Final[tuple[str, ...]] = (
     "uq_section_document_version_section_key",
     "uq_passage_version_chunker_ordinal",
     "uq_citation_document_version_ordinal",
+    "uq_citation_resolution_resolution_key",
     "uq_document_table_document_version_key",
     "uq_figure_document_version_key",
 )
