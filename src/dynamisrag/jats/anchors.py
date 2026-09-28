@@ -4,8 +4,9 @@ Every source-derived structural object — section, paragraph, citation, table,
 figure — points back deterministically into the exact XML artifact through
 its anchor. The policy:
 
-* **Unique non-empty JATS ``@id`` present** -> ``jats:#<id>``, the stable
-  source-assigned identity.
+* **Unique non-empty JATS ``@id`` present** -> ``jats:#<id>`` (e.g.
+  ``jats:#sec1``, ``jats:#R12``, ``jats:#F1``), the stable source-assigned
+  identity.
 * **Missing or duplicated ``@id``** -> a deterministic structural path of
   local tag names and 1-based same-name sibling indices, e.g.
   ``jats:/article[1]/body[1]/sec[2]/sec[1]/p[3]``.
@@ -34,8 +35,12 @@ These are exactly the elements the canonical model represents as structural
 objects (sections, paragraphs, references, tables, figures).
 """
 
-_ANCHOR_PREFIX = "jats:"
-"""Namespace-ish prefix marking every anchor as JATS-source-derived."""
+_ANCHOR_PREFIX = "jats:#"
+"""Prefix for anchors taken from a source-assigned ``@id``.
+
+The fragment marker ``#`` keeps source-identity anchors visually distinct
+from structural-path anchors, which start ``jats:/``.
+"""
 
 _PATH_ROOT = "jats:"
 """The prefix the root element's path is built from."""

@@ -70,7 +70,9 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id", name="pk_paragraph"),
         sa.UniqueConstraint("paragraph_key", name="uq_paragraph_paragraph_key"),
         sa.UniqueConstraint(
-            "document_version_id", "source_anchor", name="uq_paragraph_document_version_source_anchor"
+            "document_version_id",
+            "source_anchor",
+            name="uq_paragraph_document_version_source_anchor",
         ),
         sa.UniqueConstraint(
             "document_version_id", "ordinal", name="uq_paragraph_document_version_ordinal"
