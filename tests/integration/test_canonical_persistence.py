@@ -17,8 +17,8 @@ from typing import Any
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import func, select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import func, select, text
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from dynamisrag.config import Settings
@@ -68,6 +68,17 @@ pytestmark = pytest.mark.integration
 _NOW = datetime(2026, 9, 27, 12, 0, 0, tzinfo=UTC)
 _CONTENT_SHA = "a" * 64
 _ARTIFACT_SHA = "b" * 64
+
+_CANONICAL_TABLES = (
+    "source_artifact",
+    "document",
+    "document_version",
+    "section",
+    "passage",
+    "citation",
+    "document_table",
+    "figure",
+)
 
 
 @pytest.fixture
@@ -874,3 +885,33 @@ def test_database_rejects_invalid_sha256_on_passage(db_session: Session) -> None
 
     with pytest.raises(IntegrityError, match="ck_passage_content_sha256_hex"):
         db_session.flush()
+
+
+# ---------------------------------------------------------------------------
+# Immutability: the database itself rejects prohibited mutations
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("table", _CANONICAL_TABLES)
+def test_database_rejects_update_on_canonical_tables(db_session: Session, table: str) -> None:
+    """In-place mutation is rejected by the database, not by Python objects.
+
+    The UPDATE sets a column to its own value: the values are irrelevant,
+    the operation itself is what the append-only schema prohibits.
+    """
+    _full_graph(db_session)
+
+    # The table name comes from the hardcoded _CANONICAL_TABLES tuple, never
+    # from input; the whole point is to issue raw SQL against PostgreSQL.
+    with pytest.raises(SQLAlchemyError, match="append-only"):
+        db_session.execute(text(f"UPDATE {table} SET row_created_at = row_created_at"))  # noqa: S608
+
+
+@pytest.mark.parametrize("table", _CANONICAL_TABLES)
+def test_database_rejects_delete_on_canonical_tables(db_session: Session, table: str) -> None:
+    """Append-only means no deletes either; tombstoning is a later issue."""
+    _full_graph(db_session)
+
+    # See the UPDATE test above: hardcoded table name, raw SQL by design.
+    with pytest.raises(SQLAlchemyError, match="append-only"):
+        db_session.execute(text(f"DELETE FROM {table}"))  # noqa: S608
