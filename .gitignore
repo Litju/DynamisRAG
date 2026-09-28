@@ -40,6 +40,9 @@ report.xml
 out/
 *.log
 
+# Local content-addressed artifact store (RES-132) — never commit source bytes
+.dynamisrag/
+
 # Editors and OS
 .idea/
 .vscode/
