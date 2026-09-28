@@ -9,6 +9,7 @@ any network or database.
 from __future__ import annotations
 
 import hashlib
+import os
 from pathlib import Path
 
 import pytest
@@ -17,6 +18,7 @@ from dynamisrag.storage import (
     FileSystemObjectStore,
     ObjectStoreError,
     ObjectStoreIntegrityError,
+    StoredObject,
 )
 
 _PAYLOAD = (
@@ -84,20 +86,88 @@ def test_no_temporary_files_remain_after_write(tmp_path: Path) -> None:
 def test_failed_write_leaves_no_partial_object_behind(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A failure during promotion must never expose a partial artifact: the
+    """A failure during publication must never expose a partial artifact: the
     temporary file is removed and the target path is never created."""
 
-    def broken_replace(self: Path, target: Path) -> None:
-        raise OSError("simulated promotion failure")
+    def broken_link(source: Path, target: Path) -> None:
+        raise OSError("simulated publication failure")
 
-    monkeypatch.setattr(Path, "replace", broken_replace)
+    monkeypatch.setattr(os, "link", broken_link)
     store = FileSystemObjectStore(tmp_path)
 
-    with pytest.raises(OSError, match="simulated promotion failure"):
+    with pytest.raises(OSError, match="simulated publication failure"):
         store.put_if_absent(_DIGEST, _PAYLOAD)
 
     assert list(tmp_path.rglob("*.tmp")) == []
     assert _stored_objects(tmp_path) == []
+
+
+def test_digest_data_mismatch_is_rejected_before_any_io(tmp_path: Path) -> None:
+    """A well-formed 64-char digest over *different* bytes must never create an
+    object: the store proves sha256(data) == content_sha256 before any
+    filesystem mutation, so no directories, targets or temp files appear."""
+    store = FileSystemObjectStore(tmp_path)
+    mismatched_digest = hashlib.sha256(b"different bytes").hexdigest()
+
+    with pytest.raises(ObjectStoreIntegrityError) as excinfo:
+        store.put_if_absent(mismatched_digest, _PAYLOAD)
+
+    message = str(excinfo.value)
+    assert mismatched_digest in message
+    assert _DIGEST in message
+    assert list(tmp_path.rglob("*")) == []
+
+
+def test_concurrent_valid_winner_is_verified_and_returned(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A target created between the existence check and publication is never
+    overwritten: the hard-link create fails with FileExistsError, the winner's
+    bytes are verified against the digest, and the winner is returned — one
+    physical target, no temp files."""
+    store = FileSystemObjectStore(tmp_path)
+    target = _object_path(tmp_path)
+
+    def racing_link(source: Path, racing_target: Path) -> None:
+        racing_target.write_bytes(_PAYLOAD)
+        raise FileExistsError("simulated concurrent publication")
+
+    monkeypatch.setattr(os, "link", racing_link)
+
+    stored = store.put_if_absent(_DIGEST, _PAYLOAD)
+
+    assert stored == StoredObject(
+        storage_uri=target.as_uri(),
+        content_sha256=_DIGEST,
+        byte_size=len(_PAYLOAD),
+    )
+    assert target.read_bytes() == _PAYLOAD
+    assert _stored_objects(tmp_path) == [target]
+    assert list(tmp_path.rglob("*.tmp")) == []
+
+
+def test_concurrent_corrupted_winner_is_rejected_and_preserved(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A concurrently-created target whose bytes do not hash to the digest is
+    storage corruption: put_if_absent refuses to overwrite it, fails loudly,
+    and leaves the corrupted target and the filesystem untouched."""
+    store = FileSystemObjectStore(tmp_path)
+    target = _object_path(tmp_path)
+    corrupted = b"corrupted bytes from a racing writer"
+
+    def racing_link(source: Path, racing_target: Path) -> None:
+        racing_target.write_bytes(corrupted)
+        raise FileExistsError("simulated concurrent publication")
+
+    monkeypatch.setattr(os, "link", racing_link)
+
+    with pytest.raises(ObjectStoreIntegrityError, match="refusing to overwrite"):
+        store.put_if_absent(_DIGEST, _PAYLOAD)
+
+    assert target.read_bytes() == corrupted
+    assert _stored_objects(tmp_path) == [target]
+    assert list(tmp_path.rglob("*.tmp")) == []
 
 
 def test_existing_corrupted_object_is_detected_and_rejected(tmp_path: Path) -> None:
