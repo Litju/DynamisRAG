@@ -6,6 +6,14 @@ maps one canonical contract to its row and flushes, so database constraints
 are enforced inside the caller's transaction; each ``get_*``/``list_*``
 reads rows back. The contracts in :mod:`dynamisrag.domain.contracts` remain
 the only place the meanings are defined.
+
+Every ``insert_*`` for a child whose identity includes a semantic parent key
+first verifies that key against the canonical key of the referenced persisted
+parent (see the ``_require_*_key`` helpers). A child may therefore never
+persist a surrogate foreign key to parent A while carrying parent B's
+semantic key — a graph PostgreSQL would otherwise accept because the
+foreign keys alone are valid. A missing referenced parent is not rejected
+here; unknown ids surface through the database's own foreign-key semantics.
 """
 
 from __future__ import annotations
@@ -16,6 +24,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from dynamisrag.db.errors import SemanticParentKeyError
 from dynamisrag.db.models import (
     CitationRecord,
     CitationResolutionRecord,
@@ -66,6 +75,66 @@ __all__ = [
     "list_passages",
     "list_sections",
 ]
+
+
+def _require_document_key(
+    session: Session, relationship: str, document_id: UUID, expected_key: str
+) -> None:
+    """Reject a supplied ``document_canonical_key`` that is not the referenced
+    document's persisted canonical key."""
+    document = get_document(session, document_id)
+    if document is not None and document.canonical_key != expected_key:
+        raise SemanticParentKeyError(
+            relationship=relationship,
+            parent_id=document_id,
+            expected_key=document.canonical_key,
+            received_key=expected_key,
+        )
+
+
+def _require_source_artifact_key(
+    session: Session, relationship: str, artifact_id: UUID, expected_key: str
+) -> None:
+    """Reject a supplied ``source_artifact_key`` that is not the referenced
+    artifact's persisted key."""
+    artifact = get_source_artifact(session, artifact_id)
+    if artifact is not None and artifact.artifact_key != expected_key:
+        raise SemanticParentKeyError(
+            relationship=relationship,
+            parent_id=artifact_id,
+            expected_key=artifact.artifact_key,
+            received_key=expected_key,
+        )
+
+
+def _require_version_key(
+    session: Session, relationship: str, version_id: UUID, expected_key: str
+) -> None:
+    """Reject a supplied ``version_key`` that is not the referenced document
+    version's persisted key."""
+    version = get_document_version(session, version_id)
+    if version is not None and version.version_key != expected_key:
+        raise SemanticParentKeyError(
+            relationship=relationship,
+            parent_id=version_id,
+            expected_key=version.version_key,
+            received_key=expected_key,
+        )
+
+
+def _require_citation_key(
+    session: Session, relationship: str, citation_id: UUID, expected_key: str
+) -> None:
+    """Reject a supplied ``citation_key`` that is not the referenced
+    citation's persisted key."""
+    citation = session.get(CitationRecord, citation_id)
+    if citation is not None and citation.citation_key != expected_key:
+        raise SemanticParentKeyError(
+            relationship=relationship,
+            parent_id=citation_id,
+            expected_key=citation.citation_key,
+            received_key=expected_key,
+        )
 
 
 def insert_source_artifact(session: Session, artifact: SourceArtifact) -> SourceArtifactRecord:
@@ -147,7 +216,24 @@ def insert_document_identifier(
 
 
 def insert_document_version(session: Session, version: DocumentVersion) -> DocumentVersionRecord:
-    """Persist one immutable canonical version and flush to enforce constraints."""
+    """Persist one immutable canonical version and flush to enforce constraints.
+
+    Both semantic parent keys are bound to their referenced parents first: the
+    version may not point at one document/artifact by surrogate id while
+    carrying another's canonical key.
+    """
+    _require_document_key(
+        session,
+        "document_version.document_id -> document.canonical_key",
+        version.document_id,
+        version.document_canonical_key,
+    )
+    _require_source_artifact_key(
+        session,
+        "document_version.source_artifact_id -> source_artifact.artifact_key",
+        version.source_artifact_id,
+        version.source_artifact_key,
+    )
     record = DocumentVersionRecord(
         id=version.id,
         document_id=version.document_id,
@@ -172,8 +258,16 @@ def insert_section(session: Session, section: Section) -> SectionRecord:
     The composite parent foreign key needs the parent's document version
     alongside the parent id, so the redundant ``parent_document_version_id``
     column is filled from the section's own version — the database then
-    rejects any parent that belongs to a different document version.
+    rejects any parent that belongs to a different document version. The
+    section's ``version_key`` is bound to the referenced version first, so a
+    section can never claim a version it does not belong to.
     """
+    _require_version_key(
+        session,
+        "section.document_version_id -> document_version.version_key",
+        section.document_version_id,
+        section.version_key,
+    )
     record = SectionRecord(
         id=section.id,
         document_version_id=section.document_version_id,
@@ -201,8 +295,15 @@ def insert_passage(session: Session, passage: Passage) -> PassageRecord:
     The composite section foreign key needs the owning section's document
     version alongside the section id, so ``section_document_version_id`` is
     filled from the passage's own version — the database then rejects any
-    section that belongs to a different document version.
+    section that belongs to a different document version. The passage's
+    ``version_key`` is bound to the referenced version first.
     """
+    _require_version_key(
+        session,
+        "passage.document_version_id -> document_version.version_key",
+        passage.document_version_id,
+        passage.version_key,
+    )
     record = PassageRecord(
         id=passage.id,
         document_version_id=passage.document_version_id,
@@ -230,8 +331,15 @@ def insert_citation(session: Session, citation: Citation) -> CitationRecord:
     The canonical citation carries resolution content only. Linking a
     citation to the document it resolved to is append-only state living on
     ``citation_resolution`` records, so persisting an unresolved citation
-    never forecloses later resolution.
+    never forecloses later resolution. The citation's ``version_key`` is bound
+    to the referenced version first.
     """
+    _require_version_key(
+        session,
+        "citation.document_version_id -> document_version.version_key",
+        citation.document_version_id,
+        citation.version_key,
+    )
     record = CitationRecord(
         id=citation.id,
         document_version_id=citation.document_version_id,
@@ -258,8 +366,21 @@ def insert_citation_resolution(
     The resolution references the immutable canonical citation and the
     resolved document by foreign key; its deterministic identity collides
     on a repeated identical resolution instead of duplicating. The canonical
-    citation row is never touched.
+    citation row is never touched. Both semantic parent keys are bound to
+    their referenced parents first.
     """
+    _require_citation_key(
+        session,
+        "citation_resolution.citation_id -> citation.citation_key",
+        resolution.citation_id,
+        resolution.citation_key,
+    )
+    _require_document_key(
+        session,
+        "citation_resolution.resolved_document_id -> document.canonical_key",
+        resolution.resolved_document_id,
+        resolution.resolved_document_canonical_key,
+    )
     record = CitationResolutionRecord(
         id=resolution.id,
         citation_id=resolution.citation_id,
@@ -274,7 +395,16 @@ def insert_citation_resolution(
 
 
 def insert_document_table(session: Session, table: DocumentTable) -> DocumentTableRecord:
-    """Persist one scientific table and flush to enforce constraints."""
+    """Persist one scientific table and flush to enforce constraints.
+
+    The table's ``version_key`` is bound to the referenced version first.
+    """
+    _require_version_key(
+        session,
+        "document_table.document_version_id -> document_version.version_key",
+        table.document_version_id,
+        table.version_key,
+    )
     record = DocumentTableRecord(
         id=table.id,
         document_version_id=table.document_version_id,
@@ -296,7 +426,16 @@ def insert_document_table(session: Session, table: DocumentTable) -> DocumentTab
 
 
 def insert_figure(session: Session, figure: Figure) -> FigureRecord:
-    """Persist one scientific figure and flush to enforce constraints."""
+    """Persist one scientific figure and flush to enforce constraints.
+
+    The figure's ``version_key`` is bound to the referenced version first.
+    """
+    _require_version_key(
+        session,
+        "figure.document_version_id -> document_version.version_key",
+        figure.document_version_id,
+        figure.version_key,
+    )
     record = FigureRecord(
         id=figure.id,
         document_version_id=figure.document_version_id,
