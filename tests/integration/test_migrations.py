@@ -22,7 +22,7 @@ from sqlalchemy.engine import Connection
 
 from dynamisrag.config import Settings
 from dynamisrag.db import create_database_engine
-from tests._support import ALEMBIC_INI, REPO_ROOT
+from tests._support import ALEMBIC_INI, REPO_ROOT, build_settings
 
 _SCRIPT_LOCATION: Final[str] = str(REPO_ROOT / "alembic")
 _VERSION_TABLE: Final[str] = "alembic_version"
@@ -35,13 +35,45 @@ _CANONICAL_TABLES: Final[tuple[str, ...]] = (
     "document_version",
     "section",
     "passage",
+    "paragraph",
     "citation",
     "citation_resolution",
     "document_table",
     "figure",
 )
+"""The 11 immutable canonical tables after RES-133's 0003."""
+
+_RES131_TABLES: Final[tuple[str, ...]] = (
+    "source_artifact",
+    "document",
+    "document_identifier",
+    "document_version",
+    "section",
+    "passage",
+    "citation",
+    "citation_resolution",
+    "document_table",
+    "figure",
+)
+"""The 10 canonical tables sealed by RES-131's 0002, before 0003."""
 
 _CANONICAL_UNIQUE_CONSTRAINTS: Final[tuple[str, ...]] = (
+    "uq_source_artifact_artifact_key",
+    "uq_document_canonical_key",
+    "uq_document_identifier_namespace_value",
+    "uq_document_version_version_key",
+    "uq_section_document_version_section_key",
+    "uq_passage_version_chunker_ordinal",
+    "uq_paragraph_paragraph_key",
+    "uq_paragraph_document_version_source_anchor",
+    "uq_paragraph_document_version_ordinal",
+    "uq_citation_document_version_ordinal",
+    "uq_citation_resolution_resolution_key",
+    "uq_document_table_document_version_key",
+    "uq_figure_document_version_key",
+)
+
+_RES131_UNIQUE_CONSTRAINTS: Final[tuple[str, ...]] = (
     "uq_source_artifact_artifact_key",
     "uq_document_canonical_key",
     "uq_document_identifier_namespace_value",
@@ -53,10 +85,26 @@ _CANONICAL_UNIQUE_CONSTRAINTS: Final[tuple[str, ...]] = (
     "uq_document_table_document_version_key",
     "uq_figure_document_version_key",
 )
+"""The unique constraints sealed by 0002 (0003 adds only paragraph ones)."""
+
+_PARAGRAPH_CONSTRAINTS: Final[tuple[str, ...]] = (
+    "pk_paragraph",
+    "uq_paragraph_paragraph_key",
+    "uq_paragraph_document_version_source_anchor",
+    "uq_paragraph_document_version_ordinal",
+    "fk_paragraph_document_version",
+    "fk_paragraph_section",
+    "ck_paragraph_section_pair",
+    "ck_paragraph_ordinal_nonnegative",
+    "ck_paragraph_region_source_derived",
+    "ck_paragraph_content_sha256_hex",
+)
+"""Constraints introduced by 0003; absent from the sealed 0002 model."""
 
 _CANONICAL_COMPOSITE_FOREIGN_KEYS: Final[tuple[str, ...]] = (
     "fk_section_parent",
     "fk_passage_section",
+    "fk_paragraph_section",
     "fk_document_table_section",
     "fk_figure_section",
 )
@@ -129,6 +177,19 @@ def _public_constraint_names(connection: Connection) -> set[str]:
     }
 
 
+def _public_columns(connection: Connection, table: str) -> set[str]:
+    return {
+        row[0]
+        for row in connection.execute(
+            text(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_schema = 'public' AND table_name = :table"
+            ),
+            {"table": table},
+        )
+    }
+
+
 def _assert_canonical_model_present(settings: Settings) -> None:
     engine = _engine(settings)
     try:
@@ -162,6 +223,27 @@ def _assert_canonical_model_absent(settings: Settings) -> None:
     assert _IMMUTABILITY_FUNCTION not in functions
     assert not triggers
     assert not (set(_CANONICAL_UNIQUE_CONSTRAINTS) & constraints)
+
+
+def _assert_res131_model_state(settings: Settings) -> None:
+    """The sealed RES-131 model: exactly the 10 canonical tables, no
+    paragraph table, no ``citation.source_anchor`` and no paragraph
+    constraints — the state 0002 leaves behind and 0003 builds upon."""
+    engine = _engine(settings)
+    try:
+        with engine.connect() as connection:
+            tables = _public_tables(connection)
+            triggers = _public_triggers(connection)
+            constraints = _public_constraint_names(connection)
+            citation_columns = _public_columns(connection, "citation")
+    finally:
+        engine.dispose()
+
+    assert tables == {_VERSION_TABLE, *_RES131_TABLES}
+    assert triggers == {f"trg_{table}_immutable" for table in _RES131_TABLES}
+    assert set(_RES131_UNIQUE_CONSTRAINTS) <= constraints
+    assert not (set(_PARAGRAPH_CONSTRAINTS) & constraints)
+    assert "source_anchor" not in citation_columns
 
 
 @pytest.mark.integration
@@ -230,11 +312,18 @@ def test_baseline_revision_created_no_application_objects(
 
 @pytest.mark.integration
 def test_canonical_migration_round_trips(live_settings: Settings) -> None:
-    """0002 round-trips: upgrade creates the canonical model, downgrade to the
-    0001 baseline removes it, and upgrade restores it — all against the live
-    PostgreSQL 18 server."""
+    """0003 round-trips through 0002 and 0001: downgrading to 0002 leaves the
+    sealed RES-131 model intact, the upgrade to head restores the RES-133
+    additions, and the full downgrade to the 0001 baseline removes every
+    application object — all against the live PostgreSQL 18 server."""
     config = Config(str(ALEMBIC_INI))
     config.set_main_option("script_location", _SCRIPT_LOCATION)
+
+    command.upgrade(config, "head")
+    _assert_canonical_model_present(live_settings)
+
+    command.downgrade(config, "0002_canonical_document_model")
+    _assert_res131_model_state(live_settings)
 
     command.upgrade(config, "head")
     _assert_canonical_model_present(live_settings)
@@ -244,6 +333,32 @@ def test_canonical_migration_round_trips(live_settings: Settings) -> None:
 
     command.upgrade(config, "head")
     _assert_canonical_model_present(live_settings)
+
+
+@pytest.mark.integration
+def test_res131_revision_creates_exactly_the_sealed_canonical_model(
+    live_settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Prove revision 0002 independently of 0003: on a throwaway database,
+    upgrading straight to 0002 creates exactly the sealed RES-131 model —
+    the 10 canonical tables, no paragraph table, no citation.source_anchor —
+    and nothing else."""
+    database = f"dynamisrag_res131_probe_{uuid4().hex[:12]}"
+    maintenance_dsn = _dsn_with_database(str(live_settings.database_url), "postgres")
+    with psycopg.connect(maintenance_dsn, autocommit=True) as connection:
+        connection.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database)))
+    try:
+        scratch_dsn = _dsn_with_database(str(live_settings.database_url), database)
+        monkeypatch.setenv("DYNAMISRAG_DATABASE_URL", scratch_dsn)
+        config = Config(str(ALEMBIC_INI))
+        config.set_main_option("script_location", _SCRIPT_LOCATION)
+        command.upgrade(config, "0002_canonical_document_model")
+        _assert_res131_model_state(build_settings(database_url=scratch_dsn))
+    finally:
+        with psycopg.connect(maintenance_dsn, autocommit=True) as connection:
+            connection.execute(
+                sql.SQL("DROP DATABASE IF EXISTS {}").format(sql.Identifier(database))
+            )
 
 
 @pytest.mark.integration
@@ -265,4 +380,6 @@ def test_baseline_revision_created_no_application_objects_is_reachable_from_head
     finally:
         engine.dispose()
 
-    assert applied == {"0002_canonical_document_model"}
+    # Alembic records only the current head revision; the point of this test
+    # is that the 0001 baseline named by the round-trip is reachable from it.
+    assert applied == {"0003_jats_source_structure"}

@@ -114,8 +114,8 @@ class JatsCanonicalImporter:
         :class:`JatsDocumentIdentityConflict` when the parsed identifiers
         resolve to different existing Documents.
         """
-        parsed = self._parse_verified(artifact, xml_bytes)
-        candidates = _candidate_identifiers(artifact, parsed)
+        parsed = self.parse_verified(artifact, xml_bytes)
+        candidates = candidate_identifiers(artifact, parsed)
         document = self._resolve_document(artifact, parsed, candidates)
         version = self._build_version(document, artifact, parsed)
         existing = get_document_version_by_key(self._session, version.version_key)
@@ -145,7 +145,7 @@ class JatsCanonicalImporter:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _parse_verified(artifact: SourceArtifact, xml_bytes: bytes) -> ParsedJatsArticle:
+    def parse_verified(artifact: SourceArtifact, xml_bytes: bytes) -> ParsedJatsArticle:
         """Prove the supplied bytes are the artifact's exact bytes before
         parsing; never parse bytes under the wrong artifact provenance."""
         content_sha256 = hashlib.sha256(xml_bytes).hexdigest()
@@ -257,6 +257,7 @@ class JatsCanonicalImporter:
             elif alias.namespace == IdentifierNamespace.PMCID.value:
                 pmcid = alias.normalized_value
         return Document(
+            id=record.id,
             document_type=DocumentType(record.document_type),
             doi=doi,
             pmid=pmid,
@@ -292,6 +293,7 @@ class JatsCanonicalImporter:
         """Rebuild the exact persisted version contract (same version_key)
         for the idempotent reparse result."""
         return DocumentVersion(
+            id=record.id,
             document_id=document.id,
             document_canonical_key=document.canonical_key,
             source_artifact_id=artifact.id,
@@ -451,7 +453,7 @@ class JatsCanonicalImporter:
         )
 
 
-def _candidate_identifiers(
+def candidate_identifiers(
     artifact: SourceArtifact, parsed: ParsedJatsArticle
 ) -> list[tuple[IdentifierNamespace, str]]:
     """Every strong identifier this materialization can assert: the parsed

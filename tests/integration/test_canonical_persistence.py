@@ -43,6 +43,7 @@ from dynamisrag.db import (
     insert_document_table,
     insert_document_version,
     insert_figure,
+    insert_paragraph,
     insert_passage,
     insert_section,
     insert_source_artifact,
@@ -50,6 +51,7 @@ from dynamisrag.db import (
     list_document_tables,
     list_document_versions,
     list_figures,
+    list_paragraphs,
     list_passages,
     list_sections,
 )
@@ -60,6 +62,7 @@ from dynamisrag.db.models import (
     DocumentTableRecord,
     DocumentVersionRecord,
     FigureRecord,
+    ParagraphRecord,
     PassageRecord,
     SectionRecord,
     SourceArtifactRecord,
@@ -72,6 +75,7 @@ from dynamisrag.domain.contracts import (
     DocumentTable,
     DocumentVersion,
     Figure,
+    Paragraph,
     Passage,
     Section,
     SourceArtifact,
@@ -81,7 +85,7 @@ from dynamisrag.domain.identity import (
     document_version_key,
     source_artifact_key,
 )
-from dynamisrag.domain.values import DocumentType, IdentifierNamespace
+from dynamisrag.domain.values import DocumentType, IdentifierNamespace, ParagraphRegion
 from tests._support import ALEMBIC_INI, REPO_ROOT, build_settings
 
 pytestmark = pytest.mark.integration
@@ -102,11 +106,13 @@ _CANONICAL_TABLES = (
     "document_version",
     "section",
     "passage",
+    "paragraph",
     "citation",
     "citation_resolution",
     "document_table",
     "figure",
 )
+"""The 11 immutable canonical tables after RES-133's 0003."""
 
 
 @pytest.fixture
@@ -216,6 +222,26 @@ def _make_passage(
     return Passage(**kwargs)
 
 
+def _make_paragraph(
+    version: DocumentVersion,
+    *,
+    section: Section | None = None,
+    **overrides: Any,
+) -> Paragraph:
+    kwargs: dict[str, Any] = {
+        "document_version_id": version.id,
+        "version_key": version.version_key,
+        "ordinal": 0,
+        "region": ParagraphRegion.BODY,
+        "source_anchor": "jats:/body[1]/p[1]",
+        "text": "A canonical source paragraph.",
+        "content_sha256": _CONTENT_SHA,
+        "section_id": section.id if section else None,
+    }
+    kwargs.update(overrides)
+    return Paragraph(**kwargs)
+
+
 def _make_citation(version: DocumentVersion, **overrides: Any) -> Citation:
     kwargs: dict[str, Any] = {
         "document_version_id": version.id,
@@ -283,6 +309,7 @@ def _full_graph(
     Section,
     Section,
     Passage,
+    Paragraph,
     Citation,
     DocumentTable,
     Figure,
@@ -296,6 +323,7 @@ def _full_graph(
     root = _make_section(version, structural_path="1", ordinal=1)
     child = _make_section(version, structural_path="1.2", ordinal=2, parent=root)
     passage = _make_passage(version)
+    paragraph = _make_paragraph(version, section=root)
     citation = _make_citation(version)
     table = _make_table(version, section=root)
     figure = _make_figure(version, section=child)
@@ -309,6 +337,7 @@ def _full_graph(
     insert_section(session, root)
     insert_section(session, child)
     insert_passage(session, passage)
+    insert_paragraph(session, paragraph)
     insert_citation(session, citation)
     insert_document_table(session, table)
     insert_figure(session, figure)
@@ -320,6 +349,7 @@ def _full_graph(
         root,
         child,
         passage,
+        paragraph,
         citation,
         table,
         figure,
@@ -357,6 +387,7 @@ def test_full_graph_round_trip(db_session: Session) -> None:
         root,
         child,
         passage,
+        paragraph,
         citation,
         table,
         figure,
@@ -402,6 +433,12 @@ def test_full_graph_round_trip(db_session: Session) -> None:
     assert [item.id for item in passages] == [passage.id]
     assert passages[0].text == passage.text
     assert passages[0].content_sha256 == passage.content_sha256
+
+    read_paragraph = list_paragraphs(db_session, version.id)[0]
+    assert read_paragraph.id == paragraph.id
+    assert read_paragraph.text == paragraph.text
+    assert read_paragraph.region == "body"
+    assert read_paragraph.section_id == root.id
 
     citations = list_citations(db_session, version.id)
     assert [item.id for item in citations] == [citation.id]
@@ -947,6 +984,161 @@ def test_passage_with_section_from_another_document_version_is_rejected(
     db_session.add(cross_version_passage)
 
     with pytest.raises(IntegrityError, match="fk_passage_section"):
+        db_session.flush()
+
+
+# ---------------------------------------------------------------------------
+# Paragraph (RES-133)
+# ---------------------------------------------------------------------------
+
+
+def test_paragraph_round_trips(db_session: Session) -> None:
+    """A source paragraph persists with its region, anchor, text and
+    content hash intact."""
+    artifact = _make_artifact()
+    document = _make_document()
+    version = _make_version(document, artifact)
+    insert_source_artifact(db_session, artifact)
+    insert_document(db_session, document)
+    insert_document_version(db_session, version)
+    paragraph = _make_paragraph(version, ordinal=3)
+
+    record = insert_paragraph(db_session, paragraph)
+
+    assert record.region == "body"
+    assert record.source_anchor == "jats:/body[1]/p[1]"
+    assert record.text == "A canonical source paragraph."
+    assert record.content_sha256 == _CONTENT_SHA
+    assert record.paragraph_key == paragraph.paragraph_key
+    assert record.section_id is None
+    assert record.section_document_version_id is None
+
+
+def test_duplicate_paragraph_ordinal_is_rejected(db_session: Session) -> None:
+    """(document_version_id, ordinal) uniqueness prevents two canonical
+    paragraphs from sharing one ordinal, even with different anchors."""
+    artifact = _make_artifact()
+    document = _make_document()
+    version = _make_version(document, artifact)
+    insert_source_artifact(db_session, artifact)
+    insert_document(db_session, document)
+    insert_document_version(db_session, version)
+    insert_paragraph(db_session, _make_paragraph(version, ordinal=0))
+    duplicate = _make_paragraph(
+        version,
+        ordinal=0,
+        source_anchor="jats:/body[1]/p[2]",
+        text="Same ordinal, different anchor",
+    )
+
+    with pytest.raises(IntegrityError, match="uq_paragraph_document_version_ordinal"):
+        insert_paragraph(db_session, duplicate)
+
+
+def test_duplicate_paragraph_source_anchor_is_rejected(db_session: Session) -> None:
+    """The same source location can never yield two canonical paragraphs:
+    the anchor is the identity basis, so the paragraph_key collides."""
+    artifact = _make_artifact()
+    document = _make_document()
+    version = _make_version(document, artifact)
+    insert_source_artifact(db_session, artifact)
+    insert_document(db_session, document)
+    insert_document_version(db_session, version)
+    insert_paragraph(db_session, _make_paragraph(version, ordinal=0))
+    same_anchor = _make_paragraph(version, ordinal=1, text="Same anchor, different ordinal")
+
+    with pytest.raises(IntegrityError, match="uq_paragraph_paragraph_key"):
+        insert_paragraph(db_session, same_anchor)
+
+
+def test_paragraph_with_section_from_the_same_version_succeeds(db_session: Session) -> None:
+    artifact = _make_artifact()
+    document = _make_document()
+    version = _make_version(document, artifact)
+    insert_source_artifact(db_session, artifact)
+    insert_document(db_session, document)
+    insert_document_version(db_session, version)
+    section = _make_section(version, structural_path="2", ordinal=2)
+    insert_section(db_session, section)
+    paragraph = _make_paragraph(version, ordinal=0, section=section)
+
+    record = insert_paragraph(db_session, paragraph)
+
+    assert record.section_id == section.id
+    assert record.section_document_version_id == version.id
+
+
+def test_paragraph_with_section_from_another_document_version_is_rejected(
+    db_session: Session,
+) -> None:
+    """The composite section foreign key rejects a cross-version section."""
+    artifact = _make_artifact()
+    document = _make_document()
+    version_one = _make_version(document, artifact)
+    version_two = _make_version(document, artifact, parser_revision="jats-1.3")
+    insert_source_artifact(db_session, artifact)
+    insert_document(db_session, document)
+    insert_document_version(db_session, version_one)
+    insert_document_version(db_session, version_two)
+    section = _make_section(version_one, structural_path="1", ordinal=1)
+    insert_section(db_session, section)
+
+    cross_version_paragraph = ParagraphRecord(
+        id=uuid4(),
+        document_version_id=version_two.id,
+        section_id=section.id,
+        section_document_version_id=version_two.id,
+        ordinal=0,
+        region="body",
+        source_anchor="jats:/body[1]/p[9]",
+        text="A paragraph owned by a section of another version.",
+        content_sha256=_CONTENT_SHA,
+        paragraph_key="f" * 64,
+    )
+    db_session.add(cross_version_paragraph)
+
+    with pytest.raises(IntegrityError, match="fk_paragraph_section"):
+        db_session.flush()
+
+
+def test_paragraph_with_wrong_version_key_is_rejected(db_session: Session) -> None:
+    """The paragraph references version A by id while carrying version B's
+    key — refused before the write."""
+    _, _, version = _insert_version_graph(db_session)
+    paragraph = _make_paragraph(version, version_key="f" * 64)
+
+    with pytest.raises(SemanticParentKeyError, match=r"paragraph.document_version_id") as excinfo:
+        insert_paragraph(db_session, paragraph)
+    _assert_semantic_mismatch(
+        excinfo,
+        parent_id=version.id,
+        expected_key=version.version_key,
+        received_key="f" * 64,
+    )
+    count = db_session.scalar(select(func.count()).select_from(ParagraphRecord))
+    assert count == 0
+
+
+def test_database_rejects_invalid_sha256_on_paragraph(db_session: Session) -> None:
+    artifact = _make_artifact()
+    document = _make_document()
+    version = _make_version(document, artifact)
+    insert_source_artifact(db_session, artifact)
+    insert_document(db_session, document)
+    insert_document_version(db_session, version)
+    record = ParagraphRecord(
+        id=uuid4(),
+        document_version_id=version.id,
+        ordinal=0,
+        region="body",
+        source_anchor="jats:/body[1]/p[1]",
+        text="A canonical source paragraph.",
+        content_sha256="a" * 63,
+        paragraph_key="f" * 64,
+    )
+    db_session.add(record)
+
+    with pytest.raises(IntegrityError, match="ck_paragraph_content_sha256_hex"):
         db_session.flush()
 
 
@@ -1516,6 +1708,7 @@ def test_valid_graph_with_correct_semantic_parent_keys_persists(
         root,
         _child,
         passage,
+        _paragraph,
         citation,
         _table,
         _figure,
@@ -1526,6 +1719,7 @@ def test_valid_graph_with_correct_semantic_parent_keys_persists(
     assert get_document_version(db_session, version.id) is not None
     assert get_section(db_session, root.id) is not None
     assert list_passages(db_session, version.id, passage.chunker_revision)
+    assert list_paragraphs(db_session, version.id)
     assert list_citations(db_session, version.id)
     assert list_document_tables(db_session, version.id)
     assert list_figures(db_session, version.id)
@@ -1549,6 +1743,7 @@ _FullGraphObjects = tuple[
     Section,
     Section,
     Passage,
+    Paragraph,
     Citation,
     DocumentTable,
     Figure,
@@ -1566,6 +1761,7 @@ def _canonical_identities(objects: _FullGraphObjects) -> dict[str, Any]:
         root,
         child,
         passage,
+        paragraph,
         citation,
         table,
         figure,
@@ -1578,6 +1774,7 @@ def _canonical_identities(objects: _FullGraphObjects) -> dict[str, Any]:
         "version_key": version.version_key,
         "section_keys": (root.section_key, child.section_key),
         "passage_key": passage.passage_key,
+        "paragraph_key": paragraph.paragraph_key,
         "citation_key": citation.citation_key,
         "document_table_key": table.document_table_key,
         "figure_key": figure.figure_key,
@@ -1593,6 +1790,7 @@ def _stored_canonical_identities(session: Session, objects: _FullGraphObjects) -
         root,
         child,
         passage,
+        paragraph,
         citation,
         table,
         figure,
@@ -1605,6 +1803,7 @@ def _stored_canonical_identities(session: Session, objects: _FullGraphObjects) -
     read_root = get_section(session, root.id)
     read_child = get_section(session, child.id)
     read_passages = list_passages(session, version.id, passage.chunker_revision)
+    read_paragraphs = list_paragraphs(session, version.id)
     read_citations = list_citations(session, version.id)
     read_tables = list_document_tables(session, version.id)
     read_figures = list_figures(session, version.id)
@@ -1614,6 +1813,7 @@ def _stored_canonical_identities(session: Session, objects: _FullGraphObjects) -
     assert read_root is not None
     assert read_child is not None
     assert [item.id for item in read_passages] == [passage.id]
+    assert [item.id for item in read_paragraphs] == [paragraph.id]
     assert [item.id for item in read_citations] == [citation.id]
     assert [item.id for item in read_tables] == [table.id]
     assert [item.id for item in read_figures] == [figure.id]
@@ -1623,6 +1823,7 @@ def _stored_canonical_identities(session: Session, objects: _FullGraphObjects) -
         "version_key": read_version.version_key,
         "section_keys": (read_root.section_key, read_child.section_key),
         "passage_key": read_passages[0].passage_key,
+        "paragraph_key": read_paragraphs[0].paragraph_key,
         "citation_key": read_citations[0].citation_key,
         "document_table_key": read_tables[0].document_table_key,
         "figure_key": read_figures[0].figure_key,
