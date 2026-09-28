@@ -32,6 +32,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 __all__ = [
     "Base",
     "CitationRecord",
+    "DocumentIdentifierRecord",
     "DocumentRecord",
     "DocumentTableRecord",
     "DocumentVersionRecord",
@@ -40,6 +41,16 @@ __all__ = [
     "SectionRecord",
     "SourceArtifactRecord",
 ]
+
+_DOI_VALUE_FORMAT = r"^10\.[0-9]{4,9}/\S+$"
+_PMID_VALUE_FORMAT = r"^[0-9]{1,10}$"
+_PMCID_VALUE_FORMAT = r"^PMC[0-9]{1,12}$"
+_IDENTIFIER_NAMESPACE_VALUE_FORMAT = (
+    "(namespace = 'doi' AND normalized_value ~ '" + _DOI_VALUE_FORMAT + "')"
+    " OR (namespace = 'pmid' AND normalized_value ~ '" + _PMID_VALUE_FORMAT + "')"
+    " OR (namespace = 'pmcid' AND normalized_value ~ '" + _PMCID_VALUE_FORMAT + "')"
+)
+"""The document_identifier CHECK mirroring the domain namespace/value pairs."""
 
 
 class Base(DeclarativeBase):
@@ -85,30 +96,49 @@ class DocumentRecord(Base):
     __table_args__ = (
         PrimaryKeyConstraint("id", name="pk_document"),
         UniqueConstraint("canonical_key", name="uq_document_canonical_key"),
-        CheckConstraint(
-            "doi IS NULL OR doi ~ '^10\\.[0-9]{4,9}/\\S+$'", name="ck_document_doi_format"
-        ),
-        CheckConstraint("pmid IS NULL OR pmid ~ '^[0-9]{1,10}$'", name="ck_document_pmid_format"),
-        CheckConstraint(
-            "pmcid IS NULL OR pmcid ~ '^PMC[0-9]{1,12}$'", name="ck_document_pmcid_format"
-        ),
-        Index("ix_document_doi", "doi"),
-        Index("ix_document_pmid", "pmid"),
-        Index("ix_document_pmcid", "pmcid"),
     )
 
     id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
     canonical_key: Mapped[str] = mapped_column(Text, nullable=False)
     document_type: Mapped[str] = mapped_column(Text, nullable=False)
-    doi: Mapped[str | None] = mapped_column(Text, nullable=True)
-    pmid: Mapped[str | None] = mapped_column(Text, nullable=True)
-    pmcid: Mapped[str | None] = mapped_column(Text, nullable=True)
     title: Mapped[str | None] = mapped_column(Text, nullable=True)
     row_created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
     versions: Mapped[list[DocumentVersionRecord]] = relationship(back_populates="document")
+    identifiers: Mapped[list[DocumentIdentifierRecord]] = relationship(back_populates="document")
+
+
+class DocumentIdentifierRecord(Base):
+    __tablename__ = "document_identifier"
+
+    __table_args__ = (
+        PrimaryKeyConstraint("id", name="pk_document_identifier"),
+        UniqueConstraint(
+            "namespace", "normalized_value", name="uq_document_identifier_namespace_value"
+        ),
+        ForeignKeyConstraint(
+            ["document_id"], ["document.id"], name="fk_document_identifier_document"
+        ),
+        CheckConstraint(
+            "namespace IN ('doi', 'pmid', 'pmcid')", name="ck_document_identifier_namespace"
+        ),
+        CheckConstraint(
+            _IDENTIFIER_NAMESPACE_VALUE_FORMAT, name="ck_document_identifier_value_format"
+        ),
+        Index("ix_document_identifier_document_id", "document_id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    document_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    namespace: Mapped[str] = mapped_column(Text, nullable=False)
+    normalized_value: Mapped[str] = mapped_column(Text, nullable=False)
+    row_created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    document: Mapped[DocumentRecord] = relationship(back_populates="identifiers")
 
 
 class DocumentVersionRecord(Base):

@@ -16,6 +16,7 @@ from pydantic import ValidationError
 from dynamisrag.domain.contracts import (
     Citation,
     Document,
+    DocumentIdentifier,
     DocumentTable,
     DocumentVersion,
     Figure,
@@ -28,11 +29,12 @@ from dynamisrag.domain.identity import (
     document_table_key,
     document_version_key,
     figure_key,
+    identity_basis,
     passage_key,
     section_key,
     source_artifact_key,
 )
-from dynamisrag.domain.values import DocumentType
+from dynamisrag.domain.values import DocumentType, IdentifierNamespace
 
 _ARTIFACT_ID = UUID("11111111-1111-4111-8111-111111111111")
 _DOCUMENT_ID = UUID("22222222-2222-4222-8222-222222222222")
@@ -241,6 +243,30 @@ def test_document_is_frozen_and_strict() -> None:
         Document.model_validate(supplied)
 
 
+def test_document_canonical_key_is_fixed_by_the_creation_time_basis() -> None:
+    """The canonical key is a pure function of the identifiers known at
+    creation.
+
+    Enrichment later attaches newly discovered identifiers as
+    ``DocumentIdentifier`` aliases (proven at the persistence layer); it never
+    recomputes the key, so the same logical work keeps one canonical identity
+    no matter how much is learned about it.
+    """
+    pmcid_only = Document(
+        **_document_kwargs(doi=None, pmid=None, pmcid="PMC3656234", title="A foundational study")
+    )
+
+    assert pmcid_only.canonical_key == "pmcid:PMC3656234"
+    assert identity_basis(pmcid_only.canonical_key) == "pmcid"
+
+
+def test_title_only_document_holds_a_provisional_identity() -> None:
+    document = Document(**_document_kwargs(doi=None, pmid=None, pmcid=None, title="A study"))
+
+    assert identity_basis(document.canonical_key) == "title"
+    assert document.canonical_key.startswith("title:")
+
+
 @pytest.mark.parametrize("bad", ["not-a-pmid", "12345678901", "PMC123456"])
 def test_document_rejects_malformed_pmid(bad: str) -> None:
     with pytest.raises(ValidationError, match="pmid"):
@@ -251,6 +277,60 @@ def test_document_rejects_malformed_pmid(bad: str) -> None:
 def test_document_rejects_malformed_pmcid(bad: str) -> None:
     with pytest.raises(ValidationError, match="pmcid"):
         Document(**_document_kwargs(doi=None, pmid=None, pmcid=bad))
+
+
+# ---------------------------------------------------------------------------
+# DocumentIdentifier
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "namespace,value",
+    [
+        (IdentifierNamespace.DOI, "10.1038/nature12373"),
+        (IdentifierNamespace.PMID, "23656234"),
+        (IdentifierNamespace.PMCID, "PMC3656234"),
+    ],
+)
+def test_document_identifier_accepts_valid_namespace_value_pairs(
+    namespace: IdentifierNamespace, value: str
+) -> None:
+    identifier = DocumentIdentifier(
+        document_id=_DOCUMENT_ID, namespace=namespace, normalized_value=value
+    )
+
+    assert identifier.namespace is namespace
+    assert identifier.normalized_value == value
+
+
+@pytest.mark.parametrize(
+    "namespace,value",
+    [
+        (IdentifierNamespace.DOI, "23656234"),
+        (IdentifierNamespace.DOI, "not-a-doi"),
+        (IdentifierNamespace.PMID, "PMC3656234"),
+        (IdentifierNamespace.PMID, "12345678901"),
+        (IdentifierNamespace.PMCID, "10.1038/nature12373"),
+        (IdentifierNamespace.PMCID, "3656234"),
+    ],
+)
+def test_document_identifier_rejects_a_value_from_another_namespace(
+    namespace: IdentifierNamespace, value: str
+) -> None:
+    """Namespace and value must agree: a DOI value on a PMID alias is invalid."""
+    with pytest.raises(ValidationError, match="normalized_value"):
+        DocumentIdentifier(document_id=_DOCUMENT_ID, namespace=namespace, normalized_value=value)
+
+
+def test_document_identifier_is_frozen() -> None:
+    identifier = DocumentIdentifier(
+        document_id=_DOCUMENT_ID,
+        namespace=IdentifierNamespace.DOI,
+        normalized_value="10.1038/nature12373",
+    )
+
+    with pytest.raises(ValidationError, match="frozen"):
+        identifier.normalized_value = "10.1038/nature99999"
 
 
 # ---------------------------------------------------------------------------

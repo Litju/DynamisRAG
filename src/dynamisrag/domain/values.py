@@ -19,6 +19,7 @@ from dynamisrag.domain.identity import normalize_doi
 __all__ = [
     "DocumentType",
     "Doi",
+    "IdentifierNamespace",
     "LanguageCode",
     "MediaType",
     "NormalizedDoi",
@@ -87,3 +88,17 @@ class DocumentType(StrEnum):
     BOOK_CHAPTER = "book_chapter"
     CONFERENCE_PAPER = "conference_paper"
     OTHER = "other"
+
+
+class IdentifierNamespace(StrEnum):
+    """Strong, globally unique document identifier namespaces.
+
+    Only identifiers that are globally unique by specification belong here —
+    never titles. A title is descriptive metadata and, at best, the basis of a
+    provisional document identity; it must never be treated as equivalent in
+    reliability to a DOI, PMID or PMCID alias.
+    """
+
+    DOI = "doi"
+    PMID = "pmid"
+    PMCID = "pmcid"

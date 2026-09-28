@@ -22,6 +22,7 @@ from dynamisrag.domain.identity import (
     document_table_key,
     document_version_key,
     figure_key,
+    identity_basis,
     normalize_doi,
     passage_key,
     section_key,
@@ -133,6 +134,36 @@ def test_document_canonical_key_changes_with_title() -> None:
 def test_document_canonical_key_rejects_a_work_with_no_identity() -> None:
     with pytest.raises(ValueError, match="doi, pmid, pmcid, title"):
         document_canonical_key(doi=None, pmid=None, pmcid=None, title=None)
+
+
+def test_identity_basis_names_the_identifier_behind_a_canonical_key() -> None:
+    assert (
+        identity_basis(document_canonical_key(doi="10.1/x", pmid=None, pmcid=None, title=None))
+        == "doi"
+    )
+    assert (
+        identity_basis(document_canonical_key(doi=None, pmid="1", pmcid=None, title=None)) == "pmid"
+    )
+    assert (
+        identity_basis(document_canonical_key(doi=None, pmid=None, pmcid="PMC1", title=None))
+        == "pmcid"
+    )
+    assert (
+        identity_basis(document_canonical_key(doi=None, pmid=None, pmcid=None, title="T"))
+        == "title"
+    )
+
+
+def test_identity_basis_marks_title_identity_as_provisional_not_equivalent() -> None:
+    """A title-derived key is weak identity, explicitly distinct from aliases."""
+    provisional = document_canonical_key(doi=None, pmid=None, pmcid=None, title="A title")
+    authoritative = document_canonical_key(
+        doi="10.1038/nature12373", pmid=None, pmcid=None, title="A title"
+    )
+
+    assert identity_basis(provisional) == "title"
+    assert identity_basis(authoritative) == "doi"
+    assert provisional != authoritative
 
 
 def test_document_version_key_is_deterministic() -> None:

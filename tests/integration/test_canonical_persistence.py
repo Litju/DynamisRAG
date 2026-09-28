@@ -25,11 +25,13 @@ from dynamisrag.config import Settings
 from dynamisrag.db import (
     create_database_engine,
     get_document,
+    get_document_identifiers,
     get_document_version,
     get_section,
     get_source_artifact,
     insert_citation,
     insert_document,
+    insert_document_identifier,
     insert_document_table,
     insert_document_version,
     insert_figure,
@@ -44,6 +46,7 @@ from dynamisrag.db import (
     list_sections,
 )
 from dynamisrag.db.models import (
+    DocumentIdentifierRecord,
     DocumentTableRecord,
     DocumentVersionRecord,
     FigureRecord,
@@ -54,6 +57,7 @@ from dynamisrag.db.models import (
 from dynamisrag.domain.contracts import (
     Citation,
     Document,
+    DocumentIdentifier,
     DocumentTable,
     DocumentVersion,
     Figure,
@@ -62,7 +66,7 @@ from dynamisrag.domain.contracts import (
     SourceArtifact,
 )
 from dynamisrag.domain.identity import document_version_key, source_artifact_key
-from dynamisrag.domain.values import DocumentType
+from dynamisrag.domain.values import DocumentType, IdentifierNamespace
 
 pytestmark = pytest.mark.integration
 
@@ -78,6 +82,7 @@ _VERSION_KEY = document_version_key(
 _CANONICAL_TABLES = (
     "source_artifact",
     "document",
+    "document_identifier",
     "document_version",
     "section",
     "passage",
@@ -299,7 +304,8 @@ def test_full_graph_round_trip(db_session: Session) -> None:
     read_document = get_document(db_session, document.id)
     assert read_document is not None
     assert read_document.canonical_key == document.canonical_key
-    assert read_document.doi == document.doi
+    assert read_document.document_type == document.document_type.value
+    assert read_document.title == document.title
 
     read_version = get_document_version(db_session, version.id)
     assert read_version is not None
@@ -515,6 +521,128 @@ def test_repeated_persist_of_one_artifact_identity_collides_not_duplicates(
     count = db_session.scalar(select(func.count()).select_from(SourceArtifactRecord))
     assert count == 1
     assert get_source_artifact(db_session, first.id) is not None
+
+
+# ---------------------------------------------------------------------------
+# Document identifiers: aliases are separate from stable identity
+# ---------------------------------------------------------------------------
+
+
+def test_creation_time_identifiers_are_persisted_as_aliases(db_session: Session) -> None:
+    """Every strong identifier known at creation is persisted as an immutable
+    alias, so the alias table is the complete record of known identifiers."""
+    document = _make_document()
+
+    insert_document(db_session, document)
+
+    aliases = get_document_identifiers(db_session, document.id)
+    assert {(item.namespace, item.normalized_value) for item in aliases} == {
+        ("doi", "10.1038/nature12373"),
+        ("pmid", "23656234"),
+        ("pmcid", "PMC3656234"),
+    }
+
+
+def test_enrichment_attaches_an_alias_without_changing_canonical_identity(
+    db_session: Session,
+) -> None:
+    """A newly discovered DOI joins the document as an alias.
+
+    The document's canonical identity was fixed at creation from the then
+    known PMCID; enrichment must not silently re-identify the same logical
+    work, so the stored canonical key is byte-for-byte unchanged afterwards.
+    """
+    document = _make_document(doi=None, pmid=None, pmcid="PMC3656234")
+    insert_document(db_session, document)
+    before = get_document(db_session, document.id)
+    assert before is not None
+    assert before.canonical_key == "pmcid:PMC3656234"
+
+    insert_document_identifier(
+        db_session,
+        DocumentIdentifier(
+            document_id=document.id,
+            namespace=IdentifierNamespace.DOI,
+            normalized_value="10.1038/nature12373",
+        ),
+    )
+
+    after = get_document(db_session, document.id)
+    assert after is not None
+    assert after.canonical_key == before.canonical_key == "pmcid:PMC3656234"
+    aliases = get_document_identifiers(db_session, document.id)
+    assert {(item.namespace, item.normalized_value) for item in aliases} == {
+        ("pmcid", "PMC3656234"),
+        ("doi", "10.1038/nature12373"),
+    }
+
+
+def test_same_alias_cannot_be_attached_to_two_documents(db_session: Session) -> None:
+    """(namespace, normalized_value) is globally unique: one DOI identifies
+    one document, so the same alias on a second document is rejected."""
+    first = _make_document(doi="10.1038/nature12373")
+    second = _make_document(doi=None, pmid=None, pmcid=None, title="An unrelated work")
+    insert_document(db_session, first)
+    insert_document(db_session, second)
+
+    with pytest.raises(IntegrityError, match="uq_document_identifier_namespace_value"):
+        insert_document_identifier(
+            db_session,
+            DocumentIdentifier(
+                document_id=second.id,
+                namespace=IdentifierNamespace.DOI,
+                normalized_value="10.1038/nature12373",
+            ),
+        )
+
+
+def test_title_only_document_holds_a_provisional_identity_with_no_aliases(
+    db_session: Session,
+) -> None:
+    """A title-digest identity is provisional: no alias exists for it, and
+    the canonical key is explicitly weaker than any alias-based identity."""
+    document = _make_document(doi=None, pmid=None, pmcid=None, title="A foundational study")
+
+    insert_document(db_session, document)
+
+    read = get_document(db_session, document.id)
+    assert read is not None
+    assert read.canonical_key.startswith("title:")
+    assert get_document_identifiers(db_session, document.id) == []
+
+
+def test_database_rejects_malformed_document_identifier_value(
+    db_session: Session,
+) -> None:
+    """The CHECK constraint mirrors the domain namespace/value validation for
+    any writer that bypasses the contracts."""
+    document = _make_document()
+    insert_document(db_session, document)
+    record = DocumentIdentifierRecord(
+        id=uuid4(),
+        document_id=document.id,
+        namespace="doi",
+        normalized_value="not-a-doi",
+    )
+    db_session.add(record)
+
+    with pytest.raises(IntegrityError, match="ck_document_identifier_value_format"):
+        db_session.flush()
+
+
+def test_database_rejects_unknown_identifier_namespace(db_session: Session) -> None:
+    document = _make_document()
+    insert_document(db_session, document)
+    record = DocumentIdentifierRecord(
+        id=uuid4(),
+        document_id=document.id,
+        namespace="isbn",
+        normalized_value="978-3-16-148410-0",
+    )
+    db_session.add(record)
+
+    with pytest.raises(IntegrityError, match="ck_document_identifier_namespace"):
+        db_session.flush()
 
 
 # ---------------------------------------------------------------------------

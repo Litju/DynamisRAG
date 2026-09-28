@@ -11,13 +11,14 @@ the only place the meanings are defined.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from dynamisrag.db.models import (
     CitationRecord,
+    DocumentIdentifierRecord,
     DocumentRecord,
     DocumentTableRecord,
     DocumentVersionRecord,
@@ -29,6 +30,7 @@ from dynamisrag.db.models import (
 from dynamisrag.domain.contracts import (
     Citation,
     Document,
+    DocumentIdentifier,
     DocumentTable,
     DocumentVersion,
     Figure,
@@ -36,14 +38,17 @@ from dynamisrag.domain.contracts import (
     Section,
     SourceArtifact,
 )
+from dynamisrag.domain.values import IdentifierNamespace
 
 __all__ = [
     "get_document",
+    "get_document_identifiers",
     "get_document_version",
     "get_section",
     "get_source_artifact",
     "insert_citation",
     "insert_document",
+    "insert_document_identifier",
     "insert_document_table",
     "insert_document_version",
     "insert_figure",
@@ -81,15 +86,56 @@ def insert_source_artifact(session: Session, artifact: SourceArtifact) -> Source
 
 
 def insert_document(session: Session, document: Document) -> DocumentRecord:
-    """Persist one logical scientific work and flush to enforce constraints."""
+    """Persist one logical scientific work and flush to enforce constraints.
+
+    The strong identifiers known at creation (``doi``/``pmid``/``pmcid``) are
+    persisted alongside the row as :class:`DocumentIdentifier` aliases, so the
+    alias table is the complete record of every identifier the work has been
+    known by. They fixed the document's canonical identity at creation and
+    are never recomputed; later identifiers arrive through
+    :func:`insert_document_identifier` and only ever add aliases.
+    """
     record = DocumentRecord(
         id=document.id,
         canonical_key=document.canonical_key,
         document_type=document.document_type.value,
-        doi=document.doi,
-        pmid=document.pmid,
-        pmcid=document.pmcid,
         title=document.title,
+    )
+    session.add(record)
+    for namespace, value in (
+        (IdentifierNamespace.DOI, document.doi),
+        (IdentifierNamespace.PMID, document.pmid),
+        (IdentifierNamespace.PMCID, document.pmcid),
+    ):
+        if value is not None:
+            session.add(
+                DocumentIdentifierRecord(
+                    id=uuid4(),
+                    document_id=document.id,
+                    namespace=namespace.value,
+                    normalized_value=value,
+                )
+            )
+    session.flush()
+    return record
+
+
+def insert_document_identifier(
+    session: Session, identifier: DocumentIdentifier
+) -> DocumentIdentifierRecord:
+    """Attach one identifier alias to a document and flush to enforce
+    constraints.
+
+    ``(namespace, normalized_value)`` is globally unique, so an alias that is
+    already attached to any document — this one included — is rejected rather
+    than duplicated. Attaching an alias never mutates the document's canonical
+    identity.
+    """
+    record = DocumentIdentifierRecord(
+        id=identifier.id,
+        document_id=identifier.document_id,
+        namespace=identifier.namespace.value,
+        normalized_value=identifier.normalized_value,
     )
     session.add(record)
     session.flush()
@@ -241,6 +287,18 @@ def get_source_artifact(session: Session, artifact_id: UUID) -> SourceArtifactRe
 
 def get_document(session: Session, document_id: UUID) -> DocumentRecord | None:
     return session.get(DocumentRecord, document_id)
+
+
+def get_document_identifiers(
+    session: Session, document_id: UUID
+) -> Sequence[DocumentIdentifierRecord]:
+    return list(
+        session.scalars(
+            select(DocumentIdentifierRecord)
+            .where(DocumentIdentifierRecord.document_id == document_id)
+            .order_by(DocumentIdentifierRecord.namespace, DocumentIdentifierRecord.normalized_value)
+        )
+    )
 
 
 def get_document_version(session: Session, version_id: UUID) -> DocumentVersionRecord | None:
