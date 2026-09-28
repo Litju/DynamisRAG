@@ -1,8 +1,8 @@
-"""Canonical scientific document contracts (RES-131).
+"""Canonical scientific document contracts (RES-131, extended by RES-133).
 
 The frozen, strictly validated pydantic models — :class:`SourceArtifact`,
 :class:`Document`, :class:`DocumentIdentifier`, :class:`DocumentVersion`,
-:class:`Section`, :class:`Passage`, :class:`Citation`,
+:class:`Section`, :class:`Passage`, :class:`Paragraph`, :class:`Citation`,
 :class:`CitationResolution`, :class:`DocumentTable` and :class:`Figure` —
 define the meanings every later DynamisRAG system depends on.
 
@@ -40,6 +40,7 @@ from dynamisrag.domain.identity import (
     document_table_key,
     document_version_key,
     figure_key,
+    paragraph_key,
     passage_key,
     section_key,
     source_artifact_key,
@@ -50,6 +51,7 @@ from dynamisrag.domain.values import (
     LanguageCode,
     MediaType,
     NormalizedDoi,
+    ParagraphRegion,
     Pmcid,
     Pmid,
     RevisionTag,
@@ -66,6 +68,7 @@ __all__ = [
     "DocumentTable",
     "DocumentVersion",
     "Figure",
+    "Paragraph",
     "Passage",
     "Section",
     "SourceArtifact",
@@ -304,6 +307,48 @@ class Passage(BaseModel):
             self,
             "passage_key",
             passage_key(self.version_key, self.chunker_revision, self.ordinal),
+        )
+        return self
+
+
+class Paragraph(BaseModel):
+    """One immutable source paragraph of a document version.
+
+    RES-133 introduces the smallest correct source-text contract: a paragraph
+    is the canonical unit of article narrative text, extracted from the JATS
+    source with its normalized text, its region and its stable source anchor.
+    Paragraphs are *source structure* — deliberately not retrieval units:
+    chunking into ``Passage`` records is owned by RES-134 and no chunker
+    concept appears here.
+
+    Identity is ``(version_key, source_anchor)``: the owning version's
+    canonical key plus the deterministic anchor that pins the paragraph to
+    its exact location in the source XML. The owning section (when one is set)
+    is provenance only and never participates in identity. ``content_sha256``
+    is the SHA-256 of the normalized paragraph text encoded as UTF-8, so a
+    semantic text change is observable at the row level and participates in
+    the version's content fingerprint.
+    """
+
+    model_config = _ContractConfig
+
+    id: UUID = Field(default_factory=uuid4)
+    document_version_id: UUID
+    version_key: str = Field(min_length=1)
+    section_id: UUID | None = None
+    ordinal: int = Field(ge=0)
+    region: ParagraphRegion
+    source_anchor: str = Field(min_length=1)
+    text: str = Field(min_length=1)
+    content_sha256: Sha256Hex
+    paragraph_key: str = Field(init=False, default="")
+
+    @model_validator(mode="after")
+    def _derive_paragraph_key(self) -> Self:
+        object.__setattr__(
+            self,
+            "paragraph_key",
+            paragraph_key(self.version_key, self.source_anchor),
         )
         return self
 
