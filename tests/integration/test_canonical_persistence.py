@@ -15,7 +15,7 @@ from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import psycopg
 import pytest
@@ -28,6 +28,7 @@ from sqlalchemy.orm import Session
 
 from dynamisrag.config import Settings
 from dynamisrag.db import (
+    SemanticParentKeyError,
     create_database_engine,
     get_citation_resolutions,
     get_document,
@@ -75,7 +76,11 @@ from dynamisrag.domain.contracts import (
     Section,
     SourceArtifact,
 )
-from dynamisrag.domain.identity import document_version_key, source_artifact_key
+from dynamisrag.domain.identity import (
+    citation_resolution_key,
+    document_version_key,
+    source_artifact_key,
+)
 from dynamisrag.domain.values import DocumentType, IdentifierNamespace
 from tests._support import ALEMBIC_INI, REPO_ROOT, build_settings
 
@@ -1280,6 +1285,256 @@ def test_database_rejects_delete_on_canonical_tables(db_session: Session, table:
     # See the UPDATE test above: hardcoded table name, raw SQL by design.
     with pytest.raises(SQLAlchemyError, match="append-only"):
         db_session.execute(text(f"DELETE FROM {table}"))  # noqa: S608
+
+
+# ---------------------------------------------------------------------------
+# Semantic parent key consistency: FK-valid but key-invalid graphs are refused
+# ---------------------------------------------------------------------------
+
+
+def _insert_version_graph(db_session: Session) -> tuple[SourceArtifact, Document, DocumentVersion]:
+    """Insert one artifact, one document and one valid version; return them."""
+    artifact = _make_artifact()
+    document = _make_document()
+    version = _make_version(document, artifact)
+    insert_source_artifact(db_session, artifact)
+    insert_document(db_session, document)
+    insert_document_version(db_session, version)
+    return artifact, document, version
+
+
+def _assert_semantic_mismatch(
+    excinfo: pytest.ExceptionInfo[SemanticParentKeyError],
+    *,
+    parent_id: UUID,
+    expected_key: str,
+    received_key: str,
+) -> None:
+    """The error must identify the relationship, the referenced parent id, the
+    parent's persisted key and the key the child declared."""
+    assert excinfo.value.parent_id == parent_id
+    assert excinfo.value.expected_key == expected_key
+    assert excinfo.value.received_key == received_key
+
+
+def test_document_version_with_wrong_document_canonical_key_is_rejected(
+    db_session: Session,
+) -> None:
+    """FK-valid but semantically inconsistent: the version references document
+    A by id while carrying document B's canonical key. Persistence must refuse
+    the write before the inconsistent row can be committed."""
+    artifact = _make_artifact()
+    document = _make_document()
+    other = _make_document(doi=None, pmid=None, pmcid=None, title="An unrelated work")
+    insert_source_artifact(db_session, artifact)
+    insert_document(db_session, document)
+    insert_document(db_session, other)
+    version = _make_version(document, artifact, document_canonical_key=other.canonical_key)
+
+    with pytest.raises(SemanticParentKeyError, match=r"document_version.document_id") as excinfo:
+        insert_document_version(db_session, version)
+    _assert_semantic_mismatch(
+        excinfo,
+        parent_id=document.id,
+        expected_key=document.canonical_key,
+        received_key=other.canonical_key,
+    )
+    count = db_session.scalar(select(func.count()).select_from(DocumentVersionRecord))
+    assert count == 0
+
+
+def test_document_version_with_wrong_source_artifact_key_is_rejected(
+    db_session: Session,
+) -> None:
+    """The version references artifact A by id while carrying artifact B's
+    key — refused before the write."""
+    artifact = _make_artifact()
+    other_artifact = _make_artifact(content_sha256="c" * 64, byte_size=4096)
+    document = _make_document()
+    insert_source_artifact(db_session, artifact)
+    insert_source_artifact(db_session, other_artifact)
+    insert_document(db_session, document)
+    version = _make_version(document, artifact, source_artifact_key=other_artifact.artifact_key)
+
+    with pytest.raises(
+        SemanticParentKeyError, match=r"document_version.source_artifact_id"
+    ) as excinfo:
+        insert_document_version(db_session, version)
+    _assert_semantic_mismatch(
+        excinfo,
+        parent_id=artifact.id,
+        expected_key=artifact.artifact_key,
+        received_key=other_artifact.artifact_key,
+    )
+    count = db_session.scalar(select(func.count()).select_from(DocumentVersionRecord))
+    assert count == 0
+
+
+def test_section_with_wrong_version_key_is_rejected(db_session: Session) -> None:
+    """The section references version A by id while carrying version B's key —
+    refused before the write."""
+    _, _, version = _insert_version_graph(db_session)
+    section = _make_section(version, version_key="f" * 64)
+
+    with pytest.raises(SemanticParentKeyError, match=r"section.document_version_id") as excinfo:
+        insert_section(db_session, section)
+    _assert_semantic_mismatch(
+        excinfo,
+        parent_id=version.id,
+        expected_key=version.version_key,
+        received_key="f" * 64,
+    )
+    count = db_session.scalar(select(func.count()).select_from(SectionRecord))
+    assert count == 0
+
+
+def test_passage_with_wrong_version_key_is_rejected(db_session: Session) -> None:
+    """The passage references version A by id while carrying version B's key —
+    refused before the write."""
+    _, _, version = _insert_version_graph(db_session)
+    passage = _make_passage(version, version_key="f" * 64)
+
+    with pytest.raises(SemanticParentKeyError, match=r"passage.document_version_id") as excinfo:
+        insert_passage(db_session, passage)
+    _assert_semantic_mismatch(
+        excinfo,
+        parent_id=version.id,
+        expected_key=version.version_key,
+        received_key="f" * 64,
+    )
+    count = db_session.scalar(select(func.count()).select_from(PassageRecord))
+    assert count == 0
+
+
+def test_citation_with_wrong_version_key_is_rejected(db_session: Session) -> None:
+    """The citation references version A by id while carrying version B's key —
+    refused before the write."""
+    _, _, version = _insert_version_graph(db_session)
+    citation = _make_citation(version, version_key="f" * 64)
+
+    with pytest.raises(SemanticParentKeyError, match=r"citation.document_version_id") as excinfo:
+        insert_citation(db_session, citation)
+    _assert_semantic_mismatch(
+        excinfo,
+        parent_id=version.id,
+        expected_key=version.version_key,
+        received_key="f" * 64,
+    )
+    count = db_session.scalar(select(func.count()).select_from(CitationRecord))
+    assert count == 0
+
+
+def test_document_table_with_wrong_version_key_is_rejected(db_session: Session) -> None:
+    """The table references version A by id while carrying version B's key —
+    refused before the write."""
+    _, _, version = _insert_version_graph(db_session)
+    table = _make_table(version, version_key="f" * 64)
+
+    with pytest.raises(
+        SemanticParentKeyError, match=r"document_table.document_version_id"
+    ) as excinfo:
+        insert_document_table(db_session, table)
+    _assert_semantic_mismatch(
+        excinfo,
+        parent_id=version.id,
+        expected_key=version.version_key,
+        received_key="f" * 64,
+    )
+    count = db_session.scalar(select(func.count()).select_from(DocumentTableRecord))
+    assert count == 0
+
+
+def test_figure_with_wrong_version_key_is_rejected(db_session: Session) -> None:
+    """The figure references version A by id while carrying version B's key —
+    refused before the write."""
+    _, _, version = _insert_version_graph(db_session)
+    figure = _make_figure(version, version_key="f" * 64)
+
+    with pytest.raises(SemanticParentKeyError, match=r"figure.document_version_id") as excinfo:
+        insert_figure(db_session, figure)
+    _assert_semantic_mismatch(
+        excinfo,
+        parent_id=version.id,
+        expected_key=version.version_key,
+        received_key="f" * 64,
+    )
+    count = db_session.scalar(select(func.count()).select_from(FigureRecord))
+    assert count == 0
+
+
+def test_citation_resolution_with_wrong_citation_key_is_rejected(
+    db_session: Session,
+) -> None:
+    """The resolution references citation A by id while carrying citation B's
+    key — refused before the write."""
+    citation, cited = _citation_graph(db_session)
+    resolution = _make_resolution(citation, cited, citation_key="f" * 64)
+
+    with pytest.raises(SemanticParentKeyError, match=r"citation_resolution.citation_id") as excinfo:
+        insert_citation_resolution(db_session, resolution)
+    _assert_semantic_mismatch(
+        excinfo,
+        parent_id=citation.id,
+        expected_key=citation.citation_key,
+        received_key="f" * 64,
+    )
+    count = db_session.scalar(select(func.count()).select_from(CitationResolutionRecord))
+    assert count == 0
+
+
+def test_citation_resolution_with_wrong_resolved_document_key_is_rejected(
+    db_session: Session,
+) -> None:
+    """The resolution references document A by id while carrying document B's
+    canonical key — refused before the write."""
+    citation, cited = _citation_graph(db_session)
+    resolution = _make_resolution(citation, cited, resolved_document_canonical_key="f" * 64)
+
+    with pytest.raises(
+        SemanticParentKeyError, match=r"citation_resolution.resolved_document_id"
+    ) as excinfo:
+        insert_citation_resolution(db_session, resolution)
+    _assert_semantic_mismatch(
+        excinfo,
+        parent_id=cited.id,
+        expected_key=cited.canonical_key,
+        received_key="f" * 64,
+    )
+    count = db_session.scalar(select(func.count()).select_from(CitationResolutionRecord))
+    assert count == 0
+
+
+def test_valid_graph_with_correct_semantic_parent_keys_persists(
+    db_session: Session,
+) -> None:
+    """The positive counterpart: a correctly keyed graph persists through the
+    same boundary, and every child reads back bound to its referenced parent."""
+    (
+        artifact,
+        _document,
+        version,
+        root,
+        _child,
+        passage,
+        citation,
+        _table,
+        _figure,
+        cited,
+        resolution,
+    ) = _full_graph(db_session)
+
+    assert get_document_version(db_session, version.id) is not None
+    assert get_section(db_session, root.id) is not None
+    assert list_passages(db_session, version.id, passage.chunker_revision)
+    assert list_citations(db_session, version.id)
+    assert list_document_tables(db_session, version.id)
+    assert list_figures(db_session, version.id)
+    assert get_citation_resolutions(db_session, citation.id)
+    assert get_document(db_session, cited.id) is not None
+    assert get_source_artifact(db_session, artifact.id) is not None
+    assert resolution.resolution_key == citation_resolution_key(
+        citation.citation_key, cited.canonical_key, "resolver-1"
+    )
 
 
 # ---------------------------------------------------------------------------
