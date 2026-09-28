@@ -37,6 +37,7 @@ __all__ = [
     "document_version_key",
     "figure_key",
     "identity_basis",
+    "paragraph_key",
     "passage_key",
     "section_key",
     "source_artifact_key",
@@ -176,6 +177,20 @@ def passage_key(version_key: str, chunker_revision: str, ordinal: int) -> str:
     chunker revision produces an independent, coexisting passage set.
     """
     return digest(version_key, chunker_revision, str(ordinal))
+
+
+def paragraph_key(version_key: str, source_anchor: str) -> str:
+    """Identity of a source paragraph: the document version's canonical key
+    plus the stable source anchor pinning the paragraph to its exact location
+    in the source XML.
+
+    The anchor — never a random id — is the whole identity basis, so the same
+    logical document parsed from the same artifact produces the same paragraph
+    identities in every database, and a semantic change to the paragraph (new
+    anchor or new text under the same version) yields a different canonical
+    graph through the version's content fingerprint.
+    """
+    return digest(version_key, source_anchor)
 
 
 def citation_key(

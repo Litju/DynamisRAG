@@ -23,6 +23,7 @@ __all__ = [
     "LanguageCode",
     "MediaType",
     "NormalizedDoi",
+    "ParagraphRegion",
     "Pmcid",
     "Pmid",
     "RevisionTag",
@@ -102,3 +103,17 @@ class IdentifierNamespace(StrEnum):
     DOI = "doi"
     PMID = "pmid"
     PMCID = "pmcid"
+
+
+class ParagraphRegion(StrEnum):
+    """The top-level region of the source document a paragraph was extracted
+    from.
+
+    Regions mirror the JATS article structure (``front``/``body``/``back``) so a
+    paragraph's location in the source remains inspectable without re-parsing
+    the XML. They are provenance, not identity.
+    """
+
+    FRONT = "front"
+    BODY = "body"
+    BACK = "back"

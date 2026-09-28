@@ -38,6 +38,7 @@ __all__ = [
     "DocumentTableRecord",
     "DocumentVersionRecord",
     "FigureRecord",
+    "ParagraphRecord",
     "PassageRecord",
     "SectionRecord",
     "SourceArtifactRecord",
@@ -185,6 +186,7 @@ class DocumentVersionRecord(Base):
     source_artifact: Mapped[SourceArtifactRecord] = relationship(back_populates="versions")
     sections: Mapped[list[SectionRecord]] = relationship(back_populates="document_version")
     passages: Mapped[list[PassageRecord]] = relationship(back_populates="document_version")
+    paragraphs: Mapped[list[ParagraphRecord]] = relationship(back_populates="document_version")
     citations: Mapped[list[CitationRecord]] = relationship(back_populates="document_version")
     tables: Mapped[list[DocumentTableRecord]] = relationship(back_populates="document_version")
     figures: Mapped[list[FigureRecord]] = relationship(back_populates="document_version")
@@ -298,6 +300,58 @@ class PassageRecord(Base):
     document_version: Mapped[DocumentVersionRecord] = relationship(back_populates="passages")
 
 
+class ParagraphRecord(Base):
+    __tablename__ = "paragraph"
+
+    __table_args__ = (
+        PrimaryKeyConstraint("id", name="pk_paragraph"),
+        UniqueConstraint("paragraph_key", name="uq_paragraph_paragraph_key"),
+        UniqueConstraint(
+            "document_version_id", "source_anchor", name="uq_paragraph_document_version_source_anchor"
+        ),
+        UniqueConstraint(
+            "document_version_id", "ordinal", name="uq_paragraph_document_version_ordinal"
+        ),
+        ForeignKeyConstraint(
+            ["document_version_id"],
+            ["document_version.id"],
+            name="fk_paragraph_document_version",
+        ),
+        ForeignKeyConstraint(
+            ["section_id", "section_document_version_id"],
+            ["section.id", "section.document_version_id"],
+            name="fk_paragraph_section",
+        ),
+        CheckConstraint(
+            "(section_id IS NULL) = (section_document_version_id IS NULL)",
+            name="ck_paragraph_section_pair",
+        ),
+        CheckConstraint("ordinal >= 0", name="ck_paragraph_ordinal_nonnegative"),
+        CheckConstraint(
+            "region IN ('front', 'body', 'back')", name="ck_paragraph_region_source_derived"
+        ),
+        CheckConstraint("content_sha256 ~ '^[0-9a-f]{64}$'", name="ck_paragraph_content_sha256_hex"),
+        Index("ix_paragraph_document_version_id", "document_version_id"),
+        Index("ix_paragraph_section_id", "section_id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    document_version_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    section_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
+    section_document_version_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
+    ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
+    region: Mapped[str] = mapped_column(Text, nullable=False)
+    source_anchor: Mapped[str] = mapped_column(Text, nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    content_sha256: Mapped[str] = mapped_column(Text, nullable=False)
+    paragraph_key: Mapped[str] = mapped_column(Text, nullable=False)
+    row_created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    document_version: Mapped[DocumentVersionRecord] = relationship(back_populates="paragraphs")
+
+
 class CitationRecord(Base):
     __tablename__ = "citation"
 
@@ -338,6 +392,7 @@ class CitationRecord(Base):
     document_version_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
     ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
     source_reference_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source_anchor: Mapped[str | None] = mapped_column(Text, nullable=True)
     doi: Mapped[str | None] = mapped_column(Text, nullable=True)
     pmid: Mapped[str | None] = mapped_column(Text, nullable=True)
     pmcid: Mapped[str | None] = mapped_column(Text, nullable=True)
