@@ -192,11 +192,20 @@ def insert_section(session: Session, section: Section) -> SectionRecord:
 
 
 def insert_passage(session: Session, passage: Passage) -> PassageRecord:
-    """Persist one retrieval unit and flush to enforce constraints."""
+    """Persist one retrieval unit and flush to enforce constraints.
+
+    The composite section foreign key needs the owning section's document
+    version alongside the section id, so ``section_document_version_id`` is
+    filled from the passage's own version — the database then rejects any
+    section that belongs to a different document version.
+    """
     record = PassageRecord(
         id=passage.id,
         document_version_id=passage.document_version_id,
         section_id=passage.section_id,
+        section_document_version_id=(
+            passage.document_version_id if passage.section_id is not None else None
+        ),
         chunker_revision=passage.chunker_revision,
         ordinal=passage.ordinal,
         text=passage.text,

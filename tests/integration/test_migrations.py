@@ -54,6 +54,7 @@ _CANONICAL_UNIQUE_CONSTRAINTS: Final[tuple[str, ...]] = (
 
 _CANONICAL_COMPOSITE_FOREIGN_KEYS: Final[tuple[str, ...]] = (
     "fk_section_parent",
+    "fk_passage_section",
     "fk_document_table_section",
     "fk_figure_section",
 )

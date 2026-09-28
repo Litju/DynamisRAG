@@ -257,7 +257,15 @@ class PassageRecord(Base):
             ["document_version.id"],
             name="fk_passage_document_version",
         ),
-        ForeignKeyConstraint(["section_id"], ["section.id"], name="fk_passage_section"),
+        ForeignKeyConstraint(
+            ["section_id", "section_document_version_id"],
+            ["section.id", "section.document_version_id"],
+            name="fk_passage_section",
+        ),
+        CheckConstraint(
+            "(section_id IS NULL) = (section_document_version_id IS NULL)",
+            name="ck_passage_section_pair",
+        ),
         CheckConstraint("content_sha256 ~ '^[0-9a-f]{64}$'", name="ck_passage_content_sha256_hex"),
         CheckConstraint("ordinal >= 0", name="ck_passage_ordinal_nonnegative"),
         CheckConstraint(
@@ -271,6 +279,7 @@ class PassageRecord(Base):
     id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
     document_version_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
     section_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
+    section_document_version_id: Mapped[UUID | None] = mapped_column(Uuid, nullable=True)
     chunker_revision: Mapped[str] = mapped_column(Text, nullable=False)
     ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
     text: Mapped[str] = mapped_column(Text, nullable=False)

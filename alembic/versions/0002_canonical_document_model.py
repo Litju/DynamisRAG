@@ -11,8 +11,9 @@ set that makes the domain invariants enforceable by the database itself:
   repeated deterministic identity collides instead of duplicating;
 * SHA-256 columns carry CHECK constraints requiring lowercase 64-character
   hexadecimal, mirroring the domain-layer validation;
-* composite foreign keys force a section's parent and a table/figure's
-  owning section to belong to the same ``document_version``;
+* composite foreign keys force a section's parent, a passage's owning
+  section and a table/figure's owning section to belong to the same
+  ``document_version``;
 * ``document.identifier`` aliases are globally unique per
   ``(namespace, normalized_value)`` and immutable, so identifier enrichment
   never re-identifies a document;
@@ -252,6 +253,7 @@ def upgrade() -> None:
         sa.Column("id", sa.Uuid, nullable=False),
         sa.Column("document_version_id", sa.Uuid, nullable=False),
         sa.Column("section_id", sa.Uuid, nullable=True),
+        sa.Column("section_document_version_id", sa.Uuid, nullable=True),
         sa.Column("chunker_revision", sa.Text, nullable=False),
         sa.Column("ordinal", sa.Integer, nullable=False),
         sa.Column("text", sa.Text, nullable=False),
@@ -272,7 +274,15 @@ def upgrade() -> None:
             ["document_version.id"],
             name="fk_passage_document_version",
         ),
-        sa.ForeignKeyConstraint(["section_id"], ["section.id"], name="fk_passage_section"),
+        sa.ForeignKeyConstraint(
+            ["section_id", "section_document_version_id"],
+            ["section.id", "section.document_version_id"],
+            name="fk_passage_section",
+        ),
+        sa.CheckConstraint(
+            "(section_id IS NULL) = (section_document_version_id IS NULL)",
+            name="ck_passage_section_pair",
+        ),
         sa.CheckConstraint(f"content_sha256 {_HEX64}", name="ck_passage_content_sha256_hex"),
         sa.CheckConstraint("ordinal >= 0", name="ck_passage_ordinal_nonnegative"),
         sa.CheckConstraint(
