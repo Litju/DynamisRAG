@@ -258,6 +258,16 @@ def test_non_xml_content_type_is_rejected() -> None:
         _client(transport).fetch_fulltext(_PMCID)
 
 
+def test_missing_content_type_is_rejected() -> None:
+    """HTTP 200 with well-formed XML but no Content-Type header must fail
+    explicitly: the source media type is required provenance and is never
+    invented by acquisition."""
+    transport = _RecordingTransport(_responding(_JATS_WITH_EXPLICIT_LICENSE, content_type=None))
+
+    with pytest.raises(EuropePmcUnexpectedResponse, match="no Content-Type"):
+        _client(transport).fetch_fulltext(_PMCID)
+
+
 def test_malformed_xml_body_is_rejected() -> None:
     transport = _RecordingTransport(_responding(b"<article><unclosed>"))
 
