@@ -27,6 +27,7 @@ from dynamisrag.db.canonical import (
     list_sections,
 )
 from dynamisrag.db.engine import create_database_engine
+from dynamisrag.db.errors import SemanticParentKeyError
 from dynamisrag.db.models import (
     Base,
     CitationRecord,
@@ -54,6 +55,7 @@ __all__ = [
     "FigureRecord",
     "PassageRecord",
     "SectionRecord",
+    "SemanticParentKeyError",
     "SourceArtifactRecord",
     "check_postgres",
     "create_database_engine",
