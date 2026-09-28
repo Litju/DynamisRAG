@@ -30,12 +30,13 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata: Final[MetaData | None] = None
-"""No application schema exists yet.
+"""No ``MetaData`` is registered, so ``alembic revision --autogenerate`` stays unavailable.
 
-RES-131 introduces the scientific schema. Until models exist there is no
-``MetaData`` to compare against, so ``alembic revision --autogenerate`` is
-unavailable and every revision is hand-written. This is a deliberate,
-documented state rather than an oversight.
+RES-131 introduces the canonical scientific schema through a hand-written
+revision. The ORM records in :mod:`dynamisrag.db.models` mirror that schema
+but are deliberately not wired into ``env.py``: every revision remains
+hand-written and reviewed, because the schema is a contract rather than an
+autogeneration artifact.
 """
 
 
