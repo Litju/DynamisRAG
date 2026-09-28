@@ -16,6 +16,7 @@ classifiers = [
 ]
 dependencies = [
     "alembic>=1.14",
+    "defusedxml>=0.7.1",
     "fastapi>=0.115",
     "httpx2>=2.13",
     "psycopg[binary]>=3.2",
@@ -95,6 +96,9 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "alembic/versions/*.py" = [
     "F401",     # `op` and `sa` are part of the Alembic revision template
+]
+"src/dynamisrag/ingestion/*.py" = [
+    "N818",     # RES-132 fixes the acquisition error surface names (EuropePmcNotAvailable, ...)
 ]
 "tests/**" = [
     "ANN401",   # tests parse third-party JSON payloads that are genuinely untyped
