@@ -307,7 +307,9 @@ class ParagraphRecord(Base):
         PrimaryKeyConstraint("id", name="pk_paragraph"),
         UniqueConstraint("paragraph_key", name="uq_paragraph_paragraph_key"),
         UniqueConstraint(
-            "document_version_id", "source_anchor", name="uq_paragraph_document_version_source_anchor"
+            "document_version_id",
+            "source_anchor",
+            name="uq_paragraph_document_version_source_anchor",
         ),
         UniqueConstraint(
             "document_version_id", "ordinal", name="uq_paragraph_document_version_ordinal"
@@ -330,7 +332,9 @@ class ParagraphRecord(Base):
         CheckConstraint(
             "region IN ('front', 'body', 'back')", name="ck_paragraph_region_source_derived"
         ),
-        CheckConstraint("content_sha256 ~ '^[0-9a-f]{64}$'", name="ck_paragraph_content_sha256_hex"),
+        CheckConstraint(
+            "content_sha256 ~ '^[0-9a-f]{64}$'", name="ck_paragraph_content_sha256_hex"
+        ),
         Index("ix_paragraph_document_version_id", "document_version_id"),
         Index("ix_paragraph_section_id", "section_id"),
     )
