@@ -1,9 +1,9 @@
 """RES-131: canonical scientific document model.
 
-Creates the eight canonical tables — ``source_artifact``, ``document``,
-``document_version``, ``section``, ``passage``, ``citation``,
-``document_table`` and ``figure`` — with the full constraint set that makes
-the domain invariants enforceable by the database itself:
+Creates the canonical tables — ``source_artifact``, ``document``,
+``document_identifier``, ``document_version``, ``section``, ``passage``,
+``citation``, ``document_table`` and ``figure`` — with the full constraint
+set that makes the domain invariants enforceable by the database itself:
 
 * deterministic canonical keys (``artifact_key``, ``canonical_key``,
   ``version_key``, ``section_key``, ``passage_key``, ``citation_key``,
@@ -13,6 +13,9 @@ the domain invariants enforceable by the database itself:
   hexadecimal, mirroring the domain-layer validation;
 * composite foreign keys force a section's parent and a table/figure's
   owning section to belong to the same ``document_version``;
+* ``document.identifier`` aliases are globally unique per
+  ``(namespace, normalized_value)`` and immutable, so identifier enrichment
+  never re-identifies a document;
 * every timestamp is ``TIMESTAMPTZ`` and every table has a
   ``row_created_at`` defaulted to the transaction timestamp.
 
@@ -47,6 +50,7 @@ _PATH_FORMAT = "~ '^[0-9]+(\\.[0-9]+)*$'"
 _CANONICAL_TABLES = (
     "source_artifact",
     "document",
+    "document_identifier",
     "document_version",
     "section",
     "passage",
@@ -121,22 +125,37 @@ def upgrade() -> None:
         sa.Column("id", sa.Uuid, nullable=False),
         sa.Column("canonical_key", sa.Text, nullable=False),
         sa.Column("document_type", sa.Text, nullable=False),
-        sa.Column("doi", sa.Text, nullable=True),
-        sa.Column("pmid", sa.Text, nullable=True),
-        sa.Column("pmcid", sa.Text, nullable=True),
         sa.Column("title", sa.Text, nullable=True),
         _ROW_CREATED_AT,
         sa.PrimaryKeyConstraint("id", name="pk_document"),
         sa.UniqueConstraint("canonical_key", name="uq_document_canonical_key"),
-        sa.CheckConstraint("doi IS NULL OR doi " + _DOI_FORMAT, name="ck_document_doi_format"),
-        sa.CheckConstraint("pmid IS NULL OR pmid " + _PMAD_FORMAT, name="ck_document_pmid_format"),
+    )
+
+    op.create_table(
+        "document_identifier",
+        sa.Column("id", sa.Uuid, nullable=False),
+        sa.Column("document_id", sa.Uuid, nullable=False),
+        sa.Column("namespace", sa.Text, nullable=False),
+        sa.Column("normalized_value", sa.Text, nullable=False),
+        _ROW_CREATED_AT,
+        sa.PrimaryKeyConstraint("id", name="pk_document_identifier"),
+        sa.UniqueConstraint(
+            "namespace", "normalized_value", name="uq_document_identifier_namespace_value"
+        ),
+        sa.ForeignKeyConstraint(
+            ["document_id"], ["document.id"], name="fk_document_identifier_document"
+        ),
         sa.CheckConstraint(
-            "pmcid IS NULL OR pmcid " + _PMCID_FORMAT, name="ck_document_pmcid_format"
+            "namespace IN ('doi', 'pmid', 'pmcid')", name="ck_document_identifier_namespace"
+        ),
+        sa.CheckConstraint(
+            "(namespace = 'doi' AND normalized_value " + _DOI_FORMAT + ")"
+            " OR (namespace = 'pmid' AND normalized_value " + _PMAD_FORMAT + ")"
+            " OR (namespace = 'pmcid' AND normalized_value " + _PMCID_FORMAT + ")",
+            name="ck_document_identifier_value_format",
         ),
     )
-    op.create_index("ix_document_doi", "document", ["doi"])
-    op.create_index("ix_document_pmid", "document", ["pmid"])
-    op.create_index("ix_document_pmcid", "document", ["pmcid"])
+    op.create_index("ix_document_identifier_document_id", "document_identifier", ["document_id"])
 
     op.create_table(
         "document_version",
@@ -430,5 +449,6 @@ def downgrade() -> None:
     op.drop_table("passage")
     op.drop_table("section")
     op.drop_table("document_version")
+    op.drop_table("document_identifier")
     op.drop_table("document")
     op.drop_table("source_artifact")

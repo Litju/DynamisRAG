@@ -31,6 +31,7 @@ _EXPECTED_POSTGRES_MAJOR: Final[str] = "18"
 _CANONICAL_TABLES: Final[tuple[str, ...]] = (
     "source_artifact",
     "document",
+    "document_identifier",
     "document_version",
     "section",
     "passage",
@@ -42,6 +43,7 @@ _CANONICAL_TABLES: Final[tuple[str, ...]] = (
 _CANONICAL_UNIQUE_CONSTRAINTS: Final[tuple[str, ...]] = (
     "uq_source_artifact_artifact_key",
     "uq_document_canonical_key",
+    "uq_document_identifier_namespace_value",
     "uq_document_version_version_key",
     "uq_section_document_version_section_key",
     "uq_passage_version_chunker_ordinal",

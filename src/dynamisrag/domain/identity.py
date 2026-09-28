@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Iterable
+from typing import Literal
 
 __all__ = [
     "UNIT_SEPARATOR",
@@ -34,6 +35,7 @@ __all__ = [
     "document_table_key",
     "document_version_key",
     "figure_key",
+    "identity_basis",
     "passage_key",
     "section_key",
     "source_artifact_key",
@@ -116,6 +118,18 @@ def document_canonical_key(
     if normalized_title:
         return f"title:{digest(normalized_title)}"
     raise ValueError("document identity requires at least one of: doi, pmid, pmcid, title")
+
+
+def identity_basis(canonical_key: str) -> Literal["doi", "pmid", "pmcid", "title"]:
+    """Return the namespace of the identifier a document canonical key was
+    derived from.
+
+    A ``title:`` key is *provisional* identity — weak by construction, and
+    explicitly not equivalent to an alias-based (``doi:``/``pmid:``/
+    ``pmcid:``) identity. The prefix makes the distinction inspectable
+    everywhere a document identity is consumed.
+    """
+    return canonical_key.split(":", 1)[0]  # pyright: ignore[reportReturnType]
 
 
 def document_version_key(

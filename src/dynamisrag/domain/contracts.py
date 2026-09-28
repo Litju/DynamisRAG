@@ -1,9 +1,10 @@
 """Canonical scientific document contracts (RES-131).
 
-Eight frozen, strictly validated pydantic models — :class:`SourceArtifact`,
-:class:`Document`, `DocumentVersion`, :class:`Section`, :class:`Passage`,
-:class:`Citation`, :class:`DocumentTable` and :class:`Figure` — define the
-meanings every later DynamisRAG system depends on.
+The frozen, strictly validated pydantic models — :class:`SourceArtifact`,
+:class:`Document`, :class:`DocumentIdentifier`, :class:`DocumentVersion`,
+:class:`Section`, :class:`Passage`, :class:`Citation`, :class:`DocumentTable`
+and :class:`Figure` — define the meanings every later DynamisRAG system
+depends on.
 
 Design rules enforced here:
 
@@ -26,6 +27,7 @@ Design rules enforced here:
 
 from __future__ import annotations
 
+import re
 from typing import Any, Self
 from uuid import UUID, uuid4
 
@@ -43,6 +45,7 @@ from dynamisrag.domain.identity import (
 )
 from dynamisrag.domain.values import (
     DocumentType,
+    IdentifierNamespace,
     LanguageCode,
     MediaType,
     NormalizedDoi,
@@ -57,6 +60,7 @@ from dynamisrag.domain.values import (
 __all__ = [
     "Citation",
     "Document",
+    "DocumentIdentifier",
     "DocumentTable",
     "DocumentVersion",
     "Figure",
@@ -64,6 +68,14 @@ __all__ = [
     "Section",
     "SourceArtifact",
 ]
+
+_NAMESPACE_VALUE_PATTERNS: dict[IdentifierNamespace, str] = {
+    IdentifierNamespace.DOI: r"^10\.[0-9]{4,9}/\S+$",
+    IdentifierNamespace.PMID: r"^[0-9]{1,10}$",
+    IdentifierNamespace.PMCID: r"^PMC[0-9]{1,12}$",
+}
+"""Each identifier namespace's value format, mirrored by database CHECK
+constraints at the persistence boundary."""
 
 _ContractConfig = ConfigDict(frozen=True, extra="forbid")
 
@@ -108,8 +120,16 @@ class Document(BaseModel):
     normalized version of it.
 
     A document answers exactly one question: *which logical work is this?*
-    It carries no version-specific scientific content — titles, authors and
+    It carries no version-specific scientific content — authors and
     bibliographic detail live on :class:`DocumentVersion`.
+
+    ``doi``/``pmid``/``pmcid`` record the strong identifiers known when the
+    document was first ingested; the strongest of them fixes ``canonical_key``
+    at creation and it never changes afterwards. Identifiers discovered later
+    are attached as :class:`DocumentIdentifier` aliases — enrichment adds
+    aliases, it never re-identifies the work. A document whose only identity
+    input is a title holds a provisional, title-digest identity, explicitly
+    weaker than any alias-based identity.
     """
 
     model_config = _ContractConfig
@@ -131,6 +151,34 @@ class Document(BaseModel):
                 doi=self.doi, pmid=self.pmid, pmcid=self.pmcid, title=self.title
             ),
         )
+        return self
+
+
+class DocumentIdentifier(BaseModel):
+    """One immutable, globally unique identifier alias pointing at the
+    :class:`Document` it identifies.
+
+    The pair ``(namespace, normalized_value)`` is globally unique: the same
+    DOI, PMID or PMCID can never be attached to two different documents.
+    Aliases are append-only — attaching a newly discovered identifier never
+    mutates the document's canonical identity, which was fixed at creation.
+    """
+
+    model_config = _ContractConfig
+
+    id: UUID = Field(default_factory=uuid4)
+    document_id: UUID
+    namespace: IdentifierNamespace
+    normalized_value: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _validate_value_against_namespace(self) -> Self:
+        pattern = _NAMESPACE_VALUE_PATTERNS[self.namespace]
+        if re.fullmatch(pattern, self.normalized_value) is None:
+            raise ValueError(
+                f"normalized_value {self.normalized_value!r} is not a valid "
+                f"{self.namespace.value} identifier"
+            )
         return self
 
 
