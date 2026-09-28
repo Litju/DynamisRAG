@@ -373,6 +373,7 @@ class Citation(BaseModel):
     version_key: str = Field(min_length=1)
     ordinal: int = Field(ge=0)
     source_reference_id: str | None = Field(default=None, min_length=1)
+    source_anchor: str | None = Field(default=None, min_length=1)
     doi: NormalizedDoi | None = None
     pmid: Pmid | None = None
     pmcid: Pmcid | None = None
