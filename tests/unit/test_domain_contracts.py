@@ -21,6 +21,7 @@ from dynamisrag.domain.contracts import (
     DocumentTable,
     DocumentVersion,
     Figure,
+    Paragraph,
     Passage,
     Section,
     SourceArtifact,
@@ -32,11 +33,12 @@ from dynamisrag.domain.identity import (
     document_version_key,
     figure_key,
     identity_basis,
+    paragraph_key,
     passage_key,
     section_key,
     source_artifact_key,
 )
-from dynamisrag.domain.values import DocumentType, IdentifierNamespace
+from dynamisrag.domain.values import DocumentType, IdentifierNamespace, ParagraphRegion
 
 _ARTIFACT_ID = UUID("11111111-1111-4111-8111-111111111111")
 _DOCUMENT_ID = UUID("22222222-2222-4222-8222-222222222222")
@@ -530,6 +532,91 @@ def test_passage_accepts_unknown_token_count() -> None:
     )
 
     assert passage.token_count is None
+
+
+# ---------------------------------------------------------------------------
+# Paragraph (RES-133)
+# ---------------------------------------------------------------------------
+
+
+def test_paragraph_derives_its_identity_key() -> None:
+    paragraph = Paragraph(
+        document_version_id=_DOCUMENT_ID,
+        version_key=_VERSION_KEY,
+        ordinal=0,
+        region=ParagraphRegion.BODY,
+        source_anchor="jats:/body[1]/p[1]",
+        text="A canonical source paragraph.",
+        content_sha256=_CONTENT_SHA,
+    )
+
+    assert paragraph.paragraph_key == paragraph_key(_VERSION_KEY, "jats:/body[1]/p[1]")
+
+
+def test_paragraph_identity_is_independent_of_section_provenance() -> None:
+    """Section is provenance, not identity: (version, source_anchor) is the key."""
+    first = Paragraph(
+        document_version_id=_DOCUMENT_ID,
+        version_key=_VERSION_KEY,
+        ordinal=0,
+        region=ParagraphRegion.BODY,
+        source_anchor="jats:/body[1]/p[1]",
+        text="one",
+        content_sha256="b" * 64,
+    )
+    second = Paragraph(
+        document_version_id=_DOCUMENT_ID,
+        version_key=_VERSION_KEY,
+        ordinal=5,
+        region=ParagraphRegion.FRONT,
+        source_anchor="jats:/body[1]/p[1]",
+        text="two",
+        content_sha256="c" * 64,
+    )
+
+    assert first.paragraph_key == second.paragraph_key
+
+
+def test_paragraph_rejects_empty_text_and_invalid_hash() -> None:
+    base: dict[str, Any] = {
+        "document_version_id": _DOCUMENT_ID,
+        "version_key": _VERSION_KEY,
+        "ordinal": 0,
+        "region": ParagraphRegion.BODY,
+        "source_anchor": "jats:/body[1]/p[1]",
+    }
+    with pytest.raises(ValidationError, match="text"):
+        Paragraph(**base, text="", content_sha256=_CONTENT_SHA)
+    with pytest.raises(ValidationError, match="content_sha256"):
+        Paragraph(**base, text="x", content_sha256="a" * 63)
+
+
+def test_paragraph_rejects_unknown_region() -> None:
+    with pytest.raises(ValidationError, match="region"):
+        Paragraph(
+            document_version_id=_DOCUMENT_ID,
+            version_key=_VERSION_KEY,
+            ordinal=0,
+            region="middle",  # type: ignore[reportArgumentType]
+            source_anchor="jats:/body[1]/p[1]",
+            text="x",
+            content_sha256=_CONTENT_SHA,
+        )
+
+
+def test_paragraph_is_frozen() -> None:
+    paragraph = Paragraph(
+        document_version_id=_DOCUMENT_ID,
+        version_key=_VERSION_KEY,
+        ordinal=0,
+        region=ParagraphRegion.BACK,
+        source_anchor="jats:/back[1]/p[1]",
+        text="x",
+        content_sha256=_CONTENT_SHA,
+    )
+
+    with pytest.raises(ValidationError, match="frozen"):
+        paragraph.text = "changed"
 
 
 # ---------------------------------------------------------------------------
