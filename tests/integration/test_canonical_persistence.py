@@ -14,9 +14,14 @@ from __future__ import annotations
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 from uuid import uuid4
 
+import psycopg
 import pytest
+from alembic import command
+from alembic.config import Config
+from psycopg import sql
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -72,6 +77,7 @@ from dynamisrag.domain.contracts import (
 )
 from dynamisrag.domain.identity import document_version_key, source_artifact_key
 from dynamisrag.domain.values import DocumentType, IdentifierNamespace
+from tests._support import ALEMBIC_INI, REPO_ROOT, build_settings
 
 pytestmark = pytest.mark.integration
 
@@ -1274,3 +1280,149 @@ def test_database_rejects_delete_on_canonical_tables(db_session: Session, table:
     # See the UPDATE test above: hardcoded table name, raw SQL by design.
     with pytest.raises(SQLAlchemyError, match="append-only"):
         db_session.execute(text(f"DELETE FROM {table}"))  # noqa: S608
+
+
+# ---------------------------------------------------------------------------
+# Cross-database semantic reproducibility
+# ---------------------------------------------------------------------------
+
+
+_FullGraphObjects = tuple[
+    SourceArtifact,
+    Document,
+    DocumentVersion,
+    Section,
+    Section,
+    Passage,
+    Citation,
+    DocumentTable,
+    Figure,
+    Document,
+    CitationResolution,
+]
+
+
+def _canonical_identities(objects: _FullGraphObjects) -> dict[str, Any]:
+    """The canonical identities of a persisted semantic graph, by entity."""
+    (
+        artifact,
+        document,
+        version,
+        root,
+        child,
+        passage,
+        citation,
+        table,
+        figure,
+        _cited,
+        _resolution,
+    ) = objects
+    return {
+        "artifact_key": artifact.artifact_key,
+        "document_canonical_key": document.canonical_key,
+        "version_key": version.version_key,
+        "section_keys": (root.section_key, child.section_key),
+        "passage_key": passage.passage_key,
+        "citation_key": citation.citation_key,
+        "document_table_key": table.document_table_key,
+        "figure_key": figure.figure_key,
+    }
+
+
+def _stored_canonical_identities(session: Session, objects: _FullGraphObjects) -> dict[str, Any]:
+    """Read the same identities back out of the database, by entity."""
+    (
+        artifact,
+        document,
+        version,
+        root,
+        child,
+        passage,
+        citation,
+        table,
+        figure,
+        _cited,
+        _resolution,
+    ) = objects
+    read_artifact = get_source_artifact(session, artifact.id)
+    read_document = get_document(session, document.id)
+    read_version = get_document_version(session, version.id)
+    read_root = get_section(session, root.id)
+    read_child = get_section(session, child.id)
+    read_passages = list_passages(session, version.id, passage.chunker_revision)
+    read_citations = list_citations(session, version.id)
+    read_tables = list_document_tables(session, version.id)
+    read_figures = list_figures(session, version.id)
+    assert read_artifact is not None
+    assert read_document is not None
+    assert read_version is not None
+    assert read_root is not None
+    assert read_child is not None
+    assert [item.id for item in read_passages] == [passage.id]
+    assert [item.id for item in read_citations] == [citation.id]
+    assert [item.id for item in read_tables] == [table.id]
+    assert [item.id for item in read_figures] == [figure.id]
+    return {
+        "artifact_key": read_artifact.artifact_key,
+        "document_canonical_key": read_document.canonical_key,
+        "version_key": read_version.version_key,
+        "section_keys": (read_root.section_key, read_child.section_key),
+        "passage_key": read_passages[0].passage_key,
+        "citation_key": read_citations[0].citation_key,
+        "document_table_key": read_tables[0].document_table_key,
+        "figure_key": read_figures[0].figure_key,
+    }
+
+
+def test_same_semantic_graph_produces_identical_canonical_identities_across_databases(
+    live_settings: Settings,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The core invariant against two independently constructed databases.
+
+    The same semantic graph is persisted twice: once into the canonical
+    database (inside the rolled-back test transaction) and once into a
+    throwaway scratch database that is created, migrated to head, used and
+    dropped within this test. The two runs assign different random surrogate
+    ids; every canonical identity — computed before the write and read back
+    from each database after it — must be identical.
+    """
+    first = _full_graph(db_session)
+    first_identities = _canonical_identities(first)
+    assert _stored_canonical_identities(db_session, first) == first_identities
+
+    database = f"dynamisrag_identity_probe_{uuid4().hex[:12]}"
+    maintenance_dsn = _dsn_with_database(str(live_settings.database_url), "postgres")
+    with psycopg.connect(maintenance_dsn, autocommit=True) as connection:
+        connection.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database)))
+    try:
+        scratch_dsn = _dsn_with_database(str(live_settings.database_url), database)
+        monkeypatch.setenv("DYNAMISRAG_DATABASE_URL", scratch_dsn)
+        config = Config(str(ALEMBIC_INI))
+        config.set_main_option("script_location", str(REPO_ROOT / "alembic"))
+        command.upgrade(config, "head")
+        engine = create_database_engine(build_settings(database_url=scratch_dsn))
+        try:
+            with Session(bind=engine) as scratch_session:
+                with scratch_session.begin():
+                    second = _full_graph(scratch_session)
+                stored_identities = _stored_canonical_identities(scratch_session, second)
+        finally:
+            engine.dispose()
+    finally:
+        with psycopg.connect(maintenance_dsn, autocommit=True) as connection:
+            connection.execute(
+                sql.SQL("DROP DATABASE IF EXISTS {}").format(sql.Identifier(database))
+            )
+
+    # Different database instance, different insertion run, different random
+    # surrogate ids — identical canonical identities.
+    assert first[2].id != second[2].id
+    assert _canonical_identities(second) == first_identities
+    assert stored_identities == first_identities
+
+
+def _dsn_with_database(dsn: str, database: str) -> str:
+    """Return ``dsn`` pointing at a different database on the same server."""
+    return urlunsplit(urlsplit(dsn)._replace(path=f"/{database}"))
