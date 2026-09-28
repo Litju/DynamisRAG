@@ -180,7 +180,11 @@ def _make_section(
 
 
 def _make_passage(
-    version: DocumentVersion, *, chunker_revision: str = "chunker-7", **overrides: Any
+    version: DocumentVersion,
+    *,
+    section: Section | None = None,
+    chunker_revision: str = "chunker-7",
+    **overrides: Any,
 ) -> Passage:
     kwargs: dict[str, Any] = {
         "document_version_id": version.id,
@@ -189,6 +193,7 @@ def _make_passage(
         "ordinal": 0,
         "text": "A canonical passage of scientific content.",
         "content_sha256": _CONTENT_SHA,
+        "section_id": section.id if section else None,
     }
     kwargs.update(overrides)
     return Passage(**kwargs)
@@ -800,6 +805,80 @@ def test_multiple_chunker_revisions_coexist_for_one_version(
     assert [item.ordinal for item in revision_seven] == [0, 1]
     assert [item.ordinal for item in revision_eight] == [0]
     assert revision_seven[0].passage_key != revision_eight[0].passage_key
+
+
+def test_passage_with_section_from_the_same_version_succeeds(
+    db_session: Session,
+) -> None:
+    """A passage may own a section of its own document version."""
+    artifact = _make_artifact()
+    document = _make_document()
+    version = _make_version(document, artifact)
+    insert_source_artifact(db_session, artifact)
+    insert_document(db_session, document)
+    insert_document_version(db_session, version)
+    section = _make_section(version, structural_path="2", ordinal=2)
+    insert_section(db_session, section)
+    passage = _make_passage(version, section=section, ordinal=0)
+
+    record = insert_passage(db_session, passage)
+
+    assert record.section_id == section.id
+    assert record.section_document_version_id == version.id
+
+
+def test_passage_without_a_section_remains_valid(db_session: Session) -> None:
+    """Section ownership is optional: a sectionless passage is a valid
+    first-class record."""
+    artifact = _make_artifact()
+    document = _make_document()
+    version = _make_version(document, artifact)
+    insert_source_artifact(db_session, artifact)
+    insert_document(db_session, document)
+    insert_document_version(db_session, version)
+
+    record = insert_passage(db_session, _make_passage(version, ordinal=0))
+
+    assert record.section_id is None
+    assert record.section_document_version_id is None
+
+
+def test_passage_with_section_from_another_document_version_is_rejected(
+    db_session: Session,
+) -> None:
+    """The composite section foreign key rejects a cross-version section.
+
+    The persistence mapper can never produce this row (it derives
+    ``section_document_version_id`` from the passage's own version), so the
+    prohibited row is built directly to prove the database enforces the
+    invariant for any writer.
+    """
+    artifact = _make_artifact()
+    document = _make_document()
+    version_one = _make_version(document, artifact)
+    version_two = _make_version(document, artifact, parser_revision="jats-1.3")
+    insert_source_artifact(db_session, artifact)
+    insert_document(db_session, document)
+    insert_document_version(db_session, version_one)
+    insert_document_version(db_session, version_two)
+    section = _make_section(version_one, structural_path="1", ordinal=1)
+    insert_section(db_session, section)
+
+    cross_version_passage = PassageRecord(
+        id=uuid4(),
+        document_version_id=version_two.id,
+        section_id=section.id,
+        section_document_version_id=version_two.id,
+        chunker_revision="chunker-7",
+        ordinal=0,
+        text="A canonical passage of scientific content.",
+        content_sha256=_CONTENT_SHA,
+        passage_key="f" * 64,
+    )
+    db_session.add(cross_version_passage)
+
+    with pytest.raises(IntegrityError, match="fk_passage_section"):
+        db_session.flush()
 
 
 # ---------------------------------------------------------------------------
