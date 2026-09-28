@@ -33,6 +33,7 @@ from dynamisrag.db.models import (
     DocumentTableRecord,
     DocumentVersionRecord,
     FigureRecord,
+    ParagraphRecord,
     PassageRecord,
     SectionRecord,
     SourceArtifactRecord,
@@ -45,6 +46,7 @@ from dynamisrag.domain.contracts import (
     DocumentTable,
     DocumentVersion,
     Figure,
+    Paragraph,
     Passage,
     Section,
     SourceArtifact,
@@ -54,8 +56,11 @@ from dynamisrag.domain.values import IdentifierNamespace
 __all__ = [
     "get_citation_resolutions",
     "get_document",
+    "get_document_by_canonical_key",
+    "get_document_by_identifier",
     "get_document_identifiers",
     "get_document_version",
+    "get_document_version_by_key",
     "get_section",
     "get_source_artifact",
     "get_source_artifact_by_key",
@@ -66,6 +71,7 @@ __all__ = [
     "insert_document_table",
     "insert_document_version",
     "insert_figure",
+    "insert_paragraph",
     "insert_passage",
     "insert_section",
     "insert_source_artifact",
@@ -73,6 +79,7 @@ __all__ = [
     "list_document_tables",
     "list_document_versions",
     "list_figures",
+    "list_paragraphs",
     "list_passages",
     "list_sections",
 ]
@@ -325,6 +332,41 @@ def insert_passage(session: Session, passage: Passage) -> PassageRecord:
     return record
 
 
+def insert_paragraph(session: Session, paragraph: Paragraph) -> ParagraphRecord:
+    """Persist one immutable source paragraph and flush to enforce
+    constraints.
+
+    The composite section foreign key needs the owning section's document
+    version alongside the section id, so ``section_document_version_id`` is
+    filled from the paragraph's own version — the database then rejects any
+    section that belongs to a different document version. The paragraph's
+    ``version_key`` is bound to the referenced version first.
+    """
+    _require_version_key(
+        session,
+        "paragraph.document_version_id -> document_version.version_key",
+        paragraph.document_version_id,
+        paragraph.version_key,
+    )
+    record = ParagraphRecord(
+        id=paragraph.id,
+        document_version_id=paragraph.document_version_id,
+        section_id=paragraph.section_id,
+        section_document_version_id=(
+            paragraph.document_version_id if paragraph.section_id is not None else None
+        ),
+        ordinal=paragraph.ordinal,
+        region=paragraph.region.value,
+        source_anchor=paragraph.source_anchor,
+        text=paragraph.text,
+        content_sha256=paragraph.content_sha256,
+        paragraph_key=paragraph.paragraph_key,
+    )
+    session.add(record)
+    session.flush()
+    return record
+
+
 def insert_citation(session: Session, citation: Citation) -> CitationRecord:
     """Persist one immutable bibliographic reference and flush to enforce
     constraints.
@@ -346,6 +388,7 @@ def insert_citation(session: Session, citation: Citation) -> CitationRecord:
         document_version_id=citation.document_version_id,
         ordinal=citation.ordinal,
         source_reference_id=citation.source_reference_id,
+        source_anchor=citation.source_anchor,
         doi=citation.doi,
         pmid=citation.pmid,
         pmcid=citation.pmcid,
@@ -478,6 +521,34 @@ def get_document(session: Session, document_id: UUID) -> DocumentRecord | None:
     return session.get(DocumentRecord, document_id)
 
 
+def get_document_by_identifier(
+    session: Session, namespace: IdentifierNamespace, normalized_value: str
+) -> DocumentRecord | None:
+    """Resolve the Document carrying one identifier alias, or ``None``.
+
+    This is the lookup that makes logical-document resolution possible: the
+    alias table is the complete record of every identifier a work has been
+    known by, so a parsed DOI/PMID/PMCID finds the existing logical Document
+    instead of creating a duplicate.
+    """
+    return session.scalars(
+        select(DocumentRecord)
+        .join(
+            DocumentIdentifierRecord,
+            DocumentIdentifierRecord.document_id == DocumentRecord.id,
+        )
+        .where(DocumentIdentifierRecord.namespace == namespace.value)
+        .where(DocumentIdentifierRecord.normalized_value == normalized_value)
+    ).first()
+
+
+def get_document_by_canonical_key(session: Session, canonical_key: str) -> DocumentRecord | None:
+    """Resolve a Document by its fixed canonical key, or ``None``."""
+    return session.scalars(
+        select(DocumentRecord).where(DocumentRecord.canonical_key == canonical_key)
+    ).first()
+
+
 def get_document_identifiers(
     session: Session, document_id: UUID
 ) -> Sequence[DocumentIdentifierRecord]:
@@ -492,6 +563,19 @@ def get_document_identifiers(
 
 def get_document_version(session: Session, version_id: UUID) -> DocumentVersionRecord | None:
     return session.get(DocumentVersionRecord, version_id)
+
+
+def get_document_version_by_key(session: Session, version_key: str) -> DocumentVersionRecord | None:
+    """Resolve a DocumentVersion by its deterministic key, or ``None``.
+
+    This is the lookup that makes canonical materialization idempotent: the
+    same SourceArtifact parsed under the same parser/normalizer revisions
+    yields the same ``version_key``, so a reparse finds the persisted version
+    instead of duplicating the canonical graph.
+    """
+    return session.scalars(
+        select(DocumentVersionRecord).where(DocumentVersionRecord.version_key == version_key)
+    ).first()
 
 
 def get_section(session: Session, section_id: UUID) -> SectionRecord | None:
@@ -514,6 +598,16 @@ def list_sections(session: Session, document_version_id: UUID) -> Sequence[Secti
             select(SectionRecord)
             .where(SectionRecord.document_version_id == document_version_id)
             .order_by(SectionRecord.structural_path, SectionRecord.ordinal)
+        )
+    )
+
+
+def list_paragraphs(session: Session, document_version_id: UUID) -> Sequence[ParagraphRecord]:
+    return list(
+        session.scalars(
+            select(ParagraphRecord)
+            .where(ParagraphRecord.document_version_id == document_version_id)
+            .order_by(ParagraphRecord.ordinal)
         )
     )
 

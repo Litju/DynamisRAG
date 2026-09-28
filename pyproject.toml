@@ -100,6 +100,9 @@ ignore = [
 "src/dynamisrag/ingestion/*.py" = [
     "N818",     # RES-132 fixes the acquisition error surface names (EuropePmcNotAvailable, ...)
 ]
+"src/dynamisrag/jats/*.py" = [
+    "N818",     # RES-133 fixes the JATS error surface names (JatsMissingRequiredMetadata, ...)
+]
 "tests/**" = [
     "ANN401",   # tests parse third-party JSON payloads that are genuinely untyped
     "ARG001",   # pytest fixtures are injected by name
