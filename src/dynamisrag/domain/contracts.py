@@ -2,9 +2,9 @@
 
 The frozen, strictly validated pydantic models — :class:`SourceArtifact`,
 :class:`Document`, :class:`DocumentIdentifier`, :class:`DocumentVersion`,
-:class:`Section`, :class:`Passage`, :class:`Citation`, :class:`DocumentTable`
-and :class:`Figure` — define the meanings every later DynamisRAG system
-depends on.
+:class:`Section`, :class:`Passage`, :class:`Citation`,
+:class:`CitationResolution`, :class:`DocumentTable` and :class:`Figure` —
+define the meanings every later DynamisRAG system depends on.
 
 Design rules enforced here:
 
@@ -35,6 +35,7 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validato
 
 from dynamisrag.domain.identity import (
     citation_key,
+    citation_resolution_key,
     document_canonical_key,
     document_table_key,
     document_version_key,
@@ -59,6 +60,7 @@ from dynamisrag.domain.values import (
 
 __all__ = [
     "Citation",
+    "CitationResolution",
     "Document",
     "DocumentIdentifier",
     "DocumentTable",
@@ -344,6 +346,46 @@ class Citation(BaseModel):
                 self.ordinal,
                 self.source_reference_id,
                 self.raw_reference_text,
+            ),
+        )
+        return self
+
+
+class CitationResolution(BaseModel):
+    """Append-only record of a citation having been resolved to a document.
+
+    Resolution state never lives on the immutable canonical citation: an
+    unresolved citation is permanently valid, and resolving it later means
+    appending a resolution record, never updating the citation.
+
+    ``citation_key`` and ``resolved_document_canonical_key`` are the semantic
+    parent identities the deterministic resolution key derives from — never
+    the surrogate ids. A repeated identical resolution (same citation, same
+    document, same resolver revision) collides on the unique
+    ``resolution_key`` instead of creating an ambiguous duplicate; a new
+    resolver revision produces a new, coexisting resolution.
+    """
+
+    model_config = _ContractConfig
+
+    id: UUID = Field(default_factory=uuid4)
+    citation_id: UUID
+    citation_key: str = Field(min_length=1)
+    resolved_document_id: UUID
+    resolved_document_canonical_key: str = Field(min_length=1)
+    resolver_revision: RevisionTag
+    resolved_at: AwareDatetime
+    resolution_key: str = Field(init=False, default="")
+
+    @model_validator(mode="after")
+    def _derive_resolution_key(self) -> Self:
+        object.__setattr__(
+            self,
+            "resolution_key",
+            citation_resolution_key(
+                self.citation_key,
+                self.resolved_document_canonical_key,
+                self.resolver_revision,
             ),
         )
         return self
