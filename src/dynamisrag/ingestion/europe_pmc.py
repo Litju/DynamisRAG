@@ -178,7 +178,10 @@ class EuropePmcClient:
     def _media_type(self, response: httpx2.Response, canonical: str) -> str:
         declared = response.headers.get("content-type")
         if declared is None:
-            return "application/xml"
+            raise EuropePmcUnexpectedResponse(
+                f"Europe PMC returned no Content-Type for {canonical}; the source media "
+                "type is required provenance and is never invented"
+            )
         media_type = declared.split(";", 1)[0].strip().lower()
         if media_type not in _XML_MEDIA_TYPES and not media_type.endswith(_XML_SUFFIX):
             raise EuropePmcUnexpectedResponse(
