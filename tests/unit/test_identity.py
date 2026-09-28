@@ -93,7 +93,9 @@ def test_document_canonical_key_prefers_doi_over_everything_else() -> None:
 
 def test_document_canonical_key_normalizes_doi_forms_to_one_identity() -> None:
     bare = document_canonical_key(doi="10.1038/nature12373", pmid=None, pmcid=None, title=None)
-    prefixed = document_canonical_key(doi="doi:10.1038/Nature12373", pmid=None, pmcid=None, title=None)
+    prefixed = document_canonical_key(
+        doi="doi:10.1038/Nature12373", pmid=None, pmcid=None, title=None
+    )
     resolved = document_canonical_key(
         doi="https://doi.org/10.1038/NATURE12373", pmid=None, pmcid=None, title=None
     )
@@ -103,8 +105,7 @@ def test_document_canonical_key_normalizes_doi_forms_to_one_identity() -> None:
 
 def test_document_canonical_key_falls_back_pmid_pmcid_then_title() -> None:
     assert (
-        document_canonical_key(doi=None, pmid="12345", pmcid="PMC123456", title="T")
-        == "pmid:12345"
+        document_canonical_key(doi=None, pmid="12345", pmcid="PMC123456", title="T") == "pmid:12345"
     )
     assert (
         document_canonical_key(doi=None, pmid=None, pmcid="PMC123456", title="T")
@@ -138,11 +139,21 @@ def test_document_version_key_is_deterministic() -> None:
 def test_document_version_key_changes_with_each_identity_input() -> None:
     baseline = document_version_key(_ARTIFACT_ID, _DOCUMENT_ID, "parser-1", "norm-1", _CONTENT_SHA)
 
-    assert baseline != document_version_key(uuid4(), _DOCUMENT_ID, "parser-1", "norm-1", _CONTENT_SHA)
-    assert baseline != document_version_key(_ARTIFACT_ID, uuid4(), "parser-1", "norm-1", _CONTENT_SHA)
-    assert baseline != document_version_key(_ARTIFACT_ID, _DOCUMENT_ID, "parser-2", "norm-1", _CONTENT_SHA)
-    assert baseline != document_version_key(_ARTIFACT_ID, _DOCUMENT_ID, "parser-1", "norm-2", _CONTENT_SHA)
-    assert baseline != document_version_key(_ARTIFACT_ID, _DOCUMENT_ID, "parser-1", "norm-1", "c" * 64)
+    assert baseline != document_version_key(
+        uuid4(), _DOCUMENT_ID, "parser-1", "norm-1", _CONTENT_SHA
+    )
+    assert baseline != document_version_key(
+        _ARTIFACT_ID, uuid4(), "parser-1", "norm-1", _CONTENT_SHA
+    )
+    assert baseline != document_version_key(
+        _ARTIFACT_ID, _DOCUMENT_ID, "parser-2", "norm-1", _CONTENT_SHA
+    )
+    assert baseline != document_version_key(
+        _ARTIFACT_ID, _DOCUMENT_ID, "parser-1", "norm-2", _CONTENT_SHA
+    )
+    assert baseline != document_version_key(
+        _ARTIFACT_ID, _DOCUMENT_ID, "parser-1", "norm-1", "c" * 64
+    )
 
 
 def test_section_key_is_deterministic_and_path_sensitive() -> None:
