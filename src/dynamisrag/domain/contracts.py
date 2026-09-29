@@ -158,6 +158,38 @@ class Document(BaseModel):
         )
         return self
 
+    @classmethod
+    def from_persisted(
+        cls,
+        *,
+        document_id: UUID,
+        canonical_key: str,
+        document_type: DocumentType,
+        doi: NormalizedDoi | None = None,
+        pmid: Pmid | None = None,
+        pmcid: Pmcid | None = None,
+        title: str | None = None,
+    ) -> Self:
+        """Rebuild a Document from its persisted identity.
+
+        The persisted ``canonical_key`` is immutable — it was fixed at
+        creation from the strongest identifier known then — so it is carried
+        over verbatim instead of being recomputed from the aliases known
+        today. Recomputing would re-identify the work every time a stronger
+        alias is enriched, and would silently change every identity derived
+        from the canonical key (version keys, ...) with it.
+        """
+        document = cls(
+            id=document_id,
+            document_type=document_type,
+            doi=doi,
+            pmid=pmid,
+            pmcid=pmcid,
+            title=title,
+        )
+        object.__setattr__(document, "canonical_key", canonical_key)
+        return document
+
 
 class DocumentIdentifier(BaseModel):
     """One immutable, globally unique identifier alias pointing at the

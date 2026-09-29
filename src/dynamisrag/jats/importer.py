@@ -60,7 +60,11 @@ from dynamisrag.domain.contracts import (
     SourceArtifact,
 )
 from dynamisrag.domain.values import DocumentType, IdentifierNamespace
-from dynamisrag.jats.errors import JatsDocumentIdentityConflict, JatsSourceIntegrityError
+from dynamisrag.jats.errors import (
+    JatsDocumentIdentityConflict,
+    JatsSourceIntegrityError,
+    JatsSourcePmcidConflict,
+)
 from dynamisrag.jats.parser import (
     JATS_NORMALIZER_REVISION,
     JATS_PARSER_REVISION,
@@ -110,11 +114,14 @@ class JatsCanonicalImporter:
         under the same parser/normalizer revisions returns the persisted
         version with ``created=False`` and no duplicate rows. Raises
         :class:`JatsSourceIntegrityError` when the bytes do not match the
-        artifact's recorded provenance and
+        artifact's recorded provenance,
+        :class:`JatsSourcePmcidConflict` when a Europe PMC artifact's XML
+        declares a PMCID that differs from the acquired one, and
         :class:`JatsDocumentIdentityConflict` when the parsed identifiers
         resolve to different existing Documents.
         """
         parsed = self.parse_verified(artifact, xml_bytes)
+        self.validate_source_pmcid(artifact, parsed)
         candidates = candidate_identifiers(artifact, parsed)
         document = self._resolve_document(artifact, parsed, candidates)
         version = self._build_version(document, artifact, parsed)
@@ -156,6 +163,29 @@ class JatsCanonicalImporter:
                 f"artifact records {artifact.content_sha256} over {artifact.byte_size} bytes"
             )
         return JatsParser().parse(xml_bytes)
+
+    @staticmethod
+    def validate_source_pmcid(artifact: SourceArtifact, parsed: ParsedJatsArticle) -> None:
+        """Reject a Europe PMC artifact whose XML declares a different PMCID.
+
+        The acquired PMCID is strong acquisition provenance: when the XML also
+        declares one explicitly, the two must agree. A mismatch means the
+        bytes do not describe the artifact they were acquired as, so it is a
+        fatal source/identity conflict — the two PMCIDs are never attached
+        as aliases of one Document. An XML that omits the PMCID is valid:
+        the artifact PMCID remains a known identifier.
+        """
+        if artifact.source_system != "europe_pmc":
+            return
+        artifact_pmcid = artifact.source_external_id.strip()
+        if re.fullmatch(_PMCID_VALUE_FORMAT, artifact_pmcid) is None:
+            return
+        if parsed.pmcid is not None and parsed.pmcid != artifact_pmcid:
+            raise JatsSourcePmcidConflict(
+                f"europe_pmc artifact {artifact.artifact_key!r} was acquired as PMCID "
+                f"{artifact_pmcid} but its XML declares PMCID {parsed.pmcid}; the bytes "
+                "do not describe the artifact they were acquired as"
+            )
 
     # ------------------------------------------------------------------
     # Logical document resolution
@@ -245,7 +275,11 @@ class JatsCanonicalImporter:
 
     def _document_from_record(self, record: DocumentRecord) -> Document:
         """Rebuild the domain Document from a persisted record and its
-        aliases, reproducing the canonical key fixed at creation."""
+        aliases, preserving the canonical key fixed at creation.
+
+        The stored ``canonical_key`` is never recomputed from today's
+        aliases: enrichment adds aliases, it never re-identifies the work.
+        """
         doi: str | None = None
         pmid: str | None = None
         pmcid: str | None = None
@@ -256,8 +290,9 @@ class JatsCanonicalImporter:
                 pmid = alias.normalized_value
             elif alias.namespace == IdentifierNamespace.PMCID.value:
                 pmcid = alias.normalized_value
-        return Document(
-            id=record.id,
+        return Document.from_persisted(
+            document_id=record.id,
+            canonical_key=record.canonical_key,
             document_type=DocumentType(record.document_type),
             doi=doi,
             pmid=pmid,

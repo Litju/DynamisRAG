@@ -42,9 +42,12 @@ from dynamisrag.db import (
     list_sections,
 )
 from dynamisrag.db.models import (
+    CitationRecord,
     DocumentIdentifierRecord,
     DocumentRecord,
+    DocumentTableRecord,
     DocumentVersionRecord,
+    FigureRecord,
     ParagraphRecord,
     PassageRecord,
     SectionRecord,
@@ -58,6 +61,7 @@ from dynamisrag.jats import (
     JatsImportCounts,
     JatsImportResult,
     JatsParser,
+    JatsSourcePmcidConflict,
 )
 from tests._support import (
     ALEMBIC_INI,
@@ -341,7 +345,13 @@ def test_identifier_enrichment_appends_alias_without_reidentifying(
     db_session: Session,
 ) -> None:
     """An existing PMCID-identified Document + a newly parsed DOI: same
-    Document canonical key, DOI alias appended, no replacement Document."""
+    Document canonical key, DOI alias appended, no replacement Document.
+
+    The second reparse after enrichment is the regression proof: the
+    enriched Document must reconstruct with its original persisted canonical
+    key (not the DOI), so the same DocumentVersion is found instead of a
+    duplicate graph being materialized.
+    """
     existing = Document(
         document_type=DocumentType.JOURNAL_ARTICLE,
         doi=None,
@@ -374,6 +384,24 @@ def test_identifier_enrichment_appends_alias_without_reidentifying(
     document_count = db_session.scalar(select(func.count()).select_from(DocumentRecord))
     assert document_count == 1
 
+    # Reparse after enrichment: the persisted canonical key is preserved, so
+    # the same DocumentVersion is returned — no duplicate graph.
+    reparsed = _import(db_session, artifact, JATS_FULL_ARTICLE)
+
+    assert reparsed.created is False
+    assert reparsed.document.id == existing.id
+    assert reparsed.document.canonical_key == "pmcid:PMC123456"
+    assert reparsed.version.id == result.version.id
+    assert reparsed.version.version_key == result.version.version_key
+    assert reparsed.counts == result.counts
+
+    version_count = db_session.scalar(select(func.count()).select_from(DocumentVersionRecord))
+    assert version_count == 1
+    paragraph_count = db_session.scalar(select(func.count()).select_from(ParagraphRecord))
+    assert paragraph_count == 7
+    alias_count = len(get_document_identifiers(db_session, existing.id))
+    assert alias_count == 3  # no duplicate aliases
+
 
 def test_identifier_conflict_fails_without_a_partial_graph(
     db_session: Session,
@@ -405,6 +433,54 @@ def test_identifier_conflict_fails_without_a_partial_graph(
     assert db_session.scalar(select(func.count()).select_from(SectionRecord)) == 0
     assert db_session.scalar(select(func.count()).select_from(ParagraphRecord)) == 0
     assert db_session.scalar(select(func.count()).select_from(DocumentIdentifierRecord)) == 2
+
+
+# ---------------------------------------------------------------------------
+# Europe PMC source PMCID provenance
+# ---------------------------------------------------------------------------
+
+
+def test_artifact_pmcid_matching_the_xml_is_valid(db_session: Session) -> None:
+    """artifact PMC123 + XML PMC123: the explicit XML PMCID confirms the
+    acquired provenance and the import succeeds."""
+    artifact = _make_artifact(JATS_FULL_ARTICLE)
+    insert_source_artifact(db_session, artifact)
+
+    result = _import(db_session, artifact, JATS_FULL_ARTICLE)
+
+    assert result.created is True
+    assert result.document.canonical_key == "doi:10.1371/journal.pone.03089012"
+    aliases = get_document_identifiers(db_session, result.document.id)
+    assert ("pmcid", "PMC123456") in {
+        (alias.namespace, alias.normalized_value) for alias in aliases
+    }
+
+
+def test_artifact_pmcid_conflicting_with_the_xml_is_rejected(db_session: Session) -> None:
+    """artifact PMC123 + XML PMC999: explicit fatal source/identity conflict
+    raised before canonical materialization.
+
+    No partial graph is materialized, and the two PMCIDs are never attached
+    as aliases of one Document.
+    """
+    xml = JATS_FULL_ARTICLE.replace(
+        b'<article-id pub-id-type="pmcid">PMC123456</article-id>',
+        b'<article-id pub-id-type="pmcid">PMC999999</article-id>',
+    )
+    artifact = _make_artifact(xml)
+    insert_source_artifact(db_session, artifact)
+
+    with pytest.raises(JatsSourcePmcidConflict, match="PMC999999"):
+        _import(db_session, artifact, xml)
+
+    assert db_session.scalar(select(func.count()).select_from(DocumentRecord)) == 0
+    assert db_session.scalar(select(func.count()).select_from(DocumentIdentifierRecord)) == 0
+    assert db_session.scalar(select(func.count()).select_from(DocumentVersionRecord)) == 0
+    assert db_session.scalar(select(func.count()).select_from(SectionRecord)) == 0
+    assert db_session.scalar(select(func.count()).select_from(ParagraphRecord)) == 0
+    assert db_session.scalar(select(func.count()).select_from(CitationRecord)) == 0
+    assert db_session.scalar(select(func.count()).select_from(DocumentTableRecord)) == 0
+    assert db_session.scalar(select(func.count()).select_from(FigureRecord)) == 0
 
 
 # ---------------------------------------------------------------------------
