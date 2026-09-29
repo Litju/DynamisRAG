@@ -335,6 +335,46 @@ def test_existing_set_reconstructing_to_a_different_manifest_fails_explicitly(
 
 
 # ---------------------------------------------------------------------------
+# Empty-manifest no-op
+# ---------------------------------------------------------------------------
+
+
+def test_empty_manifest_is_a_deterministic_no_op(db_session: Session) -> None:
+    """An empty manifest performs zero database mutations and returns
+    created=False — no persisted run marker is written."""
+    version, sections, _paragraphs = _sample_graph(db_session)
+    chunker = StructureAwareChunker()
+    manifest = chunker.plan(version, sections, [])
+    assert manifest.passages == ()
+
+    result = PassageMaterializer(db_session).materialize(version, manifest)
+
+    assert result.created is False
+    assert result.passages == ()
+    assert result.source_spans == ()
+    assert list_passages(db_session, version.id, manifest.chunker_revision) == []
+    assert db_session.scalar(select(func.count()).select_from(PassageSourceSpanRecord)) == 0
+
+
+def test_repeated_empty_manifest_materialization_is_stable(db_session: Session) -> None:
+    """Repeated empty materialization is stable: created=False every time,
+    zero Passage/PassageSourceSpan rows."""
+    version, sections, _paragraphs = _sample_graph(db_session)
+    chunker = StructureAwareChunker()
+    manifest = chunker.plan(version, sections, [])
+    materializer = PassageMaterializer(db_session)
+
+    first = materializer.materialize(version, manifest)
+    second = materializer.materialize(version, manifest)
+
+    assert first.created is False
+    assert second.created is False
+    assert first.manifest.manifest_bytes == second.manifest.manifest_bytes
+    assert list_passages(db_session, version.id, manifest.chunker_revision) == []
+    assert db_session.scalar(select(func.count()).select_from(PassageSourceSpanRecord)) == 0
+
+
+# ---------------------------------------------------------------------------
 # Multiple chunker revisions
 # ---------------------------------------------------------------------------
 

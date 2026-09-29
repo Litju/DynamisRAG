@@ -113,7 +113,11 @@ class StructureAwareChunker:
         sections: Sequence[Section],
         paragraphs: Sequence[Paragraph],
     ) -> None:
-        """Every semantic input must belong to the version being chunked."""
+        """Every semantic input must belong to the version being chunked, and
+        every section-owned paragraph must resolve to one of the supplied
+        same-version sections — a missing section is never silently
+        downgraded to sectionless passage metadata."""
+        section_ids = {section.id for section in sections}
         for section in sections:
             if section.version_key != version.version_key:
                 raise ChunkingError(
@@ -125,6 +129,12 @@ class StructureAwareChunker:
                 raise ChunkingError(
                     f"paragraph {paragraph.paragraph_key!r} belongs to version "
                     f"{paragraph.version_key!r}, not {version.version_key!r}"
+                )
+            if paragraph.section_id is not None and paragraph.section_id not in section_ids:
+                raise ChunkingError(
+                    f"paragraph {paragraph.paragraph_key!r} references section "
+                    f"{paragraph.section_id} which is not among the supplied "
+                    f"sections of version {version.version_key!r}"
                 )
 
     # ------------------------------------------------------------------
