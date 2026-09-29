@@ -106,6 +106,9 @@ ignore = [
 "src/dynamisrag/search/*.py" = [
     "N818",     # RES-135 fixes the OpenSearch error surface names (OpenSearchUnexpectedResponse, ...)
 ]
+"src/dynamisrag/__main__.py" = [
+    "T20",     # a command-line entry point communicates through stdout/stderr
+]
 "tests/**" = [
     "ANN401",   # tests parse third-party JSON payloads that are genuinely untyped
     "ARG001",   # pytest fixtures are injected by name
