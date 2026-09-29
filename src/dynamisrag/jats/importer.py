@@ -123,23 +123,29 @@ class JatsCanonicalImporter:
         parsed = self.parse_verified(artifact, xml_bytes)
         self.validate_source_pmcid(artifact, parsed)
         candidates = candidate_identifiers(artifact, parsed)
-        document = self._resolve_document(artifact, parsed, candidates)
-        version = self._build_version(document, artifact, parsed)
-        existing = get_document_version_by_key(self._session, version.version_key)
-        if existing is not None:
-            return JatsImportResult(
-                document=document,
-                version=self._version_from_record(document, artifact, existing),
-                created=False,
-                counts=self._counts(existing.id),
-            )
-        self._attach_missing_aliases(document, candidates)
-        insert_document_version(self._session, version)
-        section_records = self._insert_sections(version, parsed)
-        self._insert_paragraphs(version, parsed, section_records)
-        self._insert_citations(version, parsed)
-        self._insert_tables(version, parsed, section_records)
-        self._insert_figures(version, parsed, section_records)
+        # One article canonicalization is atomic: every materialization
+        # mutation happens inside a SAVEPOINT, so a failure halfway through
+        # rolls the whole imported graph back while the caller's outer
+        # transaction stays usable. The importer never commits; the caller
+        # owns the final commit/rollback.
+        with self._session.begin_nested():
+            document = self._resolve_document(artifact, parsed, candidates)
+            version = self._build_version(document, artifact, parsed)
+            existing = get_document_version_by_key(self._session, version.version_key)
+            if existing is not None:
+                return JatsImportResult(
+                    document=document,
+                    version=self._version_from_record(document, artifact, existing),
+                    created=False,
+                    counts=self._counts(existing.id),
+                )
+            self._attach_missing_aliases(document, candidates)
+            insert_document_version(self._session, version)
+            section_records = self._insert_sections(version, parsed)
+            self._insert_paragraphs(version, parsed, section_records)
+            self._insert_citations(version, parsed)
+            self._insert_tables(version, parsed, section_records)
+            self._insert_figures(version, parsed, section_records)
         return JatsImportResult(
             document=document,
             version=version,

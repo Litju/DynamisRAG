@@ -52,7 +52,7 @@ from dynamisrag.db.models import (
     PassageRecord,
     SectionRecord,
 )
-from dynamisrag.domain.contracts import Document, SourceArtifact
+from dynamisrag.domain.contracts import Citation, Document, SourceArtifact
 from dynamisrag.domain.identity import document_version_key
 from dynamisrag.domain.values import DocumentType
 from dynamisrag.jats import (
@@ -481,6 +481,56 @@ def test_artifact_pmcid_conflicting_with_the_xml_is_rejected(db_session: Session
     assert db_session.scalar(select(func.count()).select_from(CitationRecord)) == 0
     assert db_session.scalar(select(func.count()).select_from(DocumentTableRecord)) == 0
     assert db_session.scalar(select(func.count()).select_from(FigureRecord)) == 0
+
+
+# ---------------------------------------------------------------------------
+# Savepoint atomicity
+# ---------------------------------------------------------------------------
+
+
+def test_mid_materialization_failure_rolls_back_only_the_import_savepoint(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failure halfway through materialization rolls back the importer's
+    savepoint only: no partial canonical graph remains, and the caller's
+    outer transaction stays usable.
+
+    The failure is forced at the citation insert — after the Document, its
+    aliases, the DocumentVersion, the Sections and the Paragraphs have all
+    been flushed — so it is genuinely mid-materialization.
+    """
+    artifact = _make_artifact(JATS_FULL_ARTICLE)
+    insert_source_artifact(db_session, artifact)
+
+    def failing_insert_citation(session: Session, citation: Citation) -> None:
+        raise RuntimeError("forced mid-materialization failure")
+
+    monkeypatch.setattr("dynamisrag.jats.importer.insert_citation", failing_insert_citation)
+
+    with pytest.raises(RuntimeError, match="forced mid-materialization failure"):
+        _import(db_session, artifact, JATS_FULL_ARTICLE)
+
+    # The imported graph is gone entirely: every canonical row flushed before
+    # the failure is rolled back with the savepoint.
+    assert db_session.scalar(select(func.count()).select_from(DocumentRecord)) == 0
+    assert db_session.scalar(select(func.count()).select_from(DocumentIdentifierRecord)) == 0
+    assert db_session.scalar(select(func.count()).select_from(DocumentVersionRecord)) == 0
+    assert db_session.scalar(select(func.count()).select_from(SectionRecord)) == 0
+    assert db_session.scalar(select(func.count()).select_from(ParagraphRecord)) == 0
+    assert db_session.scalar(select(func.count()).select_from(CitationRecord)) == 0
+    assert db_session.scalar(select(func.count()).select_from(DocumentTableRecord)) == 0
+    assert db_session.scalar(select(func.count()).select_from(FigureRecord)) == 0
+
+    # The outer transaction remains usable: an unrelated row can still be
+    # written and read.
+    unrelated = Document(
+        document_type=DocumentType.JOURNAL_ARTICLE,
+        title="An unrelated document",
+    )
+    insert_document(db_session, unrelated)
+    read = get_document(db_session, unrelated.id)
+    assert read is not None
+    assert read.title == "An unrelated document"
 
 
 # ---------------------------------------------------------------------------
