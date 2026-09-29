@@ -24,7 +24,6 @@ from uuid import UUID, uuid4
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from dynamisrag.chunking.errors import PassageSourceSpanError
 from dynamisrag.db.errors import SemanticParentKeyError
 from dynamisrag.db.models import (
     CitationRecord,
@@ -410,10 +409,10 @@ def insert_passage_source_span(
 
     The span's semantic parent keys are bound to their referenced parents
     first: a span may not point at one passage/paragraph by surrogate id
-    while carrying another's canonical key. The offsets must fit the
-    referenced paragraph's persisted text — the database's offset trigger
-    enforces the same rule for any writer, and the composite foreign keys
-    bind passage and paragraph to the span's document version.
+    while carrying another's canonical key. The composite foreign keys bind
+    passage and paragraph to the span's document version, and the database's
+    offset trigger enforces ``end_char <= length(paragraph.text)`` for any
+    writer — the Python layer never relies on itself alone.
     """
     _require_passage_key(
         session,
@@ -427,12 +426,6 @@ def insert_passage_source_span(
         span.paragraph_id,
         span.paragraph_key,
     )
-    paragraph = session.get(ParagraphRecord, span.paragraph_id)
-    if paragraph is not None and span.end_char > len(paragraph.text):
-        raise PassageSourceSpanError(
-            f"passage_source_span {span.span_key!r} end_char {span.end_char} exceeds "
-            f"paragraph {span.paragraph_id} text length {len(paragraph.text)}"
-        )
     record = PassageSourceSpanRecord(
         id=span.id,
         document_version_id=span.document_version_id,
@@ -674,6 +667,18 @@ def get_paragraph_by_key(session: Session, paragraph_key: str) -> ParagraphRecor
     """
     return session.scalars(
         select(ParagraphRecord).where(ParagraphRecord.paragraph_key == paragraph_key)
+    ).first()
+
+
+def get_section_by_key(session: Session, section_key: str) -> SectionRecord | None:
+    """Resolve a Section by its deterministic key, or ``None``.
+
+    The lookup that makes passage materialization resolve the manifest's
+    semantic section key to the persisted section row whose surrogate id
+    becomes the passage's ``section_id`` foreign key.
+    """
+    return session.scalars(
+        select(SectionRecord).where(SectionRecord.section_key == section_key)
     ).first()
 
 
