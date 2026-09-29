@@ -28,6 +28,8 @@ from dynamisrag.chunking.errors import (
     ChunkingError,
     PassageSourceSpanError,
 )
+from dynamisrag.chunking.manifest import PassageManifest
+from dynamisrag.chunking.planner import PlannedSourceSpan, StructureAwareChunker
 from dynamisrag.chunking.tokens import count_lexical_tokens
 
 __all__ = [
@@ -38,7 +40,10 @@ __all__ = [
     "ChunkerConfig",
     "ChunkerRevisionConflictError",
     "ChunkingError",
+    "PassageManifest",
     "PassageSourceSpanError",
+    "PlannedSourceSpan",
+    "StructureAwareChunker",
     "canonical_config_json",
     "chunker_revision",
     "config_sha256",
