@@ -103,6 +103,9 @@ ignore = [
 "src/dynamisrag/jats/*.py" = [
     "N818",     # RES-133 fixes the JATS error surface names (JatsMissingRequiredMetadata, ...)
 ]
+"src/dynamisrag/search/*.py" = [
+    "N818",     # RES-135 fixes the OpenSearch error surface names (OpenSearchUnexpectedResponse, ...)
+]
 "tests/**" = [
     "ANN401",   # tests parse third-party JSON payloads that are genuinely untyped
     "ARG001",   # pytest fixtures are injected by name

@@ -16,6 +16,7 @@ from dynamisrag.db import create_database_engine
 from dynamisrag.db.probe import POSTGRES_DEPENDENCY_NAME, check_postgres
 from dynamisrag.health.models import CheckStatus, LivenessReport, ReadinessReport
 from dynamisrag.health.router import LIVENESS_PATH, READINESS_PATH, SERVICE_NAME
+from dynamisrag.search.client import OpenSearchClient
 from dynamisrag.search.opensearch import OPENSEARCH_DEPENDENCY_NAME, OpenSearchProbe
 
 _EXPECTED_POSTGRES_MAJOR: Final[str] = "18"
@@ -71,11 +72,11 @@ def test_postgres_probe_reports_the_pinned_major_version(live_settings: Settings
 
 @pytest.mark.integration
 def test_opensearch_probe_reports_the_pinned_major_version(live_settings: Settings) -> None:
-    probe = OpenSearchProbe(live_settings)
+    client = OpenSearchClient(live_settings)
     try:
-        check = probe.check()
+        check = OpenSearchProbe(client).check()
     finally:
-        probe.close()
+        client.close()
 
     assert check.status is CheckStatus.UP
     assert check.version is not None
@@ -88,11 +89,11 @@ def test_opensearch_credentials_are_required(live_settings: Settings) -> None:
     with_wrong_password = live_settings.model_copy(
         update={"opensearch_password": SecretStr("definitely-not-the-password-1A")}
     )
-    probe = OpenSearchProbe(with_wrong_password)
+    client = OpenSearchClient(with_wrong_password)
     try:
-        check = probe.check()
+        check = OpenSearchProbe(client).check()
     finally:
-        probe.close()
+        client.close()
 
     assert check.status is CheckStatus.DOWN
     assert check.detail is not None
