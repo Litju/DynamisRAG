@@ -58,12 +58,17 @@ class ChunkerConfig(BaseModel):
 
     Sizing policy: ``target_tokens`` is the soft packing target, ``max_tokens``
     is the hard ceiling no passage may exceed, ``min_tokens`` is the soft
-    floor a final passage may merge backward to reach, and ``overlap`` is the
-    configured token overlap (zero in the first slice — the packing algorithm
-    never duplicates source text). Semantic policy: ``cross_section`` forbids
-    passages from ever spanning a section boundary, and
+    floor a final passage may merge backward to reach, and
     ``split_long_paragraphs_by_sentence`` enables the deterministic sentence
     split applied only to paragraphs that exceed ``max_tokens``.
+
+    structure-v1 semantics are locked, not caller-tunable: the packing
+    algorithm never duplicates source text (``overlap`` must be 0), passages
+    never cross a section boundary (``cross_section`` must be False), and the
+    revision fields must equal the implementation constants — a manifest may
+    only claim semantics the code actually executes. Unsupported values are
+    rejected at validation; semantic algorithm changes come from code, never
+    from caller-provided metadata.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -88,8 +93,32 @@ class ChunkerConfig(BaseModel):
             raise ValueError(
                 f"target_tokens ({self.target_tokens}) must be >= min_tokens ({self.min_tokens})"
             )
-        if self.overlap >= self.max_tokens:
-            raise ValueError(f"overlap ({self.overlap}) must be < max_tokens ({self.max_tokens})")
+        if self.overlap != 0:
+            raise ValueError(
+                f"overlap ({self.overlap}) is not supported by algorithm revision "
+                f"{ALGORITHM_REVISION!r}: structure-v1 never duplicates source text"
+            )
+        if self.cross_section:
+            raise ValueError(
+                "cross_section=True is not supported by algorithm revision "
+                f"{ALGORITHM_REVISION!r}: passages never cross a section boundary"
+            )
+        if self.token_counter_revision != TOKEN_COUNTER_REVISION:
+            raise ValueError(
+                f"token_counter_revision {self.token_counter_revision!r} is not the "
+                f"implemented counter revision {TOKEN_COUNTER_REVISION!r}"
+            )
+        if self.sentence_splitter_revision != SENTENCE_SPLITTER_REVISION:
+            raise ValueError(
+                f"sentence_splitter_revision {self.sentence_splitter_revision!r} is not "
+                f"the implemented splitter revision {SENTENCE_SPLITTER_REVISION!r}"
+            )
+        if self.algorithm_revision != ALGORITHM_REVISION:
+            raise ValueError(
+                f"algorithm_revision {self.algorithm_revision!r} is not the implemented "
+                f"algorithm revision {ALGORITHM_REVISION!r}; semantic algorithm changes "
+                "come from code, not caller-provided metadata"
+            )
         return self
 
 
