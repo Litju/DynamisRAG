@@ -197,8 +197,8 @@ class JatsParser:
             JatsParseWarning(
                 code="duplicate-xml-id",
                 message=(
-                    f"source @id {duplicate_id!r} occurs more than once; the first "
-                    "occurrence keeps the jats:#id anchor, later ones use structural paths"
+                    f"source @id {duplicate_id!r} occurs more than once and is not "
+                    "globally unique; every occurrence uses a structural-path anchor"
                 ),
             )
             for duplicate_id in anchors.duplicate_ids
