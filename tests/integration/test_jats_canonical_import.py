@@ -33,6 +33,7 @@ from dynamisrag.db import (
     get_document_version,
     get_document_version_by_key,
     insert_document,
+    insert_document_version,
     insert_source_artifact,
     list_citations,
     list_document_tables,
@@ -52,7 +53,7 @@ from dynamisrag.db.models import (
     PassageRecord,
     SectionRecord,
 )
-from dynamisrag.domain.contracts import Citation, Document, SourceArtifact
+from dynamisrag.domain.contracts import Citation, Document, DocumentVersion, SourceArtifact
 from dynamisrag.domain.identity import document_version_key
 from dynamisrag.domain.values import DocumentType
 from dynamisrag.jats import (
@@ -582,6 +583,77 @@ def test_paragraph_with_section_from_another_version_is_rejected(
     db_session.add(cross_version_paragraph)
 
     with pytest.raises(IntegrityError, match="fk_paragraph_section"):
+        db_session.flush()
+
+
+# ---------------------------------------------------------------------------
+# Paragraph database constraints (raw records, bypassing Pydantic)
+# ---------------------------------------------------------------------------
+
+
+def _minimal_version(db_session: Session) -> DocumentVersionRecord:
+    """Persist the smallest valid parent graph for raw paragraph rows."""
+    artifact = _make_artifact(JATS_FULL_ARTICLE)
+    insert_source_artifact(db_session, artifact)
+    document = Document(
+        document_type=DocumentType.JOURNAL_ARTICLE,
+        pmcid="PMC123456",
+        title="A synthetic study of things and numbers",
+    )
+    insert_document(db_session, document)
+    version = DocumentVersion(
+        document_id=document.id,
+        document_canonical_key=document.canonical_key,
+        source_artifact_id=artifact.id,
+        source_artifact_key=artifact.artifact_key,
+        parser_revision="jats-1.0",
+        normalizer_revision="norm-1.0",
+        content_fingerprint="a" * 64,
+        title="A synthetic study of things and numbers",
+        language="en",
+        created_at=_NOW,
+    )
+    return insert_document_version(db_session, version)
+
+
+def test_paragraph_empty_text_is_rejected_by_postgresql(db_session: Session) -> None:
+    """A raw record bypassing Pydantic: PostgreSQL rejects an empty text."""
+    version = _minimal_version(db_session)
+    db_session.add(
+        ParagraphRecord(
+            id=uuid4(),
+            document_version_id=version.id,
+            ordinal=99,
+            region="body",
+            source_anchor="jats:/body[1]/p[99]",
+            text="",
+            content_sha256="d" * 64,
+            paragraph_key="e" * 64,
+        )
+    )
+
+    with pytest.raises(IntegrityError, match="ck_paragraph_text_nonempty"):
+        db_session.flush()
+
+
+def test_paragraph_empty_source_anchor_is_rejected_by_postgresql(db_session: Session) -> None:
+    """A raw record bypassing Pydantic: PostgreSQL rejects an empty
+    source_anchor."""
+    version = _minimal_version(db_session)
+    db_session.add(
+        ParagraphRecord(
+            id=uuid4(),
+            document_version_id=version.id,
+            ordinal=99,
+            region="body",
+            source_anchor="",
+            text="A paragraph with an empty anchor.",
+            content_sha256="d" * 64,
+            paragraph_key="e" * 64,
+        )
+    )
+
+    with pytest.raises(IntegrityError, match="ck_paragraph_source_anchor_nonempty"):
         db_session.flush()
 
 

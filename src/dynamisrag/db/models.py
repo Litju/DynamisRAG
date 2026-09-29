@@ -335,6 +335,8 @@ class ParagraphRecord(Base):
         CheckConstraint(
             "content_sha256 ~ '^[0-9a-f]{64}$'", name="ck_paragraph_content_sha256_hex"
         ),
+        CheckConstraint("length(text) > 0", name="ck_paragraph_text_nonempty"),
+        CheckConstraint("length(source_anchor) > 0", name="ck_paragraph_source_anchor_nonempty"),
         Index("ix_paragraph_document_version_id", "document_version_id"),
         Index("ix_paragraph_section_id", "section_id"),
     )

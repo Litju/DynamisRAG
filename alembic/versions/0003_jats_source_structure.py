@@ -9,7 +9,9 @@ schema additions JATS source-structure preservation requires:
   and ``(document_version_id, ordinal)`` uniqueness prevent duplicate
   canonical paragraphs; the composite foreign key forces the owning section
   to belong to the same ``document_version``; the region CHECK restricts the
-  column to the source-derived JATS regions; the generic immutability trigger
+  column to the source-derived JATS regions; the non-empty CHECKs on ``text``
+  and ``source_anchor`` mirror the domain contract's ``min_length=1``
+  validation at the persistence boundary; the generic immutability trigger
   makes the table append-only like every other canonical table.
 * ``citation.source_anchor`` — the stable source location of the reference
   inside the source XML. The RES-131 citation contract already carried
@@ -96,6 +98,8 @@ def upgrade() -> None:
             "region IN ('front', 'body', 'back')", name="ck_paragraph_region_source_derived"
         ),
         sa.CheckConstraint(f"content_sha256 {_HEX64}", name="ck_paragraph_content_sha256_hex"),
+        sa.CheckConstraint("length(text) > 0", name="ck_paragraph_text_nonempty"),
+        sa.CheckConstraint("length(source_anchor) > 0", name="ck_paragraph_source_anchor_nonempty"),
     )
     op.create_index("ix_paragraph_document_version_id", _PARAGRAPH_TABLE, ["document_version_id"])
     op.create_index("ix_paragraph_section_id", _PARAGRAPH_TABLE, ["section_id"])

@@ -98,6 +98,8 @@ _PARAGRAPH_CONSTRAINTS: Final[tuple[str, ...]] = (
     "ck_paragraph_ordinal_nonnegative",
     "ck_paragraph_region_source_derived",
     "ck_paragraph_content_sha256_hex",
+    "ck_paragraph_text_nonempty",
+    "ck_paragraph_source_anchor_nonempty",
 )
 """Constraints introduced by 0003; absent from the sealed 0002 model."""
 
