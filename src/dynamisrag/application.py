@@ -4,13 +4,13 @@
 (``python -m dynamisrag``), by the ASGI server factory
 (``uvicorn --factory dynamisrag.application:create_app``) and by the test
 suite. It performs no I/O: the SQLAlchemy engine connects lazily and the
-OpenSearch client opens no connection until the first probe, so creating an
-application never depends on infrastructure being up.
+OpenSearch client opens no connection until an operation executes, so creating
+an application never depends on infrastructure being up.
 
 OpenSearch ownership is deliberately single: one
 :class:`~dynamisrag.search.client.OpenSearchClient` is created here, shared by
-everything that talks to the node, and closed exactly once when the lifespan
-ends. A new client is never constructed per request.
+the readiness probe and the BM25 search service, and closed exactly once when
+the lifespan ends. A new client is never constructed per request.
 """
 
 from __future__ import annotations
@@ -27,17 +27,21 @@ from dynamisrag.config import Settings, load_settings
 from dynamisrag.db.engine import create_database_engine
 from dynamisrag.health.router import LIVENESS_PATH, READINESS_PATH, build_health_router
 from dynamisrag.logging_config import APP_LOGGER_NAME
+from dynamisrag.search.bm25 import Bm25SearchService
 from dynamisrag.search.client import OpenSearchClient
 from dynamisrag.search.opensearch import OpenSearchProbe
+from dynamisrag.search.router import SEARCH_PATH, build_search_router
 
 __all__ = ["API_DESCRIPTION", "API_TITLE", "create_app"]
 
 API_TITLE: Final[str] = "DynamisRAG"
 API_DESCRIPTION: Final[str] = (
     "Evaluation-first RAG platform for auditable retrieval and evidence-grounded AI. "
-    "This build is the RES-130 foundation: configuration, health surface and "
-    "infrastructure connectivity. Retrieval, ranking, embeddings and generation are "
-    "not part of this slice."
+    "This build projects the canonical PostgreSQL passage model into a versioned, "
+    "disposable OpenSearch projection and serves deterministic BM25 retrieval over "
+    "it. The projection is a rebuildable cache, never an authority: no canonical "
+    "state depends on it. Embeddings, vector search and generation are not part of "
+    "this slice."
 )
 
 _logger: Final[logging.Logger] = logging.getLogger(APP_LOGGER_NAME)
@@ -54,6 +58,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     engine = create_database_engine(resolved)
     opensearch_client = OpenSearchClient(resolved)
     probe = OpenSearchProbe(opensearch_client)
+    search = Bm25SearchService(opensearch_client, alias=resolved.opensearch_index_alias)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncGenerator[None]:
@@ -72,5 +77,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     app.include_router(build_health_router(settings=resolved, engine=engine, opensearch=probe))
-    _logger.debug("application created: health=%s,%s", LIVENESS_PATH, READINESS_PATH)
+    app.include_router(build_search_router(search=search))
+
+    _logger.debug(
+        "application created: health=%s,%s search=%s", LIVENESS_PATH, READINESS_PATH, SEARCH_PATH
+    )
     return app
