@@ -6,9 +6,9 @@ its anchor. The policy:
 
 * **Globally unique non-empty JATS ``@id``** -> ``jats:#<id>`` (e.g.
   ``jats:#sec1``, ``jats:#R12``, ``jats:#F1``), the stable source-assigned
-  identity. Uniqueness is decided over the whole document in a first
-  counting pass, so an ``@id`` that occurs exactly once always yields the
-  ``jats:#id`` form.
+  identity. Uniqueness is decided over every element of the whole document
+  in a first counting pass, so an ``@id`` that occurs exactly once always
+  yields the ``jats:#id`` form.
 * **Missing or duplicated ``@id``** -> a deterministic structural path of
   local tag names and 1-based same-name sibling indices, e.g.
   ``jats:/article[1]/body[1]/sec[2]/sec[1]/p[3]``. A duplicated ``@id`` is
@@ -61,7 +61,8 @@ class AnchorIndex:
 
     anchors: dict[int, str]
     duplicate_ids: tuple[str, ...] = ()
-    """Source ``@id`` values that occurred more than once, in sorted order."""
+    """Source ``@id`` values that occurred more than once anywhere in the
+    source document, in sorted order."""
 
     def anchor_for(self, element: Element) -> str | None:
         """Return the stable anchor assigned to ``element``, or ``None`` if
@@ -72,23 +73,29 @@ class AnchorIndex:
 def build_anchor_index(root: Element) -> AnchorIndex:
     """Assign a stable anchor to every anchored element.
 
-    Id uniqueness is decided in a first counting pass over the whole
-    document, then a single walk assigns anchors: same bytes, same anchors.
+    Id uniqueness is decided in a first counting pass over every element in
+    the whole document, then a single walk assigns anchors: same bytes,
+    same anchors.
     """
-    id_counts = _count_anchored_ids(root)
+    id_counts = _count_document_ids(root)
     duplicate_ids = {value for value, count in id_counts.items() if count > 1}
     anchors: dict[int, str] = {}
     _walk(root, _PATH_ROOT, anchors, duplicate_ids)
     return AnchorIndex(anchors=anchors, duplicate_ids=tuple(sorted(duplicate_ids)))
 
 
-def _count_anchored_ids(root: Element) -> dict[str, int]:
-    """Count how often each non-empty ``@id`` occurs on anchored elements,
-    in document order."""
+def _count_document_ids(root: Element) -> dict[str, int]:
+    """Count how often each non-empty ``@id`` occurs on any element in the
+    document, in document order.
+
+    The source-anchor contract allows ``jats:#id`` only when the source
+    ``@id`` is globally unique in the entire XML document, so this pass
+    inspects every element — a collision with an unanchored element (``aff``,
+    ``contrib``, ``supplementary-material``, ...) makes the fragment just as
+    ambiguous as a collision between two anchored elements.
+    """
     counts: dict[str, int] = {}
     for element in root.iter():
-        if local_name(element.tag) not in _ANCHORED_TAGS:
-            continue
         element_id = element.get("id")
         if element_id:
             counts[element_id] = counts.get(element_id, 0) + 1

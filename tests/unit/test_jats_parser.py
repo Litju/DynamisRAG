@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from typing import Final
 
 import pytest
+from defusedxml.ElementTree import fromstring as safe_fromstring
 
 from dynamisrag.domain.contracts import SourceArtifact
 from dynamisrag.domain.values import IdentifierNamespace, ParagraphRegion
@@ -24,6 +25,7 @@ from dynamisrag.jats import (
     JatsSourceIntegrityError,
     JatsSourcePmcidConflict,
     ParsedJatsArticle,
+    build_anchor_index,
 )
 from dynamisrag.jats.importer import candidate_identifiers
 from dynamisrag.jats.text import normalize_language, normalize_text
@@ -238,6 +240,60 @@ def test_unique_xml_ids_still_use_the_jats_fragment_anchor() -> None:
     assert first.source_anchor == "jats:/body[1]/sec[1]"
     assert second.source_anchor == "jats:/body[1]/sec[2]"
     assert third.source_anchor == "jats:#unique"
+
+
+_SHARED_ID_ACROSS_ELEMENT_KINDS: Final[bytes] = b"""<?xml version="1.0" encoding="UTF-8"?>
+<article>
+  <front>
+    <article-meta>
+      <title-group><article-title>Shared id across element kinds</article-title></title-group>
+      <aff id="shared">Institution</aff>
+    </article-meta>
+  </front>
+  <body>
+    <sec id="shared">
+      <title>Methods</title>
+      <p>Paragraph.</p>
+    </sec>
+    <sec id="methods-unique">
+      <title>Results</title>
+      <p>Unique anchored section.</p>
+    </sec>
+  </body>
+</article>
+"""
+
+
+def test_id_shared_with_unanchored_element_forces_path_fallback() -> None:
+    parsed = _parse(_SHARED_ID_ACROSS_ELEMENT_KINDS)
+
+    # "shared" occurs on both <aff> (unanchored) and <sec> (anchored), so it
+    # is reported as a document-global duplicate id...
+    assert any(
+        warning.code == "duplicate-xml-id" and "'shared'" in warning.message
+        for warning in parsed.warnings
+    )
+    # ...and the anchored section must use its deterministic structural
+    # path, never the ambiguous jats:#shared fragment.
+    section = parsed.sections[0]
+    assert section.source_anchor == "jats:/body[1]/sec[1]"
+    assert section.source_anchor != "jats:#shared"
+    # A genuinely unique anchored id in the same document still yields the
+    # jats:#id form.
+    assert parsed.sections[1].source_anchor == "jats:#methods-unique"
+    # The fallback is deterministic across parses.
+    reparsed = _parse(_SHARED_ID_ACROSS_ELEMENT_KINDS)
+    assert [section.source_anchor for section in reparsed.sections] == [
+        section.source_anchor for section in parsed.sections
+    ]
+
+
+def test_duplicate_ids_reports_collisions_with_unanchored_elements() -> None:
+    root = safe_fromstring(_SHARED_ID_ACROSS_ELEMENT_KINDS)
+    index = build_anchor_index(root)
+
+    assert "shared" in index.duplicate_ids
+    assert "methods-unique" not in index.duplicate_ids
 
 
 def test_structural_paths_trace_into_the_source_document() -> None:
