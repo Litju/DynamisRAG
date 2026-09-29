@@ -18,7 +18,10 @@ here; unknown ids surface through the database's own foreign-key semantics.
 
 from __future__ import annotations
 
+from collections import defaultdict
 from collections.abc import Sequence
+from dataclasses import dataclass
+from typing import Final
 from uuid import UUID, uuid4
 
 from sqlalchemy import select
@@ -56,6 +59,8 @@ from dynamisrag.domain.contracts import (
 from dynamisrag.domain.values import IdentifierNamespace, ParagraphRegion
 
 __all__ = [
+    "PassageProjectionRecords",
+    "PassageSourceSpanLineage",
     "get_citation_resolutions",
     "get_document",
     "get_document_by_canonical_key",
@@ -84,12 +89,22 @@ __all__ = [
     "list_document_versions",
     "list_figures",
     "list_paragraphs",
+    "list_passage_chunker_revisions",
+    "list_passage_projection_records",
     "list_passage_source_spans",
     "list_passages",
     "list_sections",
     "paragraph_from_record",
     "section_from_record",
 ]
+
+_PASSAGE_PROJECTION_ORDER: Final[str] = "passage_key"
+"""Projection rows are read in canonical passage-key order.
+
+The read order is part of the projection's determinism: the same canonical
+state must yield the same document sequence — and therefore the same projection
+bytes — regardless of insertion order or physical row layout.
+"""
 
 
 def _require_document_key(
@@ -834,5 +849,141 @@ def list_figures(session: Session, document_version_id: UUID) -> Sequence[Figure
             select(FigureRecord)
             .where(FigureRecord.document_version_id == document_version_id)
             .order_by(FigureRecord.ordinal)
+        )
+    )
+
+
+@dataclass(frozen=True)
+class PassageSourceSpanLineage:
+    """One passage source span joined to the paragraph whose text it addresses.
+
+    The span row carries only ``paragraph_id``; the deterministic
+    ``paragraph_key`` and the paragraph's stable ``source_anchor`` live on the
+    paragraph. Projecting exact source lineage needs both, so they are read
+    together rather than re-resolved per span.
+    """
+
+    span: PassageSourceSpanRecord
+    paragraph: ParagraphRecord
+
+
+@dataclass(frozen=True)
+class PassageProjectionRecords:
+    """Every canonical row one passage projection document is built from.
+
+    The read side of the projection boundary, still expressed in ORM records
+    and therefore still carrying surrogate ids. Interpreting them as
+    ``PassageProjectionDocument`` is the projection module's job, and it does so
+    from semantic values only — no ``id`` column crosses into the projection.
+    """
+
+    passage: PassageRecord
+    version: DocumentVersionRecord
+    document: DocumentRecord
+    artifact: SourceArtifactRecord
+    section: SectionRecord | None
+    source_spans: tuple[PassageSourceSpanLineage, ...]
+    identifiers: tuple[DocumentIdentifierRecord, ...]
+    """The document's recorded identifier aliases, ordered by
+    ``(namespace, normalized_value)``; consumed exactly as recorded, never
+    inferred from anything else."""
+
+
+def list_passage_projection_records(
+    session: Session, *, chunker_revision: str
+) -> Sequence[PassageProjectionRecords]:
+    """Read every canonical row needed to project ``chunker_revision``.
+
+    The requested ``chunker_revision`` is an explicit, mandatory selection:
+    PostgreSQL may hold several immutable passage sets for one document
+    version, and projecting more than one of them would index duplicate
+    retrieval content under different identities. Nothing here inspects
+    timestamps or guesses a "latest" revision.
+
+    Ordering is by ``passage_key``, which is what makes the resulting projection
+    byte-identical for the same canonical state. Only canonical tables are read:
+    no source bytes, no object store, no re-parsing.
+    """
+    core = list(
+        session.execute(
+            select(PassageRecord, DocumentVersionRecord, DocumentRecord, SourceArtifactRecord)
+            .join(
+                DocumentVersionRecord,
+                DocumentVersionRecord.id == PassageRecord.document_version_id,
+            )
+            .join(DocumentRecord, DocumentRecord.id == DocumentVersionRecord.document_id)
+            .join(
+                SourceArtifactRecord,
+                SourceArtifactRecord.id == DocumentVersionRecord.source_artifact_id,
+            )
+            .where(PassageRecord.chunker_revision == chunker_revision)
+            .order_by(PassageRecord.passage_key)
+        )
+    )
+
+    passage_ids = [passage.id for passage, _, _, _ in core]
+    document_ids = {document.id for _, _, document, _ in core}
+    section_ids = {
+        passage.section_id for passage, _, _, _ in core if passage.section_id is not None
+    }
+
+    sections: dict[UUID, SectionRecord] = {}
+    if section_ids:
+        sections = {
+            section.id: section
+            for section in session.scalars(
+                select(SectionRecord).where(SectionRecord.id.in_(section_ids))
+            )
+        }
+
+    spans_by_passage: dict[UUID, list[PassageSourceSpanLineage]] = defaultdict(list)
+    if passage_ids:
+        for span, paragraph in session.execute(
+            select(PassageSourceSpanRecord, ParagraphRecord)
+            .join(
+                ParagraphRecord,
+                ParagraphRecord.id == PassageSourceSpanRecord.paragraph_id,
+            )
+            .where(PassageSourceSpanRecord.passage_id.in_(passage_ids))
+            .order_by(PassageSourceSpanRecord.passage_id, PassageSourceSpanRecord.source_order)
+        ):
+            spans_by_passage[span.passage_id].append(
+                PassageSourceSpanLineage(span=span, paragraph=paragraph)
+            )
+
+    identifiers_by_document: dict[UUID, list[DocumentIdentifierRecord]] = defaultdict(list)
+    if document_ids:
+        for identifier in session.scalars(
+            select(DocumentIdentifierRecord)
+            .where(DocumentIdentifierRecord.document_id.in_(document_ids))
+            .order_by(DocumentIdentifierRecord.namespace, DocumentIdentifierRecord.normalized_value)
+        ):
+            identifiers_by_document[identifier.document_id].append(identifier)
+
+    return [
+        PassageProjectionRecords(
+            passage=passage,
+            version=version,
+            document=document,
+            artifact=artifact,
+            section=(sections.get(passage.section_id) if passage.section_id is not None else None),
+            source_spans=tuple(spans_by_passage.get(passage.id, ())),
+            identifiers=tuple(identifiers_by_document.get(document.id, ())),
+        )
+        for passage, version, document, artifact in core
+    ]
+
+
+def list_passage_chunker_revisions(session: Session) -> Sequence[str]:
+    """Every chunker revision the canonical corpus currently carries.
+
+    Read only to explain a failed projection: "no passages for revision X" is
+    actionable when the revisions that *do* exist are named.
+    """
+    return list(
+        session.scalars(
+            select(PassageRecord.chunker_revision)
+            .distinct()
+            .order_by(PassageRecord.chunker_revision)
         )
     )

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dynamisrag.db.canonical import (
+    PassageProjectionRecords,
+    PassageSourceSpanLineage,
     get_citation_resolutions,
     get_document,
     get_document_by_canonical_key,
@@ -32,6 +34,8 @@ from dynamisrag.db.canonical import (
     list_document_versions,
     list_figures,
     list_paragraphs,
+    list_passage_chunker_revisions,
+    list_passage_projection_records,
     list_passage_source_spans,
     list_passages,
     list_sections,
@@ -68,7 +72,9 @@ __all__ = [
     "DocumentVersionRecord",
     "FigureRecord",
     "ParagraphRecord",
+    "PassageProjectionRecords",
     "PassageRecord",
+    "PassageSourceSpanLineage",
     "PassageSourceSpanRecord",
     "SectionRecord",
     "SemanticParentKeyError",
@@ -104,6 +110,8 @@ __all__ = [
     "list_document_versions",
     "list_figures",
     "list_paragraphs",
+    "list_passage_chunker_revisions",
+    "list_passage_projection_records",
     "list_passage_source_spans",
     "list_passages",
     "list_sections",

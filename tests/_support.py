@@ -2,12 +2,26 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Final
+from uuid import uuid4
 
 import httpx2
 
 from dynamisrag.config import Environment, Settings
+from dynamisrag.db.canonical import PassageProjectionRecords, PassageSourceSpanLineage
+from dynamisrag.db.models import (
+    DocumentIdentifierRecord,
+    DocumentRecord,
+    DocumentVersionRecord,
+    ParagraphRecord,
+    PassageRecord,
+    PassageSourceSpanRecord,
+    SectionRecord,
+    SourceArtifactRecord,
+)
 
 __all__ = [
     "ALEMBIC_INI",
@@ -18,8 +32,11 @@ __all__ = [
     "UNREACHABLE_DATABASE_URL",
     "UNREACHABLE_HOST",
     "UNREACHABLE_OPENSEARCH_URL",
+    "PassageProjectionCorpus",
     "build_settings",
     "opensearch_root_document",
+    "passage_projection_corpus",
+    "passage_projection_records",
     "stub_transport",
 ]
 
@@ -238,3 +255,173 @@ def stub_transport(
         return httpx2.Response(status_code, content=body, request=request)
 
     return httpx2.MockTransport(answering)
+
+
+# ---------------------------------------------------------------------------
+# Canonical passage corpus for projection tests
+# ---------------------------------------------------------------------------
+
+_CORPUS_NOW: Final[datetime] = datetime(2026, 9, 29, 12, 0, 0, tzinfo=UTC)
+_CORPUS_TITLE: Final[str] = "Probiotic soy and colon lesions in jumping rats"
+_CORPUS_TEXT_A: Final[str] = "A probiotic soy diet reduced colon lesions in jumping rats."
+_CORPUS_TEXT_B: Final[str] = "Exercise training improved the jump height of the rats."
+_CORPUS_ANCHOR: Final[str] = "jats:/body[1]/sec[1]/p[1]"
+_CORPUS_VERSION_KEY: Final[str] = "v" * 64
+_CORPUS_CHUNKER_REVISION: Final[str] = "structure-v1.1.b19e0939b5de"
+_CORPUS_PASSAGE_KEY_A: Final[str] = "a" * 64
+_CORPUS_PASSAGE_KEY_B: Final[str] = "b" * 64
+
+
+@dataclass(frozen=True)
+class PassageProjectionCorpus:
+    """One two-passage canonical graph, holding every surrogate id it uses."""
+
+    artifact: SourceArtifactRecord
+    document: DocumentRecord
+    version: DocumentVersionRecord
+    section: SectionRecord
+    paragraph: ParagraphRecord
+    passages: tuple[PassageRecord, ...]
+    spans: tuple[PassageSourceSpanLineage, ...]
+    identifiers: tuple[DocumentIdentifierRecord, ...]
+
+
+def passage_projection_corpus(
+    *, text_a: str = _CORPUS_TEXT_A, with_section: bool = True
+) -> PassageProjectionCorpus:
+    artifact_id, document_id, version_id = uuid4(), uuid4(), uuid4()
+    section_id = uuid4()
+    artifact = SourceArtifactRecord(
+        id=artifact_id,
+        source_system="europe_pmc",
+        source_external_id="PMC2731074",
+        source_uri="https://www.ebi.ac.uk/europepmc/webservices/rest/PMC2731074/fullTextXML",
+        media_type="application/xml",
+        content_sha256="d" * 64,
+        byte_size=4096,
+        retrieved_at=_CORPUS_NOW,
+        storage_uri="file:///artifacts/PMC2731074.xml",
+        license_name=None,
+        license_uri=None,
+        artifact_key="e" * 64,
+    )
+    document = DocumentRecord(
+        id=document_id,
+        canonical_key="doi:10.1371/journal.pone.03089012",
+        document_type="journal_article",
+        title=_CORPUS_TITLE,
+    )
+    version = DocumentVersionRecord(
+        id=version_id,
+        document_id=document_id,
+        source_artifact_id=artifact_id,
+        parser_revision="jats-1.0",
+        normalizer_revision="norm-1.0",
+        content_fingerprint="f" * 64,
+        title=_CORPUS_TITLE,
+        language="en",
+        versioned_metadata={},
+        created_at=_CORPUS_NOW,
+        version_key=_CORPUS_VERSION_KEY,
+    )
+    section = SectionRecord(
+        id=section_id,
+        document_version_id=version_id,
+        parent_section_id=None,
+        parent_document_version_id=None,
+        ordinal=0,
+        depth=0,
+        title="Results",
+        semantic_type="sec",
+        source_anchor="jats:#sec-results",
+        structural_path="2",
+        content_fingerprint="1" * 64,
+        section_key="2" * 64,
+    )
+    paragraph = ParagraphRecord(
+        id=uuid4(),
+        document_version_id=version_id,
+        section_id=section_id if with_section else None,
+        section_document_version_id=version_id if with_section else None,
+        ordinal=0,
+        region="body",
+        source_anchor=_CORPUS_ANCHOR,
+        text=_CORPUS_TEXT_A,
+        content_sha256="3" * 64,
+        paragraph_key="4" * 64,
+    )
+    passages = tuple(
+        PassageRecord(
+            id=uuid4(),
+            document_version_id=version_id,
+            section_id=section_id if with_section else None,
+            section_document_version_id=version_id if with_section else None,
+            chunker_revision=_CORPUS_CHUNKER_REVISION,
+            ordinal=ordinal,
+            text=text,
+            content_sha256="5" * 64,
+            source_anchor=_CORPUS_ANCHOR,
+            token_count=12,
+            passage_key=key,
+        )
+        for ordinal, (key, text) in enumerate(
+            ((_CORPUS_PASSAGE_KEY_A, text_a), (_CORPUS_PASSAGE_KEY_B, _CORPUS_TEXT_B))
+        )
+    )
+    spans = tuple(
+        PassageSourceSpanLineage(
+            span=PassageSourceSpanRecord(
+                id=uuid4(),
+                document_version_id=version_id,
+                passage_id=passage.id,
+                passage_document_version_id=version_id,
+                paragraph_id=paragraph.id,
+                paragraph_document_version_id=version_id,
+                source_order=0,
+                start_char=0,
+                end_char=len(_CORPUS_TEXT_A),
+                span_key="6" * 64,
+            ),
+            paragraph=paragraph,
+        )
+        for passage in passages
+    )
+    identifiers = tuple(
+        DocumentIdentifierRecord(
+            id=uuid4(),
+            document_id=document_id,
+            namespace=namespace,
+            normalized_value=value,
+        )
+        for namespace, value in (
+            ("doi", "10.1371/journal.pone.03089012"),
+            ("pmid", "38888888"),
+            ("pmcid", "PMC2731074"),
+        )
+    )
+    return PassageProjectionCorpus(
+        artifact=artifact,
+        document=document,
+        version=version,
+        section=section,
+        paragraph=paragraph,
+        passages=passages,
+        spans=spans,
+        identifiers=identifiers,
+    )
+
+
+def passage_projection_records(corpus: PassageProjectionCorpus) -> list[PassageProjectionRecords]:
+    """Interpret the corpus the way the persistence read path does."""
+    return [
+        PassageProjectionRecords(
+            passage=passage,
+            version=corpus.version,
+            document=corpus.document,
+            artifact=corpus.artifact,
+            section=corpus.section if passage.section_id is not None else None,
+            source_spans=(span,),
+            identifiers=corpus.identifiers,
+        )
+        for passage, span in zip(corpus.passages, corpus.spans, strict=True)
+    ]
