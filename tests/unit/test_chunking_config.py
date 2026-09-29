@@ -25,6 +25,9 @@ from dynamisrag.chunking.config import (
 
 _REVISION_TAG_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 
+_SUPERSEDED_ALGORITHM_REVISION = "structure-v1"
+_SUPERSEDED_SENTENCE_SPLITTER_REVISION = "sci-sent-1.0"
+
 
 def _assert_revision_tag(tag: str) -> None:
     """The derived chunker revision must satisfy the RevisionTag contract."""
@@ -63,7 +66,7 @@ def test_sizing_invariants_are_enforced() -> None:
         ChunkerConfig(target_tokens=0)
 
 
-def test_structure_v1_semantics_are_locked() -> None:
+def test_locked_algorithm_semantics_are_rejected() -> None:
     """A manifest may only claim semantics the implementation executes:
     unsupported overlap/cross-section settings and revision fields that do
     not equal the implementation constants are rejected at validation."""
@@ -77,6 +80,48 @@ def test_structure_v1_semantics_are_locked() -> None:
         ChunkerConfig(sentence_splitter_revision="sci-sent-2.0")
     with pytest.raises(ValidationError, match="implemented algorithm revision"):
         ChunkerConfig(algorithm_revision="structure-v2")
+
+
+def test_superseded_semantic_revisions_are_rejected() -> None:
+    """The repaired chunk semantics are not the ones the superseded
+    revisions describe, so a config may no longer claim them."""
+    with pytest.raises(ValidationError, match="implemented algorithm revision"):
+        ChunkerConfig(algorithm_revision=_SUPERSEDED_ALGORITHM_REVISION)
+    with pytest.raises(ValidationError, match="implemented splitter revision"):
+        ChunkerConfig(sentence_splitter_revision=_SUPERSEDED_SENTENCE_SPLITTER_REVISION)
+
+
+def test_semantic_revisions_seal_the_repaired_chunk_semantics() -> None:
+    """The two repaired semantics are sealed by the current revisions; the
+    non-semantic revisions are unchanged by the repair."""
+    assert ALGORITHM_REVISION == "structure-v1.1"
+    assert SENTENCE_SPLITTER_REVISION == "sci-sent-1.1"
+    assert TOKEN_COUNTER_REVISION == "unicode-lexical-v1"
+    assert MANIFEST_SCHEMA_REVISION == "passage-manifest-1"
+
+    assert ALGORITHM_REVISION != _SUPERSEDED_ALGORITHM_REVISION
+    assert SENTENCE_SPLITTER_REVISION != _SUPERSEDED_SENTENCE_SPLITTER_REVISION
+
+
+def test_superseded_semantic_revisions_change_hash_and_chunker_revision() -> None:
+    """The superseded semantic revisions derive a different canonical config
+    hash and a different chunker revision, so passage identities computed
+    under them can never be silently reused. The superseded values are
+    rebuilt without validation because the public API refuses them."""
+    current = ChunkerConfig()
+    superseded = current.model_copy(
+        update={
+            "algorithm_revision": _SUPERSEDED_ALGORITHM_REVISION,
+            "sentence_splitter_revision": _SUPERSEDED_SENTENCE_SPLITTER_REVISION,
+        }
+    )
+
+    assert config_sha256(superseded) != config_sha256(current)
+    assert chunker_revision(superseded) != chunker_revision(current)
+    assert chunker_revision(superseded).startswith(f"{_SUPERSEDED_ALGORITHM_REVISION}.")
+    assert chunker_revision(current).startswith(f"{ALGORITHM_REVISION}.")
+    _assert_revision_tag(chunker_revision(superseded))
+    _assert_revision_tag(chunker_revision(current))
 
 
 def test_canonical_serialization_is_deterministic() -> None:

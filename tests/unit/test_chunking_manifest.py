@@ -9,7 +9,13 @@ from __future__ import annotations
 import hashlib
 import re
 
-from dynamisrag.chunking.config import ChunkerConfig, config_sha256
+from dynamisrag.chunking.config import (
+    ALGORITHM_REVISION,
+    MANIFEST_SCHEMA_REVISION,
+    ChunkerConfig,
+    chunker_revision,
+    config_sha256,
+)
 from dynamisrag.chunking.manifest import (
     ManifestPassage,
     ManifestSourceSpan,
@@ -71,9 +77,9 @@ def _manifest(
 ) -> PassageManifest:
     config = config if config is not None else ChunkerConfig()
     return PassageManifest(
-        schema_revision="passage-manifest-1",
+        schema_revision=MANIFEST_SCHEMA_REVISION,
         document_version_key="d" * 64,
-        chunker_revision="structure-v1.abc123",
+        chunker_revision=chunker_revision(config),
         algorithm_revision=config.algorithm_revision,
         config_sha256=config_sha256(config),
         config=config,
@@ -137,10 +143,10 @@ def test_manifest_carries_the_semantic_identity_fields() -> None:
     manifest = _manifest(config=config)
 
     assert manifest.document_version_key == "d" * 64
-    assert manifest.schema_revision == "passage-manifest-1"
-    assert manifest.algorithm_revision == "structure-v1"
+    assert manifest.schema_revision == MANIFEST_SCHEMA_REVISION
+    assert manifest.algorithm_revision == ALGORITHM_REVISION
     assert manifest.config_sha256 == config_sha256(config)
-    assert manifest.chunker_revision == "structure-v1.abc123"
+    assert manifest.chunker_revision == chunker_revision(config)
     assert manifest.config.target_tokens == 350
 
 
