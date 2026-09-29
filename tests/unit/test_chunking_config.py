@@ -59,10 +59,24 @@ def test_sizing_invariants_are_enforced() -> None:
         ChunkerConfig(target_tokens=600, max_tokens=500)
     with pytest.raises(ValidationError, match="target_tokens"):
         ChunkerConfig(target_tokens=50, min_tokens=100)
-    with pytest.raises(ValidationError, match="overlap"):
-        ChunkerConfig(overlap=500, max_tokens=500)
     with pytest.raises(ValidationError, match="greater than"):
         ChunkerConfig(target_tokens=0)
+
+
+def test_structure_v1_semantics_are_locked() -> None:
+    """A manifest may only claim semantics the implementation executes:
+    unsupported overlap/cross-section settings and revision fields that do
+    not equal the implementation constants are rejected at validation."""
+    with pytest.raises(ValidationError, match="never duplicates source text"):
+        ChunkerConfig(overlap=1)
+    with pytest.raises(ValidationError, match="never cross a section boundary"):
+        ChunkerConfig(cross_section=True)
+    with pytest.raises(ValidationError, match="implemented counter revision"):
+        ChunkerConfig(token_counter_revision="unicode-lexical-v2")
+    with pytest.raises(ValidationError, match="implemented splitter revision"):
+        ChunkerConfig(sentence_splitter_revision="sci-sent-2.0")
+    with pytest.raises(ValidationError, match="implemented algorithm revision"):
+        ChunkerConfig(algorithm_revision="structure-v2")
 
 
 def test_canonical_serialization_is_deterministic() -> None:
@@ -95,25 +109,22 @@ def test_config_hash_changes_with_any_semantically_relevant_change() -> None:
         {"target_tokens": 351},
         {"max_tokens": 501},
         {"min_tokens": 101},
-        {"overlap": 10},
-        {"cross_section": True},
         {"split_long_paragraphs_by_sentence": False},
-        {"token_counter_revision": "unicode-lexical-v2"},
-        {"sentence_splitter_revision": "sci-sent-2.0"},
-        {"algorithm_revision": "structure-v2"},
     ):
         changed = ChunkerConfig(**change)  # type: ignore[arg-type]
         assert config_sha256(changed) != baseline_hash, change
 
 
-def test_algorithm_revision_is_visible_in_the_config_hash() -> None:
-    """A semantic algorithm change must move the chunker revision even when
-    every sizing value is unchanged."""
-    config = ChunkerConfig(algorithm_revision="structure-v2")
+def test_chunker_revision_binds_the_locked_algorithm_revision() -> None:
+    """The chunker revision carries the implemented algorithm revision, bound
+    to the config hash; a different algorithm revision is rejected outright."""
+    config = ChunkerConfig()
 
-    assert config.algorithm_revision == "structure-v2"
-    assert chunker_revision(config).startswith("structure-v2.")
-    assert chunker_revision(config) != chunker_revision(ChunkerConfig())
+    assert config.algorithm_revision == ALGORITHM_REVISION
+    assert chunker_revision(config).startswith(f"{ALGORITHM_REVISION}.")
+
+    with pytest.raises(ValidationError, match="implemented algorithm revision"):
+        ChunkerConfig(algorithm_revision="structure-v2")
 
 
 def test_chunker_revision_binds_algorithm_and_config_hash() -> None:
