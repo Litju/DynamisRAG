@@ -40,6 +40,7 @@ __all__ = [
     "FigureRecord",
     "ParagraphRecord",
     "PassageRecord",
+    "PassageSourceSpanRecord",
     "SectionRecord",
     "SourceArtifactRecord",
 ]
@@ -278,6 +279,8 @@ class PassageRecord(Base):
             "token_count IS NULL OR token_count >= 0",
             name="ck_passage_token_count_nonnegative",
         ),
+        CheckConstraint("length(text) > 0", name="ck_passage_text_nonempty"),
+        UniqueConstraint("id", "document_version_id", name="uq_passage_id_document_version_id"),
         Index("ix_passage_document_version_id", "document_version_id"),
         Index("ix_passage_section_id", "section_id"),
     )
@@ -298,6 +301,7 @@ class PassageRecord(Base):
     )
 
     document_version: Mapped[DocumentVersionRecord] = relationship(back_populates="passages")
+    source_spans: Mapped[list[PassageSourceSpanRecord]] = relationship(back_populates="passage")
 
 
 class ParagraphRecord(Base):
@@ -337,6 +341,7 @@ class ParagraphRecord(Base):
         ),
         CheckConstraint("length(text) > 0", name="ck_paragraph_text_nonempty"),
         CheckConstraint("length(source_anchor) > 0", name="ck_paragraph_source_anchor_nonempty"),
+        UniqueConstraint("id", "document_version_id", name="uq_paragraph_id_document_version_id"),
         Index("ix_paragraph_document_version_id", "document_version_id"),
         Index("ix_paragraph_section_id", "section_id"),
     )
@@ -356,6 +361,48 @@ class ParagraphRecord(Base):
     )
 
     document_version: Mapped[DocumentVersionRecord] = relationship(back_populates="paragraphs")
+
+
+class PassageSourceSpanRecord(Base):
+    __tablename__ = "passage_source_span"
+
+    __table_args__ = (
+        PrimaryKeyConstraint("id", name="pk_passage_source_span"),
+        UniqueConstraint("span_key", name="uq_passage_source_span_span_key"),
+        UniqueConstraint("passage_id", "source_order", name="uq_passage_source_span_passage_order"),
+        ForeignKeyConstraint(
+            ["passage_id", "passage_document_version_id"],
+            ["passage.id", "passage.document_version_id"],
+            name="fk_passage_source_span_passage",
+        ),
+        ForeignKeyConstraint(
+            ["paragraph_id", "paragraph_document_version_id"],
+            ["paragraph.id", "paragraph.document_version_id"],
+            name="fk_passage_source_span_paragraph",
+        ),
+        CheckConstraint("source_order >= 0", name="ck_passage_source_span_order_nonnegative"),
+        CheckConstraint("start_char >= 0", name="ck_passage_source_span_start_nonnegative"),
+        CheckConstraint("end_char > 0", name="ck_passage_source_span_end_positive"),
+        CheckConstraint("end_char > start_char", name="ck_passage_source_span_end_after_start"),
+        Index("ix_passage_source_span_passage_id", "passage_id"),
+        Index("ix_passage_source_span_paragraph_id", "paragraph_id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    document_version_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    passage_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    passage_document_version_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    paragraph_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    paragraph_document_version_id: Mapped[UUID] = mapped_column(Uuid, nullable=False)
+    source_order: Mapped[int] = mapped_column(Integer, nullable=False)
+    start_char: Mapped[int] = mapped_column(Integer, nullable=False)
+    end_char: Mapped[int] = mapped_column(Integer, nullable=False)
+    span_key: Mapped[str] = mapped_column(Text, nullable=False)
+    row_created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    passage: Mapped[PassageRecord] = relationship(back_populates="source_spans")
 
 
 class CitationRecord(Base):
