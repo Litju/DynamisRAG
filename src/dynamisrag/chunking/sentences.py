@@ -227,28 +227,56 @@ def split_sentences(text: str) -> tuple[SentenceSpan, ...]:
 def split_oversized_sentence(
     text: str, start: int, end: int, max_tokens: int
 ) -> tuple[SentenceSpan, ...]:
-    """Split one over-long sentence at lexical token boundaries.
+    """Split one over-long sentence at deterministic lexical cluster boundaries.
 
-    Each lexical token counts as one token, so greedy packing never exceeds
-    ``max_tokens`` and never splits inside a Unicode code point: splits happen
-    between tokens, at whitespace. Chunk text is the exact substring from the
-    first to the last token of the chunk.
+    Each lexical token counts as one token. Tokens that touch without
+    intervening whitespace — a word and its attached punctuation, a number
+    and its decimal point, a parenthesized run — form one no-whitespace lexical
+    cluster and are never separated: attached punctuation stays with its
+    lexical cluster, so no punctuation-only chunk is produced when the
+    cluster fits. Greedy packing never exceeds ``max_tokens`` and never
+    splits inside a Unicode code point. A single cluster longer than
+    ``max_tokens`` is the one case where the hard ceiling forces a split
+    inside a cluster, and it then splits at token boundaries. Chunk text is
+    the exact substring from the first to the last token of the chunk.
     """
     tokens: list[tuple[int, int]] = [
         (match.start(), match.end()) for match in LEXICAL_TOKEN_PATTERN.finditer(text, start, end)
     ]
     if not tokens:
         return (SentenceSpan(start, end, text[start:end]),)
+    clusters: list[list[tuple[int, int]]] = []
+    for token in tokens:
+        if clusters and clusters[-1][-1][1] == token[0]:
+            clusters[-1].append(token)
+        else:
+            clusters.append([token])
     spans: list[SentenceSpan] = []
-    chunk_first = tokens[0][0]
-    chunk_last = tokens[0][1]
-    chunk_count = 1
-    for token_start, token_end in tokens[1:]:
-        if chunk_count + 1 > max_tokens:
-            spans.append(SentenceSpan(chunk_first, chunk_last, text[chunk_first:chunk_last]))
-            chunk_first = token_start
-            chunk_count = 0
-        chunk_last = token_end
-        chunk_count += 1
-    spans.append(SentenceSpan(chunk_first, chunk_last, text[chunk_first:chunk_last]))
+    chunk: list[tuple[int, int]] = []
+    chunk_tokens = 0
+    for cluster in clusters:
+        cluster_tokens = len(cluster)
+        if chunk and chunk_tokens + cluster_tokens > max_tokens:
+            spans.append(_span(text, chunk))
+            chunk = []
+            chunk_tokens = 0
+        if cluster_tokens > max_tokens:
+            # The hard ceiling forces a split inside the cluster itself.
+            for token in cluster:
+                if chunk_tokens + 1 > max_tokens:
+                    spans.append(_span(text, chunk))
+                    chunk = []
+                    chunk_tokens = 0
+                chunk.append(token)
+                chunk_tokens += 1
+            continue
+        chunk.extend(cluster)
+        chunk_tokens += cluster_tokens
+    if chunk:
+        spans.append(_span(text, chunk))
     return tuple(spans)
+
+
+def _span(text: str, chunk: list[tuple[int, int]]) -> SentenceSpan:
+    """Build the exact-substring span of one packed chunk of tokens."""
+    return SentenceSpan(chunk[0][0], chunk[-1][1], text[chunk[0][0] : chunk[-1][1]])

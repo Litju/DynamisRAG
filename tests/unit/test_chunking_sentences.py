@@ -253,6 +253,73 @@ def test_oversized_sentence_preserves_leading_whitespace_exclusion() -> None:
     assert text[spans[0].start : spans[0].end] == "one two"
 
 
+def test_oversized_sentence_keeps_terminal_punctuation_with_its_cluster() -> None:
+    """The max boundary lands immediately before the terminal period: the
+    period stays with its lexical cluster instead of becoming a
+    punctuation-only chunk."""
+    text = "one two."
+    spans = split_oversized_sentence(text, 0, len(text), 2)
+
+    assert [(span.start, span.end, span.text) for span in spans] == [
+        (0, 3, "one"),
+        (4, 8, "two."),
+    ]
+    for span in spans:
+        assert text[span.start : span.end] == span.text
+
+
+def test_oversized_sentence_exact_divisibility_before_terminal_punctuation() -> None:
+    """Word count is exactly divisible by max before the terminal period:
+    the period still stays attached to the last word."""
+    text = "one two three four."
+    spans = split_oversized_sentence(text, 0, len(text), 4)
+
+    assert [span.text for span in spans] == ["one two three", "four."]
+    for span in spans:
+        assert text[span.start : span.end] == span.text
+
+
+def test_oversized_sentence_keeps_commas_with_their_cluster() -> None:
+    text = "alpha, beta gamma."
+    spans = split_oversized_sentence(text, 0, len(text), 3)
+
+    assert [span.text for span in spans] == ["alpha, beta", "gamma."]
+    for span in spans:
+        assert text[span.start : span.end] == span.text
+
+
+def test_oversized_sentence_keeps_closing_parenthesis_with_its_cluster() -> None:
+    text = "alpha (beta) gamma."
+    spans = split_oversized_sentence(text, 0, len(text), 4)
+
+    assert [span.text for span in spans] == ["alpha (beta)", "gamma."]
+    for span in spans:
+        assert text[span.start : span.end] == span.text
+
+
+def test_oversized_sentence_hard_max_holds_when_a_cluster_is_too_long() -> None:
+    """A single no-whitespace cluster longer than max_tokens is the one case
+    where the hard ceiling forces a split inside a cluster — at token
+    boundaries, never inside a code point."""
+    from dynamisrag.chunking.tokens import count_lexical_tokens
+
+    text = "a.b.c.d.e.f."
+    spans = split_oversized_sentence(text, 0, len(text), 2)
+
+    assert [span.text for span in spans] == ["a.", "b.", "c.", "d.", "e.", "f."]
+    for span in spans:
+        assert text[span.start : span.end] == span.text
+        assert count_lexical_tokens(span.text) <= 2
+
+
+def test_oversized_sentence_never_emits_punctuation_only_chunks_when_avoidable() -> None:
+    text = "one two three four five six seven eight nine ten."
+    spans = split_oversized_sentence(text, 0, len(text), 4)
+
+    for span in spans:
+        assert any(character.isalnum() for character in span.text), span.text
+
+
 def test_sentence_span_type_is_exact() -> None:
     span = SentenceSpan(0, 5, "Hello")
     assert span.start == 0 and span.end == 5 and span.text == "Hello"
