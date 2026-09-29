@@ -42,6 +42,7 @@ from dynamisrag.domain.identity import (
     figure_key,
     paragraph_key,
     passage_key,
+    passage_source_span_key,
     section_key,
     source_artifact_key,
 )
@@ -70,6 +71,7 @@ __all__ = [
     "Figure",
     "Paragraph",
     "Passage",
+    "PassageSourceSpan",
     "Section",
     "SourceArtifact",
 ]
@@ -339,6 +341,56 @@ class Passage(BaseModel):
             self,
             "passage_key",
             passage_key(self.version_key, self.chunker_revision, self.ordinal),
+        )
+        return self
+
+
+class PassageSourceSpan(BaseModel):
+    """Exact provenance of one Passage's text within one Paragraph.
+
+    RES-134 introduces the smallest immutable passage-lineage structure.
+    ``Passage.source_anchor`` alone cannot describe a passage that spans
+    several paragraphs or only part of one long paragraph, so every passage
+    carries an ordered set of these spans — the authoritative provenance.
+
+    Semantics: ``[start_char, end_char)`` are offsets into the canonical
+    normalized ``Paragraph.text``. A whole paragraph contributes
+    ``start_char = 0`` to ``end_char = len(paragraph.text)``; a long-paragraph
+    sentence fragment contributes its exact normalized-text character range.
+    The span text is never stored or rewritten: the offsets address the
+    immutable paragraph text directly.
+
+    Identity is the deterministic ``span_key`` (SHA-256 of the passage key
+    plus the span's order within the passage), never a surrogate id. The
+    database enforces that the span's passage and paragraph belong to the
+    span's document version through composite foreign keys, and that
+    ``end_char`` fits the referenced paragraph's text through a trigger —
+    the Python layer never relies on itself alone.
+    """
+
+    model_config = _ContractConfig
+
+    id: UUID = Field(default_factory=uuid4)
+    document_version_id: UUID
+    passage_id: UUID
+    paragraph_id: UUID
+    passage_key: str = Field(min_length=1)
+    paragraph_key: str = Field(min_length=1)
+    source_order: int = Field(ge=0)
+    start_char: int = Field(ge=0)
+    end_char: int = Field(gt=0)
+    span_key: str = Field(init=False, default="")
+
+    @model_validator(mode="after")
+    def _validate_and_derive(self) -> Self:
+        if self.end_char <= self.start_char:
+            raise ValueError(
+                f"end_char ({self.end_char}) must be greater than start_char ({self.start_char})"
+            )
+        object.__setattr__(
+            self,
+            "span_key",
+            passage_source_span_key(self.passage_key, self.source_order),
         )
         return self
 

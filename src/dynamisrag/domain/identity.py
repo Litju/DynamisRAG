@@ -39,6 +39,7 @@ __all__ = [
     "identity_basis",
     "paragraph_key",
     "passage_key",
+    "passage_source_span_key",
     "section_key",
     "source_artifact_key",
 ]
@@ -191,6 +192,19 @@ def paragraph_key(version_key: str, source_anchor: str) -> str:
     graph through the version's content fingerprint.
     """
     return digest(version_key, source_anchor)
+
+
+def passage_source_span_key(passage_key: str, source_order: int) -> str:
+    """Identity of one exact passage-to-paragraph source span: the passage's
+    canonical key plus the span's order within the passage.
+
+    ``(passage_key, source_order)`` is unique — a passage's spans are ordered
+    and never repeated — so the digest is unique across the whole model and
+    deterministic: the same passage under the same chunker revision always
+    produces the same span identities in every database. Never derived from
+    surrogate ids.
+    """
+    return digest(passage_key, str(source_order))
 
 
 def citation_key(

@@ -24,6 +24,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from dynamisrag.chunking.errors import PassageSourceSpanError
 from dynamisrag.db.errors import SemanticParentKeyError
 from dynamisrag.db.models import (
     CitationRecord,
@@ -35,6 +36,7 @@ from dynamisrag.db.models import (
     FigureRecord,
     ParagraphRecord,
     PassageRecord,
+    PassageSourceSpanRecord,
     SectionRecord,
     SourceArtifactRecord,
 )
@@ -48,6 +50,7 @@ from dynamisrag.domain.contracts import (
     Figure,
     Paragraph,
     Passage,
+    PassageSourceSpan,
     Section,
     SourceArtifact,
 )
@@ -61,6 +64,7 @@ __all__ = [
     "get_document_identifiers",
     "get_document_version",
     "get_document_version_by_key",
+    "get_paragraph_by_key",
     "get_section",
     "get_source_artifact",
     "get_source_artifact_by_key",
@@ -73,6 +77,7 @@ __all__ = [
     "insert_figure",
     "insert_paragraph",
     "insert_passage",
+    "insert_passage_source_span",
     "insert_section",
     "insert_source_artifact",
     "list_citations",
@@ -80,6 +85,7 @@ __all__ = [
     "list_document_versions",
     "list_figures",
     "list_paragraphs",
+    "list_passage_source_spans",
     "list_passages",
     "list_sections",
 ]
@@ -141,6 +147,36 @@ def _require_citation_key(
             relationship=relationship,
             parent_id=citation_id,
             expected_key=citation.citation_key,
+            received_key=expected_key,
+        )
+
+
+def _require_passage_key(
+    session: Session, relationship: str, passage_id: UUID, expected_key: str
+) -> None:
+    """Reject a supplied ``passage_key`` that is not the referenced passage's
+    persisted key."""
+    passage = session.get(PassageRecord, passage_id)
+    if passage is not None and passage.passage_key != expected_key:
+        raise SemanticParentKeyError(
+            relationship=relationship,
+            parent_id=passage_id,
+            expected_key=passage.passage_key,
+            received_key=expected_key,
+        )
+
+
+def _require_paragraph_key(
+    session: Session, relationship: str, paragraph_id: UUID, expected_key: str
+) -> None:
+    """Reject a supplied ``paragraph_key`` that is not the referenced
+    paragraph's persisted key."""
+    paragraph = session.get(ParagraphRecord, paragraph_id)
+    if paragraph is not None and paragraph.paragraph_key != expected_key:
+        raise SemanticParentKeyError(
+            relationship=relationship,
+            parent_id=paragraph_id,
+            expected_key=paragraph.paragraph_key,
             received_key=expected_key,
         )
 
@@ -367,6 +403,53 @@ def insert_paragraph(session: Session, paragraph: Paragraph) -> ParagraphRecord:
     return record
 
 
+def insert_passage_source_span(
+    session: Session, span: PassageSourceSpan
+) -> PassageSourceSpanRecord:
+    """Persist one exact passage source span and flush to enforce constraints.
+
+    The span's semantic parent keys are bound to their referenced parents
+    first: a span may not point at one passage/paragraph by surrogate id
+    while carrying another's canonical key. The offsets must fit the
+    referenced paragraph's persisted text — the database's offset trigger
+    enforces the same rule for any writer, and the composite foreign keys
+    bind passage and paragraph to the span's document version.
+    """
+    _require_passage_key(
+        session,
+        "passage_source_span.passage_id -> passage.passage_key",
+        span.passage_id,
+        span.passage_key,
+    )
+    _require_paragraph_key(
+        session,
+        "passage_source_span.paragraph_id -> paragraph.paragraph_key",
+        span.paragraph_id,
+        span.paragraph_key,
+    )
+    paragraph = session.get(ParagraphRecord, span.paragraph_id)
+    if paragraph is not None and span.end_char > len(paragraph.text):
+        raise PassageSourceSpanError(
+            f"passage_source_span {span.span_key!r} end_char {span.end_char} exceeds "
+            f"paragraph {span.paragraph_id} text length {len(paragraph.text)}"
+        )
+    record = PassageSourceSpanRecord(
+        id=span.id,
+        document_version_id=span.document_version_id,
+        passage_id=span.passage_id,
+        passage_document_version_id=span.document_version_id,
+        paragraph_id=span.paragraph_id,
+        paragraph_document_version_id=span.document_version_id,
+        source_order=span.source_order,
+        start_char=span.start_char,
+        end_char=span.end_char,
+        span_key=span.span_key,
+    )
+    session.add(record)
+    session.flush()
+    return record
+
+
 def insert_citation(session: Session, citation: Citation) -> CitationRecord:
     """Persist one immutable bibliographic reference and flush to enforce
     constraints.
@@ -582,6 +665,18 @@ def get_section(session: Session, section_id: UUID) -> SectionRecord | None:
     return session.get(SectionRecord, section_id)
 
 
+def get_paragraph_by_key(session: Session, paragraph_key: str) -> ParagraphRecord | None:
+    """Resolve a Paragraph by its deterministic key, or ``None``.
+
+    The lookup that makes span materialization resolve semantic paragraph
+    identities to their persisted rows: the manifest carries paragraph
+    keys, never surrogate ids.
+    """
+    return session.scalars(
+        select(ParagraphRecord).where(ParagraphRecord.paragraph_key == paragraph_key)
+    ).first()
+
+
 def list_document_versions(session: Session, document_id: UUID) -> Sequence[DocumentVersionRecord]:
     return list(
         session.scalars(
@@ -621,6 +716,28 @@ def list_passages(
             .where(PassageRecord.document_version_id == document_version_id)
             .where(PassageRecord.chunker_revision == chunker_revision)
             .order_by(PassageRecord.ordinal)
+        )
+    )
+
+
+def list_passage_source_spans(
+    session: Session, passage_ids: Sequence[UUID]
+) -> Sequence[PassageSourceSpanRecord]:
+    """Read the ordered source spans of the given passages.
+
+    Ordered by ``(passage_id, source_order)`` so each passage's spans come
+    back in their deterministic provenance order.
+    """
+    if not passage_ids:
+        return []
+    return list(
+        session.scalars(
+            select(PassageSourceSpanRecord)
+            .where(PassageSourceSpanRecord.passage_id.in_(passage_ids))
+            .order_by(
+                PassageSourceSpanRecord.passage_id,
+                PassageSourceSpanRecord.source_order,
+            )
         )
     )
 

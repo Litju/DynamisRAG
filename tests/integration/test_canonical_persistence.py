@@ -34,6 +34,7 @@ from dynamisrag.db import (
     get_document,
     get_document_identifiers,
     get_document_version,
+    get_paragraph_by_key,
     get_section,
     get_source_artifact,
     insert_citation,
@@ -45,6 +46,7 @@ from dynamisrag.db import (
     insert_figure,
     insert_paragraph,
     insert_passage,
+    insert_passage_source_span,
     insert_section,
     insert_source_artifact,
     list_citations,
@@ -52,6 +54,7 @@ from dynamisrag.db import (
     list_document_versions,
     list_figures,
     list_paragraphs,
+    list_passage_source_spans,
     list_passages,
     list_sections,
 )
@@ -64,6 +67,7 @@ from dynamisrag.db.models import (
     FigureRecord,
     ParagraphRecord,
     PassageRecord,
+    PassageSourceSpanRecord,
     SectionRecord,
     SourceArtifactRecord,
 )
@@ -77,6 +81,7 @@ from dynamisrag.domain.contracts import (
     Figure,
     Paragraph,
     Passage,
+    PassageSourceSpan,
     Section,
     SourceArtifact,
 )
@@ -111,8 +116,9 @@ _CANONICAL_TABLES = (
     "citation_resolution",
     "document_table",
     "figure",
+    "passage_source_span",
 )
-"""The 11 immutable canonical tables after RES-133's 0003."""
+"""The 12 immutable canonical tables after RES-134's 0004."""
 
 
 @pytest.fixture
@@ -1461,7 +1467,10 @@ def test_database_rejects_update_on_canonical_tables(db_session: Session, table:
     The UPDATE sets a column to its own value: the values are irrelevant,
     the operation itself is what the append-only schema prohibits.
     """
-    _full_graph(db_session)
+    objects = _full_graph(db_session)
+    if table == "passage_source_span":
+        # A row-level trigger only fires when the table has a row.
+        insert_passage_source_span(db_session, _make_span(objects[2], objects[5], objects[6]))
 
     # The table name comes from the hardcoded _CANONICAL_TABLES tuple, never
     # from input; the whole point is to issue raw SQL against PostgreSQL.
@@ -1472,7 +1481,10 @@ def test_database_rejects_update_on_canonical_tables(db_session: Session, table:
 @pytest.mark.parametrize("table", _CANONICAL_TABLES)
 def test_database_rejects_delete_on_canonical_tables(db_session: Session, table: str) -> None:
     """Append-only means no deletes either; tombstoning is a later issue."""
-    _full_graph(db_session)
+    objects = _full_graph(db_session)
+    if table == "passage_source_span":
+        # See the UPDATE test above: a row-level trigger needs a row.
+        insert_passage_source_span(db_session, _make_span(objects[2], objects[5], objects[6]))
 
     # See the UPDATE test above: hardcoded table name, raw SQL by design.
     with pytest.raises(SQLAlchemyError, match="append-only"):
@@ -1882,3 +1894,311 @@ def test_same_semantic_graph_produces_identical_canonical_identities_across_data
 def _dsn_with_database(dsn: str, database: str) -> str:
     """Return ``dsn`` pointing at a different database on the same server."""
     return urlunsplit(urlsplit(dsn)._replace(path=f"/{database}"))
+
+
+# ---------------------------------------------------------------------------
+# Passage source spans (RES-134)
+# ---------------------------------------------------------------------------
+
+
+def _insert_passage_graph(
+    db_session: Session,
+) -> tuple[SourceArtifact, Document, DocumentVersion, Passage, Paragraph]:
+    """Insert one artifact, document, version, passage and paragraph."""
+    artifact = _make_artifact()
+    document = _make_document()
+    version = _make_version(document, artifact)
+    insert_source_artifact(db_session, artifact)
+    insert_document(db_session, document)
+    insert_document_version(db_session, version)
+    passage = _make_passage(version, ordinal=0)
+    insert_passage(db_session, passage)
+    paragraph = _make_paragraph(version, ordinal=0)
+    insert_paragraph(db_session, paragraph)
+    return artifact, document, version, passage, paragraph
+
+
+def _make_span(
+    version: DocumentVersion,
+    passage: Passage,
+    paragraph: Paragraph,
+    **overrides: Any,
+) -> PassageSourceSpan:
+    kwargs: dict[str, Any] = {
+        "document_version_id": version.id,
+        "passage_id": passage.id,
+        "paragraph_id": paragraph.id,
+        "passage_key": passage.passage_key,
+        "paragraph_key": paragraph.paragraph_key,
+        "source_order": 0,
+        "start_char": 0,
+        "end_char": len(paragraph.text),
+    }
+    kwargs.update(overrides)
+    return PassageSourceSpan(**kwargs)
+
+
+def test_passage_source_span_round_trips(db_session: Session) -> None:
+    """A source span persists with its exact offsets, order and deterministic
+    span key intact."""
+    _, _, version, passage, paragraph = _insert_passage_graph(db_session)
+    span = _make_span(version, passage, paragraph)
+
+    record = insert_passage_source_span(db_session, span)
+
+    assert record.span_key == span.span_key
+    assert record.source_order == 0
+    assert record.start_char == 0
+    assert record.end_char == len(paragraph.text)
+    assert record.passage_id == passage.id
+    assert record.paragraph_id == paragraph.id
+    assert record.document_version_id == version.id
+    assert record.passage_document_version_id == version.id
+    assert record.paragraph_document_version_id == version.id
+
+    spans = list_passage_source_spans(db_session, [passage.id])
+    assert [item.id for item in spans] == [span.id]
+    assert spans[0].span_key == span.span_key
+
+
+def test_duplicate_span_key_is_rejected(db_session: Session) -> None:
+    """The deterministic span key makes an identical re-span a unique
+    constraint collision — never an ambiguous second row."""
+    _, _, version, passage, paragraph = _insert_passage_graph(db_session)
+    first = _make_span(version, passage, paragraph)
+    insert_passage_source_span(db_session, first)
+    # Same deterministic span key, different order: the span_key uniqueness
+    # must collide even though (passage_id, source_order) differs.
+    record = PassageSourceSpanRecord(
+        id=uuid4(),
+        document_version_id=version.id,
+        passage_id=passage.id,
+        passage_document_version_id=version.id,
+        paragraph_id=paragraph.id,
+        paragraph_document_version_id=version.id,
+        source_order=1,
+        start_char=0,
+        end_char=len(paragraph.text),
+        span_key=first.span_key,
+    )
+    db_session.add(record)
+
+    with pytest.raises(IntegrityError, match="uq_passage_source_span_span_key"):
+        db_session.flush()
+
+
+def test_duplicate_span_source_order_is_rejected(db_session: Session) -> None:
+    """(passage_id, source_order) uniqueness prevents two spans of one
+    passage from sharing an order."""
+    _, _, version, passage, paragraph = _insert_passage_graph(db_session)
+    insert_passage_source_span(db_session, _make_span(version, passage, paragraph))
+    record = PassageSourceSpanRecord(
+        id=uuid4(),
+        document_version_id=version.id,
+        passage_id=passage.id,
+        passage_document_version_id=version.id,
+        paragraph_id=paragraph.id,
+        paragraph_document_version_id=version.id,
+        source_order=0,
+        start_char=1,
+        end_char=2,
+        span_key="f" * 64,
+    )
+    db_session.add(record)
+
+    with pytest.raises(IntegrityError, match="uq_passage_source_span_passage_order"):
+        db_session.flush()
+
+
+def test_span_with_wrong_paragraph_key_is_rejected(db_session: Session) -> None:
+    """The span references paragraph A by id while carrying paragraph B's
+    key — refused before the write."""
+    _, _, version, passage, paragraph = _insert_passage_graph(db_session)
+    span = _make_span(version, passage, paragraph, paragraph_key="f" * 64)
+
+    with pytest.raises(SemanticParentKeyError, match=r"passage_source_span.paragraph_id"):
+        insert_passage_source_span(db_session, span)
+    count = db_session.scalar(select(func.count()).select_from(PassageSourceSpanRecord))
+    assert count == 0
+
+
+def test_span_with_wrong_passage_key_is_rejected(db_session: Session) -> None:
+    """The span references passage A by id while carrying passage B's key —
+    refused before the write."""
+    _, _, version, passage, paragraph = _insert_passage_graph(db_session)
+    span = _make_span(version, passage, paragraph, passage_key="f" * 64)
+
+    with pytest.raises(SemanticParentKeyError, match=r"passage_source_span.passage_id"):
+        insert_passage_source_span(db_session, span)
+    count = db_session.scalar(select(func.count()).select_from(PassageSourceSpanRecord))
+    assert count == 0
+
+
+def test_database_rejects_negative_start_char_on_span(db_session: Session) -> None:
+    _, _, version, passage, paragraph = _insert_passage_graph(db_session)
+    record = PassageSourceSpanRecord(
+        id=uuid4(),
+        document_version_id=version.id,
+        passage_id=passage.id,
+        passage_document_version_id=version.id,
+        paragraph_id=paragraph.id,
+        paragraph_document_version_id=version.id,
+        source_order=0,
+        start_char=-1,
+        end_char=5,
+        span_key="f" * 64,
+    )
+    db_session.add(record)
+
+    with pytest.raises(IntegrityError, match="ck_passage_source_span_start_nonnegative"):
+        db_session.flush()
+
+
+def test_database_rejects_non_positive_end_char_on_span(db_session: Session) -> None:
+    _, _, version, passage, paragraph = _insert_passage_graph(db_session)
+    record = PassageSourceSpanRecord(
+        id=uuid4(),
+        document_version_id=version.id,
+        passage_id=passage.id,
+        passage_document_version_id=version.id,
+        paragraph_id=paragraph.id,
+        paragraph_document_version_id=version.id,
+        source_order=0,
+        start_char=0,
+        end_char=0,
+        span_key="f" * 64,
+    )
+    db_session.add(record)
+
+    with pytest.raises(IntegrityError, match="ck_passage_source_span_end_after_start"):
+        db_session.flush()
+
+
+def test_database_rejects_end_char_not_after_start_char(db_session: Session) -> None:
+    _, _, version, passage, paragraph = _insert_passage_graph(db_session)
+    record = PassageSourceSpanRecord(
+        id=uuid4(),
+        document_version_id=version.id,
+        passage_id=passage.id,
+        passage_document_version_id=version.id,
+        paragraph_id=paragraph.id,
+        paragraph_document_version_id=version.id,
+        source_order=0,
+        start_char=4,
+        end_char=4,
+        span_key="f" * 64,
+    )
+    db_session.add(record)
+
+    with pytest.raises(IntegrityError, match="ck_passage_source_span_end_after_start"):
+        db_session.flush()
+
+
+def test_database_rejects_end_char_beyond_paragraph_text(db_session: Session) -> None:
+    """The offset trigger enforces end_char <= length(paragraph.text) — a
+    cross-table bound no single-table CHECK can express."""
+    _, _, version, passage, paragraph = _insert_passage_graph(db_session)
+    record = PassageSourceSpanRecord(
+        id=uuid4(),
+        document_version_id=version.id,
+        passage_id=passage.id,
+        passage_document_version_id=version.id,
+        paragraph_id=paragraph.id,
+        paragraph_document_version_id=version.id,
+        source_order=0,
+        start_char=0,
+        end_char=len(paragraph.text) + 1,
+        span_key="f" * 64,
+    )
+    db_session.add(record)
+
+    with pytest.raises(IntegrityError, match="exceeds paragraph text length"):
+        db_session.flush()
+
+
+def test_span_with_passage_from_another_document_version_is_rejected(
+    db_session: Session,
+) -> None:
+    """Cross-version passage lineage is rejected: the span's offset trigger
+    enforces the same-version rule the composite foreign key also states
+    structurally."""
+    artifact = _make_artifact()
+    document = _make_document()
+    version_one = _make_version(document, artifact)
+    version_two = _make_version(document, artifact, parser_revision="jats-1.3")
+    insert_source_artifact(db_session, artifact)
+    insert_document(db_session, document)
+    insert_document_version(db_session, version_one)
+    insert_document_version(db_session, version_two)
+    passage = _make_passage(version_one, ordinal=0)
+    insert_passage(db_session, passage)
+    paragraph = _make_paragraph(version_two, ordinal=0)
+    insert_paragraph(db_session, paragraph)
+
+    cross_version_span = PassageSourceSpanRecord(
+        id=uuid4(),
+        document_version_id=version_two.id,
+        passage_id=passage.id,
+        passage_document_version_id=version_two.id,
+        paragraph_id=paragraph.id,
+        paragraph_document_version_id=version_two.id,
+        source_order=0,
+        start_char=0,
+        end_char=len(paragraph.text),
+        span_key="f" * 64,
+    )
+    db_session.add(cross_version_span)
+
+    with pytest.raises(
+        IntegrityError, match="does not belong to the same document version as its passage"
+    ):
+        db_session.flush()
+
+
+def test_span_with_paragraph_from_another_document_version_is_rejected(
+    db_session: Session,
+) -> None:
+    """Cross-version paragraph lineage is rejected: the span's offset trigger
+    enforces the same-version rule the composite foreign key also states
+    structurally."""
+    artifact = _make_artifact()
+    document = _make_document()
+    version_one = _make_version(document, artifact)
+    version_two = _make_version(document, artifact, parser_revision="jats-1.3")
+    insert_source_artifact(db_session, artifact)
+    insert_document(db_session, document)
+    insert_document_version(db_session, version_one)
+    insert_document_version(db_session, version_two)
+    passage = _make_passage(version_two, ordinal=0)
+    insert_passage(db_session, passage)
+    paragraph = _make_paragraph(version_one, ordinal=0)
+    insert_paragraph(db_session, paragraph)
+
+    cross_version_span = PassageSourceSpanRecord(
+        id=uuid4(),
+        document_version_id=version_two.id,
+        passage_id=passage.id,
+        passage_document_version_id=version_two.id,
+        paragraph_id=paragraph.id,
+        paragraph_document_version_id=version_two.id,
+        source_order=0,
+        start_char=0,
+        end_char=len(paragraph.text),
+        span_key="f" * 64,
+    )
+    db_session.add(cross_version_span)
+
+    with pytest.raises(
+        IntegrityError, match="does not belong to the same document version as its paragraph"
+    ):
+        db_session.flush()
+
+
+def test_get_paragraph_by_key_resolves_the_persisted_paragraph(db_session: Session) -> None:
+    _, _, _, _, paragraph = _insert_passage_graph(db_session)
+
+    resolved = get_paragraph_by_key(db_session, paragraph.paragraph_key)
+
+    assert resolved is not None
+    assert resolved.id == paragraph.id
+    assert get_paragraph_by_key(db_session, "f" * 64) is None
