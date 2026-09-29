@@ -15,6 +15,11 @@ stays usable. Repeated materialization of the same document version under
 the same chunker revision returns the persisted set with ``created=False``
 and no duplicate rows; a persisted set that reconstructs to a different
 manifest fails explicitly instead of being silently returned or replaced.
+
+An empty manifest (``manifest.passages == ()``) is a deterministic no-op:
+it performs zero database mutations and returns ``created=False`` with
+empty passage and span tuples, identically on first and repeated calls —
+no persisted run marker is written.
 """
 
 from __future__ import annotations
@@ -91,6 +96,14 @@ class PassageMaterializer:
             raise PassageSourceSpanError(
                 f"manifest document version key {manifest.document_version_key!r} does not "
                 f"match the version being chunked {version.version_key!r}"
+            )
+
+        if manifest.passages == ():
+            return MaterializationResult(
+                created=False,
+                manifest=manifest,
+                passages=(),
+                source_spans=(),
             )
 
         existing = list_passages(self._session, version.id, manifest.chunker_revision)

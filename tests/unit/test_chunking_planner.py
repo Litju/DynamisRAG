@@ -218,6 +218,23 @@ def test_input_from_another_version_is_rejected() -> None:
         raise AssertionError("expected ChunkingError")
 
 
+def test_paragraph_with_missing_section_is_rejected() -> None:
+    """A section-owned paragraph whose section is not among the supplied
+    same-version sections is an explicit failure — never silently
+    downgraded to sectionless passage metadata."""
+    version = _make_version()
+    section = _make_section(version, "1")
+    paragraph = _make_paragraph(version, 0, _text_with_tokens(2), section=section)
+
+    chunker = StructureAwareChunker(_small_config())
+    try:
+        chunker.plan(version, [], [paragraph])
+    except ChunkingError as error:
+        assert "not among the supplied sections" in str(error)
+    else:
+        raise AssertionError("expected ChunkingError")
+
+
 # ---------------------------------------------------------------------------
 # Packing
 # ---------------------------------------------------------------------------
