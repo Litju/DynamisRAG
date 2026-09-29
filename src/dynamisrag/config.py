@@ -90,8 +90,28 @@ class Settings(BaseSettings):
 
     opensearch_verify_tls: bool = True
 
+    opensearch_index_alias: str = Field(
+        default="dynamisrag-passages",
+        min_length=1,
+        max_length=200,
+        pattern=r"^[a-z0-9][a-z0-9._-]*$",
+    )
+    """Stable query target of the passage projection.
+
+    The alias — not a physical index — is what queries address, so a verified
+    rebuild can be cut over atomically while readers are uninterrupted.
+    Configurable so parallel test runs and scratch proofs get isolated
+    namespaces on a shared node; the configured name is also part of every
+    physical index name, so two aliases never collide on one index.
+    """
+
+    opensearch_bulk_batch_size: int = Field(default=500, ge=1, le=5000)
+    """Documents per bulk request. Fixed rather than derived, so the same
+    projection always produces the same request boundaries."""
+
     dependency_timeout_seconds: float = Field(default=5.0, gt=0.0, le=300.0)
-    """Upper bound applied to every readiness dependency probe."""
+    """Upper bound applied to every readiness dependency probe and to every
+    OpenSearch operation."""
 
     host: str = "127.0.0.1"
 

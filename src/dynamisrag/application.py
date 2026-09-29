@@ -6,6 +6,11 @@
 suite. It performs no I/O: the SQLAlchemy engine connects lazily and the
 OpenSearch client opens no connection until the first probe, so creating an
 application never depends on infrastructure being up.
+
+OpenSearch ownership is deliberately single: one
+:class:`~dynamisrag.search.client.OpenSearchClient` is created here, shared by
+everything that talks to the node, and closed exactly once when the lifespan
+ends. A new client is never constructed per request.
 """
 
 from __future__ import annotations
@@ -22,6 +27,7 @@ from dynamisrag.config import Settings, load_settings
 from dynamisrag.db.engine import create_database_engine
 from dynamisrag.health.router import LIVENESS_PATH, READINESS_PATH, build_health_router
 from dynamisrag.logging_config import APP_LOGGER_NAME
+from dynamisrag.search.client import OpenSearchClient
 from dynamisrag.search.opensearch import OpenSearchProbe
 
 __all__ = ["API_DESCRIPTION", "API_TITLE", "create_app"]
@@ -46,7 +52,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     """
     resolved: Settings = settings if settings is not None else load_settings()
     engine = create_database_engine(resolved)
-    opensearch = OpenSearchProbe(resolved)
+    opensearch_client = OpenSearchClient(resolved)
+    probe = OpenSearchProbe(opensearch_client)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncGenerator[None]:
@@ -54,7 +61,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             yield
         finally:
-            opensearch.close()
+            opensearch_client.close()
             engine.dispose()
             _logger.info("stopped: version=%s", __version__)
 
@@ -64,6 +71,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         version=__version__,
         lifespan=lifespan,
     )
-    app.include_router(build_health_router(settings=resolved, engine=engine, opensearch=opensearch))
+    app.include_router(build_health_router(settings=resolved, engine=engine, opensearch=probe))
     _logger.debug("application created: health=%s,%s", LIVENESS_PATH, READINESS_PATH)
     return app
