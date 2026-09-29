@@ -2150,7 +2150,7 @@ def test_span_with_passage_from_another_document_version_is_rejected(
     db_session.add(cross_version_span)
 
     with pytest.raises(
-        IntegrityError, match="does not belong to the same document version as its passage"
+        IntegrityError, match=r"does not belong to the same document version\s+as its passage"
     ):
         db_session.flush()
 
@@ -2189,7 +2189,7 @@ def test_span_with_paragraph_from_another_document_version_is_rejected(
     db_session.add(cross_version_span)
 
     with pytest.raises(
-        IntegrityError, match="does not belong to the same document version as its paragraph"
+        IntegrityError, match=r"does not belong to the same document version\s+as its paragraph"
     ):
         db_session.flush()
 
