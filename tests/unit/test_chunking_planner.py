@@ -303,6 +303,59 @@ def test_single_huge_sentence_splits_at_token_boundaries() -> None:
     assert " ".join(passage.text for passage in manifest.passages) == _text_with_tokens(7) + "."
 
 
+def test_hard_split_keeps_terminal_punctuation_with_its_word() -> None:
+    """The max boundary lands immediately before the terminal period: the
+    period stays with its word instead of becoming a punctuation-only
+    passage."""
+    version = _make_version()
+    paragraph = _make_paragraph(version, 0, "one two.")
+    config = ChunkerConfig(target_tokens=2, max_tokens=2, min_tokens=1)
+
+    manifest = StructureAwareChunker(config).plan(version, [], [paragraph])
+
+    assert [passage.text for passage in manifest.passages] == ["one", "two."]
+
+
+def test_oversized_paragraph_fragments_reconstruct_the_exact_source_substring() -> None:
+    """Same-paragraph fragments are reconstructed from the exact canonical
+    Paragraph.text substring between the first fragment's start and the last
+    fragment's end — never a synthetic fixed-space join."""
+    version = _make_version()
+    text = "w0 w1 w2.  w3 w4 w5. w6 w7 w8."
+    paragraph = _make_paragraph(version, 0, text)
+    config = ChunkerConfig(target_tokens=10, max_tokens=10, min_tokens=2)
+
+    manifest = StructureAwareChunker(config).plan(version, [], [paragraph])
+
+    assert len(manifest.passages) == 2
+    first = manifest.passages[0]
+    assert len(first.source_spans) == 2
+    assert first.text == "w0 w1 w2.  w3 w4 w5."
+    assert first.text == text[first.source_spans[0].start_char : first.source_spans[-1].end_char]
+    assert "  " in first.text
+
+
+def test_oversized_paragraph_punctuation_stays_attached_to_its_cluster() -> None:
+    version = _make_version()
+    text = "alpha, beta gamma. delta, epsilon zeta. eta, theta iota."
+    paragraph = _make_paragraph(version, 0, text)
+    config = ChunkerConfig(target_tokens=13, max_tokens=13, min_tokens=2)
+
+    manifest = StructureAwareChunker(config).plan(version, [], [paragraph])
+
+    assert len(manifest.passages) == 2
+    first = manifest.passages[0]
+    assert [text[span.start_char : span.end_char] for span in first.source_spans] == [
+        "alpha, beta gamma.",
+        "delta, epsilon zeta.",
+    ]
+    assert first.text == "alpha, beta gamma. delta, epsilon zeta."
+    second = manifest.passages[1]
+    assert [text[span.start_char : span.end_char] for span in second.source_spans] == [
+        "eta, theta iota.",
+    ]
+
+
 def test_oversized_paragraph_without_sentence_splitting_is_rejected() -> None:
     version = _make_version()
     paragraph = _make_paragraph(version, 0, _text_with_tokens(10))

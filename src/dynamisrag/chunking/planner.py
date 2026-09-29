@@ -211,8 +211,9 @@ class StructureAwareChunker:
 
         A paragraph within ``max_tokens`` is one whole-paragraph unit. A
         longer paragraph is sentence-split (only then — never eagerly), and
-        any sentence still over the hard maximum is split at lexical token
-        boundaries. Every unit is at most ``max_tokens``.
+        any sentence still over the hard maximum is split at deterministic
+        no-whitespace lexical cluster boundaries. Every unit is at most
+        ``max_tokens``.
         """
         config = self._config
         units: list[tuple[PlannedSourceSpan, int]] = []
@@ -331,23 +332,25 @@ class StructureAwareChunker:
     ) -> str:
         """Construct the exact deterministic passage text.
 
-        Multiple complete paragraphs are joined with ``"\\n\\n"``. Sequential
-        sentence fragments of one long paragraph are joined with a single
-        space — the canonical sentence separator of the normalized paragraph
-        text, whose inter-sentence whitespace is always one space — so the
-        joined text stays consistent with the original normalized text.
+        Multiple complete paragraphs are joined with ``"\\n\\n"``. The
+        fragments one long paragraph contributes to one passage are taken
+        from the exact canonical ``Paragraph.text`` substring between the
+        first fragment's start and the last fragment's end — never
+        synthesized with a fixed-space join — so the passage text stays
+        byte-identical to the source text its spans address, whatever
+        whitespace the source uses between fragments.
         """
         parts: list[str] = []
         current_key: str | None = None
-        fragments: list[str] = []
+        group_start = 0
+        group_end = 0
         for unit, _ in passage_units:
             if unit.paragraph_key != current_key:
-                if fragments:
-                    parts.append(" ".join(fragments))
+                if current_key is not None:
+                    parts.append(paragraph_map[current_key].text[group_start:group_end])
                 current_key = unit.paragraph_key
-                fragments = []
-            paragraph = paragraph_map[unit.paragraph_key]
-            fragments.append(paragraph.text[unit.start_char : unit.end_char])
-        if fragments:
-            parts.append(" ".join(fragments))
+                group_start = unit.start_char
+            group_end = unit.end_char
+        if current_key is not None:
+            parts.append(paragraph_map[current_key].text[group_start:group_end])
         return "\n\n".join(parts)
