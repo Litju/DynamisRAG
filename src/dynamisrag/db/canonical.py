@@ -53,7 +53,7 @@ from dynamisrag.domain.contracts import (
     Section,
     SourceArtifact,
 )
-from dynamisrag.domain.values import IdentifierNamespace
+from dynamisrag.domain.values import IdentifierNamespace, ParagraphRegion
 
 __all__ = [
     "get_citation_resolutions",
@@ -87,6 +87,8 @@ __all__ = [
     "list_passage_source_spans",
     "list_passages",
     "list_sections",
+    "paragraph_from_record",
+    "section_from_record",
 ]
 
 
@@ -680,6 +682,48 @@ def get_section_by_key(session: Session, section_key: str) -> SectionRecord | No
     return session.scalars(
         select(SectionRecord).where(SectionRecord.section_key == section_key)
     ).first()
+
+
+def section_from_record(record: SectionRecord, *, version_key: str) -> Section:
+    """Rebuild the domain Section contract from its persisted record.
+
+    The read path back to canonical semantic inputs: the pure chunker plans
+    over contracts, never over ORM rows, so the persistence boundary converts
+    records to contracts. The record carries no ``version_key`` column — it is
+    the owning version's canonical key, supplied here.
+    """
+    return Section(
+        id=record.id,
+        document_version_id=record.document_version_id,
+        version_key=version_key,
+        parent_section_id=record.parent_section_id,
+        ordinal=record.ordinal,
+        depth=record.depth,
+        title=record.title,
+        semantic_type=record.semantic_type,
+        source_anchor=record.source_anchor,
+        structural_path=record.structural_path,
+        content_fingerprint=record.content_fingerprint,
+    )
+
+
+def paragraph_from_record(record: ParagraphRecord, *, version_key: str) -> Paragraph:
+    """Rebuild the domain Paragraph contract from its persisted record.
+
+    See :func:`section_from_record` for why the conversion exists: the pure
+    chunker plans over contracts, never over ORM rows.
+    """
+    return Paragraph(
+        id=record.id,
+        document_version_id=record.document_version_id,
+        version_key=version_key,
+        section_id=record.section_id,
+        ordinal=record.ordinal,
+        region=ParagraphRegion(record.region),
+        source_anchor=record.source_anchor,
+        text=record.text,
+        content_sha256=record.content_sha256,
+    )
 
 
 def list_document_versions(session: Session, document_id: UUID) -> Sequence[DocumentVersionRecord]:

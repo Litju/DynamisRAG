@@ -12,6 +12,7 @@ from dynamisrag.db.canonical import (
     get_document_version_by_key,
     get_paragraph_by_key,
     get_section,
+    get_section_by_key,
     get_source_artifact,
     get_source_artifact_by_key,
     insert_citation,
@@ -34,6 +35,8 @@ from dynamisrag.db.canonical import (
     list_passage_source_spans,
     list_passages,
     list_sections,
+    paragraph_from_record,
+    section_from_record,
 )
 from dynamisrag.db.engine import create_database_engine
 from dynamisrag.db.errors import SemanticParentKeyError
@@ -81,6 +84,7 @@ __all__ = [
     "get_document_version_by_key",
     "get_paragraph_by_key",
     "get_section",
+    "get_section_by_key",
     "get_source_artifact",
     "get_source_artifact_by_key",
     "insert_citation",
@@ -103,4 +107,6 @@ __all__ = [
     "list_passage_source_spans",
     "list_passages",
     "list_sections",
+    "paragraph_from_record",
+    "section_from_record",
 ]
