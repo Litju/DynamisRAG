@@ -198,14 +198,46 @@ def test_duplicate_xml_ids_use_deterministic_path_fallback() -> None:
 
     assert parsed.warnings[0].code == "duplicate-xml-id"
     first, second, third = parsed.sections
-    assert first.source_anchor == "jats:#dup"
+    # A duplicated @id is not globally unique: every occurrence — including
+    # the first — uses its own structural-path anchor, never jats:#dup.
+    assert first.source_anchor == "jats:/body[1]/sec[1]"
     assert second.source_anchor == "jats:/body[1]/sec[2]"
     assert third.source_anchor == "jats:/body[1]/sec[3]"
+    assert all(section.source_anchor != "jats:#dup" for section in parsed.sections)
     # The fallback is deterministic across parses.
     reparsed = _parse(_DUPLICATE_IDS)
     assert [section.source_anchor for section in reparsed.sections] == [
         section.source_anchor for section in parsed.sections
     ]
+
+
+def test_unique_xml_ids_still_use_the_jats_fragment_anchor() -> None:
+    parsed = _parse(_DUPLICATE_IDS)
+
+    # The third section has no @id at all, and the two duplicated sections
+    # fall back to paths — but a genuinely unique @id elsewhere in the same
+    # document still yields the jats:#id form.
+    xml = b"""<?xml version="1.0" encoding="UTF-8"?>
+<article>
+  <front>
+    <article-meta>
+      <title-group><article-title>Unique ids</article-title></title-group>
+    </article-meta>
+  </front>
+  <body>
+    <sec id="dup"><title>First dup</title><p>One.</p></sec>
+    <sec id="dup"><title>Second dup</title><p>Two.</p></sec>
+    <sec id="unique"><title>Unique</title><p>Three.</p></sec>
+  </body>
+</article>
+"""
+    parsed = _parse(xml)
+
+    assert parsed.warnings[0].code == "duplicate-xml-id"
+    first, second, third = parsed.sections
+    assert first.source_anchor == "jats:/body[1]/sec[1]"
+    assert second.source_anchor == "jats:/body[1]/sec[2]"
+    assert third.source_anchor == "jats:#unique"
 
 
 def test_structural_paths_trace_into_the_source_document() -> None:
