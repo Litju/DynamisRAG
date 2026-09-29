@@ -463,6 +463,28 @@ def test_passage_key_binds_version_revision_and_ordinal() -> None:
         )
 
 
+def test_superseded_semantic_revision_cannot_reuse_passage_keys() -> None:
+    """The sealed semantic revision is part of the passage identity: the
+    superseded revision set derives a different chunker revision, so the same
+    paragraphs under it would get different passage keys and manifest bytes
+    instead of silently reusing the repaired identities. The superseded value
+    is rebuilt without validation because the public API refuses it."""
+    version = _make_version()
+    paragraphs = [_make_paragraph(version, 0, _text_with_tokens(4))]
+    current = StructureAwareChunker(_small_config())
+    superseded = _small_config().model_copy(update={"algorithm_revision": "structure-v1"})
+
+    current_manifest = current.plan(version, [], paragraphs)
+    superseded_manifest = StructureAwareChunker(superseded).plan(version, [], paragraphs)
+
+    assert superseded_manifest.algorithm_revision != current_manifest.algorithm_revision
+    assert superseded_manifest.chunker_revision != current_manifest.chunker_revision
+    assert [passage.passage_key for passage in superseded_manifest.passages] != [
+        passage.passage_key for passage in current_manifest.passages
+    ]
+    assert superseded_manifest.manifest_sha256 != current_manifest.manifest_sha256
+
+
 def test_content_sha256_is_the_text_digest() -> None:
     version = _make_version()
     paragraph = _make_paragraph(version, 0, "Some text.")

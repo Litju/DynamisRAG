@@ -31,20 +31,30 @@ __all__ = [
     "config_sha256",
 ]
 
-ALGORITHM_REVISION: Final[RevisionTag] = "structure-v1"
+ALGORITHM_REVISION: Final[RevisionTag] = "structure-v1.1"
 """Revision of the structure-aware chunking algorithm semantics.
 
 A semantic algorithm change — grouping, packing, ordering or passage text
 construction — must bump this tag even when every config value is unchanged,
-because such a change alters the chunker's output for identical inputs."""
+because such a change alters the chunker's output for identical inputs.
+
+``structure-v1.1`` supersedes ``structure-v1``: same-paragraph passage text is
+now reconstructed from the exact canonical ``Paragraph.text`` substring between
+the first and last contributing span instead of a synthetic single-space join of
+the fragments. Passage keys bind the chunker revision, so the repaired output
+can never reuse the identities produced under the superseded revision."""
 
 TOKEN_COUNTER_REVISION: Final[str] = "unicode-lexical-v1"  # noqa: S105
 """Revision of the model-agnostic deterministic lexical token counter that
 sizes passages and is recorded on ``Passage.token_count``."""
 
-SENTENCE_SPLITTER_REVISION: Final[str] = "sci-sent-1.0"
+SENTENCE_SPLITTER_REVISION: Final[str] = "sci-sent-1.1"
 """Revision of the deterministic scientific sentence-splitting policy used
-only when a single paragraph exceeds ``max_tokens``."""
+only when a single paragraph exceeds ``max_tokens``.
+
+``sci-sent-1.1`` supersedes ``sci-sent-1.0``: the oversized-sentence fallback
+now splits at no-whitespace lexical cluster boundaries instead of raw
+lexical-token boundaries, so attached punctuation stays with its cluster."""
 
 MANIFEST_SCHEMA_REVISION: Final[str] = "passage-manifest-1"
 """Revision of the frozen deterministic passage manifest representation."""
@@ -62,7 +72,7 @@ class ChunkerConfig(BaseModel):
     ``split_long_paragraphs_by_sentence`` enables the deterministic sentence
     split applied only to paragraphs that exceed ``max_tokens``.
 
-    structure-v1 semantics are locked, not caller-tunable: the packing
+    The locked algorithm-revision semantics are not caller-tunable: the packing
     algorithm never duplicates source text (``overlap`` must be 0), passages
     never cross a section boundary (``cross_section`` must be False), and the
     revision fields must equal the implementation constants — a manifest may
@@ -96,7 +106,7 @@ class ChunkerConfig(BaseModel):
         if self.overlap != 0:
             raise ValueError(
                 f"overlap ({self.overlap}) is not supported by algorithm revision "
-                f"{ALGORITHM_REVISION!r}: structure-v1 never duplicates source text"
+                f"{ALGORITHM_REVISION!r}: the algorithm never duplicates source text"
             )
         if self.cross_section:
             raise ValueError(

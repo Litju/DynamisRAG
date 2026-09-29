@@ -13,6 +13,10 @@ spans. It handles the representative scientific cases — common abbreviations
 ``No.`` ...), decimals, initials, ellipses and sentence-ending punctuation
 followed by quotes or brackets — and never splits inside a Unicode code
 point.
+
+A sentence that still exceeds the hard maximum is split by
+:func:`split_oversized_sentence` at no-whitespace lexical cluster boundaries
+(``sci-sent-1.1`` semantics), so attached punctuation stays with its cluster.
 """
 
 from __future__ import annotations
