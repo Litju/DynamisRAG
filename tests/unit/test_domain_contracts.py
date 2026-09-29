@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from typing import Any, TypedDict, Unpack
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import pytest
 from pydantic import ValidationError
@@ -263,6 +263,32 @@ def test_document_canonical_key_is_fixed_by_the_creation_time_basis() -> None:
 
     assert pmcid_only.canonical_key == "pmcid:PMC3656234"
     assert identity_basis(pmcid_only.canonical_key) == "pmcid"
+
+
+def test_document_from_persisted_preserves_the_stored_canonical_key() -> None:
+    """Reconstruction from persisted identity carries the stored canonical
+    key verbatim — never recomputed from today's aliases.
+
+    A document created as ``pmcid:PMC...`` and later enriched with a DOI
+    must still reconstruct with its original canonical key; recomputing
+    would re-identify the work and change every derived identity with it.
+    """
+    document = Document.from_persisted(
+        document_id=uuid4(),
+        canonical_key="pmcid:PMC123456",
+        document_type=DocumentType.JOURNAL_ARTICLE,
+        doi="10.1371/journal.pone.03089012",
+        pmid="38888888",
+        pmcid="PMC123456",
+        title="A synthetic study of things and numbers",
+    )
+
+    assert document.canonical_key == "pmcid:PMC123456"
+    assert identity_basis(document.canonical_key) == "pmcid"
+    assert document.doi == "10.1371/journal.pone.03089012"
+    assert document.pmid == "38888888"
+    assert document.pmcid == "PMC123456"
+    assert document.title == "A synthetic study of things and numbers"
 
 
 def test_title_only_document_holds_a_provisional_identity() -> None:

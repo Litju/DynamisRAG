@@ -18,6 +18,7 @@ from dynamisrag.jats.errors import (
     JatsParseError,
     JatsParseWarning,
     JatsSourceIntegrityError,
+    JatsSourcePmcidConflict,
 )
 from dynamisrag.jats.importer import JatsCanonicalImporter, JatsImportCounts, JatsImportResult
 from dynamisrag.jats.parser import (
@@ -57,6 +58,7 @@ __all__ = [
     "JatsParseWarning",
     "JatsParser",
     "JatsSourceIntegrityError",
+    "JatsSourcePmcidConflict",
     "ParsedCitation",
     "ParsedFigure",
     "ParsedJatsArticle",

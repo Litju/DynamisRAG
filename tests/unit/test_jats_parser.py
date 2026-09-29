@@ -22,6 +22,7 @@ from dynamisrag.jats import (
     JatsParseError,
     JatsParser,
     JatsSourceIntegrityError,
+    JatsSourcePmcidConflict,
     ParsedJatsArticle,
 )
 from dynamisrag.jats.importer import candidate_identifiers
@@ -693,6 +694,52 @@ def test_parser_does_not_mutate_source_bytes() -> None:
     _parse(bytes(xml))
 
     assert bytes(xml) == _FULL_ARTICLE
+
+
+# ---------------------------------------------------------------------------
+# Europe PMC source PMCID provenance (importer-level, proven without a database)
+# ---------------------------------------------------------------------------
+
+
+def test_source_pmcid_mismatch_is_rejected_before_materialization() -> None:
+    """An explicit XML PMCID that differs from the acquired artifact PMCID is
+    a fatal source/identity conflict — never two aliases of one Document."""
+    xml = _FULL_ARTICLE.replace(
+        b'<article-id pub-id-type="pmcid">PMC123456</article-id>',
+        b'<article-id pub-id-type="pmcid">PMC999999</article-id>',
+    )
+    artifact = _artifact(xml)
+    parsed = _parse(xml)
+    assert parsed.pmcid == "PMC999999"
+
+    with pytest.raises(JatsSourcePmcidConflict, match="PMC999999"):
+        JatsCanonicalImporter.validate_source_pmcid(artifact, parsed)
+
+
+def test_source_pmcid_match_is_accepted() -> None:
+    artifact = _artifact(_FULL_ARTICLE)
+    parsed = _parse(_FULL_ARTICLE)
+
+    JatsCanonicalImporter.validate_source_pmcid(artifact, parsed)
+
+
+def test_source_pmcid_omitted_from_xml_is_accepted() -> None:
+    """The artifact PMCID remains a known identifier when the XML omits it."""
+    xml = _FULL_ARTICLE.replace(
+        b'<article-id pub-id-type="pmcid">PMC123456</article-id>\n      ', b""
+    )
+    artifact = _artifact(xml)
+    parsed = _parse(xml)
+    assert parsed.pmcid is None
+
+    JatsCanonicalImporter.validate_source_pmcid(artifact, parsed)
+
+
+def test_source_pmcid_validation_ignores_non_europe_pmc_artifacts() -> None:
+    artifact = _artifact(_FULL_ARTICLE, source_system="arxiv")
+    parsed = _parse(_FULL_ARTICLE)
+
+    JatsCanonicalImporter.validate_source_pmcid(artifact, parsed)
 
 
 # ---------------------------------------------------------------------------

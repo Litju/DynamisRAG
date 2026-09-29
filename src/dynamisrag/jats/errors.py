@@ -17,6 +17,7 @@ __all__ = [
     "JatsParseError",
     "JatsParseWarning",
     "JatsSourceIntegrityError",
+    "JatsSourcePmcidConflict",
 ]
 
 
@@ -50,6 +51,18 @@ class JatsDocumentIdentityConflict(JatsParseError):
     Documents are never merged heuristically (not by title, not by partial
     identifier overlap): the conflict is fatal and no canonical graph is
     materialized.
+    """
+
+
+class JatsSourcePmcidConflict(JatsParseError):
+    """A Europe PMC artifact's XML declares a PMCID that differs from the
+    PMCID the artifact was acquired as.
+
+    The acquired PMCID is strong acquisition provenance, so an explicit XML
+    PMCID must match it exactly. The two values are never attached as
+    aliases of one Document: the bytes do not describe the artifact they
+    were acquired as, which is a fatal source/identity conflict raised
+    before any canonical materialization.
     """
 
 
