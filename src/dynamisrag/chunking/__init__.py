@@ -29,6 +29,7 @@ from dynamisrag.chunking.errors import (
     PassageSourceSpanError,
 )
 from dynamisrag.chunking.manifest import PassageManifest
+from dynamisrag.chunking.materializer import MaterializationResult, PassageMaterializer
 from dynamisrag.chunking.planner import PlannedSourceSpan, StructureAwareChunker
 from dynamisrag.chunking.tokens import count_lexical_tokens
 
@@ -40,7 +41,9 @@ __all__ = [
     "ChunkerConfig",
     "ChunkerRevisionConflictError",
     "ChunkingError",
+    "MaterializationResult",
     "PassageManifest",
+    "PassageMaterializer",
     "PassageSourceSpanError",
     "PlannedSourceSpan",
     "StructureAwareChunker",
