@@ -9,11 +9,15 @@ Error mapping is deliberately blunt and safe:
 
 * an invalid query or limit is a client error and returns ``422``;
 * an unreachable or untrustworthy search backend returns ``503`` with a fixed
-  public message, while the safe, non-sensitive detail goes to the log.
+  public message, while only structured safe values go to the log.
 
-The backend's own wording is already written to be safe, but it is still
-operational detail: the public body of a ``503`` says only that search is
-unavailable, so no index name, revision or query fragment is disclosed.
+The public body of a ``503`` says only that search is unavailable, so no index
+name, revision or query fragment is disclosed. The log line is assembled from
+the exception class and
+:meth:`~dynamisrag.search.errors.OpenSearchError.safe_summary` — the exception
+category, the operation, the HTTP status and OpenSearch's ``error.type`` — and
+never from ``error.detail``, so an OpenSearch ``error.reason`` cannot be
+relayed into log aggregation even if a future caller puts one there.
 """
 
 from __future__ import annotations
@@ -118,7 +122,13 @@ def build_search_router(*, search: Bm25SearchService) -> APIRouter:
                 status_code=UNPROCESSABLE, detail=str(error), headers=dict(_NO_STORE_HEADERS)
             ) from error
         except OpenSearchError as error:
-            _logger.warning("search backend unavailable: %s", error)
+            # Structured safe values only: the exception class and the fields
+            # safe_summary() builds from. Never str(error) / error.detail.
+            _logger.warning(
+                "search backend unavailable: %s (%s)",
+                type(error).__name__,
+                error.safe_summary(),
+            )
             raise HTTPException(
                 status_code=SERVICE_UNAVAILABLE,
                 detail=SEARCH_UNAVAILABLE_DETAIL,

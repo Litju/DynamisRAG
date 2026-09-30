@@ -21,6 +21,14 @@ unexpected statuses and untrustworthy payloads are turned into the typed
 errors in :mod:`dynamisrag.search.errors` with the same safe wording
 everywhere. Nothing in this module logs or raises request headers, credentials,
 complete response bodies or indexed article text.
+
+**Backend failure text is untrusted.** OpenSearch's ``error.reason`` and every
+``caused_by.reason`` are the node's own prose about what it rejected, and for
+this projection what it rejected is article text, a query or a field value. It
+is never read here, so it cannot reach an exception, a log, a readiness
+payload or a terminal. Only ``error.type`` is captured, as structured context
+on the raised error; :func:`_backend_error_type` is the only function in this
+module that looks inside a failure envelope.
 """
 
 from __future__ import annotations
@@ -28,6 +36,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Iterator, Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any, Final, cast
 
 import httpx2
@@ -89,12 +98,23 @@ _ProjectionDocument = tuple[str, Mapping[str, JsonValue]]
 
 
 def truncate_detail(value: str) -> str:
-    """Shorten a backend-supplied detail to a single safe log line."""
+    """Bound one fragment of a message to a single readable line.
+
+    Length control on a value this module already decided is safe to carry —
+    it keeps a long identifier or a machine-generated type name from pushing the
+    actionable sentence off the end of a log line. It is never how untrusted
+    text is made safe; untrusted text is not admitted in the first place.
+    """
     return f"{value[:MAX_SAFE_DETAIL_LENGTH]}..." if len(value) > MAX_SAFE_DETAIL_LENGTH else value
 
 
 def flatten_validation_error(error: ValidationError) -> str:
-    """Render a payload-validation failure as one safe, truncated line."""
+    """Render a payload-validation failure as one bounded line.
+
+    Only pydantic's own ``msg`` strings are read, never the ``input`` that
+    caused them, so a value lifted out of a backend response — article text,
+    a query — cannot re-enter the message through the validation report.
+    """
     return "; ".join(truncate_detail(str(item["msg"])) for item in error.errors())
 
 
@@ -385,8 +405,13 @@ class OpenSearchClient:
                 )
             return self._client.request(method, url, json=payload, headers=headers, params=params)
         except httpx2.HTTPError as error:
+            # Only the exception *class* crosses the boundary. Its message is
+            # assembled from the URL, the peer and the socket layer, none of
+            # which this process controls, so it is not echoed.
             raise OpenSearchTransportError(
-                _describe_transport_error(error), operation=operation
+                f"TransportError: {type(error).__name__} while performing {operation}",
+                operation=operation,
+                cause=type(error).__name__,
             ) from error
 
     def _json(
@@ -415,19 +440,35 @@ class OpenSearchClient:
         return _decode_json(response, operation, target)
 
     def _require_ok(self, response: httpx2.Response, operation: str, target: str | None) -> None:
+        """Reject any status the operation cannot use.
+
+        Reports only what this process wrote — the HTTP status, the operation,
+        the target, the credential hint for a rejection — plus the node's
+        ``error.type``. The failure body itself is never rendered: see
+        :func:`_backend_error_type` for the one field that is read and why.
+        """
         if response.status_code in _SUCCESS_STATUS_CODES:
             return
+        error_type = _backend_error_type(response)
         if response.status_code in _AUTHENTICATION_STATUS_CODES:
             raise OpenSearchUnexpectedResponse(
                 "AuthenticationFailed: "
                 f"HTTP {response.status_code} while performing {operation}"
                 f"{_addressed(target)}; check opensearch_username and opensearch_password",
                 operation=operation,
+                category="AuthenticationFailed",
+                status_code=response.status_code,
+                error_type=error_type,
+                target=target,
             )
         raise OpenSearchUnexpectedResponse(
             f"UnexpectedStatus: HTTP {response.status_code} while performing {operation}"
-            f"{_addressed(target)}{_backend_error_suffix(response)}",
+            f"{_addressed(target)}{_error_type_suffix(error_type)}",
             operation=operation,
+            category="UnexpectedStatus",
+            status_code=response.status_code,
+            error_type=error_type,
+            target=target,
         )
 
 
@@ -435,11 +476,8 @@ def _addressed(target: str | None) -> str:
     return f" on {target}" if target is not None else ""
 
 
-def _describe_transport_error(error: httpx2.HTTPError) -> str:
-    """Render a transport failure without echoing request headers or secrets."""
-    message = truncate_detail(" ".join(str(error).split()))
-    detail = f"{type(error).__name__}: {message}" if message else type(error).__name__
-    return f"TransportError: {detail} while performing the request"
+def _error_type_suffix(error_type: str | None) -> str:
+    return f" (type={error_type})" if error_type is not None else ""
 
 
 def _decode_json(
@@ -462,30 +500,36 @@ def _decode_json(
     return cast("Mapping[str, JsonValue]", parsed)
 
 
-def _backend_error_suffix(response: httpx2.Response) -> str:
-    """Extract the safe part of an OpenSearch error envelope.
+def _backend_error_type(response: httpx2.Response) -> str | None:
+    """Read OpenSearch's ``error.type`` from a failed response.
 
-    Only ``error.type`` and ``error.reason`` are surfaced, both truncated. The
-    full body — which may echo a rejected request or a shard failure with
-    document content — is deliberately never included.
+    ``error.type`` is a machine-generated exception class name: it says *what
+    went wrong* without restating the data that caused it, so it is the one
+    field of the failure envelope that can be carried. It is bounded by
+    :func:`truncate_detail` so a hostile value cannot dominate a log line.
+
+    Nothing else in the envelope is read. ``error.reason`` and the ``reason`` of
+    every ``caused_by`` are the node's own prose, and OpenSearch routinely fills
+    them with the value that was rejected, the query, the document that failed
+    to index, or an internal detail. For this projection the rejected document
+    is indexed article text, so reading a reason at all would make it eligible
+    for republication through a log line, a readiness payload or a terminal.
+    Truncation would not help: a short reason still leaks.
     """
     try:
         parsed: Any = response.json()
     except ValueError:
-        return ""
+        return None
     if not isinstance(parsed, dict):
-        return ""
+        return None
     envelope = cast("Mapping[str, JsonValue]", parsed)
     error = envelope.get("error")
-    if not isinstance(error, dict):
-        return ""
-    detail = cast("Mapping[str, JsonValue]", error)
-    parts: list[str] = []
-    for label, key in (("type", "type"), ("reason", "reason")):
-        value = detail.get(key)
-        if isinstance(value, str) and value:
-            parts.append(f"{label}={truncate_detail(value)}")
-    return f" ({'; '.join(parts)})" if parts else ""
+    if not isinstance(error, Mapping):
+        return None
+    error_type = error.get("type")
+    if isinstance(error_type, str) and error_type:
+        return truncate_detail(error_type)
+    return None
 
 
 def _require_int(payload: Mapping[str, JsonValue], key: str, operation: str) -> int:
@@ -517,47 +561,80 @@ def _bulk_line(index: str, document_id: str, source: Mapping[str, JsonValue]) ->
     return f"{action}\n{document}\n".encode()
 
 
+@dataclass(frozen=True)
+class _BulkFailure:
+    """Everything about a rejected bulk request that is safe to report.
+
+    Counts and machine-generated names only. The rejected ``_source``, the
+    rejection ``reason`` and any ``caused_by`` are deliberately absent: a
+    mapping rejection quotes the value it could not parse, and the value here
+    is an indexed passage.
+    """
+
+    failed_items: int
+    status_code: int | None
+    error_type: str | None
+
+
 def _require_no_bulk_errors(payload: Mapping[str, JsonValue], *, index: str, items: int) -> None:
     """Reject a bulk response that reports item-level failures.
 
     OpenSearch answers a partially failed bulk with HTTP 200 and
-    ``"errors": true``. Treating that as success would serve a partial index,
-    so the first item's status and safe error type/reason are reported and the
-    caller fails the whole projection.
+    ``"errors": true``. Treating that as success would serve a partial index, so
+    the call fails and the caller abandons the whole projection.
+
+    The message says only what this process knows: the index addressed, how many
+    items were rejected out of how many were sent, and the first rejection's
+    status and ``error.type``.
     """
     if payload.get("errors") is not True:
         return
-    failed = _first_bulk_failure(payload)
-    detail = (
-        f"; first failure status={failed[0]} type={failed[1]} reason={failed[2]}" if failed else ""
-    )
+    failure = _bulk_failure(payload)
     raise OpenSearchBulkError(
-        f"bulk_index on {index} reported errors=true after indexing into the index: "
-        f"HTTP 200 with at least one failed item out of {items}{detail}",
+        f"bulk_index on {index} failed: {failure.failed_items} of {items} items rejected"
+        f"{_bulk_failure_suffix(failure)}",
         operation="bulk_index",
+        status_code=failure.status_code,
+        error_type=failure.error_type,
+        target=index,
     )
 
 
-def _first_bulk_failure(payload: Mapping[str, JsonValue]) -> tuple[str, str, str] | None:
-    """Return ``(status, type, reason)`` of the first failed bulk item."""
+def _bulk_failure_suffix(failure: _BulkFailure) -> str:
+    if failure.status_code is None and failure.error_type is None:
+        return "; the response reported errors=true without naming a failed item"
+    return f"; first failure status={failure.status_code} type={failure.error_type}"
+
+
+def _bulk_failure(payload: Mapping[str, JsonValue]) -> _BulkFailure:
+    """Count the rejected items and read the first one's status and type.
+
+    An item counts as rejected when its result carries a non-null ``error``,
+    which is OpenSearch's own signal. Only ``status`` and ``error.type`` are
+    read from that item; the rest of the item is the rejected document.
+    """
     response_items = payload.get("items")
-    if not isinstance(response_items, Sequence):
-        return None
+    if not isinstance(response_items, Sequence) or isinstance(response_items, (str, bytes)):
+        return _BulkFailure(failed_items=0, status_code=None, error_type=None)
+
+    failed_items = 0
+    first_status: int | None = None
+    first_type: str | None = None
     for entry in response_items:
         if not isinstance(entry, Mapping):
             continue
         for result in entry.values():
             if not isinstance(result, Mapping) or result.get("error") is None:
                 continue
-            error = result["error"]
-            status = str(result.get("status", "unknown"))
-            if not isinstance(error, Mapping):
-                return (status, type(error).__name__, "")
-            error_type = error.get("type")
-            reason = error.get("reason")
-            return (
-                status,
-                truncate_detail(error_type) if isinstance(error_type, str) else "unknown",
-                truncate_detail(reason) if isinstance(reason, str) else "",
-            )
-    return None
+            failed_items += 1
+            if first_status is not None or first_type is not None:
+                continue
+            status = result.get("status")
+            if isinstance(status, int) and not isinstance(status, bool):
+                first_status = status
+            error = result.get("error")
+            if isinstance(error, Mapping):
+                error_type = error.get("type")
+                if isinstance(error_type, str) and error_type:
+                    first_type = truncate_detail(error_type)
+    return _BulkFailure(failed_items=failed_items, status_code=first_status, error_type=first_type)

@@ -151,9 +151,16 @@ cases**, so a failure is machine-readable rather than a stack trace.
 
 When a dependency is down, its `status` is `down`, `version` is `null`, and
 `detail` explains why — for example
-`"TransportError: ConnectError: [WinError 10061] ..."` or
-`"AuthenticationFailed: HTTP 401; check opensearch_username and opensearch_password"`.
-Details are truncated so a verbose driver error cannot dominate the payload.
+`"TransportError cause=ConnectError operation=node_root"` or
+`"AuthenticationFailed operation=node_root HTTP 401"`.
+
+The OpenSearch detail is an **application-authored summary**, assembled from
+the exception class, the operation, the HTTP status and OpenSearch
+`error.type`. The node's own `error.reason` is untrusted: it routinely quotes
+the value that was rejected, the query, the document that failed to index or an
+internal detail, and here that document is article text. It is therefore never
+read, so it cannot reach the readiness payload. Details are also length-bounded
+so a long identifier cannot dominate the payload.
 
 Both endpoints send `Cache-Control: no-store`.
 
@@ -223,7 +230,9 @@ canonical `Paragraph.text` exactly.
   a stable tie-break, so tied rankings are reproducible.
 - `422` for a blank query or an out-of-range `limit`; `503` with the fixed
   message `search is temporarily unavailable` when the backend cannot answer.
-  The backend's own detail goes to the log, never to the caller.
+  The failure is logged as structured safe values only — exception class,
+  operation, HTTP status, `error.type`, target — never the exception text, so
+  an OpenSearch `error.reason` cannot be relayed into log aggregation.
 - `Cache-Control: no-store` on every search response, success or failure.
 - No PostgreSQL is read: search reads the projection only.
 
@@ -250,7 +259,11 @@ dynamisrag search "colon lesions" --limit 5
 
 The CLI uses the same search service and the same `SearchResponse` as
 `GET /search`; there is no second search implementation. A backend failure
-exits non-zero with one safe line on stderr.
+exits non-zero with one safe line on stderr: an application-authored failure
+such as a blank query or a chunker revision that does not exist is shown in
+full, while a low-level OpenSearch failure is rendered from its safe summary
+(exception class, operation, HTTP status, `error.type`, target) and never from
+the exception text.
 
 ## Configuration
 

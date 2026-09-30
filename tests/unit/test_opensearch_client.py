@@ -11,8 +11,10 @@ trustworthy at a glance:
   and body is asserted byte-for-byte, because the bulk body and the alias
   cutover request are protocol, not implementation detail.
 
-Failures are asserted to be *safe*: a typed error that names the operation and
-the safe backend reason, and never the credentials or the response body.
+Failures are asserted to be *safe*: a typed error that names the exception
+class, the operation, the HTTP status and OpenSearch's ``error.type``, and
+never the credentials, the response body, an ``error.reason`` or indexed
+article text.
 """
 
 from __future__ import annotations
@@ -358,14 +360,21 @@ def test_a_bulk_response_reporting_errors_is_rejected_even_though_http_is_200() 
         client.bulk_index(_INDEX, _documents(2), batch_size=500)
 
     message = str(caught.value)
-    assert "errors=true" in message
+    assert f"bulk_index on {_INDEX} failed" in message
+    assert "1 of 2 items rejected" in message
     assert "status=400" in message
     assert "type=mapper_parsing_exception" in message
-    assert "failed to parse field" in message
-    # The nested cause and any document content stay out of the message.
+    # Neither the rejection reason nor the rejected document may appear: for
+    # this projection the document is article text.
+    assert "failed to parse field" not in message
     assert "internal detail" not in message
     assert "body 1" not in message
     assert UNIT_TEST_PASSWORD not in message
+    # The structured context survives the sanitisation.
+    assert caught.value.status_code == 400
+    assert caught.value.error_type == "mapper_parsing_exception"
+    assert caught.value.target == _INDEX
+    assert caught.value.operation == "bulk_index"
 
 
 def test_a_bulk_batch_size_below_one_is_rejected_before_any_request() -> None:
@@ -413,6 +422,31 @@ def test_a_transport_failure_becomes_a_typed_error_without_credentials() -> None
     assert "TransportError: ConnectError" in str(caught.value)
     assert UNIT_TEST_PASSWORD not in str(caught.value)
     assert caught.value.operation == "node_root"
+    assert caught.value.cause == "ConnectError"
+
+
+def test_a_transport_failure_never_relays_the_exceptions_own_message() -> None:
+    """Only the exception *class* crosses the boundary.
+
+    A transport message is assembled from the URL, the peer and the socket
+    layer, none of which this process wrote, so it is dropped rather than
+    truncated.
+    """
+
+    def failing(_: httpx2.Request) -> httpx2.Response:
+        raise httpx2.ConnectError(
+            f"all connection attempts failed for {UNIT_TEST_PASSWORD} at _INDEX"
+        )
+
+    client = OpenSearchClient(_SETTINGS, transport=httpx2.MockTransport(failing))
+
+    with pytest.raises(OpenSearchTransportError) as caught:
+        client.node_root()
+
+    assert "ConnectError" in caught.value.safe_summary()
+    assert "connection attempts" not in str(caught.value)
+    assert UNIT_TEST_PASSWORD not in str(caught.value)
+    assert UNIT_TEST_PASSWORD not in caught.value.safe_summary()
 
 
 def test_a_timeout_becomes_a_transport_error() -> None:
@@ -441,7 +475,13 @@ def test_a_json_array_where_an_object_is_required_is_rejected() -> None:
         client.node_root()
 
 
-def test_an_unexpected_status_reports_the_safe_backend_reason_only() -> None:
+def test_an_unexpected_status_reports_the_error_type_but_never_the_reason() -> None:
+    """``error.type`` is carried; ``error.reason`` is untrusted and is not.
+
+    A reason states what the node rejected, so it can echo a credential, a
+    field value, the query or the document. There is no way to sanitise it
+    after the fact, so it is never read.
+    """
     body = json.dumps(
         {
             "error": {
@@ -462,7 +502,17 @@ def test_an_unexpected_status_reports_the_safe_backend_reason_only() -> None:
     assert f"while performing count on {_INDEX}" in message
     assert "type=index_not_found_exception" in message
     assert "very long internal stack" not in message
+    assert "no such index" not in message
+    assert UNIT_TEST_PASSWORD not in message
     assert "Authorization" not in message
+    # The facts an operator needs are structured, not prose.
+    assert caught.value.status_code == 404
+    assert caught.value.error_type == "index_not_found_exception"
+    assert caught.value.operation == "count"
+    assert caught.value.target == _INDEX
+    assert "UnexpectedStatus" in caught.value.safe_summary()
+    assert "HTTP 404" in caught.value.safe_summary()
+    assert UNIT_TEST_PASSWORD not in caught.value.safe_summary()
 
 
 def test_rejected_credentials_are_named_as_such() -> None:

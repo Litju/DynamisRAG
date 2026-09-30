@@ -15,6 +15,12 @@ same projection.
 The process exit status is the contract: ``0`` on success, non-zero with one
 safe line on stderr when configuration, the database or the search backend
 cannot serve the request.
+
+The stderr line is built by :func:`_safe_error_line`: an application-authored
+failure such as a rejected request or a missing chunker revision is shown in
+full, while a low-level OpenSearch failure is rendered from its safe summary —
+exception class, operation, HTTP status, ``error.type``, target — and never
+from the exception's detail, which may quote an OpenSearch ``error.reason``.
 """
 
 from __future__ import annotations
@@ -34,7 +40,7 @@ from dynamisrag.db.engine import create_database_engine
 from dynamisrag.logging_config import configure_logging
 from dynamisrag.search.bm25 import DEFAULT_LIMIT, MAX_LIMIT, Bm25SearchService
 from dynamisrag.search.client import OpenSearchClient
-from dynamisrag.search.errors import OpenSearchError
+from dynamisrag.search.errors import OpenSearchError, ProjectionError
 from dynamisrag.search.projection import PassageProjector
 
 __all__ = ["build_parser", "main"]
@@ -117,7 +123,7 @@ def _search(query: str, limit: int) -> int:
             query, limit=limit
         )
     except (ValueError, OpenSearchError) as error:
-        return _fail(f"{_PROGRAM} {_SEARCH}: {type(error).__name__}: {error}")
+        return _fail(_safe_error_line(_SEARCH, error, allow_application_detail=False))
     finally:
         client.close()
     _emit(response.model_dump(mode="json"))
@@ -139,12 +145,41 @@ def _project(chunker_revision: str) -> int:
             )
             result = projector.project(chunker_revision=chunker_revision)
     except (ValueError, OpenSearchError) as error:
-        return _fail(f"{_PROGRAM} {_PROJECT}: {type(error).__name__}: {error}")
+        return _fail(_safe_error_line(_PROJECT, error, allow_application_detail=True))
     finally:
         client.close()
         engine.dispose()
     _emit(result.to_payload())
     return _EXIT_SUCCESS
+
+
+def _safe_error_line(command: str, error: Exception, *, allow_application_detail: bool) -> str:
+    """Render one safe stderr line for ``command``.
+
+    Two classes of failure are treated differently, and the difference is
+    deliberate:
+
+    *Application-authored* failures — a rejected query, an out-of-range limit,
+    a requested chunker revision that does not exist — are written by this
+    codebase out of configuration and canonical revision names. They are the
+    actionable part of the message, so they are echoed verbatim where the
+    command can produce them.
+
+    *Everything else at the OpenSearch boundary* is rendered from
+    :meth:`~dynamisrag.search.errors.OpenSearchError.safe_summary` alone.
+    ``OpenSearchError.detail`` is never printed: it is free-form prose, and
+    OpenSearch's own ``error.reason`` — which can quote a credential, a
+    rejected value, the query or the rejected document — is not something this
+    process controls. The summary keeps the exception class, the operation, the
+    HTTP status, ``error.type`` and the index addressed, which is enough to act
+    on, and cannot carry backend content.
+    """
+    prefix = f"{_PROGRAM} {command}: {type(error).__name__}"
+    if isinstance(error, OpenSearchError):
+        if allow_application_detail and isinstance(error, ProjectionError):
+            return f"{prefix}: {error}"
+        return f"{prefix}: {error.safe_summary()}"
+    return f"{prefix}: {error}"
 
 
 def _emit(payload: object) -> None:

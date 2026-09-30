@@ -7,6 +7,10 @@ readiness cannot drift from the operations it describes. What this module
 adds is the *readiness* interpretation — a verdict that never raises, suitable
 for a health endpoint.
 
+Because ``/readyz`` is a public surface, a down verdict is written here rather
+than relayed: the probe renders the exception's safe summary, never its detail,
+so nothing an OpenSearch node said can reach the response body.
+
     canonical PostgreSQL state
         -> PassageProjector (disposable OpenSearch projection)
         -> Bm25SearchService (BM25 over the stable alias)
@@ -64,17 +68,30 @@ class OpenSearchProbe:
         self._client: Final[OpenSearchClient] = client
 
     def check(self) -> DependencyCheck:
-        """Return the current dependency verdict without raising."""
+        """Return the current dependency verdict without raising.
+
+        A down verdict carries :meth:`~dynamisrag.search.errors.OpenSearchError.safe_summary`
+        rather than the exception text. Readiness is a *public* endpoint, so its
+        detail is assembled from the exception's class and its structured fields
+        only. It keeps everything an operator needs to act — the failure
+        category, the operation, the HTTP status, OpenSearch's ``error.type`` —
+        and cannot relay a backend reason, a response body or article text even
+        if some future caller puts one into ``detail``.
+        """
         started_at = perf_counter()
         try:
             payload = self._client.node_root()
         except OpenSearchError as error:
-            return self._down(started_at, str(error))
+            return self._down(started_at, error.safe_summary())
 
         try:
             node_info = _NodeInfo.model_validate(payload)
         except ValidationError as error:
-            return self._down(started_at, f"UnexpectedPayload: {flatten_validation_error(error)}")
+            return self._down(
+                started_at,
+                f"UnexpectedPayload: node_root returned a body that does not match the node "
+                f"root document ({flatten_validation_error(error)})",
+            )
 
         return DependencyCheck(
             name=OPENSEARCH_DEPENDENCY_NAME,
