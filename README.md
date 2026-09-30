@@ -92,7 +92,10 @@ Invoke-RestMethod http://127.0.0.1:8000/readyz
 │   ├── logging_config.py      # stdlib-only deterministic logging
 │   ├── db/                    # engine.py (SQLAlchemy/psycopg), probe.py
 │   ├── health/                # models.py, router.py (/healthz, /readyz)
-│   └── search/opensearch.py   # connectivity probe only
+│   └── search/                # client.py (shared HTTP boundary), errors.py,
+│                              # schema.py (versioned index), projection.py,
+│                              # bm25.py (versioned query + service),
+│                              # router.py (/search), opensearch.py (probe)
 ├── tests/
 │   ├── unit/                  # no infrastructure required
 │   └── integration/           # requires the live stack
@@ -163,6 +166,92 @@ curl.exe -s -w "`nreadyz=%{http_code}`n"   http://127.0.0.1:8000/readyz
 docker compose start opensearch      # readiness returns to 200 once healthy
 ```
 
+### `GET /search` — BM25 passage search
+
+Ranks the versioned OpenSearch passage projection with an explicit, versioned
+BM25 query. The projection is a **disposable, rebuildable cache** of canonical
+PostgreSQL state: nothing canonical is ever read from it, and it can be deleted
+and rebuilt at any time.
+
+| Parameter | Required | Default | Range     |
+| --------- | -------- | ------- | --------- |
+| `q`       | **yes**  | —       | non-whitespace, ≤ 512 characters |
+| `limit`   | no       | `10`    | `1`–`50`  |
+
+```powershell
+curl.exe -s "http://127.0.0.1:8000/search?q=probiotic+soy+exercise&limit=5"
+curl.exe -s "http://127.0.0.1:8000/search?q=colon+lesions"
+```
+
+```json
+{
+  "query": "probiotic soy exercise",
+  "query_revision": "bm25-v1",
+  "index_schema_revision": "passage-index-v1",
+  "projection_sha256": "b62af58acf996733a67dd5955384eb8c6a43b029626d6df8461fed653734048d",
+  "chunker_revision": "structure-v1.1.b19e0939b5de",
+  "total": 19,
+  "took_ms": 11,
+  "hits": [
+    {
+      "rank": 1,
+      "score": 1.777401,
+      "passage_key": "1b272624bb39fe23cca4a9db124f0be85add56cf66d0f136f0003f53e5ca382c",
+      "section_path": "2.5",
+      "section_title": "Physical exercise",
+      "primary_source_anchor": "jats:/body[1]/sec[2]/sec[5]/p[1]",
+      "source_spans": [
+        {
+          "source_order": 0,
+          "paragraph_key": "3aa502f0046f3aad94bd0002307a9c14ef6b1a281d9f97906e48ff2ab8823870",
+          "paragraph_source_anchor": "jats:/body[1]/sec[2]/sec[5]/p[1]",
+          "start_char": 0,
+          "end_char": 264
+        }
+      ]
+    }
+  ]
+}
+```
+
+Every hit is auditable: `passage_key`, `document_version_key`,
+`document_canonical_key` and `primary_source_anchor` address the canonical
+PostgreSQL rows, and each `source_spans` entry's character range addresses the
+canonical `Paragraph.text` exactly.
+
+- Results are ordered by descending BM25 score with `passage_key` ascending as
+  a stable tie-break, so tied rankings are reproducible.
+- `422` for a blank query or an out-of-range `limit`; `503` with the fixed
+  message `search is temporarily unavailable` when the backend cannot answer.
+  The backend's own detail goes to the log, never to the caller.
+- `Cache-Control: no-store` on every search response, success or failure.
+- No PostgreSQL is read: search reads the projection only.
+
+### Projecting passages
+
+The projector is a service, not an endpoint. Rebuild the projection from
+canonical PostgreSQL with the exact chunker revision to project:
+
+```powershell
+uv run dynamisrag project-passages --chunker-revision structure-v1.1.b19e0939b5de
+```
+
+The revision is mandatory and never inferred: PostgreSQL may hold several
+immutable passage sets for one document version, and indexing more than one
+would duplicate retrieval content under different identities.
+
+## Command line
+
+```powershell
+dynamisrag                                     # serve the HTTP API (unchanged)
+dynamisrag search "probiotic soy exercise"     # BM25 over the projection, JSON on stdout
+dynamisrag search "colon lesions" --limit 5
+```
+
+The CLI uses the same search service and the same `SearchResponse` as
+`GET /search`; there is no second search implementation. A backend failure
+exits non-zero with one safe line on stderr.
+
 ## Configuration
 
 All variables are prefixed `DYNAMISRAG_` and are read from the process
@@ -178,6 +267,8 @@ working directory and behaves identically on Windows and Linux.
 | `DYNAMISRAG_OPENSEARCH_USERNAME`          | no       | `admin`     |                                          |
 | `DYNAMISRAG_OPENSEARCH_PASSWORD`          | **yes**  | —           | Wrapped in `SecretStr`; never logged      |
 | `DYNAMISRAG_OPENSEARCH_VERIFY_TLS`        | no       | `true`      | `false` for the self-signed demo cert     |
+| `DYNAMISRAG_OPENSEARCH_INDEX_ALIAS`       | no       | `dynamisrag-passages` | Stable query target of the passage projection |
+| `DYNAMISRAG_OPENSEARCH_BULK_BATCH_SIZE`   | no       | `500`       | Documents per bulk request                 |
 | `DYNAMISRAG_DEPENDENCY_TIMEOUT_SECONDS`   | no       | `5`         | Bound on every readiness probe            |
 | `DYNAMISRAG_HOST` / `DYNAMISRAG_PORT`     | no       | `127.0.0.1` / `8000` | Bind address                     |
 | `DYNAMISRAG_LOG_LEVEL`                    | no       | `INFO`      |                                          |
