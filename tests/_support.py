@@ -28,6 +28,7 @@ __all__ = [
     "JATS_FULL_ARTICLE",
     "JATS_SPARSE_ARTICLE",
     "REPO_ROOT",
+    "SECRET_ARTICLE_SENTINEL",
     "UNIT_TEST_PASSWORD",
     "UNREACHABLE_DATABASE_URL",
     "UNREACHABLE_HOST",
@@ -58,6 +59,18 @@ slowly.
 
 UNIT_TEST_PASSWORD: Final[str] = "unit-test-opensearch-password-1A"
 """Throwaway credential for tests. Never a real secret."""
+
+SECRET_ARTICLE_SENTINEL: Final[str] = "SECRET_ARTICLE_SENTINEL"
+"""Stands in for canonical article text inside a backend failure.
+
+OpenSearch quotes the value it rejected in ``error.reason`` and
+``caused_by.reason``, and for this projection the value it rejects is an indexed
+passage. Tests plant this string in those fields and assert it appears in no
+exception message, log record, readiness payload or terminal line.
+
+An all-caps, unmistakably fake token is deliberate: it cannot collide with real
+prose, so a failure to assert its absence can never be mistaken for a pass.
+"""
 
 UNREACHABLE_DATABASE_URL: Final[str] = (
     f"postgresql://dynamisrag:{UNIT_TEST_PASSWORD}@{UNREACHABLE_HOST}:5432/dynamisrag"
