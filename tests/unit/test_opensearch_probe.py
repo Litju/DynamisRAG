@@ -7,8 +7,8 @@ against the real OpenSearch 3.x container.
 
 The probe owns no transport: it is built over the shared
 :class:`~dynamisrag.search.client.OpenSearchClient`, so these tests also pin the
-wording the shared client produces — the same strings the API and CLI surface
-as ``503``/``down`` details.
+summary the probe renders from that client's typed errors — the string that
+reaches ``/readyz`` as ``dependencies.opensearch.detail``.
 """
 
 from __future__ import annotations
@@ -99,25 +99,30 @@ def test_rejected_credentials_report_an_authentication_failure(status_code: int)
     assert str(status_code) in check.detail
 
 
-def test_unexpected_status_is_reported_verbatim() -> None:
+def test_unexpected_status_is_reported_as_a_safe_summary() -> None:
     probe = _probe(stub_transport(status_code=503, body=b"{}"))
 
     check = probe.check()
 
     assert check.status is CheckStatus.DOWN
     assert check.detail is not None
-    assert check.detail.startswith("UnexpectedStatus: HTTP 503")
+    assert check.detail.startswith("UnexpectedStatus")
+    assert "HTTP 503" in check.detail
     assert "node_root" in check.detail
 
 
-def test_an_unexpected_status_reports_the_safe_backend_reason() -> None:
-    """OpenSearch's error type/reason are operator-useful and safe; the whole
-    body is not, and never reaches the detail."""
+def test_an_unexpected_status_reports_the_error_type_but_never_the_reason() -> None:
+    """``/readyz`` is a public endpoint.
+
+    OpenSearch's ``error.type`` is a machine-generated class name and is safe
+    to carry. Its ``error.reason`` and the ``reason`` of a ``caused_by`` are
+    the node's own prose about what it rejected, and are never relayed.
+    """
     body = json.dumps(
         {
             "error": {
                 "type": "illegal_argument_exception",
-                "reason": "request [/index] is missing",
+                "reason": f"request [/index] is missing, password {UNIT_TEST_PASSWORD}",
                 "caused_by": {"type": "nope", "reason": "internal detail"},
             },
             "status": 400,
@@ -129,9 +134,13 @@ def test_an_unexpected_status_reports_the_safe_backend_reason() -> None:
 
     assert check.status is CheckStatus.DOWN
     assert check.detail is not None
-    assert "type=illegal_argument_exception" in check.detail
-    assert "request [/index] is missing" in check.detail
+    assert check.detail.startswith("UnexpectedStatus")
+    assert "HTTP 400" in check.detail
+    assert "error.type=illegal_argument_exception" in check.detail
+    assert "node_root" in check.detail
+    assert "request [/index] is missing" not in check.detail
     assert "internal detail" not in check.detail
+    assert UNIT_TEST_PASSWORD not in check.detail
 
 
 def test_malformed_payload_is_reported_as_an_unexpected_payload() -> None:
@@ -162,8 +171,12 @@ def test_transport_failure_is_reported_without_raising() -> None:
 
     assert check.status is CheckStatus.DOWN
     assert check.detail is not None
-    assert check.detail.startswith("TransportError: ConnectError")
-    assert "connection refused" in check.detail
+    assert check.detail.startswith("TransportError")
+    # The exception class is kept — it distinguishes refused from timed out —
+    # but its own message, which is not written by this process, is not.
+    assert "cause=ConnectError" in check.detail
+    assert "operation=node_root" in check.detail
+    assert "connection refused" not in check.detail
 
 
 def test_a_transport_failure_never_echoes_the_password() -> None:
