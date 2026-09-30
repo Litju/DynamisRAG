@@ -134,14 +134,46 @@ jobs:
           grep -q '"version":"18' ready.json
           grep -q '"version":"3' ready.json
 
+          echo "=== search: invalid input is a 422 without touching the backend ==="
+          invalid_code=$(curl -s -o invalid.json -w '%{http_code}' \
+            'http://127.0.0.1:8000/search?q=%20%20&limit=5')
+          echo "blank query=$invalid_code"
+          test "$invalid_code" = "422"
+          limit_code=$(curl -s -o limit.json -w '%{http_code}' \
+            'http://127.0.0.1:8000/search?q=probiotic&limit=5000')
+          echo "limit out of range=$limit_code"
+          test "$limit_code" = "422"
+
+          echo "=== search: healthy backend, no projection yet ==="
+          # The canonical database is empty in CI, so no passage has ever been
+          # projected and the query alias resolves to nothing. The assertion is
+          # deliberately independent of pre-existing indexed data: it pins the
+          # error contract and the cache policy, and accepts a ranked 200 if a
+          # projection happens to exist. The ranked happy path is proven
+          # deterministically by the integration suite against this same node.
+          search_code=$(curl -s -o search.json -D headers-search.txt -w '%{http_code}' \
+            'http://127.0.0.1:8000/search?q=probiotic&limit=5')
+          cat search.json
+          echo "search=$search_code"
+          test "$search_code" = "200" -o "$search_code" = "503"
+          grep -q '^cache-control: no-store' <(tr -d '\r' < headers-search.txt)
+          if [ "$search_code" = "503" ]; then
+            grep -q '"detail":"search is temporarily unavailable"' search.json
+          fi
+
           echo "=== degraded: stop opensearch ==="
           docker compose stop opensearch
           live_code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/healthz)
           ready_code=$(curl -s -o degraded.json -w '%{http_code}' http://127.0.0.1:8000/readyz)
-          echo "liveness=$live_code readiness=$ready_code"
+          search_down_code=$(curl -s -o search-down.json -w '%{http_code}' \
+            'http://127.0.0.1:8000/search?q=probiotic')
+          echo "liveness=$live_code readiness=$ready_code search=$search_down_code"
           cat degraded.json
+          cat search-down.json
           test "$live_code" = "200"
           test "$ready_code" = "503"
+          test "$search_down_code" = "503"
+          grep -q '"detail":"search is temporarily unavailable"' search-down.json
           grep -q '"status":"down"' degraded.json
           grep -q '"opensearch":{"name":"opensearch","status":"down"' degraded.json
           grep -q '"postgres":{"name":"postgres","status":"up"' degraded.json
