@@ -365,3 +365,65 @@ def test_a_null_prompt_name_is_not_a_statement_about_prompts() -> None:
     assert config.prompt_name is None
     assert REFERENCE_TEI_DEPLOYMENT_SEMANTICS.default_prompt_mode is TeiDefaultPromptMode.NONE
     assert TEI_PROVIDER_NAME == "tei"
+
+
+# ---------------------------------------------------------------------------
+# The documentation must not describe a different deployment
+# ---------------------------------------------------------------------------
+
+_README: Final[Path] = REPO_ROOT / "README.md"
+
+
+def test_the_readme_documents_the_scheme_the_container_serves() -> None:
+    """The README is the first thing a teammate reads, and it was wrong.
+
+    It carried an ``https://127.0.0.1:8080`` example for a container that serves
+    plaintext HTTP, which is a connection failure rather than a working default.
+    Asserted so a future edit cannot reintroduce it while leaving the ``.env``
+    template correct.
+    """
+    readme = _README.read_text(encoding="utf-8")
+    flat = " ".join(readme.split())
+
+    assert "http://127.0.0.1:8080" in flat
+    assert "https://127.0.0.1:8080" not in flat
+
+
+def test_the_readme_states_that_a_null_prompt_name_is_not_no_prompt() -> None:
+    """The misreading this boundary exists to prevent, closed at the source.
+
+    Upstream resolves a null ``prompt_name`` to the server's default, so a reader
+    who takes ``null`` for "no prompt" will draw a conclusion about their own vectors
+    that the fingerprint deliberately does not support.
+    """
+    readme = _README.read_text(encoding="utf-8")
+    flat = " ".join(readme.split())
+
+    assert '`prompt_name = null` means **"use the attested server default"**' in flat
+    assert '"no prompt"' in flat
+
+
+def test_the_readme_does_not_claim_embeddings_are_unimplemented() -> None:
+    """The opening used to say the repository never generates embeddings.
+
+    Which was true when it was written and became false the moment the adapter
+    landed. Both halves are asserted: generation is implemented, and the *choice* of
+    a model is not. Read through collapsed whitespace, because the sentences are
+    hard-wrapped and a match spanning a line break would be testing the formatter.
+    """
+    readme = _README.read_text(encoding="utf-8")
+    flat = " ".join(readme.split())
+
+    assert "deterministic embedding generation" in flat
+    assert "`EmbeddingProvider` port with a Text Embeddings Inference adapter" in flat
+    assert "`passage-embeddings-v1` manifest whose SHA-256" in flat
+    assert "never generates" not in flat
+    assert "not implemented here, by design: embedding generation" not in flat
+    # Still absent, and still said to be absent.
+    for later in (
+        "a production ANN retrieval API",
+        "BM25+dense fusion",
+        "reranking",
+        "generation, and agents",
+    ):
+        assert later in flat, later
