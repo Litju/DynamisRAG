@@ -970,6 +970,119 @@ def test_the_run_identity_carries_the_model_even_though_the_fingerprint_does_not
     assert set(fingerprint) < set(run)
 
 
+_DEPLOYMENT_VARIANTS: Final[dict[str, TeiDeploymentSemantics]] = {
+    "named-prompt": TeiDeploymentSemantics(
+        default_prompt_mode=TeiDefaultPromptMode.NAMED, default_prompt_name="query"
+    ),
+    "literal-prompt": TeiDeploymentSemantics.with_literal_default_prompt("query: "),
+    "dense-path": TeiDeploymentSemantics(dense_path="dense_override"),
+    "named-prompt-and-dense-path": TeiDeploymentSemantics(
+        default_prompt_mode=TeiDefaultPromptMode.NAMED,
+        default_prompt_name="query",
+        dense_path="dense_override",
+    ),
+}
+"""The reference attestation and one of each knob, moved.
+
+The reference is ``no default prompt, no dense-path override``; these are the three
+ways a TEI deployment can differ from it without ``GET /info`` changing by a single
+byte. Each is a *different* deployment that returns different vectors, and each is
+exactly the kind of drift the run bracket has to catch.
+"""
+
+
+@pytest.mark.parametrize("variant", sorted(_DEPLOYMENT_VARIANTS), ids=sorted(_DEPLOYMENT_VARIANTS))
+def test_the_run_identity_compares_the_attested_deployment_semantics(
+    variant: str,
+) -> None:
+    """The attestation is part of the run identity, and it was not.
+
+    ``embedding_config_sha256`` binds the deployment semantics, so it was natural to
+    assume the run bracket inherited that. It did not: the run identity compared the
+    observed runtime and the model, and nothing else. So a provider could open a run
+    under attestation ``A``, generate vectors through a policy transition to ``B``,
+    and close it under ``B``, and the comparison would accept -- while the manifest
+    recorded ``A`` and a digest that covered ``A``.
+
+    The two observations disagree on a value the manifest's own
+    ``embedding_config_sha256`` covers, so what the run accepted was a record whose
+    stated identity is not the identity everything in it was made under. This is
+    asserted on the identity alone, with no provider and no server: the invariant is
+    the abstraction's, and a test needing a TEI mock would only prove TEI checks it.
+    """
+    with pytest.raises(TeiIdentityError, match="run identity changed"):
+        _identity().require_same_semantic_runtime(
+            _identity(deployment=_DEPLOYMENT_VARIANTS[variant]), operation="embed_passages"
+        )
+
+
+@pytest.mark.parametrize("variant", sorted(_DEPLOYMENT_VARIANTS), ids=sorted(_DEPLOYMENT_VARIANTS))
+def test_a_changed_attestation_moves_the_run_identity_and_only_the_run_identity(
+    variant: str,
+) -> None:
+    """Pinned structurally, so the fix cannot be undone by editing a comparison.
+
+    The attestation is carried as one nested value rather than merged into the run
+    payload. The fingerprint has to merge three payloads and therefore has to refuse a
+    key that appears in two of them; a run identity has no such need, because a nested
+    value cannot displace anything. So a provider is free to attest to a key named
+    ``provider`` or ``max_input_length`` without being told to rename it first.
+
+    And the digest is untouched: ``embedding_config_sha256`` already bound the
+    attestation, so this repair widens the *run bracket* and changes no recorded
+    bytes.
+    """
+    reference = _identity()
+    attested = _identity(deployment=_DEPLOYMENT_VARIANTS[variant])
+
+    assert "deployment_semantics" in reference.run_identity_payload()
+    assert reference.run_identity_payload()["deployment_semantics"] == _DEPLOYMENT.payload()
+    assert reference.run_identity_payload() != attested.run_identity_payload()
+    assert reference.embedding_config_sha256(_GENERATION) == _digest()
+    assert attested.embedding_config_sha256(_GENERATION) != _digest()
+
+
+def test_the_run_identity_still_refuses_capacity_and_excludes_it_structurally() -> None:
+    """The deployment attestation came in; the operational fields must stay out.
+
+    A stale repair is one that binds the whole identity including how much the server
+    could do at once, so the exclusion is asserted as a fact about the payload's keys
+    rather than only through the drift cases above -- a key that is present but inert
+    would satisfy those and still be a lie.
+    """
+    run = _identity().run_identity_payload()
+
+    assert "deployment_semantics" in run
+    for capacity in ("max_client_batch_size", "max_batch_tokens", "max_batch_requests"):
+        assert capacity not in run
+    assert "tei_docker_label" not in run
+    assert "runtime_docker_label" not in run
+    assert all(not isinstance(value, str) or "tei.invalid" not in value for value in run.values())
+
+
+def test_the_attestation_is_nested_so_it_cannot_displace_a_sibling_key() -> None:
+    """A colliding deployment key is inert here, where the fingerprint refuses it.
+
+    ``embedding_config_sha256`` merges the runtime, the attestation and the request
+    into one object, so a key appearing in two of them silently displaces one and is
+    refused. The run identity nests instead, so the same attestation that is refused
+    by the digest is harmless by the run comparison -- which is the reason for the
+    nesting rather than a second collision check.
+    """
+
+    @dataclass(frozen=True)
+    class _Colliding(ProtocolFixedDeploymentSemantics):
+        def payload(self) -> dict[str, object]:
+            return {"max_input_length": 1024}
+
+    identity = _identity(deployment=_Colliding())
+
+    assert identity.run_identity_payload()["deployment_semantics"] == {"max_input_length": 1024}
+    assert identity.run_identity_payload()["max_input_length"] == 512
+    with pytest.raises(EmbeddingContractError, match="displace one of them from the digest"):
+        identity.embedding_config_sha256(_GENERATION)
+
+
 def test_a_neutral_provider_that_changes_model_mid_run_produces_no_manifest() -> None:
     """End to end, with a port implementation that is not TEI at all.
 
@@ -990,7 +1103,7 @@ def test_a_neutral_provider_that_changes_model_mid_run_produces_no_manifest() ->
         embed_passages(provider, _inputs(3))
 
     assert provider.embed_calls == 1
-    assert provider.finished_runs == 0
+    assert provider.observations == 2
 
 
 def test_a_neutral_provider_whose_identity_holds_produces_the_same_manifest() -> None:
@@ -1009,15 +1122,110 @@ def test_a_neutral_provider_whose_identity_holds_produces_the_same_manifest() ->
     assert manifest.embedding_model_identity.model_revision == TEI_MODEL_SHA
 
 
+@pytest.mark.parametrize("variant", sorted(_DEPLOYMENT_VARIANTS), ids=sorted(_DEPLOYMENT_VARIANTS))
+def test_a_neutral_provider_whose_attestation_moves_mid_run_produces_no_manifest(
+    variant: str,
+) -> None:
+    """End to end, through a port implementation that is not TEI at all.
+
+    The invariant has to hold for whatever provider RES-138 ends up choosing, so the
+    double here implements only the two operations the port declares and names no
+    vendor, no URL and no wire format. Its two observations are identical in every
+    observable respect -- same provider, same build, same weights, same dtype, same
+    pooling, same truncation boundary -- and differ only in the attested startup
+    policy, which is the case an observation-only comparison cannot see.
+
+    ``embed_calls == 1`` and ``observations == 2`` say the run generated vectors and
+    read both ends of its own bracket before being refused at the comparison, so this
+    cannot pass against a provider that refused on arrival. That no manifest exists
+    needs no counter: the call raised, so there is no return value to be one.
+    """
+    provider = _NeutralProvider(
+        identities=(_identity(), _identity(deployment=_DEPLOYMENT_VARIANTS[variant]))
+    )
+
+    with pytest.raises(TeiIdentityError, match="run identity changed"):
+        embed_passages(provider, _inputs(3))
+
+    assert provider.embed_calls == 1
+    assert provider.observations == 2
+
+
+def test_a_neutral_provider_with_two_equivalent_attestations_finishes_its_run() -> None:
+    """The positive control, and the reason the check cannot be a blanket refusal.
+
+    Two separately constructed attestations that agree on every bound value are the
+    same deployment statement, so the run must complete and produce a manifest. A
+    comparison keyed on object *identity* rather than value would pass the drift tests
+    above while breaking this one, so the pair is built independently rather than by
+    reusing one value.
+    """
+    opening = TeiDeploymentSemantics(
+        default_prompt_mode=TeiDefaultPromptMode.NAMED, default_prompt_name="query"
+    )
+    closing = TeiDeploymentSemantics(
+        default_prompt_mode=TeiDefaultPromptMode.NAMED, default_prompt_name="query"
+    )
+    assert opening is not closing
+
+    provider = _NeutralProvider(
+        identities=(_identity(deployment=opening), _identity(deployment=closing))
+    )
+    manifest = embed_passages(provider, _inputs(3))
+
+    assert provider.embed_calls == 1
+    assert provider.observations == 2
+    assert manifest.embedding_model_identity.model_id == TEI_MODEL_ID
+    assert manifest.document_count == 3
+    assert (
+        manifest.manifest_sha256
+        == _manifest(
+            identity=_identity(deployment=opening),
+            embeddings=[[0.0, 0.5], [1.0, 0.5], [2.0, 0.5]],
+        ).manifest_sha256
+    )
+
+
+def test_a_neutral_provider_under_a_protocol_fixed_attestation_also_finishes() -> None:
+    """The vendor-neutral attestation flows through the run bracket unchanged.
+
+    A protocol that fixes its startup semantics still has to *say* so, and saying so
+    must not be mistaken for the drift the case above detects: two readings of the
+    same statement have to compare equal, and the nesting is what carries it.
+    """
+    provider = _NeutralProvider(
+        identities=(
+            _identity(deployment=ProtocolFixedDeploymentSemantics()),
+            _identity(deployment=ProtocolFixedDeploymentSemantics()),
+        )
+    )
+
+    manifest = embed_passages(provider, _inputs(3))
+
+    assert provider.observations == 2
+    assert manifest.embedding_config_sha256 == _digest(
+        identity=_identity(deployment=ProtocolFixedDeploymentSemantics())
+    )
+
+
 class _NeutralProvider:
     """A provider that is nothing but the port, to test the port's own invariant.
 
     Implements :class:`~dynamisrag.embedding.contracts.EmbeddingProvider` with a
     scripted sequence of identities and a fixed vector per input, so a test can put
-    two different observations around one generation. ``embed_calls`` and
-    ``finished_runs`` exist so a test can assert the run reached the work at all —
-    a drift test that never embedded would pass just as well against a provider
-    that refused on arrival.
+    two different observations around one generation.
+
+    ``embed_calls`` and ``observations`` exist so a test can assert the run reached
+    the work and read *both* ends of its bracket -- a drift test that never embedded
+    would pass just as well against a provider that refused on arrival.
+
+    There is deliberately no "did a run finish" counter here. A provider never learns
+    whether :func:`~dynamisrag.embedding.manifest.embed_passages` went on to build a
+    manifest, so such a counter could only ever report ``0`` and an assertion on it
+    would pass for any implementation, including a broken one. Whether a manifest
+    exists is settled by the *return value*: a test either holds a
+    :class:`~dynamisrag.embedding.manifest.PassageEmbeddingManifest` or it caught the
+    refusal, and there is no third case to assert.
     """
 
     def __init__(self, *, identities: tuple[EmbeddingProviderIdentity, ...]) -> None:
@@ -1025,7 +1233,18 @@ class _NeutralProvider:
         self._reads = 0
         self._dimension = 2
         self.embed_calls = 0
-        self.finished_runs = 0
+
+    @property
+    def observations(self) -> int:
+        """How many times the run asked this provider who it was.
+
+        ``2`` for a complete bracket -- one observation opening it and one closing it
+        -- whether or not the comparison then accepted. That is the useful property:
+        it separates "the run got all the way to the second read and was refused
+        there" from "the run never started", which a counter initialised to zero
+        cannot tell apart.
+        """
+        return self._reads
 
     def describe(self) -> EmbeddingProviderIdentity:
         """One scripted identity per call, so the last read is the drift case."""
