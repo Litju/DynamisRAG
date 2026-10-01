@@ -37,11 +37,12 @@ revision.
   bumping the revision.
 * **There is no ``ef_search``.** Lucene's HNSW does not take one: search-time
   breadth is a per-query parameter, not an index setting. ``ef_search`` is an
-  nmslib-era field, and writing it into a Lucene HNSW index is either rejected or
-  silently ignored — in both cases an index that advertises a recall setting it
-  does not have. The mapping built here cannot contain the key, and
-  :func:`assert_no_search_time_hnsw_settings` exists so that a mapping assembled
-  by hand is held to the same rule.
+  nmslib-era field, and writing it into a Lucene HNSW index is refused by the
+  node, so the mapping built here cannot contain the key.
+  :func:`assert_lucene_hnsw_field_mapping` exists so that a mapping assembled by
+  hand is held to the same rule — and, because the node refuses exactly the same
+  things, to the wider one: another engine, another method, or a quantization or
+  compression block.
 
 This module owns no I/O and consults no clock, so every value it produces is
 reproducible and assertable without a node, a database or a model.
@@ -61,6 +62,9 @@ from dynamisrag.search.errors import VectorContractError
 
 __all__ = [
     "FORBIDDEN_SEARCH_TIME_HNSW_SETTINGS",
+    "FORBIDDEN_VECTOR_FIELD_SETTINGS",
+    "FORBIDDEN_VECTOR_INDEX_ENGINES",
+    "FORBIDDEN_VECTOR_INDEX_METHODS",
     "HNSW_EF_CONSTRUCTION",
     "HNSW_M",
     "MAX_VECTOR_DIMENSION",
@@ -75,7 +79,7 @@ __all__ = [
     "VECTOR_SPACE_L2",
     "EmbeddingModelIdentity",
     "VectorIndexConfig",
-    "assert_no_search_time_hnsw_settings",
+    "assert_lucene_hnsw_field_mapping",
     "is_zero_vector",
     "validate_vector_set",
 ]
@@ -142,8 +146,51 @@ FORBIDDEN_SEARCH_TIME_HNSW_SETTINGS: Final[tuple[str, ...]] = ("ef_search",)
 
 ``ef_search`` is the load-bearing member: it is an nmslib field, and Lucene's
 HNSW takes its search-time breadth from the request. Writing it into a Lucene
-HNSW mapping is either an error or a no-op, and either way the resulting index
-would claim a recall guarantee it does not honour.
+HNSW mapping is refused by the node with ``Unknown parameter 'ef_search'``, so an
+index carrying it could never be built — and in a build that did succeed it would
+claim a recall guarantee it does not honour.
+"""
+
+FORBIDDEN_VECTOR_INDEX_ENGINES: Final[tuple[str, ...]] = ("faiss", "nmslib", "jvector")
+"""Vector engines this revision does not evaluate.
+
+Named explicitly rather than merely defaulted away, because each one is a real
+alternative with different recall, footprint and filtering behaviour: a v2 index
+built on any of them is a different physical index with different neighbours, and
+merely omitting ``engine`` would let a node-side default decide what the index
+means. They are rejected so a variant arrives as a new schema revision.
+"""
+
+FORBIDDEN_VECTOR_INDEX_METHODS: Final[tuple[str, ...]] = (
+    "efi",
+    "nmslib",
+    "hnswlib",
+    "faiss",
+)
+"""Approximate-nearest-neighbour methods this revision does not evaluate.
+
+Only HNSW is contractually claimed, so any other method name is refused rather
+than left to the node. ``nmslib`` and ``hnswlib`` also appear as *engine* names
+in older OpenSearch releases, so they are listed on both axes.
+"""
+
+FORBIDDEN_VECTOR_FIELD_SETTINGS: Final[tuple[str, ...]] = (
+    "quantization",
+    "compression",
+    "mode",
+    "model_id",
+    "knn_vector_index",
+    "index.knn",
+)
+"""Vector-field settings that change what the index stores or returns.
+
+Quantization and compression rewrite the stored representation and therefore the
+distances, so an index carrying them is not comparable with one that does not and
+its recall is a property of the deployment rather than of this contract. ``mode``
+and ``model_id`` configure an on-disk tier and a remote model respectively, and
+``index.knn`` is a *settings*-block key that has no meaning inside a field
+mapping. Every one of them is refused by the node, and is refused here first so
+the failure is a legible local error rather than a ``mapper_parsing_exception``.
 """
 
 VECTOR_FIELD: Final[str] = "embedding"
@@ -365,49 +412,134 @@ class VectorIndexConfig:
         contract, and letting a caller name a second one is how a mapping ends up
         with two vectors and no record of which the query meant.
 
+        The shape is the one OpenSearch 3.8 actually accepts for a Lucene HNSW
+        field, verified against the live node rather than assumed:
+
+            {"type": "knn_vector", "dimension": N, "data_type": "float",
+             "method": {"name": "hnsw", "engine": "lucene",
+                        "space_type": ..., "parameters": {"m": 16,
+                                                          "ef_construction": 100}}}
+
+        ``engine``, ``method`` and ``space_type`` nested inside a ``method``
+        *object*, with HNSW build parameters under ``parameters``. The flatter
+        shape — ``engine``/``method``/``space_type`` as siblings of ``dimension``
+        with a parallel ``hnsw`` object — is refused by the node with
+        ``Unable to parse mapping into KNNMethodContext``, so an index built from
+        it cannot exist at all.
+
         ``dimension`` is always written out. Leaving it implicit lets OpenSearch
         adopt the dimension of the first indexed document, which makes the index
         unbuildable whenever that first passage is short and unverifiable
         afterwards, because no later mapping state can prove the intended
         dimension.
 
-        No ``ef_search``: see :data:`FORBIDDEN_SEARCH_TIME_HNSW_SETTINGS`.
+        ``data_type`` is written explicitly even though ``float`` is the node's
+        default: the value type is part of the index's identity, and a default
+        that changed under a future release would silently change what the field
+        stores.
+
+        No ``ef_search``: see :data:`FORBIDDEN_SEARCH_TIME_HNSW_SETTINGS`. This
+        mapping additionally requires ``index.knn`` to be enabled in the index
+        settings — see :func:`dynamisrag.search.schema.vector_index_settings`,
+        without which the node refuses the method parameters outright.
         """
         return {
             "type": "knn_vector",
-            "engine": VECTOR_ENGINE,
-            "method": VECTOR_INDEX_METHOD,
-            "space_type": self.space,
             "dimension": self.dimension,
-            "hnsw": {"m": HNSW_M, "ef_construction": HNSW_EF_CONSTRUCTION},
+            "data_type": VECTOR_INDEX_TYPE,
+            "method": {
+                "name": VECTOR_INDEX_METHOD,
+                "engine": VECTOR_ENGINE,
+                "space_type": self.space,
+                "parameters": {"m": HNSW_M, "ef_construction": HNSW_EF_CONSTRUCTION},
+            },
         }
 
 
-def assert_no_search_time_hnsw_settings(mapping: Mapping[str, JsonValue], *, where: str) -> None:
-    """Reject a mapping that carries a query-time setting as an index setting.
+def assert_lucene_hnsw_field_mapping(mapping: Mapping[str, JsonValue], *, where: str) -> None:
+    """Reject any ``knn_vector`` mapping outside the Lucene HNSW contract.
 
-    Called on a mapping exactly as a caller assembles it, so a hand-written
-    mapping cannot reintroduce the one class of field this contract forbids by
-    naming it rather than by silently ignoring it. No *value* is echoed: a
-    mapping value is configuration this process wrote, and the check must never
-    become a channel for indexed content.
+    Applied to a mapping exactly as a caller assembles it, so a hand-written
+    mapping cannot reintroduce a rejected engine, a different ANN method, a
+    search-time parameter or a quantization block by naming it rather than by
+    having the node refuse it mid-build.
+
+    The rule set is the node's, not this project's taste: every key checked here
+    is one OpenSearch 3.8 rejects on a ``knn_vector`` field, so passing this
+    function is a precondition for the mapping being creatable at all. Being
+    explicit about the whole set also keeps the guard from growing one forbidden
+    key at a time, which is how a guard ends up half a rule.
+
+    No *value* is echoed for a forbidden key — only the key name. A mapping value
+    is configuration this process wrote, but a hand-assembled mapping is exactly
+    the case where an echoed value stops being trustworthy, and the key alone is
+    enough to act on.
     """
-    for forbidden in FORBIDDEN_SEARCH_TIME_HNSW_SETTINGS:
-        if forbidden in mapping:
-            raise _forbidden_setting_error(forbidden=forbidden, where=where, path="")
-        nested = mapping.get("hnsw")
-        if isinstance(nested, Mapping) and forbidden in nested:
-            raise _forbidden_setting_error(forbidden=forbidden, where=where, path="hnsw.")
-
-
-def _forbidden_setting_error(*, forbidden: str, where: str, path: str) -> VectorContractError:
-    located = f"{path}{forbidden}"
-    return VectorContractError(
-        f"{where} declares {located!r}. It is a search-time parameter, not an index setting: "
-        "Lucene HNSW takes its query breadth from the request, so an index carrying it would "
-        "advertise a recall behaviour it does not have.",
-        operation="vector_config",
+    _reject_forbidden(
+        mapping,
+        (*FORBIDDEN_SEARCH_TIME_HNSW_SETTINGS, *FORBIDDEN_VECTOR_FIELD_SETTINGS),
+        where=where,
+        path="",
     )
+    method = mapping.get("method")
+    if isinstance(method, Mapping):
+        _reject_forbidden(method, FORBIDDEN_SEARCH_TIME_HNSW_SETTINGS, where=where, path="method.")
+        _reject_named(
+            method.get("engine"),
+            FORBIDDEN_VECTOR_INDEX_ENGINES,
+            where=where,
+            described="method.engine",
+        )
+        _reject_named(
+            method.get("name"),
+            FORBIDDEN_VECTOR_INDEX_METHODS,
+            where=where,
+            described="method.name",
+        )
+        parameters = method.get("parameters")
+        if isinstance(parameters, Mapping):
+            _reject_forbidden(
+                parameters,
+                FORBIDDEN_SEARCH_TIME_HNSW_SETTINGS,
+                where=where,
+                path="method.parameters.",
+            )
+    # The flat shape this project used before the live-node check: a parallel
+    # `hnsw` object. It is refused by the node, and its query-time parameters
+    # have to be refused here too so a mapping assembled by hand cannot carry one.
+    legacy = mapping.get("hnsw")
+    if isinstance(legacy, Mapping):
+        _reject_forbidden(legacy, FORBIDDEN_SEARCH_TIME_HNSW_SETTINGS, where=where, path="hnsw.")
+    _reject_named(
+        mapping.get("engine"), FORBIDDEN_VECTOR_INDEX_ENGINES, where=where, described="engine"
+    )
+
+
+def _reject_forbidden(
+    mapping: Mapping[str, JsonValue], forbidden: Sequence[str], *, where: str, path: str
+) -> None:
+    for name in forbidden:
+        if name in mapping:
+            located = f"{path}{name}"
+            raise VectorContractError(
+                f"{where} declares {located!r}, which this schema revision does not evaluate. A "
+                "vector index is identified by its engine, method and value representation, so a "
+                "variant is a new schema revision rather than a per-index setting; OpenSearch "
+                "refuses the key as well, and refusing it here makes the cause legible.",
+                operation="vector_config",
+            )
+
+
+def _reject_named(
+    value: JsonValue, forbidden: Sequence[str], *, where: str, described: str
+) -> None:
+    if isinstance(value, str) and value in forbidden:
+        raise VectorContractError(
+            f"{where} declares {described} {value!r}, which this schema revision does not "
+            f"evaluate. It is part of the index's identity, so adopting it means a new schema "
+            f"revision rather than a different index under the same revision.",
+            operation="vector_config",
+        )
 
 
 def is_zero_vector(values: Sequence[float]) -> bool:

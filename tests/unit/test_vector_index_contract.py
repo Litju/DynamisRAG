@@ -6,9 +6,16 @@ properties that makes a vector-capable passage index *identifiable* and
 sent to OpenSearch:
 
 * the engine, method, value type, ``m=16`` and ``ef_construction=100`` are fixed
-  constants rather than per-deployment choices, and the mapping contains no
+  constants rather than per-deployment choices, the mapping contains no
   ``ef_search`` — a Lucene HNSW index has no such setting, and one that claimed
-  it would advertise a recall behaviour it does not have;
+  it would advertise a recall behaviour it does not have — and no other engine,
+  method, quantization or compression block is accepted either, because the node
+  refuses exactly those keys;
+* the field mapping is the shape OpenSearch 3.8.0 actually accepts for a Lucene
+  HNSW field: a nested ``method`` object carrying the engine, the space and the
+  build parameters under ``parameters``. The flatter shape is refused by the node
+  with ``Unable to parse mapping into KNNMethodContext``, which is why this is
+  pinned exactly rather than described;
 * ``dimension`` and ``space`` are both required, never inferred, and the three
   evaluation spaces are supported without one being a default;
 * the embedding model is identified by id, revision *and* generation-config
@@ -19,8 +26,9 @@ sent to OpenSearch:
 * a ``passage_key`` ↔ vector set must be exactly one-to-one, correctly
   dimensioned, finite, and free of zero vectors under cosine;
 * a v2 index keeps v1's text mapping, analyzer and named similarity byte for
-  byte, so existing BM25 search serves it with no query revision bump, and the
-  vector field is never selected into a lexical ``_source``.
+  byte, and enables ``index.knn`` — which is what lets existing BM25 search serve
+  it with no query revision bump — while the vector field is never selected into
+  a lexical ``_source``.
 """
 
 from __future__ import annotations
@@ -39,6 +47,7 @@ from dynamisrag.search.schema import (
     BM25_SIMILARITY_NAME,
     BM25_SIMILARITY_PARAMS,
     BM25_SIMILARITY_REVISION,
+    INDEX_KNN_ENABLED,
     INDEX_NUMBER_OF_REPLICAS,
     INDEX_NUMBER_OF_SHARDS,
     PASSAGE_INDEX_SCHEMA_REVISION,
@@ -56,6 +65,9 @@ from dynamisrag.search.schema import (
 )
 from dynamisrag.search.vector import (
     FORBIDDEN_SEARCH_TIME_HNSW_SETTINGS,
+    FORBIDDEN_VECTOR_FIELD_SETTINGS,
+    FORBIDDEN_VECTOR_INDEX_ENGINES,
+    FORBIDDEN_VECTOR_INDEX_METHODS,
     HNSW_EF_CONSTRUCTION,
     HNSW_M,
     MAX_VECTOR_DIMENSION,
@@ -70,7 +82,7 @@ from dynamisrag.search.vector import (
     VECTOR_SPACE_L2,
     EmbeddingModelIdentity,
     VectorIndexConfig,
-    assert_no_search_time_hnsw_settings,
+    assert_lucene_hnsw_field_mapping,
     is_zero_vector,
     validate_vector_set,
 )
@@ -136,15 +148,36 @@ def test_the_hnsw_baseline_is_pinned_to_m16_and_ef_construction_100() -> None:
     assert HNSW_EF_CONSTRUCTION == 100
 
 
-def test_the_field_mapping_is_lucene_hnsw_float_with_an_explicit_dimension() -> None:
+def test_the_field_mapping_is_the_shape_lucene_hnsw_actually_accepts() -> None:
+    """The nested ``method`` object, with the build parameters under it.
+
+    Verified against OpenSearch 3.8.0 rather than inferred: the flatter shape —
+    ``engine``/``method``/``space_type`` beside ``dimension``, with a parallel
+    ``hnsw`` object — is refused with ``Unable to parse mapping into
+    KNNMethodContext. Object not of type "Map"``, so an index built from it
+    cannot exist. Pinning the exact bytes is the only way this stays true.
+    """
     assert _CONFIG.field_mapping() == {
         "type": "knn_vector",
-        "engine": "lucene",
-        "method": "hnsw",
-        "space_type": "cosinesimil",
         "dimension": 384,
-        "hnsw": {"m": 16, "ef_construction": 100},
+        "data_type": "float",
+        "method": {
+            "name": "hnsw",
+            "engine": "lucene",
+            "space_type": "cosinesimil",
+            "parameters": {"m": 16, "ef_construction": 100},
+        },
     }
+
+
+def test_the_field_mapping_declares_no_engine_method_or_hnsw_sibling() -> None:
+    """The flat shape is not an alternative spelling, it is a rejected one."""
+    field = dict(_CONFIG.field_mapping())
+    assert "engine" not in field
+    assert "hnsw" not in field
+    method = field["method"]
+    assert isinstance(method, Mapping)
+    assert set(method) == {"name", "engine", "space_type", "parameters"}
 
 
 def test_the_dimension_is_always_written_out() -> None:
@@ -163,11 +196,15 @@ def test_the_mapping_contains_no_search_time_hnsw_setting() -> None:
     assert FORBIDDEN_SEARCH_TIME_HNSW_SETTINGS == ("ef_search",)
 
     field = dict(_CONFIG.field_mapping())
-    hnsw = field["hnsw"]
-    assert isinstance(hnsw, Mapping)
+    method = field["method"]
+    assert isinstance(method, Mapping)
+    parameters = method["parameters"]
+    assert isinstance(parameters, Mapping)
     assert "ef_search" not in field
-    assert "ef_search" not in hnsw
+    assert "ef_search" not in method
+    assert "ef_search" not in parameters
     assert all("search" not in key for key in field)
+    assert all("search" not in key for key in parameters)
 
 
 @pytest.mark.parametrize(
@@ -176,17 +213,77 @@ def test_the_mapping_contains_no_search_time_hnsw_setting() -> None:
         {"ef_search": 100},
         {"dimension": 384, "ef_search": 100},
         {"hnsw": {"m": 16, "ef_construction": 100, "ef_search": 100}},
+        {"method": {"name": "hnsw", "engine": "lucene", "ef_search": 100}},
+        {
+            "method": {
+                "name": "hnsw",
+                "engine": "lucene",
+                "parameters": {"m": 16, "ef_construction": 100, "ef_search": 100},
+            }
+        },
     ],
 )
 def test_a_hand_written_mapping_carrying_ef_search_is_rejected(
     mapping: Mapping[str, JsonValue],
 ) -> None:
-    with pytest.raises(VectorContractError, match="search-time parameter"):
-        assert_no_search_time_hnsw_settings(mapping, where="a hand-written mapping")
+    """In every position the node refuses it in, so in every position here too."""
+    with pytest.raises(VectorContractError, match="does not evaluate"):
+        assert_lucene_hnsw_field_mapping(mapping, where="a hand-written mapping")
+
+
+@pytest.mark.parametrize(
+    "mapping",
+    [
+        {"quantization": {"type": "pq", "bits": 8}},
+        {"compression": "scalar"},
+        {"mode": "on_disk"},
+        {"model_id": "remote-model"},
+        {"index.knn": True},
+    ],
+)
+def test_a_hand_written_mapping_with_a_rejected_field_setting_is_refused(
+    mapping: Mapping[str, JsonValue],
+) -> None:
+    """Quantization and compression change the stored representation, and so
+    the distances and the recall; they are part of an index's identity and are
+    therefore a new schema revision, never a per-index setting."""
+    assert next(iter(mapping)) in FORBIDDEN_VECTOR_FIELD_SETTINGS
+    with pytest.raises(VectorContractError, match="does not evaluate"):
+        assert_lucene_hnsw_field_mapping(mapping, where="a hand-written mapping")
+
+
+@pytest.mark.parametrize(
+    ("mapping", "described"),
+    [
+        ({"engine": "faiss"}, "engine"),
+        ({"method": {"name": "hnsw", "engine": "nmslib"}}, "method.engine"),
+        ({"method": {"name": "hnsw", "engine": "jvector"}}, "method.engine"),
+        ({"method": {"name": "efi", "engine": "lucene"}}, "method.name"),
+        ({"method": {"name": "hnswlib", "engine": "lucene"}}, "method.name"),
+    ],
+)
+def test_a_hand_written_mapping_with_another_engine_or_method_is_refused(
+    mapping: Mapping[str, JsonValue], described: str
+) -> None:
+    """Each alternative engine and method is a different index with different
+    neighbours, so omitting one is not neutral: a node-side default would decide
+    what the index means."""
+    with pytest.raises(VectorContractError, match="part of the index's identity") as caught:
+        assert_lucene_hnsw_field_mapping(mapping, where="a hand-written mapping")
+    assert described in str(caught.value)
+
+
+def test_the_rejected_engine_and_method_sets_name_the_real_alternatives() -> None:
+    assert FORBIDDEN_VECTOR_INDEX_ENGINES == ("faiss", "nmslib", "jvector")
+    assert VECTOR_ENGINE == "lucene" and VECTOR_INDEX_METHOD == "hnsw"
+    # `nmslib` and `hnswlib` name engines in older OpenSearch releases and
+    # methods in newer ones, so both are refused on both axes.
+    assert "nmslib" in FORBIDDEN_VECTOR_INDEX_METHODS
+    assert "hnswlib" in FORBIDDEN_VECTOR_INDEX_METHODS
 
 
 def test_a_compliant_mapping_passes_the_guard() -> None:
-    assert_no_search_time_hnsw_settings(_CONFIG.field_mapping(), where="the vector field mapping")
+    assert_lucene_hnsw_field_mapping(_CONFIG.field_mapping(), where="the vector field mapping")
 
 
 # ---------------------------------------------------------------------------
@@ -218,7 +315,9 @@ def test_an_unsupported_space_is_rejected() -> None:
 
 def test_the_space_reaches_the_mapping_explicitly() -> None:
     for space in SUPPORTED_VECTOR_SPACES:
-        assert _config(space=space).field_mapping()["space_type"] == space
+        method = _config(space=space).field_mapping()["method"]
+        assert isinstance(method, Mapping)
+        assert method["space_type"] == space
 
 
 # ---------------------------------------------------------------------------
@@ -437,18 +536,37 @@ def test_v2_is_a_separate_revision_from_the_sealed_v1() -> None:
     assert VECTOR_PASSAGE_INDEX_SCHEMA_REVISION == "passage-index-v2"
 
 
-def test_the_v2_settings_are_the_v1_settings() -> None:
-    """Same shard count, replicas and named similarity.
+def test_the_v2_settings_are_the_v1_settings_plus_index_knn() -> None:
+    """Same shard count, replicas and named similarity, and one addition.
 
     One primary shard is what keeps term statistics shard-count independent, so a
-    BM25 score measured against v1 stays meaningful against v2.
+    BM25 score measured against v1 stays meaningful against v2. The single
+    addition, ``index.knn``, is mandatory rather than preferred: the node refuses
+    a ``knn_vector`` field that declares ``method`` parameters with ``Cannot set
+    modelId or method parameters when index.knn setting is false``.
     """
-    assert vector_index_settings() == index_settings()
-    settings = vector_index_settings()["index"]
-    assert isinstance(settings, Mapping)
-    assert settings["number_of_shards"] == INDEX_NUMBER_OF_SHARDS == 1
-    assert settings["number_of_replicas"] == INDEX_NUMBER_OF_REPLICAS
-    assert settings["similarity"] == {BM25_SIMILARITY_NAME: dict(BM25_SIMILARITY_PARAMS)}
+    lexical = index_settings()["index"]
+    vector = vector_index_settings()["index"]
+    assert isinstance(lexical, Mapping)
+    assert isinstance(vector, Mapping)
+
+    assert INDEX_KNN_ENABLED is True
+    assert vector["knn"] is True
+    assert {key: vector[key] for key in lexical} == dict(lexical)
+    assert set(vector) == set(lexical) | {"knn"}
+    assert vector["number_of_shards"] == INDEX_NUMBER_OF_SHARDS == 1
+    assert vector["number_of_replicas"] == INDEX_NUMBER_OF_REPLICAS
+    assert vector["similarity"] == {BM25_SIMILARITY_NAME: dict(BM25_SIMILARITY_PARAMS)}
+
+
+def test_the_lexical_index_does_not_enable_index_knn() -> None:
+    """A v1 index has no vector field, so enabling the plugin would be a claim
+    the index does not honour — and it would also change the sealed lexical
+    settings block."""
+    lexical = index_settings()["index"]
+    assert isinstance(lexical, Mapping)
+    assert "knn" not in lexical
+    assert vector_index_settings() != index_settings()
 
 
 def test_the_v2_mapping_keeps_every_v1_field_byte_for_byte() -> None:
@@ -525,9 +643,52 @@ def test_the_v2_meta_carries_v1_provenance_plus_the_vector_identity() -> None:
     assert meta["bm25_similarity_revision"] == BM25_SIMILARITY_REVISION
     assert meta["schema_revision"] == VECTOR_PASSAGE_INDEX_SCHEMA_REVISION
     assert meta["vector_config_sha256"] == _CONFIG.config_sha256
-    assert meta["vector_space"] == VECTOR_SPACE_COSINESIMIL
+    assert meta["vector_space_type"] == VECTOR_SPACE_COSINESIMIL
     assert meta["vector_dimension"] == 384
     assert len(meta) == len(VECTOR_PROJECTION_META_KEYS)
+
+
+def test_the_v2_meta_states_every_input_that_decides_what_the_index_returns() -> None:
+    """Nothing about the dense configuration is left implicit.
+
+    ``vector_config_sha256`` binds all of it into one value, and the individual
+    keys beside it say *which* — so an operator comparing two indexes learns why
+    they differ rather than only that they do, without having to trust that the
+    digest was computed from the mapping as declared.
+    """
+    meta = vector_index_meta(
+        projection_sha256=_PROJECTION_SHA, chunker_revision=_CHUNKER_REVISION, vector_config=_CONFIG
+    )
+
+    assert meta["vector_engine"] == VECTOR_ENGINE == "lucene"
+    assert meta["vector_method"] == VECTOR_INDEX_METHOD == "hnsw"
+    assert meta["vector_data_type"] == VECTOR_INDEX_TYPE == "float"
+    assert meta["hnsw_m"] == HNSW_M == 16
+    assert meta["hnsw_ef_construction"] == HNSW_EF_CONSTRUCTION == 100
+    assert meta["embedding_model_id"] == _MODEL.model_id
+    assert meta["embedding_model_revision"] == _MODEL.model_revision
+    assert meta["embedding_config_sha256"] == _MODEL.embedding_config_sha256
+
+
+def test_the_pinned_hnsw_values_are_recorded_although_they_are_constants() -> None:
+    """A code change to either must be visible in stored provenance.
+
+    ``m`` and ``ef_construction`` change the resulting graph, so they change what
+    the index returns. Recording them is what stops a future edit from silently
+    redefining an index that is already live under an existing name.
+    """
+    meta = vector_index_meta(
+        projection_sha256=_PROJECTION_SHA, chunker_revision=_CHUNKER_REVISION, vector_config=_CONFIG
+    )
+
+    assert HNSW_M == 16 and HNSW_EF_CONSTRUCTION == 100
+    assert meta["hnsw_m"] == 16
+    assert meta["hnsw_ef_construction"] == 100
+    # The same two values appear verbatim in the config digest's own payload, so
+    # the digest and the readable provenance cannot disagree.
+    payload = _CONFIG.payload()
+    assert payload["hnsw_m"] == meta["hnsw_m"]
+    assert payload["hnsw_ef_construction"] == meta["hnsw_ef_construction"]
 
 
 def test_the_v2_meta_holds_only_semantic_provenance() -> None:
@@ -588,7 +749,9 @@ def test_a_different_vector_config_produces_different_provenance() -> None:
     )
 
     assert cosine["vector_config_sha256"] != inner["vector_config_sha256"]
-    assert cosine["vector_space"] != inner["vector_space"]
+    assert cosine["vector_space_type"] != inner["vector_space_type"]
+    assert cosine["vector_space_type"] == "cosinesimil"
+    assert inner["vector_space_type"] == "innerproduct"
 
 
 def test_the_vector_field_is_never_selected_into_a_lexical_hit() -> None:

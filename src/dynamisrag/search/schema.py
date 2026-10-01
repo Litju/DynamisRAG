@@ -20,8 +20,8 @@ Revisions, each with a different meaning:
     rather than a silent mutation of the one a live alias serves.
 
 ``BM25_SIMILARITY_REVISION``
-    The named similarity ``dynamis_bm25_v1`` and its parameters. Recorded in
-    the mapping ``_meta`` so a stored index states which scoring function
+    The named similarity ``dynamis_bm25_v1`` and its parameters. Recorded in the
+    mapping ``_meta`` so a stored index states which scoring function
     produced its scores. **Shared by both revisions**: a v2 index keeps v1's
     exact text mapping and similarity, which is what lets the existing BM25
     search path serve a v2 index unchanged, with no query revision bump.
@@ -51,15 +51,21 @@ from typing import Final
 from dynamisrag.domain.values import Sha256Hex
 from dynamisrag.search.client import JsonValue, validate_resource_name
 from dynamisrag.search.vector import (
+    HNSW_EF_CONSTRUCTION,
+    HNSW_M,
+    VECTOR_ENGINE,
     VECTOR_FIELD,
+    VECTOR_INDEX_METHOD,
+    VECTOR_INDEX_TYPE,
     VectorIndexConfig,
-    assert_no_search_time_hnsw_settings,
+    assert_lucene_hnsw_field_mapping,
 )
 
 __all__ = [
     "BM25_SIMILARITY_NAME",
     "BM25_SIMILARITY_PARAMS",
     "BM25_SIMILARITY_REVISION",
+    "INDEX_KNN_ENABLED",
     "INDEX_NUMBER_OF_REPLICAS",
     "INDEX_NUMBER_OF_SHARDS",
     "PASSAGE_INDEX_SCHEMA_REVISION",
@@ -128,6 +134,20 @@ interpretable; scaling out is a deliberate later decision.
 INDEX_NUMBER_OF_REPLICAS: Final[int] = 0
 """No replicas: the projection is disposable and single-node in this slice."""
 
+INDEX_KNN_ENABLED: Final[bool] = True
+"""``index.knn`` for a vector-capable index.
+
+Not a default and not a tuning choice: without it the node refuses the mapping
+outright. A ``knn_vector`` field that declares ``method`` parameters is rejected
+with ``Cannot set modelId or method parameters when index.knn setting is false``,
+so a v2 index that omitted this key could not be created at all — the HNSW
+parameters that are part of the index's identity would be unbuildable rather than
+merely unstated.
+
+A lexical ``passage-index-v1`` index must *not* set it: it has no vector field,
+and enabling the k-NN plugin's index machinery for it would be a claim the index
+does not honour."""
+
 PROJECTION_META_KEYS: Final[tuple[str, ...]] = (
     "schema_revision",
     "projection_sha256",
@@ -149,12 +169,25 @@ _LOWERCASE_HEX_PREFIX: Final[re.Pattern[str]] = re.compile(r"^[0-9a-f]+$")
 
 def index_settings() -> Mapping[str, JsonValue]:
     """The exact ``settings`` block of a passage index."""
+    return {"index": _index_block()}
+
+
+def _index_block() -> Mapping[str, JsonValue]:
+    """The settings every passage index shares, whatever its schema revision.
+
+    The single declaration of the shard count, the replica count and the named
+    similarity, so a revision cannot quietly change one of them: the whole point
+    of keeping BM25 scores comparable across revisions is that they are computed
+    over the same analysis and the same term statistics, and a revision that
+    re-declared the shard count here would break that silently.
+
+    A vector-capable index adds exactly one key on top of this block — see
+    :func:`vector_index_settings`.
+    """
     return {
-        "index": {
-            "number_of_shards": INDEX_NUMBER_OF_SHARDS,
-            "number_of_replicas": INDEX_NUMBER_OF_REPLICAS,
-            "similarity": {BM25_SIMILARITY_NAME: dict(BM25_SIMILARITY_PARAMS)},
-        }
+        "number_of_shards": INDEX_NUMBER_OF_SHARDS,
+        "number_of_replicas": INDEX_NUMBER_OF_REPLICAS,
+        "similarity": {BM25_SIMILARITY_NAME: dict(BM25_SIMILARITY_PARAMS)},
     }
 
 
@@ -263,6 +296,10 @@ def physical_index_name(*, alias: str, projection_sha256: Sha256Hex) -> str:
     part of the name so isolated deployments (tests, scratch proofs) never
     collide on a shared node.
 
+    This revision's own value is passed to the shared builder by
+    :func:`_index_name`; the name itself is unchanged from the sealed lexical
+    contract.
+
     The result is validated against the OpenSearch naming restriction here, not
     at request time, so an invalid name can never reach the node.
     """
@@ -296,39 +333,61 @@ VECTOR_PROJECTION_META_KEYS: Final[tuple[str, ...]] = (
     "chunker_revision",
     "bm25_similarity_revision",
     "vector_config_sha256",
+    "vector_engine",
+    "vector_method",
+    "vector_data_type",
+    "vector_space_type",
+    "vector_dimension",
+    "hnsw_m",
+    "hnsw_ef_construction",
     "embedding_model_id",
     "embedding_model_revision",
     "embedding_config_sha256",
-    "vector_space",
-    "vector_dimension",
 )
 """The exact ``_meta`` keys of a vector-capable passage index.
 
-Every v1 key, in the same order and with the same meaning, plus the provenance
-that only exists for a dense index.
+Every v1 key, in the same order and with the same meaning, plus the dense
+provenance. Nothing else, and nothing less: a stored index has to be able to
+state *everything* that decides what it can return.
 
-The last five are what make a stored index *self-describing*: the vector config
-digest binds the engine, method, HNSW parameters, dimension and space in one
-value, and the model id/revision/config digest say which weights produced the
-vectors. Together they let a reader — or a later verification — tell that a v2
-index is not interchangeable with a differently configured one, without having
-to trust that the mapping was built as declared.
+``vector_config_sha256`` binds engine, method, value type, field, dimension,
+space, HNSW parameters and the whole model identity into one digest. The
+individual keys beside it are deliberately redundant with that digest, and that is
+the point: a reader, or a later verification, can see *which* engine, method,
+space, dimension and HNSW build the index was created with without having to
+trust that the digest was computed from the mapping as declared. An operator
+comparing two indexes learns why they differ, not merely that they do.
+
+``hnsw_m`` and ``hnsw_ef_construction`` are recorded even though they are
+module constants rather than caller options. They change the resulting graph, so
+they change what the index returns, so a future code change to either must be
+visible in the stored provenance instead of silently redefining an index that is
+already live under an existing name.
+
+``embedding_model_id``, ``embedding_model_revision`` and
+``embedding_config_sha256`` say which weights, at which revision, under which
+generation config produced these vectors. A vector index without them cannot state
+whether it is comparable with another one.
 """
 
 
 def vector_index_settings() -> Mapping[str, JsonValue]:
     """The exact ``settings`` block of a vector-capable passage index.
 
-    Identical to the lexical revision, and deliberately built from the same
-    constants: the same shard count (so term statistics stay shard-count
-    independent and BM25 results stay comparable), the same replica count, and
-    the same named similarity with the same parameters.
+    The lexical revision's settings *plus* ``index.knn``. The shared parts are
+    built from the same constants: the same shard count, so term statistics stay
+    shard-count independent and BM25 results stay comparable between the two
+    revisions; the same replica count; and the same named similarity with the
+    same parameters.
 
-    Nothing vector-specific belongs in ``index.settings``: an HNSW graph's build
-    parameters are declared per field in the mapping, where they are versioned
-    with the field, and there is no search-time index setting to pin for Lucene.
+    ``index.knn`` is the only addition and it is not optional — see
+    :data:`INDEX_KNN_ENABLED`. No other vector-specific key belongs here: an
+    HNSW graph's build parameters are declared per field in the mapping, where
+    they are versioned with the field, and Lucene has no search-time index
+    setting to pin.
     """
-    return index_settings()
+    index = _index_block()
+    return {"index": {**index, "knn": INDEX_KNN_ENABLED}}
 
 
 def vector_index_meta(
@@ -337,11 +396,12 @@ def vector_index_meta(
     """The exact mapping ``_meta`` provenance block of a vector-capable index.
 
     The v1 block verbatim, with the schema revision replaced and the dense
-    provenance appended. Every value is semantic: a config digest, an upstream
-    model identity, an explicit space and dimension. No endpoint, no machine
-    path, no timestamp and no deployment-specific value, so two environments
-    holding the same vectors and the same config produce byte-identical
-    provenance.
+    provenance appended per :data:`VECTOR_PROJECTION_META_KEYS`. Every value is
+    semantic: a config digest, an upstream model identity, an engine, a method, a
+    value type, a space, a declared count. No vector, no endpoint, no machine
+    path, no timestamp, no credential and no deployment-specific value, so two
+    environments holding the same vectors and the same config produce
+    byte-identical provenance.
     """
     model = vector_config.embedding_model
     return {
@@ -350,11 +410,16 @@ def vector_index_meta(
         "chunker_revision": chunker_revision,
         "bm25_similarity_revision": BM25_SIMILARITY_REVISION,
         "vector_config_sha256": vector_config.config_sha256,
+        "vector_engine": VECTOR_ENGINE,
+        "vector_method": VECTOR_INDEX_METHOD,
+        "vector_data_type": VECTOR_INDEX_TYPE,
+        "vector_space_type": vector_config.space,
+        "vector_dimension": vector_config.dimension,
+        "hnsw_m": HNSW_M,
+        "hnsw_ef_construction": HNSW_EF_CONSTRUCTION,
         "embedding_model_id": model.model_id,
         "embedding_model_revision": model.model_revision,
         "embedding_config_sha256": model.embedding_config_sha256,
-        "vector_space": vector_config.space,
-        "vector_dimension": vector_config.dimension,
     }
 
 
@@ -366,15 +431,19 @@ def vector_index_mappings(
     The lexical field set, unchanged and byte for byte, plus exactly one
     ``knn_vector`` field. Keeping the text mappings and the named similarity
     identical is what makes the existing BM25 query — fields, boosts, operator,
-    tie-breaker — serve a v2 index with no query revision bump, so a lexical
-    score measured against v1 remains meaningful against v2.
+    tie-breaker — serve a v2 index with no query revision bump, so a lexical score
+    measured against v1 remains meaningful against v2.
 
     The vector field is declared and indexed, and nothing more: it is absent
-    from the BM25 ``_source`` selection, so no lexical hit carries it.
+    from the BM25 ``_source`` selection, so no lexical hit carries it. Its mapping
+    is checked against
+    :func:`~dynamisrag.search.vector.assert_lucene_hnsw_field_mapping` before it
+    is returned, so a mapping that the node would refuse fails here instead —
+    after this project has already been wrong once about the accepted shape.
     """
     properties = dict(_text_properties())
     field = vector_config.field_mapping()
-    assert_no_search_time_hnsw_settings(field, where="the vector field mapping")
+    assert_lucene_hnsw_field_mapping(field, where="the vector field mapping")
     properties[VECTOR_FIELD] = field
     return {
         "dynamic": "strict",
@@ -410,7 +479,19 @@ def physical_vector_index_name(
 
 
 def _index_name(*, alias: str, projection_sha256: Sha256Hex, revision: str) -> str:
-    """Build and validate ``<alias>-<revision>-<digest prefix>``."""
+    """Build and validate ``<alias>-<revision>-<digest prefix>``.
+
+    The single place a physical index name is assembled, shared by every schema
+    revision on purpose. Two callers spelling the rule out would eventually
+    disagree about the separator or the digest length, and then two revisions
+    could produce the same name for different indexes — the one collision this
+    scheme exists to prevent, because the name is what makes a rebuild
+    idempotent and a conflict detectable.
+
+    A revision is therefore a parameter rather than a constant baked into each
+    revision's function, and adding one is a matter of passing its own value:
+    ``passage-index-v1`` keeps the name it has always produced, unchanged.
+    """
     validate_resource_name(alias, kind="alias")
     prefix = projection_sha256[:_PROJECTION_SHA_PREFIX_LENGTH]
     if _LOWERCASE_HEX_PREFIX.fullmatch(prefix) is None:
