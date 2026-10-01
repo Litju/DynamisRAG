@@ -2,10 +2,28 @@
 
 Evaluation-first RAG platform for auditable retrieval and evidence-grounded AI.
 
-This repository is the **RES-130 foundation**: a reproducible local runtime, a
-FastAPI application shell, a health surface that reports dependency truth, and
-lint/type/test gates. Retrieval, ranking, embeddings and generation are
-deliberately **not** implemented here; they are scoped to later Linear issues.
+This repository implements the retrieval path end to end, from a scientific
+document to a ranked, auditable hit:
+
+- **canonical scientific ingestion** — JATS import and structure-aware chunking,
+  producing immutable passages keyed by a document version and a chunker revision;
+- **deterministic passages** — the same document version and chunker revision
+  always yield byte-identical passages and the same `passage_key`s, so retrieval
+  is reproducible rather than merely repeatable;
+- **PostgreSQL as the authority** — canonical state lives in PostgreSQL and is
+  read from there; every search hit addresses the exact canonical rows and
+  character ranges it came from;
+- **a disposable projection** — OpenSearch `passage-index-v1` serves BM25 over
+  that state, and `passage-index-v2` is a vector-capable projection (Lucene HNSW,
+  explicit dimension, space and pinned build parameters) that keeps v1's text
+  mapping byte for byte. Both are rebuildable caches that can be deleted at any
+  time.
+
+Deliberately **not** implemented here, by design: embedding generation,
+`EmbeddingProvider`/TEI, a production ANN retrieval API, BM25+dense fusion,
+reranking, generation, and agents. Those are scoped to later Linear issues. A
+`passage-index-v2` index therefore holds vectors **supplied by the caller** — this
+repository never generates, fetches or persists an embedding.
 
 ---
 
@@ -33,7 +51,7 @@ fixtures.
 | OpenSearch     | 3.8.0      | `opensearchproject/opensearch:3.8.0`               |
 | SQLAlchemy     | 2.1.x      | 2.x API, `postgresql+psycopg` dialect              |
 | psycopg        | 3.3.x      | psycopg 3 only                                     |
-| Alembic        | 1.20.x     | Single baseline revision                           |
+| Alembic        | 1.20.x     | Four revisions, head `0004_passage_source_spans` |
 | Ruff           | 0.16.x     | Lint **and** format                                |
 | Pyright        | 1.1.414    | `typeCheckingMode = "strict"`                      |
 | pytest         | 9.x        | Unit suite needs no infrastructure                  |
@@ -90,7 +108,7 @@ Invoke-RestMethod http://127.0.0.1:8000/readyz
 ├── alembic/                   # migration environment and revisions
 │   ├── env.py                 # reads its DSN from dynamisrag.config, never alembic.ini
 │   ├── script.py.mako
-│   └── versions/0001_foundation_baseline.py
+│   └── versions/                 # 0001_foundation_baseline → 0004_passage_source_spans
 ├── src/dynamisrag/
 │   ├── application.py         # create_app() factory; no I/O at construction
 │   ├── config.py              # strict, frozen, validated settings
@@ -354,12 +372,20 @@ uv run alembic downgrade base    # revert to an empty database
 uv run alembic upgrade head --sql   # render SQL, no database needed
 ```
 
-There is exactly one revision, `0001_foundation_baseline`, and it is
-intentionally empty: RES-130 must not pre-empt the scientific schema owned by
-RES-131. Its only effect is creating Alembic's `alembic_version` table, which
-is exactly the proof required — `upgrade head` succeeds against a database with
-no application objects, and an integration test asserts that `public` contains
-no table other than `alembic_version`.
+The revision graph has four revisions, and the head is `0004_passage_source_spans`:
+
+| Revision                          | Effect                                          |
+| --------------------------------- | ----------------------------------------------- |
+| `0001_foundation_baseline`        | Creates `alembic_version`; intentionally empty so the baseline cannot pre-empt the scientific schema |
+| `0002_canonical_document_model`   | Canonical documents, versions and acquisition provenance |
+| `0003_jats_source_structure`      | Paragraphs and their JATS source anchors          |
+| `0004_passage_source_spans`       | Passages and their exact paragraph character ranges |
+
+`0001_foundation_baseline` still asserts what it was built to assert: applying
+*only* that revision to an empty database succeeds and leaves `public` containing
+no table other than `alembic_version`. An integration test proves it directly and
+also proves it is reachable from the head. The scientific schema is owned by the
+later revisions, and every one of them is exercised against a real database.
 
 ## Tests
 
@@ -433,12 +459,13 @@ the versioned deterministic passage projection (`passage-index-v1`), versioned B
 retrieval, the vector-capable projection (`passage-index-v2`, Lucene HNSW) and
 the lint/type/test/CI gates.
 
-Not implemented here, by design: embedding generation, model selection, production
-ANN retrieval, hybrid retrieval, and any LLM or agent code. Those belong to later
-Linear issues. A `passage-index-v2` index therefore holds vectors **supplied by
-the caller**: this repository never generates, fetches or persists an embedding,
-and the vectors used in its tests are labelled synthetic test values. BM25 search
-serves both revisions and never selects a vector.
+Not implemented here, by design: embedding generation, `EmbeddingProvider`/TEI,
+model selection, a production ANN retrieval API, BM25+dense fusion, reranking,
+generation, and agents. Those belong to later Linear issues. A `passage-index-v2`
+index therefore holds vectors **supplied by the caller**: this repository never
+generates, fetches or persists an embedding, and the vectors used in its tests are
+labelled synthetic test values. BM25 search serves both revisions and never
+selects a vector.
 
 ## Copyright
 
