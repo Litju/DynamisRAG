@@ -17,35 +17,18 @@ canonical state, chunker revision and projection schema therefore produce the
 same ``projection_sha256`` in any database, even when every surrogate UUID
 differs.
 
-*Effectful* — :class:`PassageProjector` reads the manifest and drives OpenSearch.
-It never mutates PostgreSQL: the projection is a disposable cache that can be
-deleted and rebuilt from canonical state alone.
+*Effectful* — :class:`PassageProjector` reads canonical rows, prepares a
+:class:`~dynamisrag.search.publication.PublicationPlan` and hands it to
+:class:`~dynamisrag.search.publication.FailClosedAliasPublisher`, which drives
+OpenSearch. The projector never mutates PostgreSQL: the projection is a
+disposable cache that can be deleted and rebuilt from canonical state alone.
 
-The rebuild is ordered so the stable query alias never points at a partially
-built index: build, bulk, verify, *then* switch atomically. A failure before
-the switch leaves an orphan physical index and the alias exactly where it was —
-strictly better than serving a partial index — and obsolete physical indexes
-are removed only after a successful cutover.
-
-**An index the stable alias currently targets is never destroyed by a
-pre-cutover rebuild.** The alias disappears together with the index it points
-at, so "delete it and rebuild" is only a safe recovery step while nothing is
-served from it. Once the desired deterministic index is the active target, the
-run either proves it is exactly this projection and does nothing, or fails
-closed:
-
-    verification completes and matches  -> created=False, zero mutations
-    verification completes, mismatch   -> ProjectionConflictError, zero mutations
-    verification cannot be performed   -> the OpenSearchError propagates, zero mutations
-
-The third case is the one that makes the distinction load-bearing. "The index
-could not be read" is not evidence that the index is wrong: a transient timeout
-against a perfectly healthy live projection must not be answered by deleting it
-and rebuilding, because if that rebuild then fails the alias is gone and a
-verification blip has become an outage. Unknown live state is reported, never
-silently repaired. The delete-and-rebuild path stays available for an index of
-the deterministic name that is *not* an alias target, where nothing is served
-from it and the rebuild provably cannot disturb the alias.
+**This module decides *what* is projected; it does not decide *how* it is
+published.** The cutover ordering and the fail-closed rules — build, bulk,
+verify, *then* switch atomically, and never destroy an index the stable alias
+currently targets — live in :mod:`dynamisrag.search.publication`, extracted from
+the RES-135 projector unchanged so that every later schema revision publishes
+through one implementation rather than a second copy of the safety argument.
 """
 
 from __future__ import annotations
@@ -64,7 +47,13 @@ from dynamisrag.db.canonical import (
 )
 from dynamisrag.domain.values import IdentifierNamespace
 from dynamisrag.search.client import JsonValue, OpenSearchClient, canonical_json_line
-from dynamisrag.search.errors import ProjectionConflictError, ProjectionError
+from dynamisrag.search.errors import ProjectionError
+from dynamisrag.search.publication import (
+    DEFAULT_BULK_BATCH_SIZE,
+    FailClosedAliasPublisher,
+    PublicationPlan,
+    PublicationResult,
+)
 from dynamisrag.search.schema import (
     PASSAGE_INDEX_SCHEMA_REVISION,
     index_mappings,
@@ -82,13 +71,6 @@ __all__ = [
     "ProjectionSourceSpan",
     "build_projection_manifest",
 ]
-
-DEFAULT_BULK_BATCH_SIZE: Final[int] = 500
-"""Documents per bulk request.
-
-Configured rather than derived so the same projection always produces the same
-request boundaries — the bulk body is then assertable, not just the aggregate.
-"""
 
 
 @dataclass(frozen=True)
@@ -235,6 +217,31 @@ class PassageProjectionManifest:
             projection_sha256=self.projection_sha256, chunker_revision=self.chunker_revision
         )
 
+    def publication_plan(self, *, alias: str) -> PublicationPlan:
+        """The publication description of this snapshot, for one alias.
+
+        The single point where the lexical schema and the fail-closed publisher
+        meet: the schema revision and the mapping come from
+        :mod:`dynamisrag.search.schema`, the documents and the expected
+        ``_meta`` come from this manifest, and the resulting
+        :class:`~dynamisrag.search.publication.PublicationPlan` carries no
+        knowledge of either back into the publisher.
+
+        Pure, so the exact bytes OpenSearch would receive are assertable without
+        a node.
+        """
+        digest = self.projection_sha256
+        return PublicationPlan(
+            index_name=self.index_name(alias=alias),
+            projection_sha256=digest,
+            settings=index_settings(),
+            mappings=index_mappings(
+                projection_sha256=digest, chunker_revision=self.chunker_revision
+            ),
+            documents=self.source_documents(),
+            expected_meta=self.expected_meta(),
+        )
+
     def source_documents(self) -> tuple[tuple[str, Mapping[str, JsonValue]], ...]:
         """``(passage_key, _source)`` pairs in canonical order.
 
@@ -348,7 +355,7 @@ class ProjectionResult:
 class PassageProjector:
     """Rebuilds the OpenSearch passage projection from canonical PostgreSQL."""
 
-    __slots__ = ("_alias", "_batch_size", "_client", "_session")
+    __slots__ = ("_publisher", "_session")
 
     def __init__(
         self,
@@ -361,12 +368,14 @@ class PassageProjector:
         """Bind a projector to one read session and one OpenSearch client.
 
         ``session`` is used for reading only; the projector never writes to
-        PostgreSQL.
+        PostgreSQL. Every OpenSearch operation is delegated to the shared
+        fail-closed publisher, which is bound here to this client's alias and
+        batch size.
         """
         self._session: Final[Session] = session
-        self._client: Final[OpenSearchClient] = client
-        self._alias: Final[str] = alias
-        self._batch_size: Final[int] = batch_size
+        self._publisher: Final[FailClosedAliasPublisher] = FailClosedAliasPublisher(
+            client, alias=alias, batch_size=batch_size
+        )
 
     def project(self, *, chunker_revision: str) -> ProjectionResult:
         """Project exactly ``chunker_revision``'s passages and make them live.
@@ -377,39 +386,10 @@ class PassageProjector:
         identities. Timestamps are never consulted to pick a "latest" revision.
         """
         manifest = self._manifest(chunker_revision=chunker_revision)
-        index_name = manifest.index_name(alias=self._alias)
-        previous = self._client.alias_targets(self._alias)
-        if index_name in previous:
-            return self._verify_active_target(manifest, index_name)
-
-        if self._client.index_exists(index_name):
-            # The deterministic name exists but the alias does not target it: an
-            # orphan from a failed earlier build that nothing can read. Deleting
-            # and rebuilding it from canonical PostgreSQL restores exactly the
-            # index that was removed, and cannot disturb the alias because the
-            # alias does not point here. An index that *is* an alias target is
-            # never reached by this branch — it failed closed above.
-            self._client.delete_index(index_name)
-
-        self._client.create_index(
-            index_name,
-            settings=index_settings(),
-            mappings=index_mappings(
-                projection_sha256=manifest.projection_sha256,
-                chunker_revision=chunker_revision,
-            ),
+        publication = self._publisher.publish(
+            manifest.publication_plan(alias=self._publisher.alias)
         )
-        self._client.bulk_index(
-            index_name, manifest.source_documents(), batch_size=self._batch_size
-        )
-        self._verify_built(index_name, manifest)
-
-        # Only now, with a complete and verified index, does the alias move.
-        self._client.switch_alias(self._alias, index=index_name, remove=previous)
-        obsolete = tuple(target for target in previous if target != index_name)
-        for target in obsolete:
-            self._client.delete_index(target)
-        return self._result(manifest, index_name, created=True, removed=obsolete)
+        return self._result(manifest, publication)
 
     # ------------------------------------------------------------------
     # Internals
@@ -445,74 +425,25 @@ class PassageProjector:
             )
         return ProjectionError(detail, operation="project")
 
-    def _verify_active_target(
-        self, manifest: PassageProjectionManifest, index_name: str
-    ) -> ProjectionResult:
-        """Prove the index the alias already serves is exactly this projection.
-
-        Three outcomes, and they are kept strictly apart because conflating them
-        is what makes a healthy projection destroyable:
-
-        * **it matches** — the projection is already live, so the run is a
-          no-op and nothing is mutated;
-        * **verification completed and contradicts the manifest** — the live
-          index is state this projection cannot account for, so the run fails
-          closed with :class:`ProjectionConflictError`. It is *not* repaired:
-          deleting an index that is currently being served risks trading a
-          detectable inconsistency for an absent search path, and the operator
-          is the only one who can tell what the live index really is;
-        * **verification could not be performed** — a transport failure, a
-          timeout, an unreadable response. The :class:`OpenSearchError`
-          propagates unchanged, because it says nothing about the index's
-          contents. It is deliberately *not* turned into "not verified":
-          that conversion is the defect, not the remedy.
-        """
-        if self._matches_manifest(index_name, manifest):
-            return self._result(manifest, index_name, created=False, removed=())
-        raise ProjectionConflictError(
-            f"index {index_name} is the active target of alias {self._alias} but its document "
-            f"count or mapping _meta does not match projection "
-            f"{manifest.projection_sha256}; it was left untouched and the alias was not moved",
-            operation="project",
-            target=index_name,
-        )
-
-    def _verify_built(self, index_name: str, manifest: PassageProjectionManifest) -> None:
-        """Prove the freshly built index is complete before it can be served."""
-        if not self._matches_manifest(index_name, manifest):
-            raise ProjectionError(
-                f"index {index_name} was indexed but its document count or mapping _meta does "
-                f"not match projection {manifest.projection_sha256}; the alias was not moved",
-                operation="project",
-            )
-
-    def _matches_manifest(self, index_name: str, manifest: PassageProjectionManifest) -> bool:
-        """Read-only: whether ``index_name`` holds exactly this projection.
-
-        Raises whatever the client raises. A read failure is an inability to
-        answer, not an answer of "no", and every caller must be able to tell the
-        two apart.
-        """
-        count = self._client.count(index_name)
-        if count != manifest.document_count:
-            return False
-        return dict(self._client.index_meta(index_name)) == dict(manifest.expected_meta())
-
+    @staticmethod
     def _result(
-        self,
-        manifest: PassageProjectionManifest,
-        index_name: str,
-        *,
-        created: bool,
-        removed: Sequence[str],
+        manifest: PassageProjectionManifest, publication: PublicationResult
     ) -> ProjectionResult:
+        """Add the lexical projection's semantics to the schema-agnostic outcome.
+
+        The publisher reports what happened to the index and the alias; only
+        this module knows which projection was published, so only this module
+        can state its schema and chunker revisions. Kept as a separate step so
+        the published bytes and the reported bytes stay independent
+        descriptions that a test can hold against each other.
+        """
         return ProjectionResult(
-            created=created,
+            created=publication.created,
             chunker_revision=manifest.chunker_revision,
             projection_schema_revision=manifest.schema_revision,
             projection_sha256=manifest.projection_sha256,
-            document_count=manifest.document_count,
-            index_name=index_name,
-            alias=self._alias,
-            removed_index_names=tuple(removed),
+            document_count=publication.document_count,
+            index_name=publication.index_name,
+            alias=publication.alias,
+            removed_index_names=publication.removed_index_names,
         )
