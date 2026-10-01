@@ -59,6 +59,8 @@ __all__ = [
     "EmbeddingRuntimeConfig",
     "TruncationDirection",
     "canonical_json",
+    "passage_content_sha256",
+    "require_content_matches_text",
     "require_content_sha256",
     "require_float_components",
     "require_passage_key",
@@ -172,6 +174,64 @@ def require_content_sha256(value: str, *, passage_key: str, operation: str) -> s
         ) from None
 
 
+def passage_content_sha256(text: str) -> str:
+    """The one definition of a passage's content digest.
+
+    SHA-256 over the *exact* UTF-8 bytes of the passage text, because those are
+    the bytes a tokenizer receives upstream. There is no normalisation here and
+    there must not be: normalising would make two byte sequences the caller
+    considered different hash identically, and the digest's whole job is to say
+    which bytes were embedded.
+
+    Public so a caller that assembles an :class:`EmbeddingInput` from a canonical
+    passage can compute the digest the same way the constructor verifies it,
+    instead of re-deriving it and hoping both derivations agree.
+    """
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def require_content_matches_text(
+    *, text: str, content_sha256: str, passage_key: str, operation: str
+) -> None:
+    """Require that the passage text really is what its content digest names.
+
+    A shape check is not a binding. A caller can hand this boundary passage text
+    ``B`` under the digest of passage text ``A``: nothing about the digest's
+    *form* is wrong, TEI happily embeds ``B``, and ``passage-embeddings-v1``
+    records ``A``. The manifest would then attest to content it never embedded,
+    and every later comparison against it — including a rebuild, and including
+    the drift check that decides whether two runs describe one index — would be a
+    comparison between two different passages wearing one name.
+
+    So the digest is recomputed from the text here, at construction, and required
+    to be equal. This is deliberately the earliest possible point: before a batch
+    is built, before a socket is touched, before a token is spent, and long
+    before the manifest exists to be checked. A refusal costs one local
+    comparison; the alternative costs a complete run whose artifact is a lie.
+
+    **Neither passage text nor anything derived from it appears in the failure.**
+    The message names the content-addressed ``passage_key`` and both digests,
+    which is enough for an operator to find the offending caller — the key is
+    how the passage is identified everywhere else in this package — and discloses
+    nothing about the passage itself. Two digests are one-way functions of
+    content, so echoing them reveals no more than a length.
+    """
+    observed = passage_content_sha256(text)
+    if observed == content_sha256:
+        return
+    raise EmbeddingContractError(
+        f"embedding input for passage {passage_key!r} declares content_sha256 "
+        f"{content_sha256!r}, but SHA-256 over the exact UTF-8 bytes of its text is "
+        f"{observed!r}. The digest is the manifest's only claim about which passage content "
+        "produced a vector, so it is verified against the text rather than merely checked for "
+        "shape: a shape-valid digest belonging to other content would let this run record an "
+        "identity for a passage it never embedded. The passage text is deliberately not "
+        "reported.",
+        operation=operation,
+        passage_key=passage_key,
+    )
+
+
 def require_float_components(
     values: Sequence[object], *, passage_key: str, operation: str
 ) -> tuple[float, ...]:
@@ -212,9 +272,12 @@ class EmbeddingInput:
         :class:`~dynamisrag.search.vector_projection.PassageVector` is keyed by.
 
     ``content_sha256``
-        The digest of ``text``. Binding both means the manifest states which
-        passage content produced a vector *and* can prove it later, and it is
-        what lets two runs be compared without holding either passage's text.
+        The digest of ``text``, **verified against it** on construction rather
+        than merely checked for shape. Binding both means the manifest states
+        which passage content produced a vector *and* can prove it later, and it
+        is what lets two runs be compared without holding either passage's text.
+        See :func:`require_content_matches_text` for why a well-formed digest is
+        not a binding.
 
     ``text``
         The exact canonical passage text sent to the model. This is sensitive
@@ -245,6 +308,14 @@ class EmbeddingInput:
                 "meaningless vector for one rather than refusing it.",
                 operation="embedding_input",
             )
+        # After the emptiness check, so the comparison is between two non-empty
+        # passages rather than between a passage and a digest of nothing.
+        require_content_matches_text(
+            text=self.text,
+            content_sha256=self.content_sha256,
+            passage_key=self.passage_key,
+            operation="embedding_input",
+        )
         return self
 
 

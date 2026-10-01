@@ -22,6 +22,7 @@ have to take on trust:
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Mapping, Sequence
 from typing import Final, cast
@@ -48,6 +49,7 @@ from dynamisrag.embedding import (
     TeiUnexpectedResponse,
     TruncationDirection,
     embed_passages,
+    passage_content_sha256,
     tei_embed_request_body,
 )
 from dynamisrag.embedding import tei as tei_module
@@ -121,10 +123,16 @@ def _ok(*vectors: list[float]) -> TeiOutcome:
 
 
 def _inputs(count: int) -> tuple[EmbeddingInput, ...]:
+    """Inputs whose content digest is the real digest of their own text.
+
+    Every text here carries :data:`SECRET_ARTICLE_SENTINEL`, so a fixture that
+    used a fabricated digest would be both a contract violation and, at this
+    boundary, indistinguishable from a leak.
+    """
     return tuple(
         EmbeddingInput(
             passage_key=f"{index:064x}",
-            content_sha256=f"{index + 100:064x}",
+            content_sha256=passage_content_sha256(f"{SECRET_ARTICLE_SENTINEL} passage {index}"),
             text=f"{SECRET_ARTICLE_SENTINEL} passage {index}",
         )
         for index in range(count)
@@ -1394,6 +1402,97 @@ def test_an_unusable_input_is_refused_before_any_request(
 ) -> None:
     with pytest.raises(EmbeddingContractError, match=expected):
         EmbeddingInput(**kwargs)
+
+
+def test_a_correct_content_digest_is_accepted() -> None:
+    """The check is a binding, not a blanket refusal."""
+    text = "A canonical passage about colon lesions in jumping rats."
+
+    assert (
+        EmbeddingInput(
+            passage_key=f"{0:064x}", content_sha256=passage_content_sha256(text), text=text
+        ).text
+        == text
+    )
+
+
+def test_the_canonical_digest_is_sha256_over_the_exact_utf8_bytes() -> None:
+    """One definition, asserted against an independent computation.
+
+    The bytes a tokenizer receives upstream are the UTF-8 encoding of the passage
+    text, with no normalisation, so a digest computed any other way would verify
+    a passage the model never saw. A non-ASCII passage is used because that is
+    where a stray normalisation step would change the answer.
+    """
+    text = "requête Δ coliques — jumping rats"
+
+    assert passage_content_sha256(text) == hashlib.sha256(text.encode("utf-8")).hexdigest()
+    assert passage_content_sha256(text) != hashlib.sha256(text.encode("utf-16")).hexdigest()
+
+
+def test_text_under_another_passages_digest_is_refused() -> None:
+    """The whole point: a shape-valid digest must not be accepted for other text.
+
+    ``content_sha256`` here is a perfectly good digest -- of a different passage.
+    Accepting it would let a run embed passage B and record passage A's digest, so
+    the manifest would attest to content it never embedded and every later
+    comparison against it would be between two different passages under one name.
+    """
+    other = "Passage number 0 of a synthetic article."
+
+    with pytest.raises(
+        EmbeddingContractError, match="SHA-256 over the exact UTF-8 bytes"
+    ) as caught:
+        EmbeddingInput(
+            passage_key=f"{0:064x}", content_sha256=passage_content_sha256(other), text="Not it."
+        )
+
+    # Both digests are named, so the caller can find the mismatch, and the
+    # offending text is not.
+    assert passage_content_sha256(other) in str(caught.value)
+    assert passage_content_sha256("Not it.") in str(caught.value)
+    assert "Not it." not in str(caught.value)
+
+
+def test_a_digest_mismatch_never_reports_the_passage_text() -> None:
+    """The sensitive value is the passage; the digests are the safe context."""
+    text = f"{SECRET_ARTICLE_SENTINEL} passage"
+
+    with pytest.raises(EmbeddingContractError) as caught:
+        EmbeddingInput(
+            passage_key=f"{0:064x}", content_sha256=passage_content_sha256("different"), text=text
+        )
+
+    _assert_no_sentinel("input digest mismatch", str(caught.value))
+    _assert_no_sentinel("input digest mismatch summary", caught.value.safe_summary())
+    # The content-addressed key is the whole point of the safe context.
+    assert f"{0:064x}" in caught.value.safe_summary()
+
+
+def test_a_digest_mismatch_costs_no_request() -> None:
+    """Refused at construction, so there is no batch, no socket and no token.
+
+    The provider is deliberately *live* first: a successful ``describe()`` proves
+    the mock is reachable, so the assertion that follows is about the mismatch
+    rather than about an adapter that was never wired up.
+    """
+    mock = TeiMock(
+        info_documents=[tei_info_document()],
+        embed_outcomes=[_ok(*[_vector(float(index)) for index in range(2)])],
+    )
+    provider = _provider(mock, batch_size=2)
+    assert provider.describe().model_id == TEI_MODEL_ID
+    sent_before = len(mock.requests)
+
+    with pytest.raises(EmbeddingContractError, match="SHA-256 over the exact UTF-8 bytes"):
+        EmbeddingInput(
+            passage_key=f"{0:064x}",
+            content_sha256=passage_content_sha256("some other passage"),
+            text=f"{SECRET_ARTICLE_SENTINEL} passage 0",
+        )
+
+    assert len(mock.requests) == sent_before
+    assert mock.embed_requests == []
 
 
 @pytest.mark.parametrize("truncation", [TruncationDirection.LEFT, TruncationDirection.RIGHT])

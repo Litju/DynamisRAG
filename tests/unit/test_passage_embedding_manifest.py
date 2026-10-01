@@ -49,6 +49,7 @@ from dynamisrag.embedding import (
     canonical_embedding_inputs,
     canonical_json,
     embed_passages,
+    passage_content_sha256,
 )
 from dynamisrag.search.vector import EmbeddingModelIdentity, VectorIndexConfig
 from dynamisrag.search.vector_projection import PassageVector
@@ -97,10 +98,18 @@ def _identity(**overrides: object) -> EmbeddingProviderIdentity:
 
 
 def _input(index: int, *, text: str | None = None) -> EmbeddingInput:
+    """One input whose content digest is the real digest of its own text.
+
+    Not a plausible-looking constant: the constructor verifies the digest against
+    the text, so a fabricated one is now a contract violation rather than a
+    fixture. Callers that want the canonical digest use
+    :func:`~dynamisrag.embedding.contracts.passage_content_sha256`.
+    """
+    body = text if text is not None else f"Passage number {index} of a synthetic article."
     return EmbeddingInput(
         passage_key=f"{index:064x}",
-        content_sha256=f"{index + 100:064x}",
-        text=text if text is not None else f"Passage number {index} of a synthetic article.",
+        content_sha256=passage_content_sha256(body),
+        text=body,
     )
 
 
@@ -205,7 +214,7 @@ def test_the_manifest_serializes_canonically() -> None:
         b'{"dimension":4,"document_count":1,"embedding_config_sha256":"'
         + _digest().encode()
         + b'","entries":[{"content_sha256":"'
-        + f"{100:064x}".encode()
+        + passage_content_sha256("Passage number 0 of a synthetic article.").encode()
         + b'","passage_key":"'
         + f"{0:064x}".encode()
         + b'","values":[1.0,1.25,1.5,1.75]}],"generation_config":{"dimensions":null,'
@@ -675,7 +684,9 @@ def test_one_passage_content_digest_moves_the_manifest() -> None:
     changed = _manifest(
         inputs=(
             EmbeddingInput(
-                passage_key=f"{0:064x}", content_sha256="f" * 64, text="Passage number 0."
+                passage_key=f"{0:064x}",
+                content_sha256=passage_content_sha256("Passage number 0."),
+                text="Passage number 0.",
             ),
             _input(1),
             _input(2),
