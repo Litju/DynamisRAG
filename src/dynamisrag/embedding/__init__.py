@@ -33,6 +33,8 @@ from dynamisrag.embedding.contracts import (
     EmbeddingRuntimeConfig,
     TruncationDirection,
     canonical_json,
+    passage_content_sha256,
+    require_content_matches_text,
 )
 from dynamisrag.embedding.errors import (
     MAX_SAFE_DETAIL_LENGTH,
@@ -105,6 +107,8 @@ __all__ = [
     "canonical_embedding_inputs",
     "canonical_json",
     "embed_passages",
+    "passage_content_sha256",
+    "require_content_matches_text",
     "tei_embed_request_body",
     "tei_provider_from_settings",
 ]
