@@ -48,6 +48,7 @@ from typing import Final
 
 import pytest
 
+from dynamisrag.embedding.errors import EmbeddingContractError
 from dynamisrag.search.bm25 import BM25_FIELDS, BM25_QUERY_REVISION, SOURCE_FIELDS
 from dynamisrag.search.client import JsonValue, canonical_json_line
 from dynamisrag.search.errors import VectorContractError
@@ -615,7 +616,7 @@ def test_the_model_identity_reaches_the_mapping_provenance() -> None:
 
 @pytest.mark.parametrize("mutable", ["latest", "LATEST", "default", "current", "main", "head"])
 def test_a_mutable_model_id_is_rejected(mutable: str) -> None:
-    with pytest.raises(VectorContractError, match="moving target rather than an identity"):
+    with pytest.raises(EmbeddingContractError, match="moving target rather than an identity"):
         EmbeddingModelIdentity(
             model_id=mutable,
             model_revision=_MODEL.model_revision,
@@ -626,7 +627,7 @@ def test_a_mutable_model_id_is_rejected(mutable: str) -> None:
 @pytest.mark.parametrize("mutable", ["latest", "default", "stable"])
 def test_a_mutable_model_revision_is_rejected(mutable: str) -> None:
     """A tag moves: the same revision string would name different weights later."""
-    with pytest.raises(VectorContractError, match="moving target rather than an identity"):
+    with pytest.raises(EmbeddingContractError, match="moving target rather than an identity"):
         EmbeddingModelIdentity(
             model_id=_MODEL.model_id,
             model_revision=mutable,
@@ -659,7 +660,7 @@ def test_a_token_standing_as_its_own_segment_is_rejected(model_id: str) -> None:
     A mutable alias is usually written exactly this way, which is why the guard
     cannot be a plain substring match and must also not stop at a separator.
     """
-    with pytest.raises(VectorContractError, match="moving target rather than an identity"):
+    with pytest.raises(EmbeddingContractError, match="moving target rather than an identity"):
         EmbeddingModelIdentity(
             model_id=model_id,
             model_revision=_MODEL.model_revision,
@@ -676,12 +677,12 @@ def test_an_empty_model_identity_is_rejected(field: str) -> None:
     }
     values[field] = ""
 
-    with pytest.raises(VectorContractError, match="explicit, non-empty"):
+    with pytest.raises(EmbeddingContractError, match="explicit, non-empty"):
         EmbeddingModelIdentity(**values)
 
 
 def test_a_malformed_model_identity_is_rejected() -> None:
-    with pytest.raises(VectorContractError, match="not a usable identifier"):
+    with pytest.raises(EmbeddingContractError, match="not a usable identifier"):
         EmbeddingModelIdentity(
             model_id="has a space",
             model_revision=_MODEL.model_revision,
@@ -692,7 +693,7 @@ def test_a_malformed_model_identity_is_rejected() -> None:
 @pytest.mark.parametrize("digest", ["", "abc", "A" * 64, "g" * 64, "a" * 63])
 def test_a_non_sha256_embedding_config_digest_is_rejected(digest: str) -> None:
     """A digest, not a name, is what makes the generation config an identity."""
-    with pytest.raises(VectorContractError, match="64 lowercase hexadecimal"):
+    with pytest.raises(EmbeddingContractError, match="64 lowercase hexadecimal"):
         EmbeddingModelIdentity(
             model_id=_MODEL.model_id,
             model_revision=_MODEL.model_revision,
