@@ -6,11 +6,18 @@ properties that makes a vector-capable passage index *identifiable* and
 sent to OpenSearch:
 
 * the engine, method, value type, ``m=16`` and ``ef_construction=100`` are fixed
-  constants rather than per-deployment choices, the mapping contains no
+  constants rather than per-deployment choices, and the mapping contains no
   ``ef_search`` — a Lucene HNSW index has no such setting, and one that claimed
-  it would advertise a recall behaviour it does not have — and no other engine,
-  method, quantization or compression block is accepted either, because the node
-  refuses exactly those keys;
+  it would advertise a recall behaviour it does not have;
+* the dimension range is ``1..16000``, which is OpenSearch 3.8's own
+  ``knn_vector.dimension`` limit rather than a heuristic sanity bound;
+* the mapping guard is **positive and exact** at all three levels — field,
+  ``method`` and ``method.parameters`` — so an undeclared key is a violation
+  whether or not anyone anticipated it. The negative cases are each one mutation
+  away from the exact mapping the guard must accept, and they cover every category
+  the previous forbidden-key list let through: ``flat``, an unknown engine string,
+  ``byte``/``binary``, ``compression_level``, a Lucene ``encoder``, a changed
+  ``m`` or ``ef_construction``, and unexpected keys at each level;
 * the field mapping is the shape OpenSearch 3.8.0 actually accepts for a Lucene
   HNSW field: a nested ``method`` object carrying the engine, the space and the
   build parameters under ``parameters``. The flatter shape is refused by the node
@@ -34,6 +41,7 @@ sent to OpenSearch:
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 from collections.abc import Mapping, Sequence
 from typing import Final
@@ -65,19 +73,20 @@ from dynamisrag.search.schema import (
     vector_index_settings,
 )
 from dynamisrag.search.vector import (
-    FORBIDDEN_SEARCH_TIME_HNSW_SETTINGS,
-    FORBIDDEN_VECTOR_FIELD_SETTINGS,
-    FORBIDDEN_VECTOR_INDEX_ENGINES,
-    FORBIDDEN_VECTOR_INDEX_METHODS,
     HNSW_EF_CONSTRUCTION,
     HNSW_M,
     MAX_VECTOR_DIMENSION,
     MIN_VECTOR_DIMENSION,
+    SEARCH_TIME_BREADTH_IS_A_QUERY_PARAMETER,
     SUPPORTED_VECTOR_SPACES,
     VECTOR_ENGINE,
     VECTOR_FIELD,
+    VECTOR_FIELD_MAPPING_KEYS,
+    VECTOR_FIELD_TYPE,
     VECTOR_INDEX_METHOD,
     VECTOR_INDEX_TYPE,
+    VECTOR_METHOD_KEYS,
+    VECTOR_METHOD_PARAMETER_KEYS,
     VECTOR_SPACE_COSINESIMIL,
     VECTOR_SPACE_INNER_PRODUCT,
     VECTOR_SPACE_L2,
@@ -193,8 +202,14 @@ def test_the_dimension_is_always_written_out() -> None:
 
 
 def test_the_mapping_contains_no_search_time_hnsw_setting() -> None:
-    """``ef_search`` is an nmslib field; Lucene HNSW takes breadth per query."""
-    assert FORBIDDEN_SEARCH_TIME_HNSW_SETTINGS == ("ef_search",)
+    """``ef_search`` is an nmslib field; Lucene HNSW takes breadth per query.
+
+    Refused by an *absent* entry in a closed parameter set rather than by a
+    forbidden-key list, so the guarantee does not depend on the name having been
+    thought of in advance.
+    """
+    assert SEARCH_TIME_BREADTH_IS_A_QUERY_PARAMETER == "ef_search"
+    assert SEARCH_TIME_BREADTH_IS_A_QUERY_PARAMETER not in VECTOR_METHOD_PARAMETER_KEYS
 
     field = dict(_CONFIG.field_mapping())
     method = field["method"]
@@ -208,83 +223,275 @@ def test_the_mapping_contains_no_search_time_hnsw_setting() -> None:
     assert all("search" not in key for key in parameters)
 
 
-@pytest.mark.parametrize(
-    "mapping",
-    [
-        {"ef_search": 100},
-        {"dimension": 384, "ef_search": 100},
-        {"hnsw": {"m": 16, "ef_construction": 100, "ef_search": 100}},
-        {"method": {"name": "hnsw", "engine": "lucene", "ef_search": 100}},
-        {
-            "method": {
-                "name": "hnsw",
-                "engine": "lucene",
-                "parameters": {"m": 16, "ef_construction": 100, "ef_search": 100},
-            }
-        },
-    ],
-)
-def test_a_hand_written_mapping_carrying_ef_search_is_rejected(
-    mapping: Mapping[str, JsonValue],
-) -> None:
-    """In every position the node refuses it in, so in every position here too."""
-    with pytest.raises(VectorContractError, match="does not evaluate"):
-        assert_lucene_hnsw_field_mapping(mapping, where="a hand-written mapping")
+# ---------------------------------------------------------------------------
+# The mapping guard: a positive, exact contract rather than a forbidden-key list
+# ---------------------------------------------------------------------------
+
+
+def _mutate(path: Sequence[str], *, value: JsonValue) -> Mapping[str, JsonValue]:
+    """A copy of the production mapping with one node along ``path`` replaced.
+
+    Every negative case below is a single mutation away from the exact mapping
+    the guard must accept, so each one proves the guard is sensitive to that
+    particular part of the contract rather than passing for an unrelated reason.
+
+    ``value`` is keyword-only so a boolean is unambiguous at the call site: a
+    bare ``True`` in a positional list is a value being confused with a flag.
+    """
+    root: dict[str, JsonValue] = json.loads(json.dumps(dict(_CONFIG.field_mapping())))
+    cursor: dict[str, JsonValue] = root
+    for key in path[:-1]:
+        child = cursor[key]
+        assert isinstance(child, dict)
+        cursor = child
+    cursor[path[-1]] = value
+    return root
+
+
+def _drop(path: Sequence[str]) -> Mapping[str, JsonValue]:
+    """A copy of the production mapping with one node along ``path`` removed."""
+    root: dict[str, JsonValue] = json.loads(json.dumps(dict(_CONFIG.field_mapping())))
+    cursor: dict[str, JsonValue] = root
+    for key in path[:-1]:
+        child = cursor[key]
+        assert isinstance(child, dict)
+        cursor = child
+    del cursor[path[-1]]
+    return root
+
+
+#: The exact mapping the guard must accept, and the base for every mutation below.
+_ACCEPTED: Final[Mapping[str, JsonValue]] = _CONFIG.field_mapping()
 
 
 @pytest.mark.parametrize(
-    "mapping",
+    ("label", "space"),
     [
-        {"quantization": {"type": "pq", "bits": 8}},
-        {"compression": "scalar"},
-        {"mode": "on_disk"},
-        {"model_id": "remote-model"},
-        {"index.knn": True},
+        ("cosinesimil", VECTOR_SPACE_COSINESIMIL),
+        ("innerproduct", VECTOR_SPACE_INNER_PRODUCT),
+        ("l2", VECTOR_SPACE_L2),
     ],
 )
-def test_a_hand_written_mapping_with_a_rejected_field_setting_is_refused(
-    mapping: Mapping[str, JsonValue],
-) -> None:
-    """Quantization and compression change the stored representation, and so
-    the distances and the recall; they are part of an index's identity and are
-    therefore a new schema revision, never a per-index setting."""
-    assert next(iter(mapping)) in FORBIDDEN_VECTOR_FIELD_SETTINGS
-    with pytest.raises(VectorContractError, match="does not evaluate"):
-        assert_lucene_hnsw_field_mapping(mapping, where="a hand-written mapping")
+def test_the_production_mapping_passes_the_guard_exactly(label: str, space: str) -> None:
+    """The generated mapping is the accepted shape, in every space.
+
+    Every accepted dimension over the node's whole range is checked too, because a
+    guard that only passes at 384 would be a guard with a hole in it.
+    """
+    assert_lucene_hnsw_field_mapping(_config(space=space).field_mapping(), where=label)
+    for dimension in (MIN_VECTOR_DIMENSION, 384, MAX_VECTOR_DIMENSION):
+        assert_lucene_hnsw_field_mapping(
+            _config(dimension=dimension, space=space).field_mapping(), where=label
+        )
 
 
 @pytest.mark.parametrize(
-    ("mapping", "described"),
+    ("label", "mapping", "expected"),
     [
-        ({"engine": "faiss"}, "engine"),
-        ({"method": {"name": "hnsw", "engine": "nmslib"}}, "method.engine"),
-        ({"method": {"name": "hnsw", "engine": "jvector"}}, "method.engine"),
-        ({"method": {"name": "efi", "engine": "lucene"}}, "method.name"),
-        ({"method": {"name": "hnswlib", "engine": "lucene"}}, "method.name"),
+        # -- field type / value representation ---------------------------------
+        ("type is not knn_vector", _mutate(["type"], value="dense_vector"), "type"),
+        ("type is absent", _drop(["type"]), "type"),
+        ("data_type is byte", _mutate(["data_type"], value="byte"), "data_type"),
+        ("data_type is binary", _mutate(["data_type"], value="binary"), "data_type"),
+        # -- dimension ---------------------------------------------------------
+        ("dimension is zero", _mutate(["dimension"], value=0), "dimension"),
+        ("dimension is 16_001", _mutate(["dimension"], value=16_001), "dimension"),
+        ("dimension is a string", _mutate(["dimension"], value="384"), "dimension"),
+        ("dimension is a boolean", _mutate(["dimension"], value=True), "dimension"),
+        ("dimension is absent", _drop(["dimension"]), "dimension"),
+        # -- method identity ---------------------------------------------------
+        ("method.name is flat", _mutate(["method", "name"], value="flat"), "method.name"),
+        (
+            "method.name is nmslib",
+            _mutate(["method", "name"], value="nmslib"),
+            "method.name",
+        ),
+        (
+            "method.name is anything else",
+            _mutate(["method", "name"], value="hnsw-v2"),
+            "method.name",
+        ),
+        ("method.engine is faiss", _mutate(["method", "engine"], value="faiss"), "method.engine"),
+        (
+            "method.engine is nmslib",
+            _mutate(["method", "engine"], value="nmslib"),
+            "method.engine",
+        ),
+        (
+            "method.engine is jvector",
+            _mutate(["method", "engine"], value="jvector"),
+            "method.engine",
+        ),
+        (
+            "method.engine is unknown",
+            _mutate(["method", "engine"], value="unknown-engine"),
+            "method.engine",
+        ),
+        (
+            "method.space_type is unsupported",
+            _mutate(["method", "space_type"], value="dotproduct"),
+            "method.space_type",
+        ),
+        ("method is absent", _drop(["method"]), "method"),
+        # -- pinned build parameters ------------------------------------------
+        ("m is not 16", _mutate(["method", "parameters", "m"], value=32), "method.parameters.m"),
+        ("m is absent", _drop(["method", "parameters", "m"]), "Missing keys: ['m']"),
+        (
+            "ef_construction is not 100",
+            _mutate(["method", "parameters", "ef_construction"], value=200),
+            "method.parameters.ef_construction",
+        ),
+        (
+            "ef_construction is absent",
+            _drop(["method", "parameters", "ef_construction"]),
+            "Missing keys: ['ef_construction']",
+        ),
+        (
+            "m is a boolean",
+            _mutate(["method", "parameters", "m"], value=True),
+            "method.parameters.m",
+        ),
+        ("parameters is absent", _drop(["method", "parameters"]), "parameters"),
     ],
 )
-def test_a_hand_written_mapping_with_another_engine_or_method_is_refused(
-    mapping: Mapping[str, JsonValue], described: str
+def test_a_mutation_of_a_contract_value_is_rejected(
+    label: str, mapping: Mapping[str, JsonValue], expected: str
 ) -> None:
-    """Each alternative engine and method is a different index with different
-    neighbours, so omitting one is not neutral: a node-side default would decide
-    what the index means."""
-    with pytest.raises(VectorContractError, match="part of the index's identity") as caught:
+    """One declared value changed: a different index under the same revision."""
+    with pytest.raises(VectorContractError) as caught:
         assert_lucene_hnsw_field_mapping(mapping, where="a hand-written mapping")
-    assert described in str(caught.value)
+    assert expected in str(caught.value)
 
 
-def test_the_rejected_engine_and_method_sets_name_the_real_alternatives() -> None:
-    assert FORBIDDEN_VECTOR_INDEX_ENGINES == ("faiss", "nmslib", "jvector")
-    assert VECTOR_ENGINE == "lucene" and VECTOR_INDEX_METHOD == "hnsw"
-    # `nmslib` and `hnswlib` name engines in older OpenSearch releases and
-    # methods in newer ones, so both are refused on both axes.
-    assert "nmslib" in FORBIDDEN_VECTOR_INDEX_METHODS
-    assert "hnswlib" in FORBIDDEN_VECTOR_INDEX_METHODS
+@pytest.mark.parametrize(
+    ("label", "mapping", "expected_key"),
+    [
+        # -- unexpected top-level vector semantics -----------------------------
+        ("compression_level", _mutate(["compression_level"], value=8), "compression_level"),
+        (
+            "quantization",
+            _mutate(["quantization"], value={"type": "pq", "bits": 8}),
+            "quantization",
+        ),
+        ("compression", _mutate(["compression"], value="scalar"), "compression"),
+        ("mode", _mutate(["mode"], value="on_disk"), "mode"),
+        ("model_id", _mutate(["model_id"], value="remote-model"), "model_id"),
+        ("index.knn", _mutate(["index.knn"], value=True), "index.knn"),
+        ("knn_vector_index", _mutate(["knn_vector_index"], value=True), "knn_vector_index"),
+        ("ef_search", _mutate(["ef_search"], value=100), "ef_search"),
+        # the flatter shape this project used before the live-node check: a
+        # top-level `engine` and a parallel `hnsw` object beside `dimension`.
+        ("engine", _mutate(["engine"], value="lucene"), "engine"),
+        ("hnsw", _mutate(["hnsw"], value={"m": 16, "ef_construction": 100}), "hnsw"),
+        # -- unexpected `method` key -------------------------------------------
+        ("method.ef_search", _mutate(["method", "ef_search"], value=100), "ef_search"),
+        ("method.encoder", _mutate(["method", "encoder"], value={"type": "l2_norm"}), "encoder"),
+        # -- unexpected `method.parameters` key ---------------------------------
+        (
+            "method.parameters.ef_search",
+            _mutate(["method", "parameters", "ef_search"], value=100),
+            "ef_search",
+        ),
+        (
+            "method.parameters.encoder",
+            _mutate(["method", "parameters", "encoder"], value={"type": "l2_norm"}),
+            "encoder",
+        ),
+        (
+            "method.parameters.quantization",
+            _mutate(["method", "parameters", "quantization"], value={"type": "pq"}),
+            "quantization",
+        ),
+    ],
+)
+def test_an_undeclared_key_is_rejected_at_every_level(
+    label: str, mapping: Mapping[str, JsonValue], expected_key: str
+) -> None:
+    """The closed key sets are what make this a contract and not a wishlist.
+
+    A forbidden-key list only refuses the names somebody remembered to write
+    down; each case here is a key the node accepts or rejects, and every one of
+    them is a violation of *this* revision's declared shape.
+    """
+    with pytest.raises(VectorContractError, match="Unexpected keys") as caught:
+        assert_lucene_hnsw_field_mapping(mapping, where="a hand-written mapping")
+    message = str(caught.value)
+    assert expected_key in message
+    # A key this process did not write may carry a value that must not be echoed.
+    assert "l2_norm" not in message
 
 
-def test_a_compliant_mapping_passes_the_guard() -> None:
-    assert_lucene_hnsw_field_mapping(_CONFIG.field_mapping(), where="the vector field mapping")
+def test_a_guard_rejection_never_echoes_an_undeclared_value() -> None:
+    """The key is enough to act on; the value of a hand-assembled key is not.
+
+    A mapping value is normally configuration this process wrote, but the whole
+    point of checking a hand-assembled mapping is that it was assembled elsewhere,
+    so its values are exactly the ones that stopped being trustworthy.
+    """
+    with pytest.raises(VectorContractError) as caught:
+        assert_lucene_hnsw_field_mapping(
+            _mutate(["compression_level"], value="a-very-secret-deployment-string"),
+            where="a hand-written mapping",
+        )
+    message = str(caught.value)
+    assert "compression_level" in message
+    assert "a-very-secret-deployment-string" not in message
+
+
+@pytest.mark.parametrize(
+    ("label", "mapping", "expected_path"),
+    [
+        ("method is a string", _mutate(["method"], value="hnsw"), "method"),
+        (
+            "parameters is a string",
+            _mutate(["method", "parameters"], value="m=16,ef_construction=100"),
+            "method.parameters",
+        ),
+        (
+            "method is a list",
+            _mutate(["method"], value=["hnsw", "lucene"]),
+            "method",
+        ),
+    ],
+)
+def test_a_structurally_wrong_node_is_rejected(
+    label: str, mapping: Mapping[str, JsonValue], expected_path: str
+) -> None:
+    """The node refuses these with ``mapper_parsing_exception``; this refuses
+    them with a legible local error instead."""
+    with pytest.raises(VectorContractError, match="rather than a JSON object") as caught:
+        assert_lucene_hnsw_field_mapping(mapping, where="a hand-written mapping")
+    assert expected_path in str(caught.value)
+
+
+def test_the_declared_key_sets_are_closed_and_exact() -> None:
+    """The three levels of the contract, spelled out.
+
+    Frozen here so that *widening* one of them is a visible change to this file
+    rather than something a later mapping edit slips past.
+    """
+    assert VECTOR_FIELD_TYPE == "knn_vector"
+    assert {"type", "dimension", "data_type", "method"} == VECTOR_FIELD_MAPPING_KEYS
+    assert {"name", "engine", "space_type", "parameters"} == VECTOR_METHOD_KEYS
+    assert {"m", "ef_construction"} == VECTOR_METHOD_PARAMETER_KEYS
+    assert isinstance(VECTOR_FIELD_MAPPING_KEYS, frozenset)
+    assert isinstance(VECTOR_METHOD_KEYS, frozenset)
+    assert isinstance(VECTOR_METHOD_PARAMETER_KEYS, frozenset)
+
+
+def test_the_guard_accepts_exactly_the_shape_it_declares() -> None:
+    """Round trip: the declared keys and values are what a valid mapping holds.
+
+    Stated from the constant side rather than the mapping side, so a change to
+    either the constants or :meth:`VectorIndexConfig.field_mapping` has to be made
+    twice and consciously.
+    """
+    assert set(_ACCEPTED) == VECTOR_FIELD_MAPPING_KEYS
+    assert _ACCEPTED["type"] == VECTOR_FIELD_TYPE
+    assert _ACCEPTED["data_type"] == VECTOR_INDEX_TYPE
+    assert set(_ACCEPTED["method"]) == VECTOR_METHOD_KEYS  # type: ignore[arg-type]
+    assert set(_ACCEPTED["method"]["parameters"]) == VECTOR_METHOD_PARAMETER_KEYS  # type: ignore[index,typeddict-item]
+    assert_lucene_hnsw_field_mapping(_ACCEPTED, where="the accepted shape")
 
 
 # ---------------------------------------------------------------------------
@@ -933,10 +1140,31 @@ def test_a_validation_message_never_echoes_a_vector_component() -> None:
 
 
 def test_is_zero_vector_is_exact() -> None:
-    """A near-zero vector is numerically just as directionless as an exact one."""
+    """Only the exact zero vector is refused; a tiny nonzero one still has a
+    direction.
+
+    Cosine normalizes by magnitude, so ``[0, 1e-300, 0]`` normalizes to a unit
+    vector and its similarity is mathematically defined — it is numerically
+    fragile, which is not the same as undefined. A magnitude threshold is a
+    model-specific numerical-quality decision and belongs in the model's own
+    normalization, not in this check.
+    """
     assert is_zero_vector([0.0, 0.0, 0.0]) is True
     assert is_zero_vector([0.0, 1e-300, 0.0]) is False
     assert is_zero_vector([0.0, 0.0, 0.0, 0.0]) is True
+
+
+def test_a_tiny_but_nonzero_vector_is_accepted_under_cosine() -> None:
+    """The consequence of the exactness above, asserted as behaviour.
+
+    Cosine similarity to this vector is well defined, so rejecting it here would
+    invent a constraint the space does not have.
+    """
+    validate_vector_set(
+        config=_config(dimension=3, space=VECTOR_SPACE_COSINESIMIL),
+        expected_keys=[_KEY_A],
+        vectors={_KEY_A: [0.0, 1e-300, 0.0]},
+    )
 
 
 def test_validation_reports_a_vector_contract_error_that_is_an_opensearch_error() -> None:
