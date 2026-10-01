@@ -32,16 +32,23 @@ __all__ = [
     "PMC2731074_ARTICLE_SHA256",
     "REPO_ROOT",
     "SECRET_ARTICLE_SENTINEL",
+    "TEI_MODEL_ID",
+    "TEI_MODEL_SHA",
+    "TEI_VERSION",
     "UNIT_TEST_PASSWORD",
     "UNREACHABLE_DATABASE_URL",
     "UNREACHABLE_HOST",
     "UNREACHABLE_OPENSEARCH_URL",
     "PassageProjectionCorpus",
+    "RecordedTeiRequest",
+    "TeiMock",
+    "TeiOutcome",
     "build_settings",
     "opensearch_root_document",
     "passage_projection_corpus",
     "passage_projection_records",
     "stub_transport",
+    "tei_info_document",
 ]
 
 REPO_ROOT: Final[Path] = Path(__file__).resolve().parents[1]
@@ -314,6 +321,207 @@ def stub_transport(
         return httpx2.Response(status_code, content=body, request=request)
 
     return httpx2.MockTransport(answering)
+
+
+# ---------------------------------------------------------------------------
+# A scripted Text Embeddings Inference server (RES-137)
+# ---------------------------------------------------------------------------
+
+TEI_MODEL_ID: Final[str] = "BAAI/bge-small-en-v1.5"
+"""Repository used by the TEI adapter tests.
+
+A real, small, TEI-compatible repository so the fixtures describe something that
+actually exists. Only its *name* appears here; the adapter tests never download
+it, and the value is not a statement about which model DynamisRAG should use --
+that is RES-138's decision, made against retrieval quality rather than against a
+test fixture.
+"""
+
+TEI_MODEL_SHA: Final[str] = "5c38ec7c405ec4b44b94cc5a9bb96e735b38267a"
+"""An immutable Hub commit id for :data:`TEI_MODEL_ID`, 40 lowercase hex.
+
+Shaped exactly like a real commit because that shape *is* the contract:
+:class:`~dynamisrag.embedding.tei.ExpectedTeiModel` refuses anything that is not
+40 lowercase hexadecimal characters precisely because a tag or a branch cannot be
+told apart from a commit by shape.
+"""
+
+TEI_VERSION: Final[str] = "1.9.4"
+"""The TEI release the adapter's protocol revision ``tei-http-v1`` targets."""
+
+
+def tei_info_document(
+    **overrides: object,
+) -> dict[str, object]:
+    """Return a ``GET /info`` payload shaped like a real TEI 1.9.4 response.
+
+    Three fields exist purely to prove the parser's ``unknown keys are ignored
+    deliberately`` claim: ``served_model_name``, ``tokenization_workers`` and
+    ``auto_truncate`` all appeared in TEI between 1.7 and 1.9 and none of them
+    decides an identity, so a closed key set would refuse to embed against a
+    routine upstream addition.
+
+    ``model_type`` is the externally tagged object TEI 1.9.x actually emits --
+    ``{"embedding": {"pooling": "cls"}}`` -- not a bare string, because
+    ``Embedding`` carries a pooling configuration. A test that asserted
+    ``model_type == "embedding"`` against a string would have passed against a
+    mock and failed against every live server.
+    """
+    document: dict[str, object] = {
+        "model_id": TEI_MODEL_ID,
+        "model_sha": TEI_MODEL_SHA,
+        "model_dtype": "float32",
+        "served_model_name": TEI_MODEL_ID,
+        "model_type": {"embedding": {"pooling": "cls"}},
+        "max_concurrent_requests": 512,
+        "max_input_length": 512,
+        "max_batch_tokens": 8192,
+        "max_batch_requests": 8,
+        "max_client_batch_size": 8,
+        "auto_truncate": True,
+        "tokenization_workers": 7,
+        "version": TEI_VERSION,
+        "sha": "e80ef225ed0e6cb1717ce632a6a84b6cf211bb67",
+        "docker_label": "sha-e80ef22",
+    }
+    document.update(overrides)
+    return document
+
+
+def tei_error_envelope(
+    *,
+    error: str,
+    error_type: str,
+) -> dict[str, str]:
+    """Return a TEI failure envelope shaped like the real thing.
+
+    ``error`` carries :data:`SECRET_ARTICLE_SENTINEL` in every test that uses it,
+    because that is what TEI genuinely does: the validation and backend failures
+    of ``/embed`` quote the rejected input back. The adapter must therefore never
+    read the field, and a test that only used a benign message would not notice if
+    it did.
+    """
+    return {"error": error, "error_type": error_type}
+
+
+@dataclass(frozen=True)
+class RecordedTeiRequest:
+    """One request the scripted server received, exactly as it was sent.
+
+    ``body`` is the raw ``Content-Length`` payload rather than a re-parsed
+    object, so a test can assert the *bytes* of a request -- which is what
+    "every retry sends byte-identical content" actually claims -- and can compare
+    two bodies with ``==`` instead of comparing parse trees that would look equal
+    after any number of round trips.
+    """
+
+    method: str
+    path: str
+    body: bytes
+    authorization: str | None
+
+
+@dataclass(frozen=True)
+class TeiOutcome:
+    """What the scripted server does with one request.
+
+    Exactly one of ``embeddings``, ``body`` or ``raises`` is used, in that order.
+    ``raises`` models a transport-level failure such as
+    :class:`httpx2.ReadTimeout`, which no HTTP server can produce and which the
+    retry policy must still treat as transient.
+    """
+
+    embeddings: list[list[float]] | None = None
+    status_code: int = 200
+    body: bytes | None = None
+    raises: Exception | None = None
+
+
+@dataclass
+class TeiMock:
+    """A scripted TEI server over :class:`httpx2.MockTransport`, with no socket.
+
+    ``info_documents`` is consumed one per ``GET /info``; ``embed_outcomes`` one
+        per ``POST /embed``. Once a sequence is exhausted its **last** entry repeats,
+        so a single-document or single-outcome mock serves any number of calls while
+        a two-document mock is exactly the drift case: the identity is stable for the
+        first read and different for the second.
+
+        ``info_outcomes`` overrides ``info_documents`` for ``/info`` entirely, which
+        is how a *transport or status* failure on the identity read is scripted. It is
+        a separate list rather than a union type because "the document changed" and
+        "the document could not be read" are different tests with different
+        expectations, and mixing them into one list invites a test that silently
+        exercises the wrong one.
+
+        Recording every request is what lets a test assert the batch partition, the
+        exact serialized body and the byte-identity of a retry without a network.
+    """
+
+    info_documents: list[dict[str, object]]
+    embed_outcomes: list[TeiOutcome]
+    info_outcomes: list[TeiOutcome] | None = None
+    _info_calls: int = 0
+    _embed_calls: int = 0
+
+    def __post_init__(self) -> None:
+        """Declare the recorder here rather than as a dataclass field.
+
+        A ``field(default_factory=list)`` default makes the strict type checker
+        infer the element type from the bare ``list`` builtin, which erases it;
+        annotating the attribute where it is created keeps the recorded requests
+        fully typed.
+        """
+        self.requests: list[RecordedTeiRequest] = []
+
+    @property
+    def embed_requests(self) -> list[RecordedTeiRequest]:
+        """Every ``POST /embed`` received, in order."""
+        return [request for request in self.requests if request.path == "/embed"]
+
+    @property
+    def info_requests(self) -> list[RecordedTeiRequest]:
+        """Every ``GET /info`` received, in order."""
+        return [request for request in self.requests if request.path == "/info"]
+
+    def transport(self) -> httpx2.MockTransport:
+        """The transport to hand to the adapter under test."""
+        return httpx2.MockTransport(self._handle)
+
+    def _handle(self, request: httpx2.Request) -> httpx2.Response:
+        self.requests.append(
+            RecordedTeiRequest(
+                method=request.method,
+                path=request.url.path,
+                body=request.content,
+                authorization=request.headers.get("authorization"),
+            )
+        )
+        if request.url.path == "/info":
+            if self.info_outcomes is not None:
+                index = min(self._info_calls, len(self.info_outcomes) - 1)
+                self._info_calls += 1
+                return self._embed_response(self.info_outcomes[index], request)
+            index = min(self._info_calls, len(self.info_documents) - 1)
+            self._info_calls += 1
+            return httpx2.Response(200, json=self.info_documents[index], request=request)
+        if request.url.path == "/embed":
+            index = min(self._embed_calls, len(self.embed_outcomes) - 1)
+            self._embed_calls += 1
+            return self._embed_response(self.embed_outcomes[index], request)
+        return httpx2.Response(404, json={"error": "no such route"}, request=request)
+
+    def _embed_response(self, outcome: TeiOutcome, request: httpx2.Request) -> httpx2.Response:
+        if outcome.raises is not None:
+            raise outcome.raises
+        if outcome.embeddings is not None:
+            return httpx2.Response(outcome.status_code, json=outcome.embeddings, request=request)
+        return httpx2.Response(
+            outcome.status_code,
+            content=outcome.body if outcome.body is not None else b"{}",
+            headers={"content-type": "application/json"},
+            request=request,
+        )
 
 
 # ---------------------------------------------------------------------------
