@@ -5,6 +5,11 @@
         -> stable alias
         -> Bm25SearchService (versioned BM25 over title/section/passages)
 
+    canonical PostgreSQL passages
+        + a caller-supplied Sequence[PassageVector]  (RES-137 produces these)
+        -> VectorPassageProjector (passage-index-v2, disposable physical index)
+        -> the same stable alias
+
 PostgreSQL stays the only authority. Everything in this package is derived from
 canonical state and can be deleted and rebuilt from it; no canonical fact is
 ever read from or written to OpenSearch.
@@ -13,10 +18,11 @@ The publication protocol itself — build, verify, then move the alias
 atomically, never destroying a served index — lives in
 :mod:`dynamisrag.search.publication` and is shared by every schema revision.
 The dense-vector index contract (RES-136) is declared in
-:mod:`dynamisrag.search.vector` and rendered into a ``passage-index-v2`` mapping
-by :mod:`dynamisrag.search.schema`; embedding generation, model selection, ANN
-retrieval and hybrid fusion are deliberately absent and belong to RES-137,
-RES-138 and RES-139.
+:mod:`dynamisrag.search.vector`, rendered into a ``passage-index-v2`` mapping by
+:mod:`dynamisrag.search.schema` and projected in
+:mod:`dynamisrag.search.vector_projection`; embedding generation, model
+selection, ANN retrieval and hybrid fusion are deliberately absent and belong to
+RES-137, RES-138 and RES-139.
 """
 
 from __future__ import annotations
@@ -64,6 +70,7 @@ from dynamisrag.search.schema import (
     BM25_SIMILARITY_NAME,
     BM25_SIMILARITY_PARAMS,
     BM25_SIMILARITY_REVISION,
+    INDEX_KNN_ENABLED,
     PASSAGE_INDEX_SCHEMA_REVISION,
     VECTOR_PASSAGE_INDEX_SCHEMA_REVISION,
     index_mappings,
@@ -89,6 +96,12 @@ from dynamisrag.search.vector import (
     VectorIndexConfig,
     validate_vector_set,
 )
+from dynamisrag.search.vector_projection import (
+    PassageVector,
+    VectorPassageProjectionDocument,
+    VectorPassageProjectionManifest,
+    build_vector_projection_manifest,
+)
 
 __all__ = [
     "BM25_FIELDS",
@@ -102,6 +115,7 @@ __all__ = [
     "DEFAULT_LIMIT",
     "HNSW_EF_CONSTRUCTION",
     "HNSW_M",
+    "INDEX_KNN_ENABLED",
     "MAX_LIMIT",
     "MIN_LIMIT",
     "OPENSEARCH_DEPENDENCY_NAME",
@@ -127,6 +141,7 @@ __all__ = [
     "PassageProjectionDocument",
     "PassageProjectionManifest",
     "PassageProjector",
+    "PassageVector",
     "ProjectionConflictError",
     "ProjectionError",
     "ProjectionResult",
@@ -138,8 +153,11 @@ __all__ = [
     "SearchSourceSpan",
     "VectorContractError",
     "VectorIndexConfig",
+    "VectorPassageProjectionDocument",
+    "VectorPassageProjectionManifest",
     "build_bm25_request",
     "build_projection_manifest",
+    "build_vector_projection_manifest",
     "index_mappings",
     "index_settings",
     "physical_index_name",
