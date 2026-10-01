@@ -37,12 +37,12 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Final, Protocol, Self
 
-from dynamisrag.embedding.errors import EmbeddingContractError
+from dynamisrag.embedding.errors import EmbeddingContractError, TeiIdentityError
 from dynamisrag.embedding.identity import EmbeddingModelIdentity
 
 __all__ = [
@@ -50,6 +50,7 @@ __all__ = [
     "TRUNCATION_DIRECTIONS",
     "EmbeddingGenerationConfig",
     "EmbeddingInput",
+    "EmbeddingJsonValue",
     "EmbeddingProvider",
     "EmbeddingProviderIdentity",
     "EmbeddingRetryPolicy",
@@ -57,6 +58,27 @@ __all__ = [
     "TruncationDirection",
     "canonical_json",
 ]
+
+type EmbeddingJsonValue = (
+    str
+    | int
+    | float
+    | bool
+    | Sequence[EmbeddingJsonValue]
+    | Mapping[str, EmbeddingJsonValue]
+    | None
+)
+"""The JSON value domain crossing the embedding boundary, stated explicitly.
+
+Every payload a provider decodes is validated structurally before it is trusted,
+and this type is what makes that validation *checked*: an unexpected shape is
+caught by ``isinstance`` and reported, instead of propagating as an untyped value
+into a vector and then into a manifest digest.
+
+The object and array members are the covariant ``Mapping``/``Sequence`` protocols
+rather than concrete ``dict``/``list``, so a narrower concrete value — a freshly
+built request body, for instance — is still an ``EmbeddingJsonValue``.
+"""
 
 MIN_EMBEDDING_DIMENSION: Final[int] = 1
 """Smallest acceptable requested or returned dimension.
@@ -408,6 +430,7 @@ class EmbeddingProviderIdentity:
     model_id: str
     model_sha: str
     model_dtype: str
+    model_pooling: str | None
     max_client_batch_size: int
     max_input_length: int
     max_batch_tokens: int
@@ -418,11 +441,20 @@ class EmbeddingProviderIdentity:
 
         Exactly the runtime half of the embedding fingerprint: which provider
         spoke, under which protocol revision, running which TEI build, over which
-        weights dtype. Deliberately excludes the server-advertised capacity
-        limits and the docker label — the label is a convenience string derived
-        from the same build as ``runtime_sha``, so hashing it would add a second
-        spelling of an identity that is already pinned, while a capacity limit is
-        not an identity at all.
+        weights dtype, and with which pooling.
+
+        Pooling belongs here rather than in the request semantics because it is
+        not a request parameter — it is decided when the serving container starts,
+        and ``/embed`` cannot change it. CLS pooling and mean pooling over
+        *identical* weights produce vectors in different spaces entirely, so
+        leaving it out would make two runs of the same model look interchangeable
+        when nothing about them is.
+
+        Deliberately excluded: the server-advertised capacity limits, and the
+        docker label. The label is a convenience string derived from the same
+        build as ``runtime_sha``, so hashing it would add a second spelling of an
+        identity that is already pinned; a capacity limit is not an identity at
+        all.
         """
         return {
             "provider": self.provider,
@@ -430,6 +462,7 @@ class EmbeddingProviderIdentity:
             "tei_version": self.runtime_version,
             "tei_sha": self.runtime_sha,
             "model_dtype": self.model_dtype,
+            "model_pooling": self.model_pooling,
         }
 
     def embedding_config_sha256(self, generation_config: EmbeddingGenerationConfig) -> str:
@@ -484,6 +517,34 @@ class EmbeddingProviderIdentity:
             "max_batch_requests": self.max_batch_requests,
         }
 
+    def require_same_semantic_runtime(
+        self, observed_later: EmbeddingProviderIdentity, *, operation: str
+    ) -> None:
+        """Refuse a run whose two observations disagree, or return ``None``.
+
+        Compares only the *semantic* runtime identity — see
+        :meth:`semantic_runtime_payload`. The server-advertised capacity limits
+        are excluded on purpose: a restart that came back with the same weights,
+        the same serving build and the same dtype produced the same numbers even
+        if an operator re-tuned a batching flag meanwhile, and failing on that
+        would report a drift that did not happen.
+
+        Called once per embedding run, immediately before the first batch and
+        again after the last. A model server can be restarted, or replaced behind
+        the same URL, while batches are in flight; the vectors it produced on
+        either side of that would be a set of floats no single model identity
+        describes, and would name an index nothing could rebuild.
+        """
+        if self.semantic_runtime_payload() == observed_later.semantic_runtime_payload():
+            return
+        raise TeiIdentityError(
+            "the provider's semantic runtime identity changed during one embedding run, so this "
+            "run's batch vectors were not all produced by one model. No manifest is produced: a "
+            "set of vectors spanning two identities is not reproducible and names no index that "
+            "could be rebuilt.",
+            operation=operation,
+        )
+
 
 class EmbeddingProvider(Protocol):
     """The vendor-independent port every embedding implementation satisfies.
@@ -515,5 +576,35 @@ class EmbeddingProvider(Protocol):
         return returned components exactly as the backend produced them — never
         normalized, clipped, rounded, padded or repaired — because a vector that
         is not what the model returned is not that model's output.
+
+        This is the *work*, not the run. It does not observe the runtime before
+        and after itself: pairing an observation with the generation it brackets
+        belongs to
+        :func:`~dynamisrag.embedding.manifest.embed_passages`, which is the entry
+        point that produces a manifest and therefore the entry point that must
+        prove the runtime did not move underneath it.
+        """
+        ...
+
+    @property
+    def batch_size(self) -> int:
+        """Inputs per provider request, as configured.
+
+        Exposed because it is the one operational value a caller must be able to
+        check against a runtime's advertised limit. The check belongs to the run,
+        not to a single ``embed`` call, and this repository refuses to shrink a
+        configured batch to fit — so the size has to be readable from outside the
+        adapter to be checked at all.
+        """
+        ...
+
+    @property
+    def generation_config(self) -> EmbeddingGenerationConfig:
+        """The exact generation semantics this provider will apply.
+
+        Exposed because a manifest has to record the semantics that produced its
+        vectors, and re-deriving them from a second configuration object would let
+        a caller record semantics it never sent. Reading them from the provider is
+        what makes that impossible.
         """
         ...
