@@ -226,6 +226,7 @@ def build_settings(
     database_url: str = UNREACHABLE_DATABASE_URL,
     opensearch_url: str = UNREACHABLE_OPENSEARCH_URL,
     environment: Environment = Environment.TEST,
+    tei_url: str | None = None,
 ) -> Settings:
     """Build fully explicit settings for a test.
 
@@ -233,6 +234,11 @@ def build_settings(
     developer's ``.env`` nor an inherited ``DYNAMISRAG_*`` shell variable can
     change what a test exercises. The defaults point at an unresolvable host,
     which is what the "dependency is down" cases need.
+
+    The embedding settings are supplied as unset explicitly rather than omitted.
+    They all default to unset, but a key that is *omitted* still falls back to the
+    process environment, so leaving them out would let a developer machine with
+    ``DYNAMISRAG_TEI_URL`` set change what a test that constructs settings sees.
     """
     return Settings.from_mapping(
         {
@@ -242,6 +248,16 @@ def build_settings(
             "opensearch_username": "admin",
             "opensearch_password": UNIT_TEST_PASSWORD,
             "opensearch_verify_tls": False,
+            "opensearch_bulk_batch_size": 500,
+            "tei_url": tei_url,
+            "tei_expected_model_id": None,
+            "tei_expected_model_sha": None,
+            "tei_api_key": None,
+            "tei_verify_tls": False,
+            "tei_timeout_seconds": 30.0,
+            "tei_batch_size": 32,
+            "tei_max_attempts": 3,
+            "tei_retry_backoff_seconds": 0.5,
             "dependency_timeout_seconds": 2.0,
             "host": "127.0.0.1",
             "port": 8000,

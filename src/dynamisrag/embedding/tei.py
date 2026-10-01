@@ -63,11 +63,13 @@ from typing import Final, Self, cast
 
 import httpx2
 
+from dynamisrag.config import Settings
 from dynamisrag.embedding.contracts import (
     EmbeddingGenerationConfig,
     EmbeddingInput,
     EmbeddingJsonValue,
     EmbeddingProviderIdentity,
+    EmbeddingRetryPolicy,
     EmbeddingRuntimeConfig,
     canonical_json,
 )
@@ -92,6 +94,7 @@ __all__ = [
     "TeiEmbeddingProvider",
     "TeiServingInfo",
     "tei_embed_request_body",
+    "tei_provider_from_settings",
 ]
 
 TEI_PROVIDER_NAME: Final[str] = "tei"
@@ -650,6 +653,83 @@ class TeiEmbeddingProvider:
 
     def __exit__(self, *_: object) -> None:
         self.close()
+
+
+def tei_provider_from_settings(
+    settings: Settings,
+    *,
+    generation_config: EmbeddingGenerationConfig,
+    transport: httpx2.BaseTransport | None = None,
+    sleeper: Callable[[float], None] | None = None,
+) -> TeiEmbeddingProvider:
+    """Build a provider from the application settings.
+
+    **The generation semantics are an explicit argument, not a setting.** Which
+    model, and under which normalization, truncation and dimensions, is a
+    semantic decision that belongs to the caller — RES-138 chooses the default —
+    and it is hashed into the embedding fingerprint. Reading it from configuration
+    would put a value that defines an index's identity on the same footing as a
+    timeout.
+
+    What *is* read from settings is the identity the deployment insists on
+    (``tei_expected_model_id``/``tei_expected_model_sha``) and the operational
+    policy (URL, TLS, timeout, batch size, attempts, backoff).
+
+    Fails closed on a partial identity. A configured URL with no expected
+    revision is the configuration most likely to be wrong, and accepting it would
+    mean recording whatever TEI happened to be serving.
+    """
+    base_url, expected_id, expected_sha = _configured_tei_identity(settings)
+    return TeiEmbeddingProvider(
+        base_url=base_url,
+        expected_model=ExpectedTeiModel(model_id=expected_id, model_sha=expected_sha),
+        generation_config=generation_config,
+        runtime_config=EmbeddingRuntimeConfig(
+            batch_size=settings.tei_batch_size,
+            timeout_seconds=settings.tei_timeout_seconds,
+            retry=EmbeddingRetryPolicy(
+                max_attempts=settings.tei_max_attempts,
+                base_backoff_seconds=settings.tei_retry_backoff_seconds,
+            ),
+        ),
+        bearer_token=(
+            settings.tei_api_key.get_secret_value() if settings.tei_api_key is not None else None
+        ),
+        verify_tls=settings.tei_verify_tls,
+        transport=transport,
+        sleeper=sleeper,
+    )
+
+
+def _configured_tei_identity(settings: Settings) -> tuple[str, str, str]:
+    """The configured URL and the identity the deployment insists on, or raise.
+
+    All three are required together. A URL without an expected revision is the
+    dangerous case: it *looks* configured, and would record whatever the server
+    happened to be serving.
+    """
+    url = settings.tei_url
+    expected_id = settings.tei_expected_model_id
+    expected_sha = settings.tei_expected_model_sha
+    if url is None or expected_id is None or expected_sha is None:
+        missing = [
+            name
+            for name, value in (
+                ("tei_url", url),
+                ("tei_expected_model_id", expected_id),
+                ("tei_expected_model_sha", expected_sha),
+            )
+            if value is None
+        ]
+        raise EmbeddingContractError(
+            f"the TEI deployment is not fully configured: {', '.join(missing)} "
+            f"{'is' if len(missing) == 1 else 'are'} unset. An embedding provider that cannot "
+            "state which model and which immutable revision it expects would have to record "
+            "whatever the server happened to be serving, which is exactly what the identity "
+            "contract exists to prevent.",
+            operation="tei_provider_from_settings",
+        )
+    return str(url).rstrip("/"), expected_id, expected_sha
 
 
 def _default_sleeper(seconds: float) -> None:
