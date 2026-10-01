@@ -49,6 +49,7 @@ fixtures.
 | FastAPI        | 0.141.x    | Application factory, sync endpoints                |
 | PostgreSQL     | 18.6       | `postgres:18.6-alpine`, container port 5432        |
 | OpenSearch     | 3.8.0      | `opensearchproject/opensearch:3.8.0`               |
+| TEI (optional) | 1.9.4      | `text-embeddings-inference:cpu-1.9.4`, separate compose file, not required to run anything |
 | SQLAlchemy     | 2.1.x      | 2.x API, `postgresql+psycopg` dialect              |
 | psycopg        | 3.3.x      | psycopg 3 only                                     |
 | Alembic        | 1.20.x     | Four revisions, head `0004_passage_source_spans` |
@@ -112,6 +113,10 @@ Invoke-RestMethod http://127.0.0.1:8000/readyz
 ├── src/dynamisrag/
 │   ├── application.py         # create_app() factory; no I/O at construction
 │   ├── config.py              # strict, frozen, validated settings
+│   ├── embedding/             # contracts.py (generation + provider port),
+│   │                          # identity.py (model identity), errors.py,
+│   │                          # manifest.py (passage-embeddings-v1),
+│   │                          # tei.py (tei-http-v1 adapter)
 │   ├── logging_config.py      # stdlib-only deterministic logging
 │   ├── db/                    # engine.py (SQLAlchemy/psycopg), probe.py
 │   ├── health/                # models.py, router.py (/healthz, /readyz)
@@ -124,7 +129,8 @@ Invoke-RestMethod http://127.0.0.1:8000/readyz
 │   └── integration/           # requires the live stack
 ├── .env.example
 ├── alembic.ini
-├── compose.yaml
+├── compose.yaml               # the default stack: postgres + opensearch
+├── compose.embedding.yaml     # optional, TEI; never a default-stack dependency
 ├── pyproject.toml
 ├── uv.lock
 └── README.md
@@ -306,8 +312,27 @@ working directory and behaves identically on Windows and Linux.
 | `DYNAMISRAG_OPENSEARCH_INDEX_ALIAS`       | no       | `dynamisrag-passages` | Stable query target of the passage projection |
 | `DYNAMISRAG_OPENSEARCH_BULK_BATCH_SIZE`   | no       | `500`       | Documents per bulk request                 |
 | `DYNAMISRAG_DEPENDENCY_TIMEOUT_SECONDS`   | no       | `5`         | Bound on every readiness probe            |
+| `DYNAMISRAG_TEI_URL`                      | no       | unset       | Text Embeddings Inference base URL        |
+| `DYNAMISRAG_TEI_MODEL_ID`                 | no       | unset       | Repository the deployment insists is served |
+| `DYNAMISRAG_TEI_MODEL_SHA`                | no       | unset       | Immutable Hub commit id (40 lowercase hex) |
+| `DYNAMISRAG_TEI_API_KEY`                  | no       | unset       | Bearer token; `SecretStr`, never logged   |
+| `DYNAMISRAG_TEI_VERIFY_TLS`               | no       | `true`      | `false` for the self-signed demo cert     |
+| `DYNAMISRAG_TEI_TIMEOUT_SECONDS`          | no       | `30`        | Bound on each `/info` and `/embed`        |
+| `DYNAMISRAG_TEI_BATCH_SIZE`               | no       | `32`        | Inputs per `/embed` request               |
+| `DYNAMISRAG_TEI_MAX_ATTEMPTS`             | no       | `3`         | Total attempts per request, jitter-free    |
+| `DYNAMISRAG_TEI_RETRY_BACKOFF_SECONDS`    | no       | `0.5`       | Base of the linear backoff schedule        |
 | `DYNAMISRAG_HOST` / `DYNAMISRAG_PORT`     | no       | `127.0.0.1` / `8000` | Bind address                     |
 | `DYNAMISRAG_LOG_LEVEL`                    | no       | `INFO`      |                                          |
+
+The `DYNAMISRAG_TEI_*` variables are all optional and default to unset. Nothing in
+the liveness, readiness or BM25 paths reads them, and the readiness probe does not
+treat a missing model server as a degraded dependency. `tei_url`,
+`tei_expected_model_id` and `tei_expected_model_sha` must be set **together**:
+a URL with no pinned revision is the configuration most likely to be wrong and
+looks configured, so it is refused rather than accepted and left to record
+whatever the server happened to be serving. `DYNAMISRAG_TEI_VERSION` and
+`DYNAMISRAG_TEI_MAX_CLIENT_BATCH_SIZE` are read by `compose.embedding.yaml`, never
+by the application.
 
 Design rules, all covered by tests:
 
@@ -362,6 +387,115 @@ protocol error, and anonymous or wrong credentials return `401`. That is why
 `DYNAMISRAG_OPENSEARCH_VERIFY_TLS=false`. Set the latter to `true` once a
 trusted certificate is provisioned.
 
+## Embeddings
+
+```
+canonical passages
+    -> EmbeddingInput                 frozen, content-addressed, text never logged
+    -> canonical order                passage_key ascending, duplicates refused
+    -> EmbeddingProvider              a port that knows no vendor
+    -> TEI adapter                    protocol revision tei-http-v1
+    -> exact vectors                  validated on arrival, never repaired
+    -> PassageEmbeddingManifest       passage-embeddings-v1, canonical JSON + SHA-256
+    -> PassageVector + EmbeddingModelIdentity   the RES-136 boundary
+```
+
+There is **no embedding table, no vector table and no model-run table**, and no
+migration is added: the deterministic manifest *is* the artifact. A database row
+would have to be trusted to reproduce, and an index whose identity is a trusted
+row is not an index whose identity is a digest.
+
+### What is decided here, and what is not
+
+Decided here: the canonical input contract, the semantic generation config, the
+observed model and runtime identity, deterministic client batching, the bounded
+retry policy, response validation, and the manifest.
+
+Not decided here, deliberately: **which embedding model is best** and **which
+dimension to index**. Those are a retrieval-quality question and belong to the
+next issue in this milestone. Nothing in this repository ranks models or scores a
+query, and no default model is configured.
+
+### Identity is observed, never asserted
+
+Before any vector is generated the adapter reads `GET /info` and refuses to
+proceed unless the server can prove it is serving the expected embedding model at
+the expected **immutable Hub commit id**. A configured model name is a claim; a
+branch, a tag or `latest` is a claim about a moving target, and both are refused
+— the expectation at construction and the observation at request time.
+
+```
+EmbeddingModelIdentity.model_id       = observed /info model_id
+EmbeddingModelIdentity.model_revision = observed /info model_sha
+EmbeddingModelIdentity.embedding_config_sha256 = digest over
+    provider, protocol revision, TEI version, TEI sha, dtype, pooling
+    normalize, truncate, truncation_direction, prompt_name, dimensions
+```
+
+The digest binds the **serving runtime** as well as the request, because two TEI
+builds can honour identical bytes and return different floats. Pooling is in it
+too: CLS and mean pooling over identical weights are different vector spaces
+entirely, and `/embed` cannot change it.
+
+**Batch size, timeout, attempt count and backoff are execution policy and are
+never hashed.** Two runs that needed different amounts of luck produce the same
+manifest, because a transient overload must not invalidate every vector index
+built from a model.
+
+### Drift is refused
+
+A model server can restart, or be replaced behind the same URL, while batches are
+in flight. One run therefore reads `/info` before its first batch and again after
+its last, and abandons the whole run unless the semantic runtime identity held
+across the generation. A manifest of vectors produced under two identities is not
+reproducible and would name an index nothing could rebuild.
+
+### Canonical order comes before batching
+
+Inputs are sorted by `passage_key` **before** the provider is touched, and
+duplicate keys are refused. That sort decides the sequence of `/embed` request
+bodies as well as the manifest, so a shuffled caller produces byte-identical
+requests and a byte-identical artifact. Batches are then fixed-size contiguous
+slices: five inputs at `batch_size = 2` are exactly 2 / 2 / 1. A configured batch
+larger than the server's advertised `max_client_batch_size` is a configuration
+error and is **not** silently shrunk, because the partition is part of what makes
+a run reproducible.
+
+### Serving an embedding model
+
+Text Embeddings Inference lives in its own compose file, so the default stack
+cannot depend on it:
+
+```powershell
+docker compose up -d --wait                                    # postgres + opensearch only
+docker compose -f compose.yaml -f compose.embedding.yaml up -d --wait tei
+docker compose -f compose.yaml -f compose.embedding.yaml logs -f tei
+docker compose -f compose.yaml -f compose.embedding.yaml down
+```
+
+Set `DYNAMISRAG_TEI_MODEL_ID` and `DYNAMISRAG_TEI_MODEL_SHA` in `.env` first;
+`compose.embedding.yaml` fails loudly without them. It is a separate file rather
+than a profile inside `compose.yaml` because Compose interpolates every service's
+variables when it loads a file — a required TEI variable behind a profile would
+still be demanded by a plain `docker compose up`, and would make CI fail over a
+model server CI never starts.
+
+A TEI container and model are **not** required for `dynamisrag`, `/healthz`,
+`/readyz` or BM25. No health probe, readiness check, migration or integration
+test references it, and the CI suite never downloads a Hub model.
+
+### Failure safety
+
+Passage text is canonical scientific content and a dense vector is derived from
+it, so neither is ever admitted into an exception, a log line, a retry diagnostic
+or a provider summary. TEI's own failure prose is not read either — for this
+endpoint the rejected value *is* a passage, and TEI genuinely quotes it back into
+the `error` field. Only the machine-generated `error_type`, the HTTP status, the
+batch and input ordinals, the attempt number and the content-addressed
+`passage_key` are carried, and `safe_summary()` is assembled from those structured
+fields alone. A bearer token, an `Authorization` header and a URL with userinfo
+never appear either.
+
 ## Migrations
 
 ```powershell
@@ -404,6 +538,13 @@ in a subprocess, with no live services required.
 
 `pytest-asyncio` is **not** included: this slice is fully synchronous (readiness
 runs in FastAPI's threadpool), so the plugin would be an unused dependency.
+
+Neither suite touches a Hugging Face Hub endpoint and neither needs a GPU. The
+embedding adapter's protocol tests run against `httpx2.MockTransport` over a
+scripted TEI 1.9.x server, so `POST /embed` bodies, retry behaviour and
+mid-run identity drift are all asserted with no socket open and no model
+downloaded. The PostgreSQL and OpenSearch integration suite is unchanged and
+remains deterministic.
 
 ## Quality gates
 
@@ -456,16 +597,23 @@ Implemented here: repository layout, dependency lock, strict configuration,
 FastAPI shell, liveness and readiness, PostgreSQL 18 connectivity, OpenSearch 3
 connectivity, Alembic baseline, JATS canonical import, structure-aware chunking,
 the versioned deterministic passage projection (`passage-index-v1`), versioned BM25
-retrieval, the vector-capable projection (`passage-index-v2`, Lucene HNSW) and
-the lint/type/test/CI gates.
+retrieval, the vector-capable projection (`passage-index-v2`, Lucene HNSW), the
+model-agnostic embedding boundary with its TEI adapter
+(`EmbeddingProvider`, `passage-embeddings-v1`) and the lint/type/test/CI gates.
 
-Not implemented here, by design: embedding generation, `EmbeddingProvider`/TEI,
-model selection, a production ANN retrieval API, BM25+dense fusion, reranking,
-generation, and agents. Those belong to later Linear issues. A `passage-index-v2`
-index therefore holds vectors **supplied by the caller**: this repository never
-generates, fetches or persists an embedding, and the vectors used in its tests are
-labelled synthetic test values. BM25 search serves both revisions and never
-selects a vector.
+Not implemented here, by design: which embedding model and dimension are **best**,
+a production ANN retrieval API, BM25+dense fusion, reranking, generation, and
+agents. Those belong to later issues in this milestone.
+
+What that means concretely. Embedding *generation* exists and is reproducible: the
+adapter will call a TEI server you point it at, prove which model and which
+weights answered, validate every vector and hand you a deterministic
+passage-to-embedding manifest. What does **not** exist is a choice — no model is
+selected, no dimension is chosen, no default is configured, and nothing is
+published to OpenSearch. A `passage-index-v2` index therefore still holds vectors
+**supplied by the caller**: this repository does not index the vectors it
+generates, and the vectors used in its tests are labelled synthetic test values.
+BM25 search serves both revisions and never selects a vector.
 
 ## Copyright
 

@@ -1,0 +1,74 @@
+# Optional Text Embeddings Inference service for the RES-137 embedding adapter.
+#
+# This file is deliberately *separate* from `compose.yaml` rather than a service
+# behind a profile inside it. Compose interpolates every service's variables when
+# it loads a file, so a required `DYNAMISRAG_TEI_MODEL_ID` declared here would
+# still be demanded by a plain `docker compose up -d` in `compose.yaml` -- and
+# would therefore make CI fail over a model server CI never starts. A separate
+# file is the only arrangement in which "the default stack does not depend on
+# TEI" is structurally true rather than a matter of which profile is active.
+#
+#     Copy-Item .env.example .env            # once, for the default stack
+#     # add the DYNAMISRAG_TEI_* lines from .env.example, then:
+#     docker compose -f compose.yaml -f compose.embedding.yaml up -d --wait tei
+#     docker compose -f compose.yaml -f compose.embedding.yaml logs -f tei
+#     docker compose -f compose.yaml -f compose.embedding.yaml down
+#
+# Nothing in the default stack depends on this file. No health probe, readiness
+# check, migration or integration test references the service, and a project with
+# no model server is complete until a later feature explicitly activates
+# embeddings. See the README section "Serving an embedding model".
+#
+# The image is an exact patch release, so a teammate and CI observe the same
+# adapter behaviour. `--revision` is a Hugging Face Hub **commit id**, never a
+# tag: the adapter refuses a mutable model identity, and this container is where
+# that has to start. Required variables use `:?` for the same reason the rest of
+# the stack does -- a missing or blank value must fail loudly rather than quietly
+# start a model server nobody asked for.
+
+name: dynamisrag
+
+services:
+  tei:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-${DYNAMISRAG_TEI_VERSION:-1.9.4}
+    container_name: dynamisrag-tei
+    restart: unless-stopped
+    command:
+      - --model-id
+      - ${DYNAMISRAG_TEI_MODEL_ID:?set DYNAMISRAG_TEI_MODEL_ID to the repository to serve}
+      - --revision
+      - ${DYNAMISRAG_TEI_MODEL_SHA:?set DYNAMISRAG_TEI_MODEL_SHA to the immutable Hub commit id}
+      - --port
+      - "80"
+      # 32 is TEI's own default. The adapter refuses a configured client batch
+      # larger than whatever this reports -- rather than silently shrinking to
+      # fit -- so lowering it is how a single-node CPU deployment forces the
+      # client to partition more finely.
+      - --max-client-batch-size
+      - ${DYNAMISRAG_TEI_MAX_CLIENT_BATCH_SIZE:-32}
+    # Loopback only, like every other service in this project. A model server that
+    # answers a bearer-less `POST /embed` must never be reachable from the network.
+    ports:
+      - "127.0.0.1:8080:80"
+    volumes:
+      # Named so the download survives `stop`/`start`. Still disposable: the Hub
+      # commit id, not this cache, is what makes the served model reproducible.
+      - tei-model-cache:/models
+    healthcheck:
+      # `/info` is the very document the adapter reads to prove which model is
+      # being served, so a "healthy" container here means its identity is
+      # actually stateable. A readiness check against any other endpoint would
+      # pass for a server that cannot answer the one question that matters.
+      test:
+        - CMD-SHELL
+        - >-
+          curl -fsS "http://localhost:80/info" > /dev/null || exit 1
+      interval: 10s
+      timeout: 10s
+      retries: 60
+      # Generous on purpose: a cold CPU container downloads the model and runs a
+      # warm-up forward pass before it can answer anything.
+      start_period: 120s
+
+volumes:
+  tei-model-cache:
