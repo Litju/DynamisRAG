@@ -382,37 +382,43 @@ def build_passage_embedding_manifest(
 ) -> PassageEmbeddingManifest:
     """Bind one embedding run into the deterministic manifest.
 
-    ``embeddings`` must be in the same order as ``inputs``, which is what the
-    :class:`~dynamisrag.embedding.contracts.EmbeddingProvider` port guarantees.
-    The pairing is still verified here, by count and by attaching vectors to
-    passages through ``inputs`` rather than through a parallel index, because the
-    join is the manifest's only claim about which vector belongs to which passage
-    and it must not rest on a caller's array being aligned.
+    ``embeddings`` is positionally paired with ``inputs``, which is what the
+    :class:`~dynamisrag.embedding.contracts.EmbeddingProvider` port guarantees, and
+    the pairing is what carries the join: vectors and passages are zipped *first* and
+    the resulting pairs are sorted together, never sorted apart.
+
+    That detail is the difference between a correct join and a silently wrong one. The
+    first element of ``embeddings`` belongs to the first element of ``inputs``, so
+    sorting ``inputs`` without also permuting ``embeddings`` would attribute every
+    vector after the first to the wrong passage -- and it would do so quietly, with a
+    well-formed manifest, a plausible digest and vectors that were really produced for
+    something else. Sorting pairs is what makes an unsorted caller produce the same
+    artifact as a sorted one instead of a wrong one.
 
     The dimension is *observed* from the first vector and then required of every
-    other. It is never requested and never guessed: a caller that wants a
-    particular dimension states it in ``generation_config``, where the provider
-    validated the returned vectors against it, and where it is hashed into the
-    fingerprint rather than inferred from the first response.
+    other. It is never requested and never guessed: a caller that wants a particular
+    dimension states it in ``generation_config``, where the provider validated the
+    returned vectors against it, and where it is hashed into the fingerprint rather
+    than inferred from the first response.
     """
-    canonical = canonical_embedding_inputs(inputs)
-    if len(embeddings) != len(canonical):
+    if len(embeddings) != len(inputs):
         raise EmbeddingManifestError(
-            f"embedding run produced {len(embeddings)} vectors for {len(canonical)} inputs. A "
+            f"embedding run produced {len(embeddings)} vectors for {len(inputs)} inputs. A "
             "count that disagrees with its inputs cannot be bound into a manifest, because the "
             "manifest's only claim about which vector belongs to which passage would not be "
             "verifiable.",
             operation="passage_embedding_manifest",
         )
 
-    dimension = _observed_dimension(canonical, embeddings)
+    pairs = _canonical_pairs(inputs, embeddings)
+    dimension = _observed_dimension(pairs)
     entries = tuple(
         PassageEmbeddingEntry(
             passage_key=item.passage_key,
             content_sha256=item.content_sha256,
             values=_components(values, item=item, ordinal=index),
         )
-        for index, (item, values) in enumerate(zip(canonical, embeddings, strict=True))
+        for index, (item, values) in enumerate(pairs)
     )
     return PassageEmbeddingManifest(
         manifest_revision=PASSAGE_EMBEDDING_MANIFEST_REVISION,
@@ -425,20 +431,50 @@ def build_passage_embedding_manifest(
     )
 
 
-def _observed_dimension(
+type _EmbeddingPair = tuple[EmbeddingInput, Sequence[object]]
+
+
+def _canonical_pairs(
     inputs: Sequence[EmbeddingInput], embeddings: Sequence[Sequence[object]]
-) -> int:
+) -> tuple[_EmbeddingPair, ...]:
+    """Zip inputs to vectors, sort the pairs by ``passage_key``, refuse a duplicate.
+
+    The count is assumed to match, which the caller has already checked: a
+    ``strict=True`` zip is what turns a mismatch into a loud failure rather than a
+    silently truncated manifest.
+    """
+    pairs = tuple(
+        sorted(
+            zip(inputs, embeddings, strict=True),
+            key=lambda pair: pair[0].passage_key,
+        )
+    )
+    seen: set[str] = set()
+    for item, _ in pairs:
+        if item.passage_key in seen:
+            raise EmbeddingManifestError(
+                f"passage {item.passage_key!r} was supplied more than once, so at least one "
+                "vector is ambiguous. Which vector would be attributed to the passage is an "
+                "accident of iteration order, so the set is refused rather than resolved.",
+                operation="passage_embedding_manifest",
+                passage_key=item.passage_key,
+            )
+        seen.add(item.passage_key)
+    return pairs
+
+
+def _observed_dimension(pairs: Sequence[_EmbeddingPair]) -> int:
     """The single dimension every vector in one run must agree on."""
-    first = embeddings[0]
+    first = pairs[0][1]
     if len(first) < MIN_EMBEDDING_DIMENSION:
         raise EmbeddingManifestError(
-            f"embedding for passage {inputs[0].passage_key!r} holds {len(first)} components. A "
+            f"embedding for passage {pairs[0][0].passage_key!r} holds {len(first)} components. A "
             "zero-length vector has no direction, so it cannot be indexed under any distance "
             "function.",
             operation="passage_embedding_manifest",
-            passage_key=inputs[0].passage_key,
+            passage_key=pairs[0][0].passage_key,
         )
-    for ordinal, values in enumerate(embeddings):
+    for ordinal, (_, values) in enumerate(pairs):
         if len(values) != len(first):
             raise EmbeddingManifestError(
                 f"embedding for input ordinal {ordinal} holds {len(values)} components but the "
