@@ -40,12 +40,18 @@ from dynamisrag.search.errors import (
     OpenSearchUnexpectedResponse,
     SearchBackendError,
 )
-from dynamisrag.search.schema import BM25_SIMILARITY_REVISION, PASSAGE_INDEX_SCHEMA_REVISION
+from dynamisrag.search.schema import (
+    BM25_COMPATIBLE_INDEX_SCHEMA_REVISIONS,
+    BM25_SIMILARITY_REVISION,
+    PASSAGE_INDEX_SCHEMA_REVISION,
+    VECTOR_PASSAGE_INDEX_SCHEMA_REVISION,
+)
 from tests._support import UNIT_TEST_PASSWORD, build_settings
 
 _ALIAS: Final[str] = "dynamisrag-passages-test"
 _PROJECTION_SHA: Final[str] = "c" * 64
 _CHUNKER_REVISION: Final[str] = "structure-v1.1.b19e0939b5de"
+_VECTOR_PROJECTION_SHA: Final[str] = "e" * 64
 
 _META: Final[dict[str, str]] = {
     "schema_revision": PASSAGE_INDEX_SCHEMA_REVISION,
@@ -508,10 +514,19 @@ def test_an_index_written_by_another_similarity_revision_is_rejected() -> None:
 
 
 def test_an_index_written_by_another_schema_revision_is_rejected() -> None:
+    """Unknown revisions are still refused.
+
+    Compatibility is an explicit set, not an open range: silently searching an
+    index whose analysis this build does not implement would return a
+    confidently ranked result computed by rules nobody chose.
+    """
     node = _Node(meta={**_META, "schema_revision": "passage-index-v0"}, payload=_search_payload([]))
 
-    with pytest.raises(SearchBackendError, match="schema revision"):
+    with pytest.raises(SearchBackendError, match="cannot serve") as caught:
         node.service().search("probiotic")
+    assert "passage-index-v0" in str(caught.value)
+    assert "passage-index-v1" in str(caught.value)
+    assert "passage-index-v2" in str(caught.value)
 
 
 def test_an_index_without_mapping_meta_is_rejected() -> None:
@@ -571,3 +586,167 @@ def test_a_raw_backend_response_object_never_escapes_the_service() -> None:
         "hits",
     }
     assert all(isinstance(hit, SearchHit) for hit in response.hits)
+
+
+# ---------------------------------------------------------------------------
+# A vector-capable index is BM25-compatible
+#
+# passage-index-v2 keeps v1's text fields, analyzer and named similarity byte for
+# byte and adds one knn_vector field. That is the whole claim: the bm25-v1 query
+# is defined against the *lexical* mapping, so the same query body over the same
+# documents must produce the same ranking and the same typed hits whichever
+# revision the stable alias resolves to. Everything below is asserted as an
+# equality between the two revisions rather than as a property of one of them.
+# ---------------------------------------------------------------------------
+
+
+def _vector_meta() -> dict[str, Any]:
+    """A v2 mapping _meta: every v1 key plus the dense provenance."""
+    return {
+        **_META,
+        "schema_revision": VECTOR_PASSAGE_INDEX_SCHEMA_REVISION,
+        "projection_sha256": _VECTOR_PROJECTION_SHA,
+        "vector_config_sha256": "d" * 64,
+        "vector_engine": "lucene",
+        "vector_method": "hnsw",
+        "vector_data_type": "float",
+        "vector_space_type": "cosinesimil",
+        "vector_dimension": 3,
+        "hnsw_m": 16,
+        "hnsw_ef_construction": 100,
+        "embedding_model_id": "intfloat/multilingual-e5-small",
+        "embedding_model_revision": "5c7ec9a2f3d4b6a8c0e1d2f3a4b5c6d7e8f901234",
+        "embedding_config_sha256": "a" * 64,
+    }
+
+
+def _vector_source(passage_key: str, **overrides: Any) -> dict[str, Any]:
+    """A v2 _source: the v1 field set, v2 provenance, plus the embedding."""
+    source = _source(passage_key, **overrides)
+    source["projection_schema_revision"] = VECTOR_PASSAGE_INDEX_SCHEMA_REVISION
+    source["projection_sha256"] = _VECTOR_PROJECTION_SHA
+    source["embedding"] = [1.0, 0.0, 0.0]
+    return source
+
+
+def _vector_hit(passage_key: str, score: float, **overrides: Any) -> dict[str, Any]:
+    return {
+        "_index": _ALIAS,
+        "_id": passage_key,
+        "_score": score,
+        "_source": _vector_source(passage_key, **overrides),
+    }
+
+
+def test_the_compatibility_set_holds_exactly_the_two_evaluated_revisions() -> None:
+    assert (
+        frozenset({PASSAGE_INDEX_SCHEMA_REVISION, VECTOR_PASSAGE_INDEX_SCHEMA_REVISION})
+        == BM25_COMPATIBLE_INDEX_SCHEMA_REVISIONS
+    )
+
+
+def test_both_revisions_generate_the_identical_bm25_request() -> None:
+    """Same query, byte-identical request body.
+
+    The query revision does not move, and it cannot: the body is built from
+    BM25_FIELDS, the match type, the operator, the tie-breaker, the sort, the
+    track_total_hits flag and SOURCE_FIELDS -- none of which mentions a schema
+    revision, so a v2 index is searched by exactly the request a v1 index is.
+    """
+    lexical = _Node(payload=_search_payload([_hit("a" * 64, 1.0)]))
+    vector = _Node(
+        meta=_vector_meta(),
+        payload=_search_payload([_vector_hit("a" * 64, 1.0)]),
+    )
+
+    lexical.service().search("probiotic soy", limit=5)
+    vector.service().search("probiotic soy", limit=5)
+
+    assert lexical.search_request().content == vector.search_request().content
+    assert BM25_QUERY_REVISION == "bm25-v1"
+    assert BM25_SIMILARITY_REVISION == "dynamis_bm25_v1"
+
+
+def test_both_revisions_produce_identical_typed_hits() -> None:
+    """Same documents, same scores, same SearchHit values.
+
+    Only the reported index schema revision and the projection digest differ,
+    because those genuinely differ: they identify which index produced the
+    answer.
+    """
+    lexical = _Node(
+        payload=_search_payload(
+            [
+                _hit("a" * 64, 1.5, text="Colonic lesions were scored."),
+                _hit("b" * 64, 0.5, text="Exercise training improved jump height."),
+            ]
+        )
+    )
+    vector = _Node(
+        meta=_vector_meta(),
+        payload=_search_payload(
+            [
+                _vector_hit("a" * 64, 1.5, text="Colonic lesions were scored."),
+                _vector_hit("b" * 64, 0.5, text="Exercise training improved jump height."),
+            ]
+        ),
+    )
+
+    lexical_response = lexical.service().search("colonic lesions", limit=5)
+    vector_response = vector.service().search("colonic lesions", limit=5)
+
+    assert lexical_response.query_revision == vector_response.query_revision == "bm25-v1"
+    assert lexical_response.total == vector_response.total
+    assert lexical_response.took_ms == vector_response.took_ms
+    assert [hit.model_dump() for hit in lexical_response.hits] == [
+        hit.model_dump() for hit in vector_response.hits
+    ]
+    # The only honest difference: which revision, and which snapshot, answered.
+    assert lexical_response.index_schema_revision == PASSAGE_INDEX_SCHEMA_REVISION
+    assert vector_response.index_schema_revision == VECTOR_PASSAGE_INDEX_SCHEMA_REVISION
+    assert lexical_response.projection_sha256 == _PROJECTION_SHA
+    assert vector_response.projection_sha256 == _VECTOR_PROJECTION_SHA
+
+
+def test_a_v2_response_reports_the_v2_schema_revision() -> None:
+    """A score is never anonymous about the index that produced it."""
+    node = _Node(meta=_vector_meta(), payload=_search_payload([_vector_hit("a" * 64, 1.0)]))
+
+    response = node.service().search("probiotic")
+
+    assert response.index_schema_revision == VECTOR_PASSAGE_INDEX_SCHEMA_REVISION
+    assert response.projection_sha256 == _VECTOR_PROJECTION_SHA
+    assert response.chunker_revision == _CHUNKER_REVISION
+
+
+def test_a_lexical_hit_never_carries_an_embedding() -> None:
+    """Indexed for ANN, absent from every lexical _source selection.
+
+    The vector field is never in SOURCE_FIELDS and never a queried field, so it
+    cannot reach a SearchHit even when the document behind the hit has one. Dense
+    and lexical scores are not comparable, and returning both invites a caller to
+    treat one ranking as the other.
+    """
+    assert "embedding" not in SOURCE_FIELDS
+    assert all(field != "embedding" for field, _ in BM25_FIELDS)
+
+    node = _Node(meta=_vector_meta(), payload=_search_payload([_vector_hit("a" * 64, 1.0)]))
+    hit = node.service().search("probiotic").hits[0]
+
+    assert "embedding" not in hit.model_dump()
+    assert set(hit.model_dump()) == set(SearchHit.model_fields)
+
+
+def test_a_v2_document_whose_provenance_disagrees_with_its_index_is_rejected() -> None:
+    """The integrity check follows the active index's revision, whatever it is.
+
+    A document written into a v2 index under v1 provenance is state this build
+    cannot account for, so it is refused rather than returned with a revision the
+    index does not declare.
+    """
+    hit = _vector_hit("a" * 64, 1.0)
+    hit["_source"]["projection_schema_revision"] = PASSAGE_INDEX_SCHEMA_REVISION
+    node = _Node(meta=_vector_meta(), payload=_search_payload([hit]))
+
+    with pytest.raises(SearchBackendError, match="ProjectionIntegrity"):
+        node.service().search("probiotic")

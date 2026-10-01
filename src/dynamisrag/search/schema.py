@@ -26,6 +26,11 @@ Revisions, each with a different meaning:
     exact text mapping and similarity, which is what lets the existing BM25
     search path serve a v2 index unchanged, with no query revision bump.
 
+``BM25_COMPATIBLE_INDEX_SCHEMA_REVISIONS``
+    The revisions ``bm25-v1`` is *defined against*. A set rather than a single
+    value, and membership is a claim about the lexical mapping — same fields,
+    same analyzer, same similarity — rather than about a version number.
+
 ``BM25_QUERY_REVISION``
     The shape of the *query* — fields, boosts, operator, tie-breaker. Defined
     in :mod:`dynamisrag.search.bm25`; carried in every search response.
@@ -62,6 +67,7 @@ from dynamisrag.search.vector import (
 )
 
 __all__ = [
+    "BM25_COMPATIBLE_INDEX_SCHEMA_REVISIONS",
     "BM25_SIMILARITY_NAME",
     "BM25_SIMILARITY_PARAMS",
     "BM25_SIMILARITY_REVISION",
@@ -368,6 +374,27 @@ already live under an existing name.
 ``embedding_config_sha256`` say which weights, at which revision, under which
 generation config produced these vectors. A vector index without them cannot state
 whether it is comparable with another one.
+"""
+
+BM25_COMPATIBLE_INDEX_SCHEMA_REVISIONS: Final[frozenset[str]] = frozenset(
+    {
+        PASSAGE_INDEX_SCHEMA_REVISION,
+        VECTOR_PASSAGE_INDEX_SCHEMA_REVISION,
+    }
+)
+"""Every schema revision the ``bm25-v1`` query is defined against.
+
+A *set*, not a single value, because compatibility is a property of the
+lexical mapping rather than of a revision number: a revision belongs here exactly
+when it keeps v1's text field definitions, its analyzer and its named similarity
+byte for byte, so a score produced against it is produced by the same scoring
+function over the same analysis. ``passage-index-v2`` qualifies on that basis and
+no other — which is why adding a revision here is a claim about the *lexical*
+mapping that has to be true, not a way to make a mismatch pass.
+
+Nothing else may be added. An unknown revision is refused, because silently
+searching an index whose analysis this build does not implement would return
+confidently ranked results computed by rules nobody chose.
 """
 
 
