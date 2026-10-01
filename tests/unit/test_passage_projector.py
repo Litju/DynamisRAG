@@ -30,7 +30,13 @@ from sqlalchemy.orm import Session
 
 from dynamisrag.db.canonical import PassageProjectionRecords
 from dynamisrag.search.client import OpenSearchClient
-from dynamisrag.search.errors import OpenSearchBulkError, ProjectionConflictError, ProjectionError
+from dynamisrag.search.errors import (
+    OpenSearchBulkError,
+    OpenSearchTransportError,
+    OpenSearchUnexpectedResponse,
+    ProjectionConflictError,
+    ProjectionError,
+)
 from dynamisrag.search.projection import (
     PassageProjector,
     ProjectionResult,
@@ -111,6 +117,14 @@ class _Node:
         self.bulk_failures: bool = False
         self.count_override: int | None = None
         self.calls: list[str] = []
+        self.failing_reads: dict[str, str] = {}
+        """Verification reads that must fail, keyed by ``count``/``mapping``.
+
+        The value is the kind of failure: ``transport`` never produces a
+        response, ``status`` produces a 503. Both leave every stored index,
+        document and alias target untouched, which is what a real verification
+        timeout looks like to the projector: no answer, and no change either.
+        """
 
     def transport(self) -> httpx2.MockTransport:
         def answer(request: httpx2.Request) -> httpx2.Response:
@@ -145,12 +159,16 @@ class _Node:
             return httpx2.Response(200, json={"acknowledged": True})
         if method == "GET" and path.endswith("/_count"):
             target = path.split("/")[1]
+            if "count" in self.failing_reads:
+                return self._fail_read("count")
             count = self.count_override
             if count is None:
                 count = len(self.documents.get(target, []))
             return httpx2.Response(200, json={"count": count})
         if method == "GET" and path.endswith("/_mapping"):
             target = path.split("/")[1]
+            if "mapping" in self.failing_reads:
+                return self._fail_read("mapping")
             return httpx2.Response(
                 200, json={target: {"mappings": {"_meta": self.mapping_meta.get(target, {})}}}
             )
@@ -159,6 +177,28 @@ class _Node:
         if method == "POST" and path == "/_aliases":
             return self._switch_alias(request)
         raise AssertionError(f"unexpected request: {method} {path}")
+
+    def _fail_read(self, operation: str) -> httpx2.Response:
+        """Fail a verification read without changing any stored state.
+
+        Two shapes, because they fail for different reasons and both must reach
+        the caller as an error rather than as a verdict about the index:
+        a transport exception that never produces a response, and a node that
+        answers 503. The 503 carries a backend ``reason`` so a test can prove it
+        is never relayed.
+        """
+        fault = self.failing_reads[operation]
+        if fault == "transport":
+            raise httpx2.ReadTimeout(f"{operation} verification read timed out")
+        return httpx2.Response(
+            503,
+            json={
+                "error": {
+                    "type": "no_shard_available_action_exception",
+                    "reason": f"VERIFICATION_READ_SENTINEL_{operation}",
+                }
+            },
+        )
 
     def _bulk(self, request: httpx2.Request) -> httpx2.Response:
         lines = request.content.decode("utf-8").splitlines()
@@ -419,6 +459,204 @@ def test_an_active_index_that_does_not_verify_is_reported_not_rebuilt(
     assert node.alias_targets == {first.index_name}
     assert first.index_name in node.indices
     assert f"DELETE /{first.index_name}" not in node.calls
+
+
+# ---------------------------------------------------------------------------
+# Active-target failure safety
+#
+# The index the stable alias targets is the live read path. Every way of losing
+# it is a write, so the property proven here is exhaustive in the vocabulary of
+# the protocol: a failed run against the active target issues no DELETE, no PUT,
+# no bulk request and no alias switch, and leaves the index and the alias
+# exactly as they were.
+# ---------------------------------------------------------------------------
+
+
+def _assert_nothing_was_mutated(node: _Node) -> None:
+    """Assert no mutating request left the process at all.
+
+    Reads are the only thing a failed verification is allowed to have done.
+    """
+    mutating = [
+        call
+        for call in node.calls
+        if call.startswith(("DELETE ", "PUT ")) or call in {"POST /_bulk", "POST /_aliases"}
+    ]
+    assert mutating == []
+
+
+def test_an_active_target_with_the_wrong_document_count_is_reported_as_a_conflict(
+    node: _Node, canonical: _Canonical, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    projector = _projector(node, canonical, monkeypatch)
+    first = projector.project(chunker_revision=_CHUNKER_REVISION)
+
+    node.count_override = 1  # the live index no longer holds the manifest's documents
+    node.calls.clear()
+
+    with pytest.raises(ProjectionConflictError) as caught:
+        projector.project(chunker_revision=_CHUNKER_REVISION)
+
+    assert node.alias_targets == {first.index_name}
+    assert first.index_name in node.indices
+    assert node.documents[first.index_name] == node.documents[first.index_name]
+    _assert_nothing_was_mutated(node)
+    # The conflict is reportable: it names the index, the alias and the
+    # projection it contradicts, all of them application-authored values.
+    assert first.index_name in str(caught.value)
+    assert _ALIAS in str(caught.value)
+    assert first.projection_sha256 in str(caught.value)
+    assert caught.value.target == first.index_name
+    assert "ProjectionConflict" in caught.value.safe_summary()
+
+
+def test_an_active_target_with_the_wrong_mapping_meta_is_reported_as_a_conflict(
+    node: _Node, canonical: _Canonical, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    projector = _projector(node, canonical, monkeypatch)
+    first = projector.project(chunker_revision=_CHUNKER_REVISION)
+
+    # The document count still agrees, so the contradiction can only be found by
+    # reading the mapping provenance.
+    node.mapping_meta[first.index_name] = {
+        **node.mapping_meta[first.index_name],
+        "chunker_revision": "structure-v0.0.000000000000",
+    }
+    corrupted_meta = dict(node.mapping_meta[first.index_name])
+    node.calls.clear()
+
+    with pytest.raises(ProjectionConflictError):
+        projector.project(chunker_revision=_CHUNKER_REVISION)
+
+    assert node.alias_targets == {first.index_name}
+    assert first.index_name in node.indices
+    # Not even the wrong provenance is corrected: this run reports, it does not
+    # repair live state it does not own.
+    assert node.mapping_meta[first.index_name] == corrupted_meta
+    _assert_nothing_was_mutated(node)
+
+
+@pytest.mark.parametrize("operation", ["count", "mapping"])
+def test_a_timed_out_verification_of_the_active_target_propagates_and_mutates_nothing(
+    node: _Node,
+    canonical: _Canonical,
+    monkeypatch: pytest.MonkeyPatch,
+    operation: str,
+) -> None:
+    """A transient read failure is not evidence that the index is wrong.
+
+    The healthy index is left serving, the alias is untouched, and the caller
+    learns the verification never happened — instead of the projector treating
+    an unanswered question as a failed audit and deleting the live projection.
+    """
+    projector = _projector(node, canonical, monkeypatch)
+    first = projector.project(chunker_revision=_CHUNKER_REVISION)
+    documents_before = list(node.documents[first.index_name])
+    meta_before = dict(node.mapping_meta[first.index_name])
+
+    node.failing_reads[operation] = "transport"
+    node.calls.clear()
+
+    with pytest.raises(OpenSearchTransportError) as caught:
+        projector.project(chunker_revision=_CHUNKER_REVISION)
+
+    # The failure is the transport failure itself, not a claim about contents.
+    assert caught.value.cause == "ReadTimeout"
+    assert not isinstance(caught.value, ProjectionConflictError)
+    assert f"GET /{first.index_name}/_{operation}" in node.calls
+    assert node.alias_targets == {first.index_name}
+    assert first.index_name in node.indices
+    assert node.documents[first.index_name] == documents_before
+    assert node.mapping_meta[first.index_name] == meta_before
+    _assert_nothing_was_mutated(node)
+
+
+@pytest.mark.parametrize("operation", ["count", "mapping"])
+def test_a_rejected_verification_of_the_active_target_propagates_and_mutates_nothing(
+    node: _Node,
+    canonical: _Canonical,
+    monkeypatch: pytest.MonkeyPatch,
+    operation: str,
+) -> None:
+    """A backend that answers "unavailable" is as uninformative as a timeout."""
+    projector = _projector(node, canonical, monkeypatch)
+    first = projector.project(chunker_revision=_CHUNKER_REVISION)
+
+    node.failing_reads[operation] = "status"
+    node.calls.clear()
+
+    with pytest.raises(OpenSearchUnexpectedResponse) as caught:
+        projector.project(chunker_revision=_CHUNKER_REVISION)
+
+    assert caught.value.status_code == 503
+    assert caught.value.error_type == "no_shard_available_action_exception"
+    assert not isinstance(caught.value, ProjectionConflictError)
+    # The node's prose about the failure is never relayed, here or by the safe
+    # summary a log line is built from.
+    assert "VERIFICATION_READ_SENTINEL" not in str(caught.value)
+    assert "VERIFICATION_READ_SENTINEL" not in caught.value.safe_summary()
+    assert node.alias_targets == {first.index_name}
+    assert first.index_name in node.indices
+    _assert_nothing_was_mutated(node)
+
+
+def test_a_verified_active_target_is_read_and_never_written(
+    node: _Node, canonical: _Canonical, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The successful path is as read-only as the failing ones."""
+    projector = _projector(node, canonical, monkeypatch)
+    first = projector.project(chunker_revision=_CHUNKER_REVISION)
+
+    node.calls.clear()
+    second = projector.project(chunker_revision=_CHUNKER_REVISION)
+
+    assert second.created is False
+    assert second.index_name == first.index_name
+    assert node.calls == [
+        f"GET /_alias/{_ALIAS}",
+        f"GET /{first.index_name}/_count",
+        f"GET /{first.index_name}/_mapping",
+    ]
+
+
+def test_a_deterministic_index_that_is_not_an_alias_target_is_rebuilt_and_cut_over(
+    node: _Node,
+    canonical: _Canonical,
+    changed: _Canonical,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The orphan path is unchanged: delete, rebuild, verify, then cut over.
+
+    The orphan contradicts the manifest exactly like a conflicting active target
+    does — wrong count and wrong provenance — and is still rebuilt rather than
+    reported. Nothing is served from it, so repairing it cannot cost anyone a
+    search path, and the deterministic name makes the rebuild reproduce exactly
+    the index that was removed.
+    """
+    first = _projector(node, canonical, monkeypatch).project(chunker_revision=_CHUNKER_REVISION)
+    orphan = changed.index_name()
+    node.indices.add(orphan)
+    node.documents[orphan] = [{"passage_key": "truncated"}]
+    node.mapping_meta[orphan] = {"schema_revision": "passage-index-v1"}
+    assert orphan not in node.alias_targets
+    node.calls.clear()
+
+    result = _projector(node, changed, monkeypatch).project(chunker_revision=_CHUNKER_REVISION)
+
+    assert result.created is True
+    assert result.index_name == orphan
+    assert result.removed_index_names == (first.index_name,)
+    assert [document["passage_key"] for document in node.documents[orphan]] == ["a" * 64, "b" * 64]
+    assert node.mapping_meta[orphan] == changed.manifest().expected_meta()
+    assert node.alias_targets == {orphan}
+    # Delete, create, bulk, verify, and only then move the alias.
+    assert node.calls.index(f"DELETE /{orphan}") < node.calls.index(f"PUT /{orphan}")
+    assert node.calls.index(f"PUT /{orphan}") < node.calls.index("POST /_bulk")
+    assert node.calls.index("POST /_bulk") < node.calls.index(f"GET /{orphan}/_count")
+    assert node.calls.index(f"GET /{orphan}/_count") < node.calls.index(f"GET /{orphan}/_mapping")
+    assert node.calls.index(f"GET /{orphan}/_mapping") < node.calls.index("POST /_aliases")
+    # The previously served index survived every step up to the cutover.
+    assert node.calls.index("POST /_aliases") < node.calls.index(f"DELETE /{first.index_name}")
 
 
 # ---------------------------------------------------------------------------
