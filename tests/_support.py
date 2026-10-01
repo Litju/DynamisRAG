@@ -48,6 +48,7 @@ __all__ = [
     "passage_projection_corpus",
     "passage_projection_records",
     "stub_transport",
+    "tei_error_envelope",
     "tei_info_document",
 ]
 

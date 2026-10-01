@@ -81,6 +81,7 @@ from dynamisrag.embedding.errors import (
     TeiTransportError,
     TeiUnexpectedResponse,
 )
+from dynamisrag.embedding.identity import require_embedding_identifier
 
 __all__ = [
     "NON_RETRYABLE_TEI_STATUS_CODES",
@@ -193,12 +194,7 @@ class ExpectedTeiModel:
     model_sha: str
 
     def __post_init__(self) -> Self:
-        if not self.model_id:
-            raise EmbeddingContractError(
-                "the expected TEI model must name a repository. Without one there is nothing to "
-                "compare the served model against, and a run cannot prove which weights it used.",
-                operation="expected_tei_model",
-            )
+        require_embedding_identifier(self.model_id, kind="model id", operation="expected_tei_model")
         if _HUB_COMMIT_SHA.fullmatch(self.model_sha) is None:
             raise EmbeddingContractError(
                 f"the expected TEI model_sha {self.model_sha!r} is not an immutable Hub commit id "
@@ -633,11 +629,21 @@ class TeiEmbeddingProvider:
         if response.status_code in _SUCCESS_STATUS_CODES:
             return
         error_type = _tei_error_type(response)
+        # The two closed sets are not redundant: one says "do not replay this", the
+        # other says "an operator will want to know which kind of no this was". The
+        # four statuses that answer a statement about the *request* get their own
+        # category rather than sharing the generic one, so a 422 (bad body or an
+        # over-sized batch) reads differently from a 500 that was never classified.
+        category = (
+            "RequestRejected"
+            if response.status_code in NON_RETRYABLE_TEI_STATUS_CODES
+            else "UnexpectedStatus"
+        )
         raise TeiUnexpectedResponse(
-            f"UnexpectedStatus: HTTP {response.status_code} while performing {operation}"
+            f"{category}: HTTP {response.status_code} while performing {operation}"
             f"{_tei_error_type_suffix(error_type)}",
             operation=operation,
-            category="UnexpectedStatus",
+            category=category,
             status_code=response.status_code,
             error_type=error_type,
             batch_ordinal=batch_ordinal,
@@ -808,6 +814,23 @@ def _tei_error_type_suffix(error_type: str | None) -> str:
     return f" (error_type={error_type})" if error_type is not None else ""
 
 
+def _bounded(value: str) -> str:
+    """Clip a server-authored string for length control only.
+
+    Applied to the values this boundary *does* admit -- a served model id, a
+    revision, a variant name -- so a misconfigured base URL pointing at something
+    that is not TEI cannot push arbitrary bytes into a traceback.
+
+    It is not how untrusted text is made safe, and nothing derived from a passage
+    is ever passed here: a passage value is excluded outright rather than clipped,
+    because a short quote still leaks. See
+    :data:`dynamisrag.embedding.errors.MAX_SAFE_DETAIL_LENGTH`.
+    """
+    if len(value) <= MAX_SAFE_DETAIL_LENGTH:
+        return value
+    return f"{value[:MAX_SAFE_DETAIL_LENGTH]}..."
+
+
 def _parse_tei_serving_info(payload: EmbeddingJsonValue) -> TeiServingInfo:
     """Parse the strict typed subset of ``/info``, refusing anything unusable.
 
@@ -909,7 +932,8 @@ def _require_info_int(envelope: Mapping[str, EmbeddingJsonValue], key: str) -> i
     # a batch size of one.
     if isinstance(value, bool) or not isinstance(value, int) or value < 1:
         raise TeiIdentityError(
-            f"GET {TEI_INFO_PATH} declares {key} as {value!r}, which is not a positive integer. "
+            f"GET {TEI_INFO_PATH} declares {key} as "
+            f"{_bounded(repr(value))[:MAX_SAFE_DETAIL_LENGTH]}, which is not a positive integer. "
             "These are the server's own batching and length limits; they are read from the server "
             "rather than assumed, because a client that guessed them would partition requests the "
             "model server then refuses.",
@@ -944,7 +968,8 @@ def _require_expected_model(info: TeiServingInfo, expected: ExpectedTeiModel) ->
     """
     if info.model_type.casefold() != TEI_EMBEDDING_MODEL_TYPE:
         raise TeiIdentityError(
-            f"the serving model declares model_type {info.model_type!r}, not an embedding "
+            f"the serving model declares model_type {_bounded(repr(info.model_type))}, not an "
+            "embedding "
             "model. TEI serves classifiers and rerankers from the same binary; embedding "
             "through one would fail per batch with a 424, so the mismatch is refused up front.",
             operation="describe",
@@ -952,7 +977,8 @@ def _require_expected_model(info: TeiServingInfo, expected: ExpectedTeiModel) ->
         )
     if _HUB_COMMIT_SHA.fullmatch(info.model_sha) is None:
         raise TeiIdentityError(
-            f"the serving model states model_sha {info.model_sha!r}, which is not an immutable Hub "
+            f"the serving model states model_sha {_bounded(repr(info.model_sha))}, which is not an "
+            "immutable Hub "
             "commit id. Without one the vectors cannot be regenerated or compared later, so the "
             "run stops rather than recording a mutable name such as a tag or a branch as the "
             "model's revision.",
@@ -961,17 +987,19 @@ def _require_expected_model(info: TeiServingInfo, expected: ExpectedTeiModel) ->
         )
     if info.model_id != expected.model_id:
         raise TeiIdentityError(
-            f"the serving model is {info.model_id!r}, but this deployment expects "
-            f"{expected.model_id!r}. TEI's /info is the authority on what is being served: a "
+            f"the serving model is {_bounded(repr(info.model_id))}, but this deployment expects "
+            f"{_bounded(repr(expected.model_id))}. TEI's /info is the authority on what is being "
+            "served: a "
             "client-side configured name is a claim about the server, not evidence from it.",
             operation="describe",
             error_type="model_id",
         )
     if info.model_sha != expected.model_sha:
         raise TeiIdentityError(
-            f"the serving model is {info.model_id!r} at commit {info.model_sha!r}, but this "
-            f"deployment expects commit {expected.model_sha!r}. Two commits of one repository are "
-            "different weights, so vectors generated under either are not interchangeable.",
+            f"the serving model is {_bounded(repr(info.model_id))} at commit "
+            f"{_bounded(repr(info.model_sha))}, but this deployment expects commit "
+            f"{_bounded(repr(expected.model_sha))}. Two commits of one repository are different "
+            "weights, so vectors generated under either are not interchangeable.",
             operation="describe",
             error_type="model_sha",
         )

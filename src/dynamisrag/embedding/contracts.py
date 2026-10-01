@@ -36,14 +36,16 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Final, Protocol, Self
 
 from dynamisrag.embedding.errors import EmbeddingContractError, TeiIdentityError
-from dynamisrag.embedding.identity import EmbeddingModelIdentity
+from dynamisrag.embedding.identity import (
+    EmbeddingModelIdentity,
+    require_sha256_hex,
+)
 
 __all__ = [
     "MIN_EMBEDDING_DIMENSION",
@@ -57,6 +59,9 @@ __all__ = [
     "EmbeddingRuntimeConfig",
     "TruncationDirection",
     "canonical_json",
+    "require_content_sha256",
+    "require_float_components",
+    "require_passage_key",
 ]
 
 type EmbeddingJsonValue = (
@@ -89,8 +94,6 @@ on purpose: the OpenSearch ``knn_vector.dimension`` ceiling belongs to
 :mod:`dynamisrag.search.vector`, which is the layer that will refuse a dimension
 it cannot store.
 """
-
-_LOWERCASE_SHA256: Final[re.Pattern[str]] = re.compile(r"^[0-9a-f]{64}$")
 
 
 def canonical_json(payload: object) -> str:
@@ -130,6 +133,73 @@ TRUNCATION_DIRECTIONS: Final[tuple[TruncationDirection, ...]] = (
 reproducible."""
 
 
+def require_passage_key(value: str, *, operation: str) -> str:
+    """Require the join identity, or explain what is lost without it.
+
+    A ``passage_key`` is the one thing about a passage this boundary is willing to
+    surface: it is content-addressed, so naming it tells an operator *which*
+    passage failed without disclosing the passage.
+    """
+    if value:
+        return value
+    raise EmbeddingContractError(
+        "an embedding input must name the passage_key it belongs to. Without it the returned "
+        "vector cannot be joined to a passage, so a manifest built from this input could not "
+        "state which passage a vector describes.",
+        operation=operation,
+    )
+
+
+def require_content_sha256(value: str, *, passage_key: str, operation: str) -> str:
+    """Require a canonical content digest.
+
+    The digest is what lets a manifest prove later which passage content produced
+    a vector, so it is required rather than inferred. Delegates the shape check to
+    the shared rule so this cannot drift from the one the model identity applies.
+
+    The value is echoed only because it is a machine-generated digest this process
+    was handed; a malformed one is a construction bug, not content.
+    """
+    try:
+        return require_sha256_hex(value, kind="passage content digest", operation=operation)
+    except EmbeddingContractError:
+        raise EmbeddingContractError(
+            f"embedding input for passage {passage_key!r} carries content_sha256 {value!r}, which "
+            "is not 64 lowercase hexadecimal characters. The digest is what lets a manifest prove "
+            "later which passage content produced a vector, so it is required rather than "
+            "inferred.",
+            operation=operation,
+        ) from None
+
+
+def require_float_components(
+    values: Sequence[object], *, passage_key: str, operation: str
+) -> tuple[float, ...]:
+    """Coerce one vector to floats, naming every rejection by position only.
+
+    Normalisation is an identity decision, not a convenience: a backend that
+    serialised ``1`` and one that serialised ``1.0`` produced the same vector, so
+    without this the same vector would hash to two different manifest digests and
+    name two indexes whose contents are indistinguishable.
+
+    No component value is ever echoed. A vector is derived from article text.
+    """
+    coerced: list[float] = []
+    for position, value in enumerate(values):
+        # `bool` is an `int` subclass, so `True` would silently become 1.0 and
+        # turn a flag into a coordinate.
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise EmbeddingContractError(
+                f"embedding for passage {passage_key!r} has a non-numeric component at position "
+                f"{position}. A dense vector is a sequence of numbers. The component value is "
+                "deliberately not reported.",
+                operation=operation,
+                passage_key=passage_key,
+            )
+        coerced.append(float(value))
+    return tuple(coerced)
+
+
 @dataclass(frozen=True)
 class EmbeddingInput:
     """One passage, frozen, content-addressed and ready to embed.
@@ -162,24 +232,10 @@ class EmbeddingInput:
     text: str
 
     def __post_init__(self) -> Self:
-        if not self.passage_key:
-            raise EmbeddingContractError(
-                "an embedding input must name the passage_key it belongs to. Without it the "
-                "returned vector cannot be joined to a passage, so a manifest built from this "
-                "input could not state which passage a vector describes.",
-                operation="embedding_input",
-            )
-        if _LOWERCASE_SHA256.fullmatch(self.content_sha256) is None:
-            # The value is echoed only because it is a machine-generated digest
-            # this process was handed; a malformed one is a construction bug, not
-            # content.
-            raise EmbeddingContractError(
-                f"embedding input for passage {self.passage_key!r} carries content_sha256 "
-                f"{self.content_sha256!r}, which is not 64 lowercase hexadecimal characters. The "
-                "digest is what lets a manifest prove later which passage content produced a "
-                "vector, so it is required rather than inferred.",
-                operation="embedding_input",
-            )
+        require_passage_key(self.passage_key, operation="embedding_input")
+        require_content_sha256(
+            self.content_sha256, passage_key=self.passage_key, operation="embedding_input"
+        )
         if not self.text:
             # The message must not name the absent text, and there is nothing to
             # name: the only fact available is that it is empty.
@@ -233,13 +289,23 @@ class EmbeddingGenerationConfig:
     dimensions: int | None = None
 
     def __post_init__(self) -> None:
-        if self.truncation_direction not in TRUNCATION_DIRECTIONS:
+        # Normalised through the enum rather than merely checked against it.
+        # `StrEnum` members compare equal to their wire values, so an `in
+        # TRUNCATION_DIRECTIONS` membership check would happily accept a bare
+        # `"left"` and then fail untyped at `.value` -- which is exactly the late,
+        # uninformative failure the enum exists to prevent. Converting is the same
+        # normalisation `PassageVector` applies to its components and
+        # `PassageEmbeddingEntry` to its values.
+        try:
+            direction = TruncationDirection(self.truncation_direction)
+        except ValueError:
             raise EmbeddingContractError(
                 f"embedding generation truncation_direction {self.truncation_direction!r} is not "
                 f"supported; it must be one of "
-                f"{[direction.value for direction in TRUNCATION_DIRECTIONS]}.",
+                f"{[candidate.value for candidate in TRUNCATION_DIRECTIONS]}.",
                 operation="embedding_generation_config",
-            )
+            ) from None
+        object.__setattr__(self, "truncation_direction", direction)
         if self.prompt_name is not None and not self.prompt_name:
             # `None` means "no prompt"; `""` is not a prompt name, and TEI
             # would reject it as an unknown key in the model's prompt table.
@@ -416,10 +482,12 @@ class EmbeddingProviderIdentity:
     so they can be read without decomposing a digest.
 
     ``max_client_batch_size``, ``max_input_length``, ``max_batch_tokens`` and
-    ``max_batch_requests`` are recorded provenance, not part of any digest. They
-    describe the deployment's capacity, not what the vectors mean, and a run that
-    was repartitioned because a server advertised a different limit must still be
-    comparable with one that was not.
+    ``max_batch_requests`` are the served deployment's advertised capacity. They
+    are readable on this value and are deliberately **absent from
+    :meth:`payload`**, and therefore from every digest taken over it: they describe
+    how much the server could do at once, not what the vectors are, and a
+    re-tuned ``--max-client-batch-size`` would otherwise rename every index built
+    from weights that never changed.
     """
 
     provider: str
@@ -501,20 +569,30 @@ class EmbeddingProviderIdentity:
         )
 
     def payload(self) -> dict[str, object]:
-        """The full recorded provenance, for operator reports and manifest records.
+        """The recorded provider provenance that the manifest binds.
 
-        Safe to render: every value is a model or server identifier, a limit or a
-        digest. No endpoint URL, credential, hostname, timing or passage content.
+        The observed *identity*: which provider and protocol revision, which TEI
+        build, which weights at which dtype with which pooling, the repository and
+        its immutable commit, and the container stamp that build was distributed
+        under.
+
+        Deliberately **excludes** the server-advertised capacity limits
+        (``max_client_batch_size``, ``max_input_length``, ``max_batch_tokens``,
+        ``max_batch_requests``). They remain readable on the identity for
+        operators, but they are not in the bytes, because they describe the
+        deployment's capacity rather than what the vectors *are* — and a capacity
+        re-tune would otherwise rename every index built from a model whose
+        weights never changed. The client-side request partition is unhashed for
+        the same reason and in the same breath: neither is an identity.
+
+        Safe to render: every value is a model or server identifier or a digest.
+        No endpoint URL, credential, hostname, timing or passage content.
         """
         return {
             **self.semantic_runtime_payload(),
             "tei_docker_label": self.runtime_docker_label,
             "model_id": self.model_id,
             "model_sha": self.model_sha,
-            "max_client_batch_size": self.max_client_batch_size,
-            "max_input_length": self.max_input_length,
-            "max_batch_tokens": self.max_batch_tokens,
-            "max_batch_requests": self.max_batch_requests,
         }
 
     def require_same_semantic_runtime(

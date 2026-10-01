@@ -34,7 +34,62 @@ from typing import Final
 
 from dynamisrag.embedding.errors import EmbeddingContractError
 
-__all__ = ["EmbeddingModelIdentity"]
+__all__ = ["EmbeddingModelIdentity", "require_embedding_identifier", "require_sha256_hex"]
+
+_LOWERCASE_SHA256: Final[re.Pattern[str]] = re.compile(r"^[0-9a-f]{64}$")
+
+
+def require_sha256_hex(value: str, *, kind: str, operation: str) -> str:
+    """Require exactly 64 lowercase hexadecimal characters.
+
+    Defined once, here, because a digest *shape* is a fact about this boundary
+    rather than about any one contract: the model identity, the passage content
+    digests and the embedding-config digests must all agree on it, and two copies
+    of the pattern could drift apart without anything noticing until a value one
+    accepted and the other rejected.
+
+    A digest rather than a name is what makes a generation config an identity, so
+    a near-miss is an error rather than something to normalise.
+    """
+    if _LOWERCASE_SHA256.fullmatch(value):
+        return value
+    raise EmbeddingContractError(
+        f"{kind} must be exactly 64 lowercase hexadecimal characters, got {value!r}. A digest, "
+        "not a name, is what makes the embedding config an identity.",
+        operation=operation,
+    )
+
+
+def require_embedding_identifier(value: str, *, kind: str, operation: str) -> str:
+    """Reject an empty, malformed or mutable identity string.
+
+    Public because the same rule has to hold wherever an identity is *stated*,
+    not only where it is finally recorded. A deployment that names its expected
+    model ``org/main`` would otherwise run every batch to completion and only fail
+    at the end, when a manifest's ``model_revision`` was rejected -- discarding all
+    of that work to learn what the first line of configuration already said.
+    """
+    if not value:
+        raise EmbeddingContractError(
+            f"embedding {kind} must be an explicit, non-empty string; an absent or empty {kind} "
+            "would leave the index unable to state which weights produced its vectors",
+            operation=operation,
+        )
+    if _IDENTIFIER.fullmatch(value) is None:
+        raise EmbeddingContractError(
+            f"embedding {kind} {value!r} is not a usable identifier: it must start with a letter "
+            "or digit and contain only letters, digits, '.', '_', ':', '/' and '-'",
+            operation=operation,
+        )
+    if _MUTABLE_IDENTITY_PATTERN.search(value) is not None:
+        raise EmbeddingContractError(
+            f"embedding {kind} {value!r} names a moving target rather than an identity. A vector "
+            "index must be reproducible, so a mutable alias such as 'latest' is rejected: pin an "
+            "immutable revision and the digest of the embedding config instead.",
+            operation=operation,
+        )
+    return value
+
 
 _MUTABLE_IDENTITY_TOKENS: Final[tuple[str, ...]] = (
     "latest",
@@ -61,47 +116,12 @@ _MUTABLE_IDENTITY_PATTERN: Final[re.Pattern[str]] = re.compile(
 repo id like ``late-alignment``, or a model genuinely called
 ``head-direction`` — is not caught by accident."""
 
-_LOWERCASE_SHA256: Final[re.Pattern[str]] = re.compile(r"^[0-9a-f]{64}$")
 
 _IDENTIFIER: Final[re.Pattern[str]] = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]*$")
 """Model ids and revisions are opaque upstream identifiers — a repository id, a
 tag, a commit. Constrained only enough to reject whitespace and control
 characters, which would otherwise leak into a mapping ``_meta`` and an index
 name."""
-
-
-def _require_identifier(value: str, *, kind: str) -> str:
-    """Reject an empty, malformed or mutable identity string."""
-    if not value:
-        raise EmbeddingContractError(
-            f"embedding {kind} must be an explicit, non-empty string; an absent or empty {kind} "
-            "would leave the index unable to state which weights produced its vectors",
-            operation="embedding_identity",
-        )
-    if _IDENTIFIER.fullmatch(value) is None:
-        raise EmbeddingContractError(
-            f"embedding {kind} {value!r} is not a usable identifier: it must start with a letter "
-            "or digit and contain only letters, digits, '.', '_', ':', '/' and '-'",
-            operation="embedding_identity",
-        )
-    if _MUTABLE_IDENTITY_PATTERN.search(value) is not None:
-        raise EmbeddingContractError(
-            f"embedding {kind} {value!r} names a moving target rather than an identity. A vector "
-            "index must be reproducible, so a mutable alias such as 'latest' is rejected: pin an "
-            "immutable revision and the digest of the embedding config instead.",
-            operation="embedding_identity",
-        )
-    return value
-
-
-def _require_sha256(value: str, *, kind: str) -> str:
-    if _LOWERCASE_SHA256.fullmatch(value) is None:
-        raise EmbeddingContractError(
-            f"{kind} must be exactly 64 lowercase hexadecimal characters, got {value!r}. A digest, "
-            "not a name, is what makes the embedding config an identity.",
-            operation="embedding_identity",
-        )
-    return value
 
 
 @dataclass(frozen=True)
@@ -135,9 +155,15 @@ class EmbeddingModelIdentity:
     embedding_config_sha256: str
 
     def __post_init__(self) -> None:
-        _require_identifier(self.model_id, kind="model id")
-        _require_identifier(self.model_revision, kind="model revision")
-        _require_sha256(self.embedding_config_sha256, kind="embedding config digest")
+        require_embedding_identifier(self.model_id, kind="model id", operation="embedding_identity")
+        require_embedding_identifier(
+            self.model_revision, kind="model revision", operation="embedding_identity"
+        )
+        require_sha256_hex(
+            self.embedding_config_sha256,
+            kind="embedding config digest",
+            operation="embedding_identity",
+        )
 
     def payload(self) -> Mapping[str, str]:
         """The canonical, hashable description of this identity."""
