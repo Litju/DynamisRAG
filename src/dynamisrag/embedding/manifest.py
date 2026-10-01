@@ -57,7 +57,7 @@ import hashlib
 from collections.abc import Sequence
 from dataclasses import dataclass
 from math import isfinite
-from typing import TYPE_CHECKING, Final, Self
+from typing import TYPE_CHECKING, Final, Self, cast
 
 from dynamisrag.embedding.contracts import (
     MIN_EMBEDDING_DIMENSION,
@@ -66,6 +66,9 @@ from dynamisrag.embedding.contracts import (
     EmbeddingProvider,
     EmbeddingProviderIdentity,
     canonical_json,
+    require_content_sha256,
+    require_float_components,
+    require_passage_key,
 )
 from dynamisrag.embedding.errors import EmbeddingContractError, EmbeddingManifestError
 from dynamisrag.embedding.identity import EmbeddingModelIdentity
@@ -95,11 +98,13 @@ silently change meaning while keeping a name that claims it did not.
 class PassageEmbeddingEntry:
     """One passage and the exact vector generated for it.
 
-    Components are normalised to a tuple of floats on construction, and that is
-    an identity decision rather than a convenience. A backend that serialised
-    ``1`` for a component and one that serialised ``1.0`` produced the same
-    vector, so without normalisation the same vectors would hash to two different
-    manifest digests and name two indexes whose contents are indistinguishable.
+    The invariant this type owns is that an entry is *already* canonical: the key
+    is present, the content digest is a digest, and the components are floats. It
+    is enforced on construction rather than left to the builder, because a
+    hand-built manifest is exactly the case where it would otherwise not be — and
+    ``json.dumps`` renders the integer ``1`` differently from the float ``1.0``, so
+    an un-normalised component would give the same vector two different manifest
+    digests.
 
     No component value is ever echoed by an error raised here or downstream: a
     vector is derived from article text.
@@ -108,6 +113,22 @@ class PassageEmbeddingEntry:
     passage_key: str
     content_sha256: str
     values: tuple[float, ...]
+
+    def __post_init__(self) -> Self:
+        require_passage_key(self.passage_key, operation="passage_embedding_entry")
+        require_content_sha256(
+            self.content_sha256,
+            passage_key=self.passage_key,
+            operation="passage_embedding_entry",
+        )
+        object.__setattr__(
+            self,
+            "values",
+            require_float_components(
+                self.values, passage_key=self.passage_key, operation="passage_embedding_entry"
+            ),
+        )
+        return self
 
     def payload(self) -> dict[str, object]:
         """The hashed description of this entry.
@@ -142,7 +163,13 @@ class PassageEmbeddingManifest:
     document_count: int
     entries: tuple[PassageEmbeddingEntry, ...]
 
-    def __post_init__(self) -> Self:
+    def __post_init__(self) -> None:
+        self._require_declared_revision()
+        self._require_integer_counts()
+        self._require_verified_fingerprint()
+        self._require_consistent_entries()
+
+    def _require_declared_revision(self) -> None:
         if self.manifest_revision != PASSAGE_EMBEDDING_MANIFEST_REVISION:
             raise EmbeddingManifestError(
                 f"a passage embedding manifest declares revision {self.manifest_revision!r}, which "
@@ -151,17 +178,27 @@ class PassageEmbeddingManifest:
                 "name its own schema cannot be compared with, or replaced by, another one.",
                 operation="passage_embedding_manifest",
             )
-        if self.document_count != len(self.entries):
+
+    def _require_integer_counts(self) -> None:
+        """Refuse a boolean where an integer count belongs.
+
+        ``bool`` is an ``int`` subclass, so ``dimension=True`` would pass the range
+        check as 1 and ``document_count=True`` would equal ``len(entries)`` when
+        there is exactly one entry -- putting ``"dimension": true`` into the hashed
+        bytes and giving two semantically identical manifests two digests. Every
+        sibling count in this package carries the same guard.
+        """
+        if isinstance(self.dimension, bool):
             raise EmbeddingManifestError(
-                f"passage embedding manifest declares {self.document_count} documents but holds "
-                f"{len(self.entries)} entries. A count that disagrees with its own contents "
-                "cannot be part of a digest that is supposed to describe them.",
+                f"passage embedding manifest declares dimension {self.dimension!r}, which is a "
+                "boolean rather than an integer component count. A zero-length vector has no "
+                "direction, so a dimension is never inferred and never a flag.",
                 operation="passage_embedding_manifest",
             )
-        if not self.entries:
+        if isinstance(self.document_count, bool):
             raise EmbeddingManifestError(
-                "a passage embedding manifest must hold at least one entry. An empty manifest has "
-                "no vector to publish, and adopting one would replace a served index with nothing.",
+                f"passage embedding manifest declares document_count {self.document_count!r}, "
+                "which is a boolean rather than an integer count of passages.",
                 operation="passage_embedding_manifest",
             )
         if self.dimension < MIN_EMBEDDING_DIMENSION:
@@ -169,6 +206,46 @@ class PassageEmbeddingManifest:
                 f"passage embedding manifest declares dimension {self.dimension}, below the "
                 f"minimum {MIN_EMBEDDING_DIMENSION}. A zero-length vector has no direction, so "
                 "under any distance function it is either the zero vector or an error.",
+                operation="passage_embedding_manifest",
+            )
+
+    def _require_verified_fingerprint(self) -> None:
+        """Recompute the recorded fingerprint rather than trust it.
+
+        Two records of one fact that can disagree are worse than one:
+        ``VectorIndexConfig`` folds the identity into the physical index name, so a
+        manifest that hashed a stale digest would name an index its own stored
+        bytes do not describe.
+
+        Building the RES-136 identity is what also refuses a provider whose model id
+        or revision could not be reproduced. An artifact must not be able to exist
+        while naming a mutable target -- refusing only at handoff would let such a
+        manifest be hashed and stored first.
+        """
+        observed = self._observed_model_identity()
+        if self.embedding_config_sha256 == observed.embedding_config_sha256:
+            return
+        raise EmbeddingManifestError(
+            f"passage embedding manifest records embedding_config_sha256 "
+            f"{self.embedding_config_sha256!r}, but its own provider identity and generation "
+            f"config hash to {observed.embedding_config_sha256!r}. Two records of one fact that "
+            "disagree would name an index the stored bytes do not describe.",
+            operation="passage_embedding_manifest",
+        )
+
+    def _require_consistent_entries(self) -> None:
+        """Every entry has to agree with the manifest's own stated shape."""
+        if not self.entries:
+            raise EmbeddingManifestError(
+                "a passage embedding manifest must hold at least one entry. An empty manifest has "
+                "no vector to publish, and adopting one would replace a served index with nothing.",
+                operation="passage_embedding_manifest",
+            )
+        if self.document_count != len(self.entries):
+            raise EmbeddingManifestError(
+                f"passage embedding manifest declares {self.document_count} documents but holds "
+                f"{len(self.entries)} entries. A count that disagrees with its own contents "
+                "cannot be part of a digest that is supposed to describe them.",
                 operation="passage_embedding_manifest",
             )
         keys = [entry.passage_key for entry in self.entries]
@@ -204,7 +281,6 @@ class PassageEmbeddingManifest:
                         operation="passage_embedding_manifest",
                         passage_key=entry.passage_key,
                     )
-        return self
 
     @property
     def manifest_bytes(self) -> bytes:
@@ -227,8 +303,21 @@ class PassageEmbeddingManifest:
         """The RES-136 model identity this manifest's vectors were generated under.
 
         Built from the *observed* model id and immutable model SHA, never from a
-        configured name, with :attr:`embedding_config_sha256` bound to both the
-        serving runtime and the request semantics.
+        configured name. Checked against the manifest's own recorded fingerprint
+        during construction, so what downstream reads is provably the value the
+        bytes were built from rather than a second derivation that could in
+        principle disagree with it.
+        """
+        return self._observed_model_identity()
+
+    def _observed_model_identity(self) -> EmbeddingModelIdentity:
+        """Construct the RES-136 identity, refusing anything unreproducible.
+
+        Raises :class:`~dynamisrag.embedding.errors.EmbeddingContractError` for a
+        mutable model id or revision. That is deliberate at *construction* rather
+        than at handoff: refusing only when someone later reads
+        :attr:`embedding_model_identity` would let a manifest that names a moving
+        target exist, be hashed and be stored first.
         """
         return self.provider.embedding_model_identity(self.generation_config)
 
@@ -401,6 +490,16 @@ def build_passage_embedding_manifest(
     returned vectors against it, and where it is hashed into the fingerprint rather
     than inferred from the first response.
     """
+    if not inputs:
+        # An empty result is an ordinary caller state -- a query that matched
+        # nothing -- and every other failure at this boundary is a typed, named
+        # error. Left to the manifest constructor it would arrive there as an
+        # index-out-of-range while observing the dimension.
+        raise EmbeddingManifestError(
+            "an embedding run must cover at least one passage. An empty manifest holds no vector "
+            "to publish, and adopting one would replace a served index with nothing.",
+            operation="passage_embedding_manifest",
+        )
     if len(embeddings) != len(inputs):
         raise EmbeddingManifestError(
             f"embedding run produced {len(embeddings)} vectors for {len(inputs)} inputs. A "
@@ -416,9 +515,12 @@ def build_passage_embedding_manifest(
         PassageEmbeddingEntry(
             passage_key=item.passage_key,
             content_sha256=item.content_sha256,
-            values=_components(values, item=item, ordinal=index),
+            # The pair's components arrive as decoded JSON, so their static type
+            # is `object`; `PassageEmbeddingEntry` normalises and re-checks them
+            # on construction, which is where that rule now lives.
+            values=cast("tuple[float, ...]", tuple(values)),
         )
-        for index, (item, values) in enumerate(pairs)
+        for item, values in pairs
     )
     return PassageEmbeddingManifest(
         manifest_revision=PASSAGE_EMBEDDING_MANIFEST_REVISION,
@@ -484,25 +586,3 @@ def _observed_dimension(pairs: Sequence[_EmbeddingPair]) -> int:
                 input_ordinal=ordinal,
             )
     return len(first)
-
-
-def _components(
-    values: Sequence[object], *, item: EmbeddingInput, ordinal: int
-) -> tuple[float, ...]:
-    """Coerce one vector to floats, naming a rejection by position only."""
-    coerced: list[float] = []
-    for position, value in enumerate(values):
-        # `bool` is an `int` subclass, so `True` would silently become 1.0 and
-        # turn a flag into a coordinate. The provider already refuses this at the
-        # wire; re-checking here keeps a hand-built call safe too.
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            raise EmbeddingManifestError(
-                f"embedding for passage {item.passage_key!r} at input ordinal {ordinal} has a "
-                f"non-numeric component at position {position}. A dense vector is a sequence of "
-                "numbers. The component value is deliberately not reported.",
-                operation="passage_embedding_manifest",
-                input_ordinal=ordinal,
-                passage_key=item.passage_key,
-            )
-        coerced.append(float(value))
-    return tuple(coerced)

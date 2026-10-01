@@ -207,10 +207,11 @@ class TeiTransportError(EmbeddingProviderError):
 class TeiUnexpectedResponse(EmbeddingProviderError):
     """A response arrived but its status or payload cannot be trusted.
 
-    The default category is :attr:`EmbeddingResponseError`'s, because the usual
-    cause is a payload whose shape cannot be trusted. The status-based conditions
-    override it per instance, so an authentication rejection and an unexpected
-    status stay legible without parsing prose.
+    Two distinct conditions land here and are told apart by ``category``: a status
+    the operation cannot use (``UnexpectedStatus``), and a payload whose shape
+    cannot be trusted (``UnexpectedPayload``, the default). Splitting them means an
+    operator reading one safe summary line can tell "the server said no" from "the
+    server said something I cannot use" without parsing prose.
     """
 
     _CATEGORY: ClassVar[str] = "UnexpectedPayload"

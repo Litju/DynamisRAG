@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping, Sequence
 from typing import Final, cast
+from unittest.mock import patch
 
 import httpx2
 import pytest
@@ -39,6 +40,7 @@ from dynamisrag.embedding import (
     EmbeddingRetryPolicy,
     EmbeddingRuntimeConfig,
     ExpectedTeiModel,
+    PassageEmbeddingManifest,
     TeiEmbeddingProvider,
     TeiIdentityError,
     TeiServingInfo,
@@ -48,6 +50,7 @@ from dynamisrag.embedding import (
     embed_passages,
     tei_embed_request_body,
 )
+from dynamisrag.embedding import tei as tei_module
 from tests._support import (
     SECRET_ARTICLE_SENTINEL,
     TEI_MODEL_ID,
@@ -710,8 +713,81 @@ def test_transport_failure_is_retried_and_then_succeeds(error: Exception) -> Non
     assert slept == [0.5]
 
 
-@pytest.mark.parametrize("status_code", [400, 413, 422, 424])
-def test_non_transient_status_is_never_retried(status_code: int) -> None:
+@pytest.mark.parametrize("status_code", [400, 413, 422, 424], ids=["400", "413", "422", "424"])
+def test_a_request_rejection_gets_its_own_category(status_code: int) -> None:
+    """The two closed status sets are not redundant.
+
+    One says "do not replay this"; the other says which kind of no an operator is
+    looking at. A 422 -- a bad body, or a batch over ``max_client_batch_size`` --
+    reads differently from an unclassified 500, and both read differently from a
+    transient 503, so a single safe summary line can carry that distinction.
+    """
+    mock = TeiMock(
+        info_documents=[tei_info_document()],
+        embed_outcomes=[
+            TeiOutcome(
+                status_code=status_code,
+                body=json.dumps(
+                    tei_error_envelope(error=f"{SECRET_ARTICLE_SENTINEL}", error_type="Validation")
+                ).encode(),
+            )
+        ],
+    )
+
+    with pytest.raises(TeiUnexpectedResponse) as caught:
+        _provider(mock, batch_size=1).embed(_inputs(1))
+
+    assert caught.value.category == "RequestRejected"
+    assert caught.value.safe_summary().startswith("RequestRejected")
+
+
+def test_an_unclassified_status_does_not_claim_to_be_a_request_rejection() -> None:
+    mock = TeiMock(
+        info_documents=[tei_info_document()],
+        embed_outcomes=[TeiOutcome(status_code=500, body=b"{}")],
+    )
+
+    with pytest.raises(TeiUnexpectedResponse) as caught:
+        _provider(mock, batch_size=1).embed(_inputs(1))
+
+    assert caught.value.category == "UnexpectedStatus"
+
+
+def test_a_hostile_info_value_cannot_push_arbitrary_bytes_into_a_traceback() -> None:
+    """Bounded for length control only -- and nothing derived from a passage is.
+
+    A misconfigured base URL pointing at something that is not TEI must not be able
+    to write an unbounded string into an operator's traceback. The bound is not how
+    untrusted text is made safe: passage values are excluded outright elsewhere,
+    because a short quote still leaks.
+    """
+    hostile = "x" * 4096
+    mock = TeiMock(info_documents=[tei_info_document(model_sha=hostile)], embed_outcomes=[])
+
+    with pytest.raises(TeiIdentityError) as caught:
+        _provider(mock).describe()
+
+    assert len(str(caught.value)) < 600
+    assert hostile not in str(caught.value)
+    assert hostile not in caught.value.safe_summary()
+
+
+def test_a_hostile_model_id_is_bounded_in_the_mismatch_message() -> None:
+    hostile = "hostile/" + "y" * 4096
+    mock = TeiMock(
+        info_documents=[tei_info_document(model_id=hostile, model_sha=TEI_MODEL_SHA)],
+        embed_outcomes=[],
+    )
+
+    with pytest.raises(TeiIdentityError) as caught:
+        _provider(mock).describe()
+
+    assert hostile not in str(caught.value)
+    assert len(str(caught.value)) < 700
+
+
+@pytest.mark.parametrize("status_code", [400, 413, 422, 424], ids=["400", "413", "422", "424"])
+def test_a_non_transient_status_is_never_retried(status_code: int) -> None:
     """Each is a statement about the request, so identical bytes would get the
     identical answer. In the 424 case a retry asks a non-embedding model to embed
     again."""
@@ -761,10 +837,10 @@ def test_retry_exhaustion_surfaces_the_last_failure(outcome: TeiOutcome, expecte
 
 
 def test_every_retry_sends_byte_identical_content() -> None:
-    """The body is built once, before the first attempt.
+    """Byte equality, which a parse-tree comparison could not establish.
 
-    A parse-tree comparison could not prove this: two byte strings that decode to
-    the same object are still different requests.
+    Two byte strings that decode to the same object are still different requests,
+    so the three recorded bodies are compared as bytes.
     """
     mock = TeiMock(
         info_documents=[tei_info_document()],
@@ -780,6 +856,45 @@ def test_every_retry_sends_byte_identical_content() -> None:
     bodies = {request.body for request in mock.embed_requests}
     assert len(mock.embed_requests) == 3
     assert len(bodies) == 1
+
+
+def test_the_retry_body_is_built_once_not_once_per_attempt() -> None:
+    """The mechanism behind the byte equality, proven directly.
+
+    Byte equality on its own cannot distinguish "built once before the loop" from
+    "rebuilt inside the loop", because :func:`tei_embed_request_body` is
+    deterministic -- a re-derivation would produce the identical three requests and
+    pass the byte comparison. So the builder itself is counted: one call for three
+    attempts.
+    """
+    mock = TeiMock(
+        info_documents=[tei_info_document()],
+        embed_outcomes=[
+            TeiOutcome(status_code=503, body=b"{}"),
+            TeiOutcome(status_code=429, body=b"{}"),
+            _ok(_vector(1.0)),
+        ],
+    )
+    real = tei_embed_request_body
+    built: list[tuple[str, ...]] = []
+
+    def counting(texts: Sequence[str], config: EmbeddingGenerationConfig) -> bytes:
+        built.append(tuple(texts))
+        return real(texts, config)
+
+    provider = TeiEmbeddingProvider(
+        base_url=_BASE_URL,
+        expected_model=_EXPECTED,
+        generation_config=_GENERATION,
+        runtime_config=_runtime(batch_size=1),
+        transport=mock.transport(),
+        sleeper=lambda _: None,
+    )
+    with patch.object(tei_module, "tei_embed_request_body", counting):
+        provider.embed(_inputs(1))
+
+    assert len(mock.embed_requests) == 3
+    assert len(built) == 1
 
 
 def test_retry_backoff_is_linear_and_free_of_jitter() -> None:
@@ -952,10 +1067,11 @@ def test_an_unchanged_runtime_produces_a_manifest() -> None:
 
 
 def test_a_capacity_change_mid_run_is_not_drift() -> None:
-    """Re-tuning a batching flag does not change a single returned float.
+    """Re-tuning a batching flag changes neither a float nor the artifact.
 
-    The semantic runtime identity is what has to hold; the advertised limits are
-    recorded provenance and deliberately excluded from it.
+    The semantic runtime identity is what has to hold, and the advertised limits
+    are excluded from it -- and, since a capacity re-tune must not rename an index
+    built from unchanged weights, from the manifest bytes as well.
     """
     mock = TeiMock(
         info_documents=[
@@ -966,8 +1082,19 @@ def test_a_capacity_change_mid_run_is_not_drift() -> None:
     )
 
     manifest = embed_passages(_provider(mock, batch_size=1), _inputs(1))
+    baseline, _ = _baseline_run()
 
+    # The identity the manifest records is the first observation, not the second.
     assert manifest.provider.max_client_batch_size == 8
+    assert manifest.entries[0].values == baseline.entries[0].values
+    assert manifest.embedding_config_sha256 == baseline.embedding_config_sha256
+    assert manifest.manifest_sha256 == baseline.manifest_sha256
+
+
+def _baseline_run() -> tuple[PassageEmbeddingManifest, TeiMock]:
+    """One ordinary run of the same single passage, used as the comparison."""
+    mock = TeiMock(info_documents=[tei_info_document()], embed_outcomes=[_ok(_vector(1.0))])
+    return embed_passages(_provider(mock, batch_size=1), _inputs(1)), mock
 
 
 # ---------------------------------------------------------------------------
@@ -1215,10 +1342,33 @@ def test_a_mutable_expected_revision_is_refused_before_any_request(mutable: str)
     assert mock.requests == []
 
 
+@pytest.mark.parametrize("mutable", ["latest", "main", "stable", "org/latest-model", "Acme/main"])
+def test_a_mutable_expected_model_id_is_refused_before_any_request(mutable: str) -> None:
+    """The same rule that guards the recorded identity guards the expectation.
+
+    Otherwise a deployment naming ``org/main`` would run every batch to completion
+    and only fail at the end, when a manifest's ``model_revision`` was rejected --
+    discarding all of that work to learn what the first line of configuration
+    already said.
+    """
+    mock = TeiMock(info_documents=[tei_info_document()], embed_outcomes=[])
+
+    with pytest.raises(EmbeddingContractError, match="moving target rather than an identity"):
+        TeiEmbeddingProvider(
+            base_url=_BASE_URL,
+            expected_model=ExpectedTeiModel(model_id=mutable, model_sha=TEI_MODEL_SHA),
+            generation_config=_GENERATION,
+            runtime_config=_runtime(batch_size=1),
+            transport=mock.transport(),
+        )
+
+    assert mock.requests == []
+
+
 def test_a_missing_expected_model_is_refused_before_any_request() -> None:
     mock = TeiMock(info_documents=[tei_info_document()], embed_outcomes=[])
 
-    with pytest.raises(EmbeddingContractError, match="must name a repository"):
+    with pytest.raises(EmbeddingContractError, match="explicit, non-empty"):
         TeiEmbeddingProvider(
             base_url=_BASE_URL,
             expected_model=ExpectedTeiModel(model_id="", model_sha=TEI_MODEL_SHA),
@@ -1226,6 +1376,8 @@ def test_a_missing_expected_model_is_refused_before_any_request() -> None:
             runtime_config=_runtime(batch_size=1),
             transport=mock.transport(),
         )
+
+    assert mock.requests == []
 
 
 @pytest.mark.parametrize(

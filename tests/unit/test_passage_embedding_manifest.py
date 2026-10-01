@@ -41,6 +41,7 @@ from dynamisrag.embedding import (
     EmbeddingRetryPolicy,
     EmbeddingRuntimeConfig,
     ExpectedTeiModel,
+    PassageEmbeddingEntry,
     PassageEmbeddingManifest,
     TeiEmbeddingProvider,
     TruncationDirection,
@@ -109,6 +110,16 @@ def _inputs(count: int) -> tuple[EmbeddingInput, ...]:
 
 def _vector(seed: float) -> list[float]:
     return [seed, seed + 0.25, seed + 0.5, seed + 0.75]
+
+
+def _digest(
+    identity: EmbeddingProviderIdentity | None = None,
+    generation: EmbeddingGenerationConfig | None = None,
+) -> str:
+    """The fingerprint a manifest built from these inputs must record."""
+    return (identity if identity is not None else _identity()).embedding_config_sha256(
+        generation if generation is not None else _GENERATION
+    )
 
 
 def _manifest(
@@ -182,27 +193,58 @@ def test_the_manifest_digest_is_the_sha_of_the_manifest_bytes() -> None:
 
 
 def test_the_manifest_serializes_canonically() -> None:
-    """Sorted keys, compact separators, no ASCII escaping.
+    """Sorted keys and compact separators, asserted as literal bytes.
 
-    Asserted as a literal so a change to the serializer cannot pass unnoticed.
-    ``ensure_ascii=False`` matters for real passages: a canonicalized article
-    containing an accented or Greek character must hash to the same digest on
-    every machine, and escaping it to ``\\uXXXX`` would be a second, different
-    spelling of the same content.
+    Not as a round trip: ``canonical_json(json.loads(x)) == x`` holds just as well
+    for an ASCII-escaping serializer, so a round trip proves nothing about the
+    thing being pinned here.
+    """
+    manifest = _manifest(inputs=(_input(0),), embeddings=[_vector(1.0)])
+
+    assert manifest.manifest_bytes == (
+        b'{"dimension":4,"document_count":1,"embedding_config_sha256":"'
+        + _digest().encode()
+        + b'","entries":[{"content_sha256":"'
+        + f"{100:064x}".encode()
+        + b'","passage_key":"'
+        + f"{0:064x}".encode()
+        + b'","values":[1.0,1.25,1.5,1.75]}],"generation_config":{"dimensions":null,'
+        b'"normalize":true,"prompt_name":null,"truncate":false,'
+        b'"truncation_direction":"right"},"manifest_revision":"passage-embeddings-v1",'
+        b'"provider":{"model_dtype":"float32","model_id":"'
+        + TEI_MODEL_ID.encode()
+        + b'","model_pooling":"cls","model_sha":"'
+        + TEI_MODEL_SHA.encode()
+        + b'","provider":"tei","provider_protocol_revision":"tei-http-v1","tei_docker_label":'
+        b'"sha-e80ef22","tei_sha":"e80ef225ed0e6cb1717ce632a6a84b6cf211bb67",'
+        b'"tei_version":"1.9.4"}}'
+    )
+
+
+def test_the_passage_text_never_reaches_the_manifest_bytes() -> None:
+    """The manifest names a passage by key and digest; the text stays out of it.
+
+    The strongest form of the no-leak rule at this boundary: the sensitive value is
+    not merely refused on error paths, it is never serialized at all. That is why
+    the accented and Greek passage below produces no non-ASCII byte.
     """
     manifest = _manifest(
-        inputs=(_input(0, text="Διαιτητική διατροφή — naïve café"),),
+        inputs=(_input(0, text="SECRET_PASSAGE_TEXT Διαιτητική"),),
         embeddings=[_vector(1.0)],
     )
 
-    assert manifest.manifest_bytes == canonical_json(json.loads(manifest.manifest_bytes)).encode(
-        "utf-8"
-    )
-    # `ensure_ascii=False` has to be observable somewhere real. `prompt_name` is
-    # the one free-form field a deployment chooses, so it is where a non-ASCII
-    # character actually reaches the serializer -- and where escaping it would
-    # create a second, different spelling of the same identity.
-    assert manifest.generation_config.prompt_name is None
+    assert "SECRET_PASSAGE_TEXT" not in manifest.manifest_bytes.decode("utf-8")
+    assert "Διαιτητική" not in manifest.manifest_bytes.decode("utf-8")
+
+
+def test_a_non_ascii_field_reaches_the_bytes_unescaped() -> None:
+    """``ensure_ascii=False`` has to be observable somewhere real.
+
+    ``prompt_name`` is the one free-form field a deployment chooses, so it is where
+    a non-ASCII character actually reaches the serializer -- and where escaping it
+    to ``\\uXXXX`` would be a second, different spelling of the same identity, and
+    so a second digest for the same generation config.
+    """
     non_ascii = _manifest(
         generation=EmbeddingGenerationConfig(
             normalize=True,
@@ -211,6 +253,7 @@ def test_the_manifest_serializes_canonically() -> None:
             prompt_name="requêteΔ",
         )
     )
+
     assert "requêteΔ".encode() in non_ascii.manifest_bytes
     assert b"\\u00eb" not in non_ascii.manifest_bytes
     assert b"\\u0394" not in non_ascii.manifest_bytes
@@ -264,13 +307,17 @@ def test_the_manifest_binds_no_operational_telemetry() -> None:
             "Bearer",
         )
     )
-    # The server's own batching limits are recorded provenance; the *client's*
-    # batch ordinals are not recorded at all.
-    assert "max_batch_requests" in rendered
+    # The server's advertised capacity limits are absent from the bytes, and so
+    # are the client's batch ordinals. A re-tuned `--max-client-batch-size` must not
+    # rename an index built from weights that never changed.
+    assert "max_batch_requests" not in rendered
+    assert "max_client_batch_size" not in rendered
+    assert "max_batch_tokens" not in rendered
+    assert "max_input_length" not in rendered
     assert '"batch"' not in rendered
     assert '"batch_ordinal"' not in rendered
-    # And the recorded provider payload is exactly the identity, with nothing else
-    # in it -- no URL, no credential, no hostname.
+    # And the recorded provider payload is exactly the observed identity, with
+    # nothing else in it -- no URL, no credential, no hostname, no capacity.
     assert set(payload["provider"]) == {
         "provider",
         "provider_protocol_revision",
@@ -281,11 +328,9 @@ def test_the_manifest_binds_no_operational_telemetry() -> None:
         "tei_docker_label",
         "model_id",
         "model_sha",
-        "max_client_batch_size",
-        "max_input_length",
-        "max_batch_tokens",
-        "max_batch_requests",
     }
+    # Still readable on the identity for an operator, just not in the bytes.
+    assert _manifest().provider.max_client_batch_size == 8
 
 
 def test_two_runs_of_the_same_vectors_and_identity_share_a_digest() -> None:
@@ -397,19 +442,32 @@ def test_caller_order_does_not_change_the_manifest_through_the_builder() -> None
     assert forward.manifest_sha256 == backward.manifest_sha256
 
 
-def test_embeddings_are_attached_by_key_not_by_position() -> None:
-    """The join is the passage key.
+def test_embeddings_are_positional_with_the_inputs_as_supplied() -> None:
+    """The port's guarantee, read back from the artifact.
 
-    Built with the inputs and vectors deliberately mismatched in position but
-    consistent in key, so a positional implementation would fail here.
+    ``embeddings`` arrives paired with ``inputs`` by position -- that is what
+    ``embed()`` promises and what ``embed_passages`` relies on -- so reversing the
+    pairing reverses the manifest. This asserts the contract holds, *not* that the
+    manifest is order-independent: the key-independence of the artifact is proven
+    by ``test_an_unsorted_caller_is_paired_by_key_not_by_position`` and
+    ``test_caller_permutation_gives_the_same_request_sequence_and_manifest``.
+
+    Deliberately given inputs already in sorted order. The interesting case is an
+    *unsorted* caller, and asserting it here with sorted inputs would let a purely
+    positional implementation pass while claiming the opposite.
     """
     inputs = (_input(0), _input(1))
-    manifest = build_passage_embedding_manifest(
+    forward = build_passage_embedding_manifest(
+        inputs, [_vector(1.0), _vector(2.0)], provider=_identity(), generation_config=_GENERATION
+    )
+    swapped = build_passage_embedding_manifest(
         inputs, [_vector(2.0), _vector(1.0)], provider=_identity(), generation_config=_GENERATION
     )
 
-    assert manifest.entries[0].values == (2.0, 2.25, 2.5, 2.75)
-    assert manifest.entries[1].values == (1.0, 1.25, 1.5, 1.75)
+    assert forward.entries[0].values == (1.0, 1.25, 1.5, 1.75)
+    assert forward.entries[1].values == (2.0, 2.25, 2.5, 2.75)
+    assert swapped.entries[0].values == (2.0, 2.25, 2.5, 2.75)
+    assert swapped.manifest_sha256 != forward.manifest_sha256
 
 
 def test_a_vector_count_that_disagrees_with_the_inputs_is_refused() -> None:
@@ -443,8 +501,6 @@ def _baseline() -> PassageEmbeddingManifest:
         {"protocol_revision": "tei-http-v2"},
         {"provider": "tei-http"},
         {"runtime_docker_label": "sha-000000"},
-        {"max_client_batch_size": 32},
-        {"max_input_length": 1024},
     ],
     ids=[
         "model-sha",
@@ -456,20 +512,18 @@ def _baseline() -> PassageEmbeddingManifest:
         "protocol-revision",
         "provider",
         "docker-label",
-        "max-client-batch-size",
-        "max-input-length",
     ],
 )
-def test_every_observed_runtime_fact_moves_the_manifest_digest(
+def test_every_observed_identity_fact_moves_the_manifest_digest(
     overrides: dict[str, object],
 ) -> None:
     """The manifest records what the server said, so all of it is bound.
 
     The weights, the repository, the serving build, the numeric path, the pooling
-    head, the wire contract, the container stamp and the advertised capacity all
-    appear in the recorded provider payload, so changing any of them produces a
-    different artifact. A manifest that omitted the weights would not be able to
-    answer "which model produced these vectors" at all.
+    head, the wire contract and the container stamp all appear in the recorded
+    provider payload, so changing any of them produces a different artifact. A
+    manifest that omitted the weights would not be able to answer "which model
+    produced these vectors" at all.
     """
     assert _manifest(identity=_identity(**overrides)).manifest_sha256 != (
         _baseline().manifest_sha256
@@ -511,39 +565,52 @@ def test_numerically_loadbearing_runtime_facts_move_the_semantic_digest(
             {"runtime_docker_label": "sha-000000"},
             "a second spelling of the build already pinned by runtime_sha",
         ),
-        (
-            {"max_client_batch_size": 32},
-            "a capacity limit is not an identity, and partition is hashed nowhere",
-        ),
-        ({"max_input_length": 1024}, "a capacity limit is not an identity"),
-        ({"max_batch_tokens": 16384}, "a capacity limit is not an identity"),
-        ({"max_batch_requests": 16}, "a capacity limit is not an identity"),
     ],
-    ids=[
-        "model-sha",
-        "model-id",
-        "docker-label",
-        "max-client-batch-size",
-        "max-input-length",
-        "max-batch-tokens",
-        "max-batch-requests",
-    ],
+    ids=["model-sha", "model-id", "docker-label"],
 )
-def test_recorded_but_not_hashed_runtime_facts_leave_the_fingerprint_alone(
+def test_recorded_in_the_artifact_but_absent_from_the_fingerprint(
     overrides: dict[str, object], because: str
 ) -> None:
-    """Recorded in the artifact, deliberately absent from the fingerprint.
+    """The manifest names them; the generation fingerprint does not.
 
     The model id and revision are first-class fields on
-    :class:`~dynamisrag.embedding.identity.EmbeddingModelIdentity`, so folding
-    them into a digest would only make them unreadable. The docker label is a
-    convenience string derived from the build ``runtime_sha`` already pins. And a
-    capacity limit describes the deployment rather than the vectors: a run stays
-    comparable with one that happened to be batched differently.
+    :class:`~dynamisrag.embedding.identity.EmbeddingModelIdentity`, so folding them
+    into a digest would only make them unreadable -- while omitting them from the
+    artifact would leave it unable to answer "which model produced these vectors".
+    The docker label is a convenience string derived from the build ``runtime_sha``
+    already pins.
     """
-    assert _manifest(identity=_identity(**overrides)).embedding_config_sha256 == (
-        _baseline().embedding_config_sha256
-    ), because
+    changed = _manifest(identity=_identity(**overrides))
+
+    assert changed.embedding_config_sha256 == _baseline().embedding_config_sha256, because
+    assert changed.manifest_sha256 != _baseline().manifest_sha256, because
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"max_client_batch_size": 32},
+        {"max_input_length": 1024},
+        {"max_batch_tokens": 16384},
+        {"max_batch_requests": 16},
+    ],
+    ids=["max-client-batch-size", "max-input-length", "max-batch-tokens", "max-batch-requests"],
+)
+def test_capacity_limits_are_absent_from_the_artifact_entirely(
+    overrides: dict[str, object],
+) -> None:
+    """A re-tuned batching flag must not rename an index.
+
+    The advertised limits describe how much the server could do at once, not what
+    the vectors are, so they are in neither the bytes nor the fingerprint. The
+    client-side request partition is unhashed for the same reason: a run stays
+    comparable with one that happened to be batched differently. They remain
+    readable on the identity for an operator.
+    """
+    changed = _manifest(identity=_identity(**overrides))
+
+    assert changed.embedding_config_sha256 == _baseline().embedding_config_sha256
+    assert changed.manifest_sha256 == _baseline().manifest_sha256
 
 
 @pytest.mark.parametrize(
@@ -804,13 +871,112 @@ def test_the_published_index_name_is_deterministic() -> None:
 # ---------------------------------------------------------------------------
 
 
+def test_a_stale_recorded_fingerprint_is_refused() -> None:
+    """Two records of one fact that can disagree are worse than one.
+
+    ``VectorIndexConfig`` folds the identity into the physical index name, so a
+    manifest carrying a digest its own provider and config do not produce would
+    name an index its stored bytes do not describe.
+    """
+    with pytest.raises(EmbeddingManifestError, match="Two records of one fact"):
+        PassageEmbeddingManifest(
+            manifest_revision=PASSAGE_EMBEDDING_MANIFEST_REVISION,
+            provider=_identity(),
+            generation_config=_GENERATION,
+            embedding_config_sha256="f" * 64,
+            dimension=_DIMENSION,
+            document_count=1,
+            entries=_manifest().entries[:1],
+        )
+
+
+def test_a_manifest_naming_a_mutable_model_is_refused_at_construction() -> None:
+    """The artifact must not be able to exist while naming a moving target.
+
+    Refusing only when someone reads :attr:`embedding_model_identity` would let
+    such a manifest be hashed and stored first, with the refusal arriving at the
+    far end of the work.
+    """
+    with pytest.raises(EmbeddingContractError, match="moving target rather than an identity"):
+        PassageEmbeddingManifest(
+            manifest_revision=PASSAGE_EMBEDDING_MANIFEST_REVISION,
+            provider=_identity(model_id="acme/main-model"),
+            generation_config=_GENERATION,
+            embedding_config_sha256=_digest(_identity(model_id="acme/main-model")),
+            dimension=_DIMENSION,
+            document_count=1,
+            entries=_manifest().entries[:1],
+        )
+
+
+@pytest.mark.parametrize(
+    "field", ["dimension", "document_count"], ids=["dimension", "document-count"]
+)
+def test_a_boolean_where_a_count_belongs_is_refused(field: str) -> None:
+    """``bool`` is an ``int`` subclass, so ``True`` would reach the hashed bytes.
+
+    ``dimension=True`` passes a range check as 1 and ``document_count=True`` equals
+    ``len(entries)`` when there is exactly one -- putting ``"dimension": true`` in
+    the bytes and giving two semantically identical manifests two digests.
+    """
+    values: dict[str, object] = {
+        "manifest_revision": PASSAGE_EMBEDDING_MANIFEST_REVISION,
+        "provider": _identity(),
+        "generation_config": _GENERATION,
+        "embedding_config_sha256": _digest(),
+        "dimension": _DIMENSION,
+        "document_count": 1,
+        "entries": _manifest().entries[:1],
+    }
+    values[field] = True
+
+    with pytest.raises(EmbeddingManifestError, match="boolean rather than an integer"):
+        PassageEmbeddingManifest(**values)  # type: ignore[arg-type]
+
+
+def test_a_bare_string_truncation_direction_is_normalised() -> None:
+    """Normalised, not merely checked.
+
+    A ``StrEnum`` member compares equal to its wire value, so an
+    ``in TRUNCATION_DIRECTIONS`` membership check would accept a bare ``"left"``
+    and then fail untyped at ``.value`` -- which is the late failure the enum
+    exists to prevent. Converting is the same normalisation ``PassageVector``
+    applies to its components.
+    """
+    config = EmbeddingGenerationConfig(
+        normalize=True,
+        truncate=False,
+        truncation_direction="left",  # type: ignore[arg-type]
+    )
+
+    assert config.truncation_direction is TruncationDirection.LEFT
+    assert config.payload()["truncation_direction"] == "left"
+    assert (
+        config.sha256
+        == EmbeddingGenerationConfig(
+            normalize=True,
+            truncate=False,
+            truncation_direction=TruncationDirection.LEFT,
+        ).sha256
+    )
+
+
+def test_an_unsupported_truncation_direction_is_refused_at_construction() -> None:
+    with pytest.raises(EmbeddingContractError, match="is not supported"):
+        EmbeddingGenerationConfig(
+            normalize=True,
+            truncate=False,
+            truncation_direction="sideways",  # type: ignore[arg-type]
+        )
+
+
 def test_a_hand_built_manifest_must_name_its_own_revision() -> None:
     with pytest.raises(EmbeddingManifestError, match="which is not the revision"):
         PassageEmbeddingManifest(
             manifest_revision="passage-embeddings-v2",
             provider=_identity(),
             generation_config=_GENERATION,
-            embedding_config_sha256="a" * 64,
+            embedding_config_sha256=_digest(),
             dimension=_DIMENSION,
             document_count=1,
             entries=_manifest().entries[:1],
@@ -825,7 +991,7 @@ def test_a_hand_built_manifest_must_be_sorted_and_unique() -> None:
             manifest_revision=PASSAGE_EMBEDDING_MANIFEST_REVISION,
             provider=_identity(),
             generation_config=_GENERATION,
-            embedding_config_sha256="a" * 64,
+            embedding_config_sha256=_digest(),
             dimension=_DIMENSION,
             document_count=2,
             entries=tuple(reversed(entries[:2])),
@@ -839,7 +1005,7 @@ def test_an_empty_manifest_is_refused() -> None:
             manifest_revision=PASSAGE_EMBEDDING_MANIFEST_REVISION,
             provider=_identity(),
             generation_config=_GENERATION,
-            embedding_config_sha256="a" * 64,
+            embedding_config_sha256=_digest(),
             dimension=_DIMENSION,
             document_count=0,
             entries=(),
@@ -852,7 +1018,7 @@ def test_a_document_count_that_contradicts_the_entries_is_refused() -> None:
             manifest_revision=PASSAGE_EMBEDDING_MANIFEST_REVISION,
             provider=_identity(),
             generation_config=_GENERATION,
-            embedding_config_sha256="a" * 64,
+            embedding_config_sha256=_digest(),
             dimension=_DIMENSION,
             document_count=9,
             entries=_manifest().entries,
@@ -865,7 +1031,7 @@ def test_an_entry_that_contradicts_the_declared_dimension_is_refused() -> None:
             manifest_revision=PASSAGE_EMBEDDING_MANIFEST_REVISION,
             provider=_identity(),
             generation_config=_GENERATION,
-            embedding_config_sha256="a" * 64,
+            embedding_config_sha256=_digest(),
             dimension=_DIMENSION + 1,
             document_count=3,
             entries=_manifest().entries,
@@ -878,8 +1044,55 @@ def test_a_non_finite_component_cannot_reach_a_manifest() -> None:
 
 
 def test_a_non_numeric_component_cannot_reach_a_manifest() -> None:
-    with pytest.raises(EmbeddingManifestError, match="non-numeric component at position 1"):
-        _manifest(embeddings=[[1.0, "2.0", 3.0, 4.0], _vector(2.0), _vector(3.0)])  # type: ignore[list-item]
+    """The entry owns the rule, not the builder that constructs it.
+
+    Normalisation and the numeric check now live on
+    :class:`~dynamisrag.embedding.manifest.PassageEmbeddingEntry`, so a
+    hand-built entry is held to the same invariant as a produced one.
+    """
+    with pytest.raises(EmbeddingContractError, match="non-numeric component at position 1"):
+        PassageEmbeddingEntry(passage_key=f"{0:064x}", content_sha256="a" * 64, values=(1.0, "2.0"))  # type: ignore[arg-type]
+
+
+def test_a_hand_built_entry_is_held_to_the_same_invariants() -> None:
+    """A digest that is not a digest, and a missing key, are refused here too.
+
+    `json.dumps` renders the integer `1` differently from the float `1.0`, so an
+    entry that skipped normalisation would give one vector two manifest digests.
+    """
+    with pytest.raises(EmbeddingContractError, match="64 lowercase hexadecimal"):
+        PassageEmbeddingEntry(passage_key=f"{0:064x}", content_sha256="nope", values=(1.0,))
+
+    with pytest.raises(EmbeddingContractError, match="must name the passage_key"):
+        PassageEmbeddingEntry(passage_key="", content_sha256="a" * 64, values=(1.0,))
+
+
+def test_a_hand_built_entry_normalises_its_components() -> None:
+    entry = PassageEmbeddingEntry(
+        passage_key=f"{0:064x}", content_sha256="a" * 64, values=(1, 2, 3, 4)
+    )
+
+    assert entry.values == (1.0, 2.0, 3.0, 4.0)
+    assert all(isinstance(value, float) for value in entry.values)
+    assert json.dumps(entry.payload()) == json.dumps(
+        {
+            "passage_key": f"{0:064x}",
+            "content_sha256": "a" * 64,
+            "values": [1.0, 2.0, 3.0, 4.0],
+        }
+    )
+
+
+def test_an_empty_run_is_refused_with_a_named_error() -> None:
+    """A query that matched nothing is an ordinary caller state.
+
+    Left unchecked it would reach the dimension observation as an index-out-of-range
+    whose message names neither the passage set nor the cause.
+    """
+    with pytest.raises(EmbeddingManifestError, match="at least one passage"):
+        build_passage_embedding_manifest(
+            (), (), provider=_identity(), generation_config=_GENERATION
+        )
 
 
 def test_an_integer_component_is_normalized_to_a_float() -> None:
