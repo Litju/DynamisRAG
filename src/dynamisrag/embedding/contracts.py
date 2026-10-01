@@ -46,6 +46,7 @@ import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
+from math import isfinite
 from typing import Final, Protocol, Self
 
 from dynamisrag.embedding.errors import EmbeddingContractError, TeiIdentityError
@@ -142,6 +143,164 @@ TRUNCATION_DIRECTIONS: Final[tuple[TruncationDirection, ...]] = (
 )
 """Every direction this revision accepts, in a fixed order so error messages are
 reproducible."""
+
+
+# ---------------------------------------------------------------------------
+# Primitive validation
+#
+# Defined once, here, because every value in this package that reaches a hashed
+# payload, a request body or a sleep is a *primitive*, and Python will not stop a
+# wrong one from arriving. A type annotation is a promise to a reader and a
+# checker; it is not a runtime gate, and these dataclasses are exported, so they
+# are constructed directly. `normalize=1`, `truncate="false"`, `dimensions=1.5`,
+# `max_attempts=True` and `timeout_seconds=float("inf")` all type-check against a
+# permissive annotation and all mean something different from what the caller
+# wrote. Two of them are worse than a crash: a boolean reaching the hashed bytes
+# gives two semantically identical configs two different fingerprints, and a NaN
+# reaching a comparison makes every comparison against it false.
+# ---------------------------------------------------------------------------
+
+
+def _require_exact_bool(value: object, *, kind: str, operation: str) -> bool:
+    """Require a real ``bool``, not merely something that compares like one.
+
+    ``1 == True`` and both are ``int`` instances, so a range check or a truth test
+    accepts either. That matters more than it looks: ``normalize=1`` would be
+    written into ``embedding_config_sha256`` as ``1`` while the same configuration
+    written ``True`` hashes as ``true``, so one semantic setting would produce two
+    identities and name two indexes whose contents are indistinguishable.
+    """
+    if isinstance(value, bool):
+        return value
+    raise EmbeddingContractError(
+        f"embedding {kind} must be exactly True or False, got {value!r} of type "
+        f"{type(value).__name__}. A flag is either stated or not: a value that merely compares "
+        "equal to a boolean would be hashed differently from the boolean it stands for, and two "
+        "identical configurations must never produce two different fingerprints.",
+        operation=operation,
+    )
+
+
+def _require_exact_int(
+    value: object, *, kind: str, operation: str, minimum: int, because: str
+) -> int:
+    """Require a real ``int`` at or above ``minimum``.
+
+    ``bool`` first, then the type, then the range. Each step is separate because
+    each catches a different mistake: ``True`` is an ``int`` of value 1 and would
+    pass the range check as a count of one; ``1.5`` passes it too, and would reach
+    a request body as ``1.5`` and a digest as a different value from ``1``.
+
+    ``because`` is the domain-specific consequence of the bound, appended to the
+    failure. A bound a reader has to take on trust gets ignored at exactly the
+    moment it matters.
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise EmbeddingContractError(
+            f"embedding {kind} must be an explicit integer, got {value!r} of type "
+            f"{type(value).__name__}. Counts and dimensions are integers; a float or a boolean "
+            "would be serialised into hashed bytes as something no reader could interpret as the "
+            "same configuration.",
+            operation=operation,
+        )
+    if value < minimum:
+        raise EmbeddingContractError(
+            f"embedding {kind} must be at least {minimum}, got {value}. {because}",
+            operation=operation,
+        )
+    return value
+
+
+def _require_finite_number(
+    value: object,
+    *,
+    kind: str,
+    operation: str,
+    minimum: float,
+    exclusive: bool,
+    because: str,
+) -> float:
+    """Require a finite real number on one side of ``minimum``.
+
+    ``bool`` is excluded because ``True`` is ``1``, and a timeout of ``True`` would
+    be one second rather than a mistake. NaN and infinity are excluded because they
+    destroy the comparisons that are the only reason the value exists: ``nan < 0``
+    is false, so a NaN backoff sails through a ``>= 0`` check and then reaches
+    ``time.sleep``, which either raises ``ValueError`` -- an untyped error from a
+    library, at an arbitrary point in a run -- or, for ``inf``, hangs the caller
+    forever. Both are caught here, at construction, as a named contract error.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise EmbeddingContractError(
+            f"embedding {kind} must be a real number, got {value!r} of type "
+            f"{type(value).__name__}, never a boolean. A boolean is an int in Python, so it would "
+            "be read as the number 1 rather than as the mistake it is.",
+            operation=operation,
+        )
+    number = float(value)
+    if not isfinite(number):
+        raise EmbeddingContractError(
+            f"embedding {kind} must be a finite number, got {value!r}. NaN and infinity break "
+            "every comparison the value exists to make -- a NaN bound accepts everything and an "
+            "infinite timeout never expires -- so a run would fail, or hang, at a point chosen by "
+            "the library rather than by this contract.",
+            operation=operation,
+        )
+    if (number <= minimum) if exclusive else (number < minimum):
+        bound = "greater than" if exclusive else "at least"
+        raise EmbeddingContractError(
+            f"embedding {kind} must be {bound} {minimum}, got {number}. {because}",
+            operation=operation,
+        )
+    return number
+
+
+def _require_optional_str(value: object, *, kind: str, operation: str) -> str | None:
+    """Require ``None`` or a real ``str``, and reject the empty string.
+
+    Takes ``object`` on purpose. The field it guards is annotated ``str | None``,
+    so a type checker already knows the answer and would flag the runtime check as
+    redundant -- which is precisely the point: the annotation is a promise to a
+    reader of the *source*, while this is the gate a caller who did not read it
+    still meets. Keeping the value as ``object`` is how the check stays honest
+    under ``typeCheckingMode = "strict"``.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise EmbeddingContractError(
+            f"embedding {kind} must be a string or None, got {value!r} of type "
+            f"{type(value).__name__}. It is a key into the served model's prompt table, so "
+            "anything but a name is a mistake rather than a value.",
+            operation=operation,
+        )
+    return value
+
+
+def _require_retry_policy(value: object, *, operation: str) -> EmbeddingRetryPolicy:
+    """Require an :class:`EmbeddingRetryPolicy` and nothing that resembles one.
+
+    Structural rather than incidental: the backoff schedule is computed from this
+    value *during* a failure, so a look-alike that merely has the right attributes
+    would fail at the first retry -- after the request that needed it, and from an
+    arbitrary library call. Checked here so the failure names the contract instead.
+    """
+    if isinstance(value, EmbeddingRetryPolicy):
+        return value
+    raise EmbeddingContractError(
+        f"embedding runtime retry must be an EmbeddingRetryPolicy, got {type(value).__name__}. The "
+        "backoff schedule is derived from it during a failure, so a look-alike would fail at the "
+        "first retry rather than at the point the mistake was made.",
+        operation=operation,
+    )
+
+
+_GEN_OPERATION: Final[str] = "embedding_generation_config"
+"""The ``operation`` every refusal from the generation config is tagged with, so a
+summary line names the contract rather than the field."""
+
+_RETRY_OPERATION: Final[str] = "embedding_retry_policy"
+_RUNTIME_OPERATION: Final[str] = "embedding_runtime_config"
 
 
 def require_passage_key(value: str, *, operation: str) -> str:
@@ -343,6 +502,15 @@ class EmbeddingGenerationConfig:
     which is a *semantic* choice and not a missing value: the same weights give
     different vectors under Matryoshka truncation than under full pooling.
 
+    **Every primitive is checked at runtime, not merely annotated.** This is an
+    exported dataclass, so it is constructed directly, and a type annotation is a
+    promise to a reader rather than a gate: ``normalize=1`` would otherwise be
+    written into the hashed bytes as ``1`` while the same configuration written
+    ``True`` hashes as ``true``, giving one semantic setting two identities.
+    Every rejection is an :class:`~dynamisrag.embedding.errors.EmbeddingContractError`
+    raised here, at construction, rather than a ``TypeError``, a ``ValueError`` or a
+    server 422 discovered partway through a run.
+
     **What is deliberately not here:** the base URL, the timeout, the batch size,
     the retry count, the backoff schedule, the hostname and any credential.
     Those are execution policy — see :class:`EmbeddingRuntimeConfig` and
@@ -369,6 +537,8 @@ class EmbeddingGenerationConfig:
     dimensions: int | None = None
 
     def __post_init__(self) -> None:
+        _require_exact_bool(self.normalize, kind="generation normalize", operation=_GEN_OPERATION)
+        _require_exact_bool(self.truncate, kind="generation truncate", operation=_GEN_OPERATION)
         # Normalised through the enum rather than merely checked against it.
         # `StrEnum` members compare equal to their wire values, so an `in
         # TRUNCATION_DIRECTIONS` membership check would happily accept a bare
@@ -378,41 +548,40 @@ class EmbeddingGenerationConfig:
         # `PassageEmbeddingEntry` to its values.
         try:
             direction = TruncationDirection(self.truncation_direction)
-        except ValueError:
+        except (ValueError, TypeError):
             raise EmbeddingContractError(
                 f"embedding generation truncation_direction {self.truncation_direction!r} is not "
                 f"supported; it must be one of "
                 f"{[candidate.value for candidate in TRUNCATION_DIRECTIONS]}.",
-                operation="embedding_generation_config",
+                operation=_GEN_OPERATION,
             ) from None
         object.__setattr__(self, "truncation_direction", direction)
-        if self.prompt_name is not None and not self.prompt_name:
-            # `None` means "no prompt"; `""` is not a prompt name, and TEI
-            # would reject it as an unknown key in the model's prompt table.
-            raise EmbeddingContractError(
-                "embedding generation prompt_name must be a non-empty prompt name or None, not "
-                "an empty string. None means the model applies no prompt template; an empty "
-                "string is a name the model's prompt table cannot contain.",
-                operation="embedding_generation_config",
+        if self.prompt_name is not None:
+            # `None` means "use the attested server default prompt" -- see
+            # `TeiDeploymentSemantics` -- and `""` is not a prompt name: TEI
+            # would reject it as an unknown key in the model's prompt table. A
+            # non-string is neither, and a number would be written into the request
+            # body and the digest as a number.
+            _require_optional_str(
+                self.prompt_name, kind="generation prompt_name", operation=_GEN_OPERATION
             )
+            if not self.prompt_name:
+                raise EmbeddingContractError(
+                    "embedding generation prompt_name must be a non-empty prompt name or None, not "
+                    "an empty string. None means the attested server default is applied; an empty "
+                    "string is a name the model's prompt table cannot contain.",
+                    operation=_GEN_OPERATION,
+                )
         if self.dimensions is not None:
-            # `bool` is an `int` subclass, so `dimensions=True` would pass the
-            # range check as 1 and reach TEI as 1.
-            if isinstance(self.dimensions, bool):
-                raise EmbeddingContractError(
-                    "embedding generation dimensions must be an explicit integer component count "
-                    "or None, never a boolean. None means the model's native dimension, which is a "
-                    "semantic choice rather than a missing value.",
-                    operation="embedding_generation_config",
-                )
-            if self.dimensions < MIN_EMBEDDING_DIMENSION:
-                raise EmbeddingContractError(
-                    f"embedding generation dimensions must be at least "
-                    f"{MIN_EMBEDDING_DIMENSION}, got {self.dimensions}. A zero-length vector has "
-                    "no direction, so under any distance function it is either the zero vector or "
-                    "an outright error.",
-                    operation="embedding_generation_config",
-                )
+            _require_exact_int(
+                self.dimensions,
+                kind="generation dimensions",
+                operation=_GEN_OPERATION,
+                minimum=MIN_EMBEDDING_DIMENSION,
+                because="A zero-length vector has no direction, so under any distance function it "
+                "is either the zero vector or an outright error. None means the model's native "
+                "dimension, which is a semantic choice rather than a missing value.",
+            )
 
     def payload(self) -> dict[str, object]:
         """The canonical, hashable description of these generation semantics.
@@ -461,30 +630,35 @@ class EmbeddingRetryPolicy:
     503 and 504. A 400, 413, 422 or 424 is a bad request, an input or token
     constraint, or a model/backend contract failure — retrying any of them
     replays the identical bytes and gets the identical answer.
+
+    Every value is checked at runtime as a real primitive. ``max_attempts=True``
+    is ``1`` to every comparison Python performs and would mean one attempt;
+    ``base_backoff_seconds=float("nan")`` satisfies every bound there is, because
+    ``nan < 0`` is false, and then reaches ``time.sleep``, which raises an
+    untyped ``ValueError`` in the middle of a run. Both are refused here, at
+    construction, as an :class:`~dynamisrag.embedding.errors.EmbeddingContractError`.
     """
 
     max_attempts: int = 3
     base_backoff_seconds: float = 0.5
 
     def __post_init__(self) -> None:
-        if isinstance(self.max_attempts, bool):
-            raise EmbeddingContractError(
-                "embedding retry max_attempts must be an explicit integer count of attempts, "
-                "never a boolean, which would silently mean one attempt.",
-                operation="embedding_retry_policy",
-            )
-        if self.max_attempts < 1:
-            raise EmbeddingContractError(
-                f"embedding retry max_attempts must be at least 1, got {self.max_attempts}. Zero "
-                "attempts would mean the request is never made at all.",
-                operation="embedding_retry_policy",
-            )
-        if self.base_backoff_seconds < 0.0:
-            raise EmbeddingContractError(
-                f"embedding retry base_backoff_seconds must not be negative, got "
-                f"{self.base_backoff_seconds}. A negative delay is not a schedule.",
-                operation="embedding_retry_policy",
-            )
+        _require_exact_int(
+            self.max_attempts,
+            kind="retry max_attempts",
+            operation=_RETRY_OPERATION,
+            minimum=1,
+            because="Zero attempts would mean the request is never made at all, and a boolean here "
+            "is 1 -- one attempt -- rather than the mistake it looks like.",
+        )
+        _require_finite_number(
+            self.base_backoff_seconds,
+            kind="retry base_backoff_seconds",
+            operation=_RETRY_OPERATION,
+            minimum=0.0,
+            exclusive=False,
+            because="A negative delay is not a schedule.",
+        )
 
     def backoff_seconds(self) -> tuple[float, ...]:
         """The exact delay before each retry, in order.
@@ -515,6 +689,16 @@ class EmbeddingRuntimeConfig:
     That is server execution policy and does not replace this client-side
     partition: the partition decides the *requests*, the server decides the
     *execution*.
+
+    **Every value is checked at runtime as a real primitive, and ``retry`` must
+    already be a policy.** An annotation is a promise to a reader, not a gate, and
+    these three values are what a hung run, a wrong request partition and a raw
+    ``AttributeError`` halfway through a backoff schedule all come from. A
+    ``timeout_seconds`` of ``nan`` or ``inf``, a ``batch_size`` of ``True``, and a
+    ``retry`` that is a plain dict are each refused here, at construction, as an
+    :class:`~dynamisrag.embedding.errors.EmbeddingContractError` naming this
+    contract -- never as a ``TypeError``, a ``ValueError`` or a failure raised by
+    the HTTP library or the clock.
     """
 
     batch_size: int
@@ -522,25 +706,28 @@ class EmbeddingRuntimeConfig:
     retry: EmbeddingRetryPolicy
 
     def __post_init__(self) -> None:
-        if isinstance(self.batch_size, bool):
-            raise EmbeddingContractError(
-                "embedding runtime batch_size must be an explicit integer count of inputs, never "
-                "a boolean, which would silently mean one input per request.",
-                operation="embedding_runtime_config",
-            )
-        if self.batch_size < 1:
-            raise EmbeddingContractError(
-                f"embedding runtime batch_size must be at least 1, got {self.batch_size}. A "
-                "non-positive batch cannot partition any input at all.",
-                operation="embedding_runtime_config",
-            )
-        if self.timeout_seconds <= 0.0:
-            raise EmbeddingContractError(
-                f"embedding runtime timeout_seconds must be positive, got "
-                f"{self.timeout_seconds}. An unbounded or zero timeout turns a hung model server "
-                "into a hung ingestion run.",
-                operation="embedding_runtime_config",
-            )
+        _require_exact_int(
+            self.batch_size,
+            kind="runtime batch_size",
+            operation=_RUNTIME_OPERATION,
+            minimum=1,
+            because="A non-positive batch cannot partition any input at all, and a boolean here is "
+            "1 -- one input per request -- rather than the mistake it looks like.",
+        )
+        _require_finite_number(
+            self.timeout_seconds,
+            kind="runtime timeout_seconds",
+            operation=_RUNTIME_OPERATION,
+            minimum=0.0,
+            exclusive=True,
+            because="An unbounded or zero timeout turns a hung model server into a hung ingestion "
+            "run.",
+        )
+        # Re-assigned through the same check the other fields use, so the
+        # guarantee is "every primitive was verified" rather than "all but one".
+        object.__setattr__(
+            self, "retry", _require_retry_policy(self.retry, operation=_RUNTIME_OPERATION)
+        )
 
 
 @dataclass(frozen=True)

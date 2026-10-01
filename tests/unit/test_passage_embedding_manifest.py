@@ -1507,3 +1507,251 @@ def test_the_generation_config_digest_is_the_sha_of_its_canonical_json() -> None
 
     assert config.sha256 == hashlib.sha256(config.canonical_json().encode("utf-8")).hexdigest()
     assert config.payload()["truncation_direction"] == "right"
+
+
+# ---------------------------------------------------------------------------
+# Exported configuration contracts: strict at runtime, not merely annotated
+# ---------------------------------------------------------------------------
+
+_NAN: Final[float] = float("nan")
+_INF: Final[float] = float("inf")
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "expected"),
+    [
+        ("normalize", 1, "must be exactly True or False"),
+        ("normalize", 0, "must be exactly True or False"),
+        ("normalize", "true", "must be exactly True or False"),
+        ("normalize", None, "must be exactly True or False"),
+        ("truncate", 0, "must be exactly True or False"),
+        ("truncate", "false", "must be exactly True or False"),
+        ("truncate", 1.0, "must be exactly True or False"),
+        ("prompt_name", 123, "must be a string or None"),
+        ("prompt_name", True, "must be a string or None"),
+        ("prompt_name", "", "non-empty prompt name or None"),
+        ("dimensions", 1.5, "must be an explicit integer"),
+        ("dimensions", True, "must be an explicit integer"),
+        ("dimensions", 0, "dimensions must be at least 1"),
+        ("dimensions", -8, "dimensions must be at least 1"),
+        ("truncation_direction", "sideways", "is not supported"),
+        ("truncation_direction", None, "is not supported"),
+        ("truncation_direction", 3, "is not supported"),
+    ],
+    ids=[
+        "normalize-int",
+        "normalize-zero",
+        "normalize-string",
+        "normalize-none",
+        "truncate-zero",
+        "truncate-string",
+        "truncate-float",
+        "prompt-int",
+        "prompt-bool",
+        "prompt-empty",
+        "dimensions-float",
+        "dimensions-bool",
+        "dimensions-zero",
+        "dimensions-negative",
+        "direction-unknown",
+        "direction-none",
+        "direction-int",
+    ],
+)
+def test_a_mutated_generation_field_is_refused_as_a_contract_error(
+    field: str, value: object, expected: str
+) -> None:
+    """A type annotation is a promise to a reader, not a gate on a caller.
+
+    Every value here is a plausible mistake -- ``normalize=1`` because JSON hands
+    back integers, ``truncate="false"`` because it hands back strings, ``dimensions
+    = 1.5`` from a division -- and every one used to be admitted, because the
+    dataclass only normalised ``truncation_direction``.
+
+    Two of them are worse than a crash. ``normalize=1`` is written into the hashed
+    bytes as ``1`` while the same configuration written ``True`` hashes as
+    ``true``, so one semantic setting would produce two fingerprints and name two
+    indexes whose contents are indistinguishable. And a boolean ``dimensions``
+    passes every range check as 1, so the requested dimension in
+    ``embedding_config_sha256`` would be a lie about a vector length that never
+    existed.
+
+    The failure is typed, and it happens here rather than as a ``TypeError``, a
+    ``ValueError``, or a 422 from the server partway through a run.
+    """
+    values: dict[str, object] = {
+        "normalize": True,
+        "truncate": False,
+        "truncation_direction": TruncationDirection.RIGHT,
+        field: value,
+    }
+    with pytest.raises(EmbeddingContractError, match=expected):
+        EmbeddingGenerationConfig(**values)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "expected"),
+    [
+        ({"max_attempts": True}, "must be an explicit integer"),
+        ({"max_attempts": 1.0}, "must be an explicit integer"),
+        ({"max_attempts": "3"}, "must be an explicit integer"),
+        ({"max_attempts": 0}, "max_attempts must be at least 1"),
+        ({"max_attempts": -1}, "max_attempts must be at least 1"),
+        ({"base_backoff_seconds": True}, "must be a real number"),
+        ({"base_backoff_seconds": "0.5"}, "must be a real number"),
+        ({"base_backoff_seconds": _NAN}, "must be a finite number"),
+        ({"base_backoff_seconds": _INF}, "must be a finite number"),
+        ({"base_backoff_seconds": -_INF}, "must be a finite number"),
+        ({"base_backoff_seconds": -0.5}, "base_backoff_seconds must be at least 0.0"),
+    ],
+    ids=[
+        "attempts-bool",
+        "attempts-float",
+        "attempts-string",
+        "attempts-zero",
+        "attempts-negative",
+        "backoff-bool",
+        "backoff-string",
+        "backoff-nan",
+        "backoff-inf",
+        "backoff-neg-inf",
+        "backoff-negative",
+    ],
+)
+def test_a_mutated_retry_policy_is_refused_as_a_contract_error(
+    kwargs: dict[str, object], expected: str
+) -> None:
+    """A NaN backoff is the case that made this worth doing.
+
+    ``nan < 0`` is ``False`` in Python, so a NaN base backoff passed the old bound
+    check, reached ``time.sleep`` during a real failure and raised an untyped
+    ``ValueError`` from the standard library -- at a point chosen by when the
+    server happened to be overloaded, with nothing in the message about which
+    configuration value was wrong. ``inf`` is worse: it never expires.
+
+    ``max_attempts=True`` is ``1`` to every comparison Python performs, so it would
+    have meant one attempt and no retry at all, silently.
+    """
+    with pytest.raises(EmbeddingContractError, match=expected):
+        EmbeddingRetryPolicy(**kwargs)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "expected"),
+    [
+        ({"batch_size": True}, "must be an explicit integer"),
+        ({"batch_size": 2.0}, "must be an explicit integer"),
+        ({"batch_size": "2"}, "must be an explicit integer"),
+        ({"batch_size": 0}, "batch_size must be at least 1"),
+        ({"batch_size": -4}, "batch_size must be at least 1"),
+        ({"timeout_seconds": True}, "must be a real number"),
+        ({"timeout_seconds": "30"}, "must be a real number"),
+        ({"timeout_seconds": _NAN}, "must be a finite number"),
+        ({"timeout_seconds": _INF}, "must be a finite number"),
+        ({"timeout_seconds": 0.0}, "timeout_seconds must be greater than 0.0"),
+        ({"timeout_seconds": -1.0}, "timeout_seconds must be greater than 0.0"),
+        ({"retry": {"max_attempts": 3}}, "must be an EmbeddingRetryPolicy"),
+        ({"retry": None}, "must be an EmbeddingRetryPolicy"),
+        ({"retry": 3}, "must be an EmbeddingRetryPolicy"),
+    ],
+    ids=[
+        "batch-bool",
+        "batch-float",
+        "batch-string",
+        "batch-zero",
+        "batch-negative",
+        "timeout-bool",
+        "timeout-string",
+        "timeout-nan",
+        "timeout-inf",
+        "timeout-zero",
+        "timeout-negative",
+        "retry-dict",
+        "retry-none",
+        "retry-int",
+    ],
+)
+def test_a_mutated_runtime_config_is_refused_as_a_contract_error(
+    kwargs: dict[str, object], expected: str
+) -> None:
+    """A look-alike retry policy is refused structurally, not by duck typing.
+
+    The backoff schedule is computed from ``retry`` *during* a failure, so a dict
+    with the right keys would have failed at the first retry -- after the request
+    that needed it -- with an ``AttributeError`` from an arbitrary call site. The
+    check belongs where the mistake is made, not where it is discovered.
+    """
+    values: dict[str, object] = {
+        "batch_size": 2,
+        "timeout_seconds": 30.0,
+        "retry": EmbeddingRetryPolicy(),
+        **kwargs,
+    }
+    with pytest.raises(EmbeddingContractError, match=expected):
+        EmbeddingRuntimeConfig(**values)  # type: ignore[arg-type]
+
+
+def test_a_mutated_config_is_refused_before_the_provider_is_even_built() -> None:
+    """The refusals are load-bearing, not decoration on a dataclass.
+
+    A mutation matrix can pass while the values still reach a request body and a
+    digest, if the checks live somewhere the constructor does not call. Asserted
+    where the mistake is actually made: the runtime config is an argument to the
+    provider, so a mutated one cannot produce a provider at all -- and the mock,
+    which is reachable, records nothing.
+    """
+    mock = TeiMock(info_documents=[tei_info_document()], embed_outcomes=[])
+
+    with pytest.raises(EmbeddingContractError, match="runtime batch_size must be an explicit"):
+        TeiEmbeddingProvider(
+            base_url=_BASE_URL,
+            expected_model=_EXPECTED,
+            deployment_semantics=_DEPLOYMENT,
+            generation_config=_GENERATION,
+            runtime_config=EmbeddingRuntimeConfig(
+                # `True` is a statically valid `int`, so this line type-checks and
+                # is still wrong: the runtime check exists precisely because the
+                # annotation cannot catch it.
+                batch_size=True,
+                timeout_seconds=float("nan"),
+                retry=EmbeddingRetryPolicy(),
+            ),
+            transport=mock.transport(),
+        )
+
+    assert mock.requests == []
+
+
+def test_a_corrected_config_still_runs_and_still_hashes() -> None:
+    """The control: the same provider, built with a legal config, works end to end.
+
+    Without this, the refusals above would also pass against an implementation that
+    refused everything.
+    """
+    mock = TeiMock(
+        info_documents=[tei_info_document()],
+        embed_outcomes=[
+            TeiOutcome(embeddings=[[1.0, 0.5, 0.25, 0.125]] * 2),
+            TeiOutcome(embeddings=[[1.0, 0.5, 0.25, 0.125]]),
+        ],
+    )
+    provider = TeiEmbeddingProvider(
+        base_url=_BASE_URL,
+        expected_model=_EXPECTED,
+        deployment_semantics=_DEPLOYMENT,
+        generation_config=_GENERATION,
+        runtime_config=EmbeddingRuntimeConfig(
+            batch_size=2,
+            timeout_seconds=5.0,
+            retry=EmbeddingRetryPolicy(),
+        ),
+        transport=mock.transport(),
+    )
+
+    manifest = embed_passages(provider, _inputs(3))
+
+    assert (
+        manifest.manifest_sha256
+        == _manifest(embeddings=[[1.0, 0.5, 0.25, 0.125]] * 3).manifest_sha256
+    )
+    assert len(mock.embed_requests) == 2
