@@ -109,6 +109,75 @@ class Settings(BaseSettings):
     """Documents per bulk request. Fixed rather than derived, so the same
     projection always produces the same request boundaries."""
 
+    # ------------------------------------------------------------------
+    # Embeddings (RES-137). Every entry is optional and defaults to "no
+    # embedding provider configured", because a TEI deployment is not required
+    # for the liveness, readiness or BM25 paths. Nothing here is read by
+    # /healthz, /readyz or /search, and the readiness probe does not treat a
+    # missing TEI as a degraded dependency: until a later feature explicitly
+    # activates embeddings, a project with no model server is complete.
+    #
+    # Split in two on purpose. `tei_expected_model_id`/`tei_expected_model_sha`
+    # are the *identity* the deployment insists on and are what make "TEI is
+    # serving something else" a local failure; the rest is execution policy and
+    # never reaches an embedding fingerprint.
+    # ------------------------------------------------------------------
+
+    tei_url: AnyHttpUrl | None = None
+    """Base URL of the Text Embeddings Inference deployment, if one is configured.
+
+    The adapter reads ``GET /info`` on this URL for the served model's identity
+    and ``POST /embed`` for vectors. No model name is ever sent to ``/embed``.
+    """
+
+    tei_expected_model_id: str | None = None
+    """Repository this deployment insists TEI is serving, for example ``BAAI/bge-small-en-v1.5``.
+
+    Compared against the *observed* ``/info`` ``model_id``, never used as a
+    request. Which model should be the default is RES-138's decision; this is
+    only the check that whatever is configured is actually being served.
+    """
+
+    tei_expected_model_sha: str | None = None
+    """Immutable Hugging Face Hub commit id this deployment insists on, 40 hex characters.
+
+    The part that actually fixes the weights. A tag, a branch or ``latest`` is
+    refused on construction: a mutable name would let vectors from different
+    weights enter one manifest under one model identity.
+    """
+
+    tei_api_key: SecretStr | None = Field(default=None, repr=False)
+    """Optional bearer token for a TEI started with ``--api-key``.
+
+    Sent as an ``Authorization`` header and never surfaced: not in an exception,
+    not in a message, not in a summary.
+    """
+
+    tei_verify_tls: bool = True
+
+    tei_timeout_seconds: float = Field(default=30.0, gt=0.0, le=600.0)
+    """Per-request upper bound for ``/info`` and ``/embed``.
+
+    Generous next to the OpenSearch timeout: an embedding batch on a cold CPU
+    backend is a real forward pass per input, not an index operation.
+    """
+
+    tei_batch_size: int = Field(default=32, ge=1, le=1024)
+    """Inputs per ``/embed`` request.
+
+    Fixed rather than derived, so the same passage set always produces the same
+    request partition. A value above the server's advertised
+    ``max_client_batch_size`` is a configuration error and fails the run rather
+    than being silently shrunk.
+    """
+
+    tei_max_attempts: int = Field(default=3, ge=1, le=10)
+    """Total attempts per request, including the first. No jitter anywhere."""
+
+    tei_retry_backoff_seconds: float = Field(default=0.5, ge=0.0, le=60.0)
+    """Base of the linear backoff schedule: the delay before attempt *n* is this
+    value times ``n - 1``. Operational only, never part of an embedding identity."""
+
     dependency_timeout_seconds: float = Field(default=5.0, gt=0.0, le=300.0)
     """Upper bound applied to every readiness dependency probe and to every
     OpenSearch operation."""

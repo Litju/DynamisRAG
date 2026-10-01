@@ -65,6 +65,7 @@ from dynamisrag.embedding.tei import (
     TeiEmbeddingProvider,
     TeiServingInfo,
     tei_embed_request_body,
+    tei_provider_from_settings,
 )
 
 __all__ = [
@@ -105,4 +106,5 @@ __all__ = [
     "canonical_json",
     "embed_passages",
     "tei_embed_request_body",
+    "tei_provider_from_settings",
 ]
