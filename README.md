@@ -15,6 +15,11 @@ The source code is publicly viewable. No license is granted to use, copy,
 modify, redistribute, sublicense, or create derivative works except where
 applicable law or GitHub's Terms of Service provide otherwise.
 
+The all-rights-reserved notice applies to original DynamisRAG code and
+documentation only. Third-party materials retain their own copyright and
+license terms. See `tests/fixtures/README.md` for notices applicable to test
+fixtures.
+
 ---
 
 ## Platform
@@ -440,3 +445,8 @@ serves both revisions and never selects a vector.
 This repository is public-source: the code is publicly viewable, but no
 software licence is granted. Copyright © 2026 Julio Rodriguez. All rights
 reserved. See the notice at the top of this README.
+
+The all-rights-reserved notice applies to original DynamisRAG code and
+documentation only. Third-party materials retain their own copyright and
+license terms. See `tests/fixtures/README.md` for notices applicable to test
+fixtures.
