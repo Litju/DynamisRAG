@@ -9,14 +9,14 @@ branches on.
       OpenSearchUnexpectedResponse   a response arrived but cannot be trusted
         OpenSearchBulkError          the bulk API reported item-level failures
       ProjectionError                the projection could not be built or verified
-        ProjectionConflictError      an index exists whose state contradicts the projection
+        ProjectionConflictError      a live index contradicts the projection and was left alone
       SearchBackendError             a search response could not be validated
 
 The nesting is meaningful: ``ProjectionConflictError`` *is* a
 ``ProjectionError``, and both are ``OpenSearchError``, so a caller that only
 wants "the backend misbehaved" catches the base type, while the projector can
-still single out the one condition that means "an index exists but must not be
-trusted".
+still single out the one condition that means "an index exists whose live state
+this projection cannot account for".
 
 **The untrusted-field policy, stated once**
 
@@ -204,8 +204,19 @@ class ProjectionError(OpenSearchError):
 
 
 class ProjectionConflictError(ProjectionError):
-    """An index of the deterministic name exists in a state that contradicts
-    the projection, so it must be deleted and rebuilt rather than trusted."""
+    """A completed verification proved a live index contradicts the projection.
+
+    Raised only when verification *ran to completion* and the active index's
+    document count or mapping ``_meta`` did not match the deterministic
+    manifest. It is never raised because verification could not be performed:
+    an unreadable index is an ``OpenSearchError`` of its own kind, and
+    collapsing the two would claim knowledge of the index's contents that a
+    failed read never provided.
+
+    Such an index is left exactly as it is. It may be the only complete copy of
+    a projection, and silently deleting or replacing what a live alias serves
+    converts a visible inconsistency into an outage.
+    """
 
     _CATEGORY: ClassVar[str] = "ProjectionConflict"
 
