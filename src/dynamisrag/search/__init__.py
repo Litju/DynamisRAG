@@ -8,6 +8,15 @@
 PostgreSQL stays the only authority. Everything in this package is derived from
 canonical state and can be deleted and rebuilt from it; no canonical fact is
 ever read from or written to OpenSearch.
+
+The publication protocol itself — build, verify, then move the alias
+atomically, never destroying a served index — lives in
+:mod:`dynamisrag.search.publication` and is shared by every schema revision.
+The dense-vector index contract (RES-136) is declared in
+:mod:`dynamisrag.search.vector` and rendered into a ``passage-index-v2`` mapping
+by :mod:`dynamisrag.search.schema`; embedding generation, model selection, ANN
+retrieval and hybrid fusion are deliberately absent and belong to RES-137,
+RES-138 and RES-139.
 """
 
 from __future__ import annotations
@@ -36,6 +45,7 @@ from dynamisrag.search.errors import (
     ProjectionConflictError,
     ProjectionError,
     SearchBackendError,
+    VectorContractError,
 )
 from dynamisrag.search.opensearch import OPENSEARCH_DEPENDENCY_NAME, OpenSearchProbe
 from dynamisrag.search.projection import (
@@ -45,14 +55,39 @@ from dynamisrag.search.projection import (
     ProjectionResult,
     build_projection_manifest,
 )
+from dynamisrag.search.publication import (
+    FailClosedAliasPublisher,
+    PublicationPlan,
+    PublicationResult,
+)
 from dynamisrag.search.schema import (
     BM25_SIMILARITY_NAME,
     BM25_SIMILARITY_PARAMS,
     BM25_SIMILARITY_REVISION,
     PASSAGE_INDEX_SCHEMA_REVISION,
+    VECTOR_PASSAGE_INDEX_SCHEMA_REVISION,
     index_mappings,
     index_settings,
     physical_index_name,
+    physical_vector_index_name,
+    vector_index_mappings,
+    vector_index_meta,
+    vector_index_settings,
+)
+from dynamisrag.search.vector import (
+    HNSW_EF_CONSTRUCTION,
+    HNSW_M,
+    SUPPORTED_VECTOR_SPACES,
+    VECTOR_ENGINE,
+    VECTOR_FIELD,
+    VECTOR_INDEX_METHOD,
+    VECTOR_INDEX_TYPE,
+    VECTOR_SPACE_COSINESIMIL,
+    VECTOR_SPACE_INNER_PRODUCT,
+    VECTOR_SPACE_L2,
+    EmbeddingModelIdentity,
+    VectorIndexConfig,
+    validate_vector_set,
 )
 
 __all__ = [
@@ -65,11 +100,24 @@ __all__ = [
     "BM25_SIMILARITY_REVISION",
     "BM25_TIE_BREAKER",
     "DEFAULT_LIMIT",
+    "HNSW_EF_CONSTRUCTION",
+    "HNSW_M",
     "MAX_LIMIT",
     "MIN_LIMIT",
     "OPENSEARCH_DEPENDENCY_NAME",
     "PASSAGE_INDEX_SCHEMA_REVISION",
+    "SUPPORTED_VECTOR_SPACES",
+    "VECTOR_ENGINE",
+    "VECTOR_FIELD",
+    "VECTOR_INDEX_METHOD",
+    "VECTOR_INDEX_TYPE",
+    "VECTOR_PASSAGE_INDEX_SCHEMA_REVISION",
+    "VECTOR_SPACE_COSINESIMIL",
+    "VECTOR_SPACE_INNER_PRODUCT",
+    "VECTOR_SPACE_L2",
     "Bm25SearchService",
+    "EmbeddingModelIdentity",
+    "FailClosedAliasPublisher",
     "OpenSearchBulkError",
     "OpenSearchClient",
     "OpenSearchError",
@@ -82,13 +130,22 @@ __all__ = [
     "ProjectionConflictError",
     "ProjectionError",
     "ProjectionResult",
+    "PublicationPlan",
+    "PublicationResult",
     "SearchBackendError",
     "SearchHit",
     "SearchResponse",
     "SearchSourceSpan",
+    "VectorContractError",
+    "VectorIndexConfig",
     "build_bm25_request",
     "build_projection_manifest",
     "index_mappings",
     "index_settings",
     "physical_index_name",
+    "physical_vector_index_name",
+    "validate_vector_set",
+    "vector_index_mappings",
+    "vector_index_meta",
+    "vector_index_settings",
 ]

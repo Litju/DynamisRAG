@@ -11,6 +11,7 @@ branches on.
       ProjectionError                the projection could not be built or verified
         ProjectionConflictError      a live index contradicts the projection and was left alone
       SearchBackendError             a search response could not be validated
+      VectorContractError            a vector index configuration or vector set is not usable
 
 The nesting is meaningful: ``ProjectionConflictError`` *is* a
 ``ProjectionError``, and both are ``OpenSearchError``, so a caller that only
@@ -58,6 +59,7 @@ __all__ = [
     "ProjectionConflictError",
     "ProjectionError",
     "SearchBackendError",
+    "VectorContractError",
 ]
 
 MAX_SAFE_DETAIL_LENGTH: Final[int] = 240
@@ -225,3 +227,22 @@ class SearchBackendError(OpenSearchError):
     """A search response could not be validated into a :class:`SearchResponse`."""
 
     _CATEGORY: ClassVar[str] = "UnexpectedPayload"
+
+
+class VectorContractError(OpenSearchError):
+    """A vector index configuration or vector set cannot be trusted.
+
+    Raised locally, before anything is sent, when the dense-vector contract is
+    violated: an unsupported or unstated distance function, a dimension outside
+    the accepted range, an embedding identity that is mutable or absent, a search
+    time parameter in an index mapping, or a ``passage_key`` ↔ vector set that is
+    not exactly one-to-one.
+
+    It is a :class:`OpenSearchError` so a caller that only needs to know "the
+    search boundary refused to proceed" catches one type, while an operator can
+    still single this condition out. Every value it reports is configuration or a
+    key this process was handed; a vector *component* is never echoed, because a
+    vector is derived from indexed article text.
+    """
+
+    _CATEGORY: ClassVar[str] = "VectorContractInvalid"
