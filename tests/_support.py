@@ -25,8 +25,11 @@ from dynamisrag.db.models import (
 
 __all__ = [
     "ALEMBIC_INI",
+    "FIXTURES_ROOT",
     "JATS_FULL_ARTICLE",
+    "JATS_PMC2731074",
     "JATS_SPARSE_ARTICLE",
+    "PMC2731074_ARTICLE_SHA256",
     "REPO_ROOT",
     "SECRET_ARTICLE_SENTINEL",
     "UNIT_TEST_PASSWORD",
@@ -43,6 +46,15 @@ __all__ = [
 
 REPO_ROOT: Final[Path] = Path(__file__).resolve().parents[1]
 """Repository root, derived from the test package rather than the CWD."""
+
+FIXTURES_ROOT: Final[Path] = Path(__file__).resolve().parent / "fixtures"
+"""Third-party documents served by the integration suite from disk.
+
+Each file is a byte-exact capture of what Europe PMC served, pinned by SHA-256
+and attributed in ``tests/fixtures/README.md``. Serving them from a mocked
+transport rather than fetching them is what keeps the suite deterministic and CI
+independent of a public service.
+"""
 
 ALEMBIC_INI: Final[Path] = REPO_ROOT / "alembic.ini"
 
@@ -189,6 +201,24 @@ JATS_SPARSE_ARTICLE: Final[bytes] = b"""<?xml version="1.0" encoding="UTF-8"?>
 </article>
 """
 """A minimal valid article: PMCID, title, one direct body paragraph."""
+
+
+JATS_PMC2731074: Final[bytes] = (FIXTURES_ROOT / "PMC2731074.xml").read_bytes()
+"""A real Europe PMC full-text article, captured byte for byte.
+
+    Silva MF, Sivieri K, Rossi EA. J Int Soc Sports Nutr 2009;6:17.
+    doi:10.1186/1550-2783-6-17, PMC2731074, CC BY 2.0.
+
+Kept as a file rather than inlined so the bytes stay inspectable, diffable and
+attributable; see ``tests/fixtures/README.md``. Its digest is pinned below because
+the projection identity of this article derives from it, so an unexpected byte
+change has to fail loudly rather than silently re-derive every passage key.
+"""
+
+PMC2731074_ARTICLE_SHA256: Final[str] = (
+    "4a8ed3a3b7d3044697f1462eebe653b06086b267d1fae5300b5d4344d34f3ab4"
+)
+"""SHA-256 of :data:`JATS_PMC2731074`, exactly as Europe PMC served it."""
 
 
 def build_settings(
