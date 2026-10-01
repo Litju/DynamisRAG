@@ -423,11 +423,17 @@ process.
 
 Implemented here: repository layout, dependency lock, strict configuration,
 FastAPI shell, liveness and readiness, PostgreSQL 18 connectivity, OpenSearch 3
-connectivity, Alembic baseline, and the lint/type/test/CI gates.
+connectivity, Alembic baseline, JATS canonical import, structure-aware chunking,
+the versioned deterministic passage projection (`passage-index-v1`), versioned BM25
+retrieval, the vector-capable projection (`passage-index-v2`, Lucene HNSW) and
+the lint/type/test/CI gates.
 
-Not implemented here, by design: the scientific schema, passage mappings, BM25
-retrieval, embeddings, vectors, ANN, hybrid retrieval, and any LLM or agent
-code. Those belong to later Linear issues.
+Not implemented here, by design: embedding generation, model selection, production
+ANN retrieval, hybrid retrieval, and any LLM or agent code. Those belong to later
+Linear issues. A `passage-index-v2` index therefore holds vectors **supplied by
+the caller**: this repository never generates, fetches or persists an embedding,
+and the vectors used in its tests are labelled synthetic test values. BM25 search
+serves both revisions and never selects a vector.
 
 ## Copyright
 
