@@ -11,7 +11,11 @@ The two properties that must never regress:
   no rebuild, no bulk traffic, no alias churn;
 * any failure before the alias switch leaves the alias exactly where it was.
   An orphan physical index may be left behind; a partially indexed index the
-  alias already points at never is.
+  alias already points at never is;
+* an index the alias *already* targets is never deleted by pre-cutover
+  recovery. When the desired deterministic index is active it is either
+  verified — and then nothing happens — or the run fails closed, whether the
+  verification found a mismatch or could not be performed at all.
 """
 
 from __future__ import annotations
@@ -26,7 +30,7 @@ from sqlalchemy.orm import Session
 
 from dynamisrag.db.canonical import PassageProjectionRecords
 from dynamisrag.search.client import OpenSearchClient
-from dynamisrag.search.errors import OpenSearchBulkError, ProjectionError
+from dynamisrag.search.errors import OpenSearchBulkError, ProjectionConflictError, ProjectionError
 from dynamisrag.search.projection import (
     PassageProjector,
     ProjectionResult,
@@ -395,25 +399,26 @@ def test_an_orphan_index_from_a_failed_build_is_deleted_and_rebuilt(
     ]
 
 
-def test_an_unverifiable_active_index_is_rebuilt_rather_than_trusted(
+def test_an_active_index_that_does_not_verify_is_reported_not_rebuilt(
     node: _Node, canonical: _Canonical, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     projector = _projector(node, canonical, monkeypatch)
     first = projector.project(chunker_revision=_CHUNKER_REVISION)
 
     # The alias still points at the right index and its `_meta` still matches,
-    # but its content no longer does. Unknown state must not be served: the
-    # index is deleted and rebuilt from canonical PostgreSQL.
+    # but its content no longer does. The index is the live read path, so it is
+    # left exactly as it is and the conflict is reported: unknown live state is
+    # never silently repaired, because deleting the served index risks trading a
+    # detectable inconsistency for an absent search path.
     node.documents[first.index_name] = node.documents[first.index_name][:1]
     node.calls.clear()
 
-    result = projector.project(chunker_revision=_CHUNKER_REVISION)
+    with pytest.raises(ProjectionConflictError):
+        projector.project(chunker_revision=_CHUNKER_REVISION)
 
-    assert result.created is True
-    assert result.index_name == first.index_name
-    assert f"DELETE /{first.index_name}" in node.calls
-    assert len(node.documents[first.index_name]) == 2
     assert node.alias_targets == {first.index_name}
+    assert first.index_name in node.indices
+    assert f"DELETE /{first.index_name}" not in node.calls
 
 
 # ---------------------------------------------------------------------------

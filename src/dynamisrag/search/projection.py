@@ -26,6 +26,26 @@ built index: build, bulk, verify, *then* switch atomically. A failure before
 the switch leaves an orphan physical index and the alias exactly where it was —
 strictly better than serving a partial index — and obsolete physical indexes
 are removed only after a successful cutover.
+
+**An index the stable alias currently targets is never destroyed by a
+pre-cutover rebuild.** The alias disappears together with the index it points
+at, so "delete it and rebuild" is only a safe recovery step while nothing is
+served from it. Once the desired deterministic index is the active target, the
+run either proves it is exactly this projection and does nothing, or fails
+closed:
+
+    verification completes and matches  -> created=False, zero mutations
+    verification completes, mismatch   -> ProjectionConflictError, zero mutations
+    verification cannot be performed   -> the OpenSearchError propagates, zero mutations
+
+The third case is the one that makes the distinction load-bearing. "The index
+could not be read" is not evidence that the index is wrong: a transient timeout
+against a perfectly healthy live projection must not be answered by deleting it
+and rebuilding, because if that rebuild then fails the alias is gone and a
+verification blip has become an outage. Unknown live state is reported, never
+silently repaired. The delete-and-rebuild path stays available for an index of
+the deterministic name that is *not* an alias target, where nothing is served
+from it and the rebuild provably cannot disturb the alias.
 """
 
 from __future__ import annotations
@@ -44,7 +64,7 @@ from dynamisrag.db.canonical import (
 )
 from dynamisrag.domain.values import IdentifierNamespace
 from dynamisrag.search.client import JsonValue, OpenSearchClient, canonical_json_line
-from dynamisrag.search.errors import OpenSearchError, ProjectionError
+from dynamisrag.search.errors import ProjectionConflictError, ProjectionError
 from dynamisrag.search.schema import (
     PASSAGE_INDEX_SCHEMA_REVISION,
     index_mappings,
@@ -359,15 +379,16 @@ class PassageProjector:
         manifest = self._manifest(chunker_revision=chunker_revision)
         index_name = manifest.index_name(alias=self._alias)
         previous = self._client.alias_targets(self._alias)
-        if index_name in previous and self._is_verified(index_name, manifest):
-            return self._result(manifest, index_name, created=False, removed=())
+        if index_name in previous:
+            return self._verify_active_target(manifest, index_name)
 
         if self._client.index_exists(index_name):
-            # Either an orphan from a failed earlier build, or the active index
-            # in a state that contradicts this projection. Both are unknown
-            # state that must not be trusted: delete and rebuild from canonical
-            # PostgreSQL. The name is deterministic, so the rebuild restores
-            # exactly the index that was removed.
+            # The deterministic name exists but the alias does not target it: an
+            # orphan from a failed earlier build that nothing can read. Deleting
+            # and rebuilding it from canonical PostgreSQL restores exactly the
+            # index that was removed, and cannot disturb the alias because the
+            # alias does not point here. An index that *is* an alias target is
+            # never reached by this branch — it failed closed above.
             self._client.delete_index(index_name)
 
         self._client.create_index(
@@ -424,13 +445,37 @@ class PassageProjector:
             )
         return ProjectionError(detail, operation="project")
 
-    def _is_verified(self, index_name: str, manifest: PassageProjectionManifest) -> bool:
-        """Whether the already-active index is exactly this projection."""
-        try:
-            return self._matches_manifest(index_name, manifest)
-        except OpenSearchError:
-            # An index we cannot even read back is not a verified projection.
-            return False
+    def _verify_active_target(
+        self, manifest: PassageProjectionManifest, index_name: str
+    ) -> ProjectionResult:
+        """Prove the index the alias already serves is exactly this projection.
+
+        Three outcomes, and they are kept strictly apart because conflating them
+        is what makes a healthy projection destroyable:
+
+        * **it matches** — the projection is already live, so the run is a
+          no-op and nothing is mutated;
+        * **verification completed and contradicts the manifest** — the live
+          index is state this projection cannot account for, so the run fails
+          closed with :class:`ProjectionConflictError`. It is *not* repaired:
+          deleting an index that is currently being served risks trading a
+          detectable inconsistency for an absent search path, and the operator
+          is the only one who can tell what the live index really is;
+        * **verification could not be performed** — a transport failure, a
+          timeout, an unreadable response. The :class:`OpenSearchError`
+          propagates unchanged, because it says nothing about the index's
+          contents. It is deliberately *not* turned into "not verified":
+          that conversion is the defect, not the remedy.
+        """
+        if self._matches_manifest(index_name, manifest):
+            return self._result(manifest, index_name, created=False, removed=())
+        raise ProjectionConflictError(
+            f"index {index_name} is the active target of alias {self._alias} but its document "
+            f"count or mapping _meta does not match projection "
+            f"{manifest.projection_sha256}; it was left untouched and the alias was not moved",
+            operation="project",
+            target=index_name,
+        )
 
     def _verify_built(self, index_name: str, manifest: PassageProjectionManifest) -> None:
         """Prove the freshly built index is complete before it can be served."""
@@ -442,6 +487,12 @@ class PassageProjector:
             )
 
     def _matches_manifest(self, index_name: str, manifest: PassageProjectionManifest) -> bool:
+        """Read-only: whether ``index_name`` holds exactly this projection.
+
+        Raises whatever the client raises. A read failure is an inability to
+        answer, not an answer of "no", and every caller must be able to tell the
+        two apart.
+        """
         count = self._client.count(index_name)
         if count != manifest.document_count:
             return False
