@@ -924,19 +924,44 @@ class EmbeddingProviderIdentity:
     def run_identity_payload(self) -> dict[str, object]:
         """Everything that must hold for the whole bracket of one embedding run.
 
-        The semantic runtime payload **plus the model identity**. The two are
-        separated because they answer different questions: the first is what the
-        fingerprint is made of, and the second must be *equal* between two
-        observations for a run to describe one index.
+        The three things :meth:`embedding_config_sha256` binds, all of which must be
+        *equal* between the two observations that bracket a run: the observed
+        semantic runtime, the model identity, and the attested deployment
+        semantics.
 
-        Leaving the model out of that comparison is the failure this method
-        exists to prevent. A provider that swaps models behind one URL between the
+        They are kept separable because they answer different questions. The
+        fingerprint is what a manifest records; the run identity is what a run is
+        required to have been produced under, and a provider may legitimately be
+        asked for one identity and refuse a second that differs in any of the three.
+
+        Leaving the model out of that comparison is one failure this method exists to
+        prevent. A provider that swaps models behind one URL between the
         ``describe()`` that opens a run and the ``describe()`` that closes it would
         return two sets of vectors that no single
         :class:`~dynamisrag.embedding.identity.EmbeddingModelIdentity` describes, and
         the manifest would record the first one. Nothing in the fingerprint would
         reveal it, because the fingerprint deliberately does not contain the model
         id: the artifact would state a model that produced some of its own vectors.
+
+        Leaving the deployment attestation out is the same failure, and it was the
+        harder one to see — the attestation is a *claim* rather than an observation,
+        so it looked like configuration rather than part of the run's identity. It is
+        not. Two batches bracketed by attestations ``A`` and ``B`` were embedded
+        under two unobservable startup policies, and the manifest would record only
+        ``A`` while naming vectors ``B`` also produced. Because
+        :meth:`embedding_config_sha256` does bind it, the two observations here
+        disagree on a value the manifest's own digest covers, so the run would
+        produce a record whose stated identity is not the identity everything in it
+        was made under.
+
+        **Nested, not flattened.** The attestation's keys are carried as the single
+        value of ``deployment_semantics`` rather than merged into the run payload.
+        :meth:`embedding_config_sha256` has to merge three payloads into one object
+        and therefore has to *refuse* a key that appears in two of them; a run
+        identity has no such need, because a nested value cannot displace anything.
+        Keeping the nesting means a provider can attest to a key named
+        ``provider`` or ``max_input_length`` without being told to rename it first,
+        and the run comparison stays total.
 
         Kept vendor-neutral on purpose. Whatever a provider happens to call its
         expected model, the run identity is this: same provider, same protocol
@@ -947,6 +972,7 @@ class EmbeddingProviderIdentity:
             **self.semantic_runtime_payload(),
             "model_id": self.model_id,
             "model_sha": self.model_sha,
+            "deployment_semantics": dict(self.deployment.payload()),
         }
 
     def embedding_config_sha256(self, generation_config: EmbeddingGenerationConfig) -> str:
@@ -1052,16 +1078,22 @@ class EmbeddingProviderIdentity:
         """Refuse a run whose two observations disagree, or return ``None``.
 
         Compares the **run identity** — see :meth:`run_identity_payload` — which is
-        the semantic runtime payload *and* the model identity. Both are load-bearing
-        for a single run, and a vendor-blind port that compared only the first would
-        accept a provider that changed model or revision mid-run and then recorded
-        the first identity over vectors from both.
+        the semantic runtime payload, *the model identity* and *the attested
+        deployment semantics*. All three are load-bearing for a single run, and a
+        vendor-blind port that compared less would accept a provider that changed
+        model, revision or startup policy mid-run and then recorded the first
+        identity over vectors from both.
+
+        The name still says ``semantic_runtime`` because this is where it was found
+        and renaming it would churn a public method for a docstring. What it
+        compares is the run identity, and it has been that since the model was added
+        to the payload.
 
         The remaining server-advertised capacity limits are excluded on purpose: a
-        restart that came back with the same weights, the same serving build and the
-        same truncation boundary produced the same numbers even if an operator
-        re-tuned a batching flag meanwhile, and failing on that would report a
-        drift that did not happen.
+        restart that came back with the same weights, the same serving build, the
+        same truncation boundary and the same attested startup policy produced the
+        same numbers even if an operator re-tuned a batching flag meanwhile, and
+        failing on that would report a drift that did not happen.
 
         Called once per embedding run, immediately before the first batch and again
         after the last. A model server can be restarted, or replaced behind the same
