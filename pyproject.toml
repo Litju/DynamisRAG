@@ -103,6 +103,9 @@ ignore = [
 "src/dynamisrag/jats/*.py" = [
     "N818",     # RES-133 fixes the JATS error surface names (JatsMissingRequiredMetadata, ...)
 ]
+"src/dynamisrag/embedding/*.py" = [
+    "N818",     # RES-137 fixes the TEI error surface names (TeiUnexpectedResponse, ...)
+]
 "src/dynamisrag/search/*.py" = [
     "N818",     # RES-135 fixes the OpenSearch error surface names (OpenSearchUnexpectedResponse, ...)
 ]

@@ -26,10 +26,14 @@ revision.
   implicit dimension, or one that inherits a distance function from a server
   default, cannot be reproduced and therefore cannot be verified.
 * The embedding model is identified by ``model_id`` **and** ``model_revision``
-  **and** the digest of the embedding-generation config. ``model_id`` alone is
-  not an identity — a tag moves — and a mutable alias such as ``latest`` names a
-  different set of vectors after every upstream release, so it is rejected here
-  rather than silently producing an index that no longer describes itself.
+  **and** the digest of the embedding-generation fingerprint. ``model_id`` alone
+  is not an identity — a tag moves — and a mutable alias such as ``latest`` names
+  a different set of vectors after every upstream release, so it is rejected
+  rather than silently producing an index that no longer describes itself. That
+  contract itself lives with the code that produces it, in
+  :mod:`dynamisrag.embedding.identity`, and is re-exported here; the embedding
+  provider that generates vectors is upstream of this package and must not have
+  to import a search backend to name the identity it produces.
 * ``m`` and ``ef_construction`` are module constants rather than constructor
   arguments, so a ``passage-index-v2`` index cannot be built with different HNSW
   parameters under the same schema revision. Changing them changes the graph and
@@ -51,12 +55,12 @@ reproducible and assertable without a node, a database or a model.
 from __future__ import annotations
 
 import hashlib
-import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from math import isfinite
 from typing import Final
 
+from dynamisrag.embedding.identity import EmbeddingModelIdentity
 from dynamisrag.search.client import JsonValue, canonical_json_line
 from dynamisrag.search.errors import VectorContractError
 
@@ -245,113 +249,6 @@ _POSITIVE_INFINITY: Final[float] = float("inf")
 _NEGATIVE_INFINITY: Final[float] = float("-inf")
 """Named infinities, so a caller constructing test vectors reads intent rather
 than a literal."""
-
-_MUTABLE_IDENTITY_TOKENS: Final[tuple[str, ...]] = (
-    "latest",
-    "default",
-    "current",
-    "stable",
-    "floating",
-    "head",
-    "main",
-)
-"""Aliases that name a moving target rather than an identity.
-
-Rejected in the model id and revision. ``model_id`` and ``model_revision`` exist
-so a stored index can state exactly which weights produced its vectors; a mutable
-alias defeats that, because the same string would later denote different vectors
-and the index would no longer describe itself.
-"""
-
-_MUTABLE_IDENTITY_PATTERN: Final[re.Pattern[str]] = re.compile(
-    r"(?:^|[^a-z0-9])(?:" + "|".join(_MUTABLE_IDENTITY_TOKENS) + r")(?:$|[^a-z0-9])",
-    re.IGNORECASE,
-)
-"""Token-bounded match, so a legitimate name that merely contains a token — a
-repo id like ``late-alignment``, or a model genuinely called
-``head-direction`` — is not caught by accident."""
-
-_LOWERCASE_SHA256: Final[re.Pattern[str]] = re.compile(r"^[0-9a-f]{64}$")
-
-_IDENTIFIER: Final[re.Pattern[str]] = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]*$")
-"""Model ids and revisions are opaque upstream identifiers — a repository id, a
-tag, a commit. Constrained only enough to reject whitespace and control
-characters, which would otherwise leak into a mapping ``_meta`` and an index
-name."""
-
-
-def _require_identifier(value: str, *, kind: str) -> str:
-    """Reject an empty, malformed or mutable identity string."""
-    if not value:
-        raise VectorContractError(
-            f"embedding {kind} must be an explicit, non-empty string; an absent or empty {kind} "
-            "would leave the index unable to state which weights produced its vectors",
-            operation="vector_config",
-        )
-    if _IDENTIFIER.fullmatch(value) is None:
-        raise VectorContractError(
-            f"embedding {kind} {value!r} is not a usable identifier: it must start with a letter "
-            "or digit and contain only letters, digits, '.', '_', ':', '/' and '-'",
-            operation="vector_config",
-        )
-    if _MUTABLE_IDENTITY_PATTERN.search(value) is not None:
-        raise VectorContractError(
-            f"embedding {kind} {value!r} names a moving target rather than an identity. A vector "
-            "index must be reproducible, so a mutable alias such as 'latest' is rejected: pin an "
-            "immutable revision and the digest of the embedding config instead.",
-            operation="vector_config",
-        )
-    return value
-
-
-def _require_sha256(value: str, *, kind: str) -> str:
-    if _LOWERCASE_SHA256.fullmatch(value) is None:
-        raise VectorContractError(
-            f"{kind} must be exactly 64 lowercase hexadecimal characters, got {value!r}. A digest, "
-            "not a name, is what makes the embedding config an identity.",
-            operation="vector_config",
-        )
-    return value
-
-
-@dataclass(frozen=True)
-class EmbeddingModelIdentity:
-    """The immutable identity of the model that produced a vector.
-
-    Three inseparable parts, all mandatory:
-
-    ``model_id``
-        Which model.
-    ``model_revision``
-        Which weights of that model. A tag moves, so without a revision the same
-        id denotes different vectors before and after an upstream release.
-    ``embedding_config_sha256``
-        The digest of the *generation* config — normalization, pooling, prompt
-        template, truncation, input prefix. The same weights under different
-        generation settings produce different vectors, so that config is part of
-        the identity rather than an operational detail.
-
-    Deliberately inert: this type identifies a model, it does not load one. Which
-    values are *correct* is RES-138's decision; this module only refuses
-    identities that could not be reproduced later.
-    """
-
-    model_id: str
-    model_revision: str
-    embedding_config_sha256: str
-
-    def __post_init__(self) -> None:
-        _require_identifier(self.model_id, kind="model id")
-        _require_identifier(self.model_revision, kind="model revision")
-        _require_sha256(self.embedding_config_sha256, kind="embedding config digest")
-
-    def payload(self) -> Mapping[str, JsonValue]:
-        """The canonical, hashable description of this identity."""
-        return {
-            "model_id": self.model_id,
-            "model_revision": self.model_revision,
-            "embedding_config_sha256": self.embedding_config_sha256,
-        }
 
 
 @dataclass(frozen=True)
