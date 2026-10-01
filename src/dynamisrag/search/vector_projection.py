@@ -6,6 +6,7 @@
         + an explicit chunker_revision
         -> VectorPassageProjectionManifest (pure, frozen, byte-reproducible)
         -> PublicationPlan
+        -> FailClosedAliasPublisher
 
 **The vectors are an input, never an output.** Nothing here generates, fetches,
 caches or stores an embedding: it does not know what an embedding model is, which
@@ -44,11 +45,11 @@ And the vector field is *indexed* but never *selected*: it is absent from
 are not comparable, and returning both invites a caller to treat one ranking as
 the other.
 
-**This module owns no I/O and no publication.** A manifest describes an index;
-:meth:`VectorPassageProjectionManifest.publication_plan` converts it into the
-schema-agnostic :class:`~dynamisrag.search.publication.PublicationPlan` the
-shared fail-closed publisher consumes. Deciding *what* to project and driving
-*how* it is published stay separate, exactly as they do for the lexical revision.
+This module owns no I/O. The single publication path — build, bulk, verify, then
+move the alias atomically — is
+:class:`dynamisrag.search.publication.FailClosedAliasPublisher`, reached through
+a :class:`~dynamisrag.search.publication.PublicationPlan`, exactly as the lexical
+revision reaches it. There is no second alias state machine.
 """
 
 from __future__ import annotations
@@ -56,12 +57,28 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from typing import Final
 
-from dynamisrag.db.canonical import PassageProjectionRecords
-from dynamisrag.search.client import JsonValue, canonical_json_line
+from sqlalchemy.orm import Session
+
+from dynamisrag.db.canonical import (
+    PassageProjectionRecords,
+    list_passage_chunker_revisions,
+    list_passage_projection_records,
+)
+from dynamisrag.search.client import JsonValue, OpenSearchClient, canonical_json_line
 from dynamisrag.search.errors import VectorContractError
-from dynamisrag.search.projection import PassageProjectionDocument, build_projection_manifest
-from dynamisrag.search.publication import PublicationPlan
+from dynamisrag.search.projection import (
+    DEFAULT_BULK_BATCH_SIZE,
+    PassageProjectionDocument,
+    build_projection_manifest,
+    no_passages_error,
+)
+from dynamisrag.search.publication import (
+    FailClosedAliasPublisher,
+    PublicationPlan,
+    PublicationResult,
+)
 from dynamisrag.search.schema import (
     VECTOR_PASSAGE_INDEX_SCHEMA_REVISION,
     physical_vector_index_name,
@@ -79,6 +96,8 @@ __all__ = [
     "PassageVector",
     "VectorPassageProjectionDocument",
     "VectorPassageProjectionManifest",
+    "VectorPassageProjector",
+    "VectorProjectionResult",
     "build_vector_projection_manifest",
 ]
 
@@ -415,3 +434,138 @@ def _vector_mapping(vectors: Sequence[PassageVector]) -> Mapping[str, Sequence[f
             )
         mapping[vector.passage_key] = vector.values
     return mapping
+
+
+@dataclass(frozen=True)
+class VectorProjectionResult:
+    """The outcome of one vectorized projection, safe to render as JSON.
+
+    The lexical :class:`~dynamisrag.search.projection.ProjectionResult` plus
+    :attr:`vector_config_sha256`, so a caller can state which configuration the
+    live index was built from without reading the mapping back. Every field is
+    application-authored: no vector value, no backend prose.
+    """
+
+    created: bool
+    chunker_revision: str
+    projection_schema_revision: str
+    projection_sha256: str
+    vector_config_sha256: str
+    document_count: int
+    index_name: str
+    alias: str
+    removed_index_names: tuple[str, ...]
+
+    def to_payload(self) -> dict[str, object]:
+        return {
+            "created": self.created,
+            "chunker_revision": self.chunker_revision,
+            "projection_schema_revision": self.projection_schema_revision,
+            "projection_sha256": self.projection_sha256,
+            "vector_config_sha256": self.vector_config_sha256,
+            "document_count": self.document_count,
+            "index_name": self.index_name,
+            "alias": self.alias,
+            "removed_index_names": list(self.removed_index_names),
+        }
+
+
+class VectorPassageProjector:
+    """Rebuilds the vector-capable OpenSearch passage projection.
+
+    Reads canonical passages from PostgreSQL and is handed the vectors; it never
+    generates, fetches or persists them. The absence of a vector store and of an
+    embedding provider is the point: this projector rebuilds the *index*, and the
+    vectors are an input the caller already has in hand. A rebuild that needed a
+    vector database would not be the disposal of a cache this design depends on.
+
+    Every OpenSearch operation is delegated to the shared fail-closed publisher,
+    so the cutover ordering and the fail-closed rules are the *same code* the
+    lexical revision runs, not a second copy of them. The projector holds no
+    OpenSearch client of its own — :attr:`__slots__` is what makes that
+    structural rather than a convention.
+    """
+
+    __slots__ = ("_publisher", "_session", "_vector_config")
+
+    def __init__(
+        self,
+        session: Session,
+        client: OpenSearchClient,
+        *,
+        alias: str,
+        vector_config: VectorIndexConfig,
+        batch_size: int = DEFAULT_BULK_BATCH_SIZE,
+    ) -> None:
+        """Bind a projector to one read session, one client and one config.
+
+        ``vector_config`` is bound once rather than passed per call because it is
+        a property of the index, not of a run: letting two calls on one projector
+        declare different configurations would mean the projector has no single
+        identity. ``session`` is used for reading only.
+        """
+        self._session: Final[Session] = session
+        self._vector_config: Final[VectorIndexConfig] = vector_config
+        self._publisher: Final[FailClosedAliasPublisher] = FailClosedAliasPublisher(
+            client, alias=alias, batch_size=batch_size
+        )
+
+    @property
+    def vector_config(self) -> VectorIndexConfig:
+        """The configuration every publication by this projector uses."""
+        return self._vector_config
+
+    def project(
+        self, *, chunker_revision: str, vectors: Sequence[PassageVector]
+    ) -> VectorProjectionResult:
+        """Project exactly ``chunker_revision``'s passages plus ``vectors``.
+
+        The revision is an explicit, mandatory selection for the same reason it
+        is in the lexical projector: PostgreSQL may hold several immutable passage
+        sets for one document version. ``vectors`` is mandatory for the same
+        reason and one more: it is part of the index's identity, so it is supplied
+        explicitly rather than defaulted, guessed or inferred from the first
+        document.
+        """
+        records = list_passage_projection_records(self._session, chunker_revision=chunker_revision)
+        if not records:
+            # An empty projection would replace a live alias with an index
+            # holding nothing, so it is never produced.
+            raise no_passages_error(
+                chunker_revision=chunker_revision,
+                available=list_passage_chunker_revisions(self._session),
+            )
+        manifest = build_vector_projection_manifest(
+            records,
+            chunker_revision=chunker_revision,
+            vector_config=self._vector_config,
+            vectors=vectors,
+        )
+        publication = self._publisher.publish(
+            manifest.publication_plan(alias=self._publisher.alias)
+        )
+        return self._result(manifest, publication)
+
+    @staticmethod
+    def _result(
+        manifest: VectorPassageProjectionManifest, publication: PublicationResult
+    ) -> VectorProjectionResult:
+        """Add this projection's semantics to the schema-agnostic outcome.
+
+        The publisher reports what happened to the index and the alias; only this
+        module knows which projection and which vector configuration were
+        published. Kept as a separate step so the published bytes and the
+        reported bytes stay independent descriptions that a test can hold against
+        each other.
+        """
+        return VectorProjectionResult(
+            created=publication.created,
+            chunker_revision=manifest.chunker_revision,
+            projection_schema_revision=manifest.schema_revision,
+            projection_sha256=manifest.projection_sha256,
+            vector_config_sha256=manifest.vector_config.config_sha256,
+            document_count=publication.document_count,
+            index_name=publication.index_name,
+            alias=publication.alias,
+            removed_index_names=publication.removed_index_names,
+        )

@@ -70,6 +70,7 @@ __all__ = [
     "ProjectionResult",
     "ProjectionSourceSpan",
     "build_projection_manifest",
+    "no_passages_error",
 ]
 
 
@@ -326,6 +327,34 @@ def _document_from_record(
     )
 
 
+def no_passages_error(*, chunker_revision: str, available: Sequence[str]) -> ProjectionError:
+    """The one error an empty canonical passage selection is allowed to produce.
+
+    Raised instead of building an empty projection, which would silently replace
+    a live alias with an index holding nothing. The revisions that *do* exist are
+    named, because the actionable cause is almost always a mismatched revision
+    string rather than an empty corpus.
+
+    Shared by every schema revision's projector: the wording and the available
+    revisions are properties of the canonical read, not of the index being
+    published, so a v2 projection of an empty corpus fails with exactly the same
+    error a v1 projection does.
+    """
+    if not available:
+        return ProjectionError(
+            f"projection of chunker revision {chunker_revision!r} found no passages: the "
+            "canonical corpus contains no passages at all. Chunk and materialize the "
+            "canonical source structure before projecting.",
+            operation="project",
+        )
+    return ProjectionError(
+        f"projection of chunker revision {chunker_revision!r} found no passages; the "
+        f"canonical corpus contains passages only for {list(available)}. Project the "
+        "revision that actually exists instead of guessing one.",
+        operation="project",
+    )
+
+
 @dataclass(frozen=True)
 class ProjectionResult:
     """The outcome of one projection run, safe to render as JSON."""
@@ -399,31 +428,17 @@ class PassageProjector:
         """Read canonical rows and build the manifest, failing loudly on an
         empty selection.
 
-        An empty projection would silently replace a live alias with an index
-        holding nothing, so it is never produced. When the requested revision
-        has no passages the revisions that *do* exist are named, because the
-        actionable cause is almost always a mismatched revision string.
+        The revision lookup that produces ``available`` happens only here, where
+        the failure is already established, so a successful projection reads the
+        available revisions exactly once and never at all.
         """
         records = list_passage_projection_records(self._session, chunker_revision=chunker_revision)
         if not records:
-            raise self._no_passages_error(chunker_revision)
+            raise no_passages_error(
+                chunker_revision=chunker_revision,
+                available=list_passage_chunker_revisions(self._session),
+            )
         return build_projection_manifest(records, chunker_revision=chunker_revision)
-
-    def _no_passages_error(self, chunker_revision: str) -> ProjectionError:
-        available = list_passage_chunker_revisions(self._session)
-        if not available:
-            detail = (
-                f"projection of chunker revision {chunker_revision!r} found no passages: the "
-                "canonical corpus contains no passages at all. Chunk and materialize the "
-                "canonical source structure before projecting."
-            )
-        else:
-            detail = (
-                f"projection of chunker revision {chunker_revision!r} found no passages; the "
-                f"canonical corpus contains passages only for {list(available)}. Project the "
-                "revision that actually exists instead of guessing one."
-            )
-        return ProjectionError(detail, operation="project")
 
     @staticmethod
     def _result(
