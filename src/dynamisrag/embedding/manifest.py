@@ -63,10 +63,11 @@ from dynamisrag.embedding.contracts import (
     MIN_EMBEDDING_DIMENSION,
     EmbeddingGenerationConfig,
     EmbeddingInput,
+    EmbeddingProvider,
     EmbeddingProviderIdentity,
     canonical_json,
 )
-from dynamisrag.embedding.errors import EmbeddingManifestError
+from dynamisrag.embedding.errors import EmbeddingContractError, EmbeddingManifestError
 from dynamisrag.embedding.identity import EmbeddingModelIdentity
 
 if TYPE_CHECKING:
@@ -78,6 +79,7 @@ __all__ = [
     "PassageEmbeddingManifest",
     "build_passage_embedding_manifest",
     "canonical_embedding_inputs",
+    "embed_passages",
 ]
 
 PASSAGE_EMBEDDING_MANIFEST_REVISION: Final[str] = "passage-embeddings-v1"
@@ -266,6 +268,80 @@ class PassageEmbeddingManifest:
             "document_count": self.document_count,
             "entries": [entry.payload() for entry in self.entries],
         }
+
+
+def embed_passages(
+    provider: EmbeddingProvider,
+    inputs: Sequence[EmbeddingInput],
+) -> PassageEmbeddingManifest:
+    """Embed one passage set into the deterministic manifest. The run, end to end.
+
+    The sequence is fixed, and every step of it exists for a stated reason:
+
+    1. **Canonicalise.** Sort by ``passage_key`` and refuse a duplicate, *before*
+       the provider is touched. This decides the sequence of ``/embed`` request
+       bodies as well as the manifest, so a shuffled caller produces byte-identical
+       requests and not merely a byte-identical result.
+    2. **Observe.** ``describe()`` reads the runtime's own statement of who it is.
+       This happens before the first batch, and the identity it returns is the one
+       the manifest will record.
+    3. **Check feasibility.** The configured ``batch_size`` must fit inside the
+       advertised ``max_client_batch_size``. The batch is not shrunk to fit: the
+       client-side partition is part of a reproducible run, so a batch the server
+       cannot accept is a configuration error.
+    4. **Generate.** ``embed()`` over the canonical order. Order in, order out.
+    5. **Observe again.** The runtime may have restarted, or been replaced behind
+       the same URL, while the batches were in flight. The two observations must
+       agree semantically or the whole run is refused — a manifest of vectors
+       produced under two identities is not reproducible and names no index that
+       could be rebuilt.
+    6. **Bind.** Attach vectors to passages through the inputs, observe the
+       dimension, and hash.
+
+    Two ``/info`` reads and nothing else, and no window between the observation
+    that is recorded and the work it brackets: step 5 re-reads immediately after
+    the final batch, so the identity the manifest states is proved to have held
+    across the generation rather than assumed to.
+
+    Deliberately the only place that knows this order exists. A caller reaching
+    for ``provider.embed`` directly gets vectors and no drift proof, which is the
+    honest split: the work is the provider's, the run is the caller's.
+    """
+    canonical = canonical_embedding_inputs(inputs)
+    observed_before = provider.describe()
+    _require_supported_batch_size(provider=provider, identity=observed_before)
+    embeddings = provider.embed(canonical)
+    observed_after = provider.describe()
+    observed_before.require_same_semantic_runtime(observed_after, operation="embed_passages")
+    return build_passage_embedding_manifest(
+        canonical,
+        embeddings,
+        provider=observed_before,
+        generation_config=provider.generation_config,
+    )
+
+
+def _require_supported_batch_size(
+    *, provider: EmbeddingProvider, identity: EmbeddingProviderIdentity
+) -> None:
+    """Refuse a configured batch the runtime cannot accept, instead of shrinking it.
+
+    Checked against the *observed* limit rather than a remembered one, and never
+    clamped: silently shrinking would produce the same vectors under a different
+    partition, which is exactly the invisible difference a manifest digest cannot
+    explain and a rebuild could not reproduce.
+    """
+    configured = provider.batch_size
+    limit = identity.max_client_batch_size
+    if configured > limit:
+        raise EmbeddingContractError(
+            f"configured embedding batch_size {configured} exceeds the runtime's advertised "
+            f"max_client_batch_size {limit}. The batch is deliberately not shrunk to fit: the "
+            "client-side partition is part of a reproducible run, so a batch the serving runtime "
+            "cannot accept is a configuration error rather than something to clamp.",
+            operation="embed_passages",
+            category="BatchSizeUnsupported",
+        )
 
 
 def canonical_embedding_inputs(inputs: Sequence[EmbeddingInput]) -> tuple[EmbeddingInput, ...]:
