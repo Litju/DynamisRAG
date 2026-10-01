@@ -100,6 +100,8 @@ from dynamisrag.search.vector_projection import (
     PassageVector,
     VectorPassageProjectionDocument,
     VectorPassageProjectionManifest,
+    VectorPassageProjector,
+    VectorProjectionResult,
     build_vector_projection_manifest,
 )
 
@@ -155,6 +157,8 @@ __all__ = [
     "VectorIndexConfig",
     "VectorPassageProjectionDocument",
     "VectorPassageProjectionManifest",
+    "VectorPassageProjector",
+    "VectorProjectionResult",
     "build_bm25_request",
     "build_projection_manifest",
     "build_vector_projection_manifest",
