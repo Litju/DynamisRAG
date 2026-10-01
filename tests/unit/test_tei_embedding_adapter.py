@@ -30,8 +30,10 @@ from unittest.mock import patch
 
 import httpx2
 import pytest
+from pydantic import AnyHttpUrl
 
 from dynamisrag.embedding import (
+    REFERENCE_TEI_DEPLOYMENT_SEMANTICS,
     TEI_HTTP_PROTOCOL_REVISION,
     TEI_PROVIDER_NAME,
     EmbeddingContractError,
@@ -42,15 +44,19 @@ from dynamisrag.embedding import (
     EmbeddingRuntimeConfig,
     ExpectedTeiModel,
     PassageEmbeddingManifest,
+    TeiDefaultPromptMode,
+    TeiDeploymentSemantics,
     TeiEmbeddingProvider,
     TeiIdentityError,
     TeiServingInfo,
     TeiTransportError,
     TeiUnexpectedResponse,
     TruncationDirection,
+    canonical_json,
     embed_passages,
     passage_content_sha256,
     tei_embed_request_body,
+    tei_provider_from_settings,
 )
 from dynamisrag.embedding import tei as tei_module
 from tests._support import (
@@ -60,6 +66,7 @@ from tests._support import (
     TEI_VERSION,
     TeiMock,
     TeiOutcome,
+    build_settings,
     tei_error_envelope,
     tei_info_document,
 )
@@ -69,6 +76,13 @@ _DIMENSION: Final[int] = 4
 _EXPECTED: Final[ExpectedTeiModel] = ExpectedTeiModel(
     model_id=TEI_MODEL_ID, model_sha=TEI_MODEL_SHA
 )
+_DEPLOYMENT: Final[TeiDeploymentSemantics] = REFERENCE_TEI_DEPLOYMENT_SEMANTICS
+"""The attestation the reference ``compose.embedding.yaml`` is written to satisfy.
+
+Used for every construction here because these tests are about the wire protocol
+and the identity, not about a particular startup policy. The policy's own
+behaviour is proved separately, against the value and against the compose file.
+"""
 _GENERATION: Final[EmbeddingGenerationConfig] = EmbeddingGenerationConfig(
     normalize=True,
     truncate=False,
@@ -101,10 +115,12 @@ def _provider(
     backoff: float = 0.5,
     bearer_token: str | None = None,
     slept: list[float] | None = None,
+    deployment_semantics: TeiDeploymentSemantics = _DEPLOYMENT,
 ) -> TeiEmbeddingProvider:
     return TeiEmbeddingProvider(
         base_url=_BASE_URL,
         expected_model=_EXPECTED,
+        deployment_semantics=deployment_semantics,
         generation_config=_GENERATION,
         runtime_config=_runtime(batch_size=batch_size, max_attempts=max_attempts, backoff=backoff),
         bearer_token=bearer_token,
@@ -183,9 +199,258 @@ def test_info_happy_path_reports_the_observed_identity() -> None:
     assert identity.model_sha == TEI_MODEL_SHA
     assert identity.model_dtype == "float32"
     assert identity.model_pooling == "cls"
+    assert identity.max_input_length == 512
     assert identity.max_client_batch_size == 8
     assert [request.path for request in mock.info_requests] == ["/info"]
     provider.close()
+
+
+# ---------------------------------------------------------------------------
+# Deployment semantics: attested, never observed
+# ---------------------------------------------------------------------------
+
+
+def test_the_attested_policy_is_readable_and_is_not_claimed_as_observed() -> None:
+    """The provider carries the policy it was configured with, and says so.
+
+    ``/info`` cannot report a default prompt or a dense-path override, so the only
+    honest thing to do is hold the claim where it was made and let the fingerprint
+    record it. Nothing here pretends the server confirmed it.
+    """
+    mock = TeiMock(info_documents=[tei_info_document()], embed_outcomes=[])
+    provider = _provider(mock)
+
+    assert provider.deployment_semantics is _DEPLOYMENT
+    identity = provider.describe()
+    assert identity.deployment is _DEPLOYMENT
+    assert identity.deployment.payload() == {
+        "tei_default_prompt_mode": "none",
+        "tei_default_prompt_name": None,
+        "tei_default_prompt_sha256": None,
+        "tei_dense_path": None,
+    }
+    # The identity's own observed half is untouched by the attestation.
+    assert identity.model_id == TEI_MODEL_ID
+    assert "default_prompt" not in tei_info_document()
+    provider.close()
+
+
+def test_a_null_prompt_name_means_the_attested_server_default() -> None:
+    """``prompt_name: null`` is sent verbatim, and means what the attestation says.
+
+    Upstream tokenization resolves a null ``prompt_name`` to the deployment's
+    default prompt, so this is not "no prompt" — it is "whatever the server was
+    started with". The request cannot express the difference, which is exactly why
+    the policy is stated in the identity instead.
+    """
+    assert _GENERATION.prompt_name is None
+    body = tei_embed_request_body(["x"], _GENERATION)
+
+    assert b'"prompt_name":null' in body
+
+
+@pytest.mark.parametrize(
+    ("semantics", "expected_mode"),
+    [
+        (TeiDeploymentSemantics(), "none"),
+        (
+            TeiDeploymentSemantics(
+                default_prompt_mode=TeiDefaultPromptMode.NAMED, default_prompt_name="query"
+            ),
+            "named",
+        ),
+        (TeiDeploymentSemantics.with_literal_default_prompt("query: "), "literal"),
+    ],
+    ids=["none", "named", "literal"],
+)
+def test_each_startup_policy_is_representable_and_binds_into_the_fingerprint(
+    semantics: TeiDeploymentSemantics, expected_mode: str
+) -> None:
+    """Each of TEI's three default-prompt states reaches the fingerprint.
+
+    Compared against a *fixed other* policy rather than a shared baseline, because
+    "none" is itself the reference deployment: comparing it with itself would make
+    the assertion vacuous for exactly the case that matters most.
+    """
+    other = TeiDeploymentSemantics(
+        default_prompt_mode=TeiDefaultPromptMode.NAMED, default_prompt_name="other"
+    )
+    identity = _provider(
+        TeiMock(info_documents=[tei_info_document()], embed_outcomes=[]),
+        deployment_semantics=semantics,
+    ).describe()
+    baseline = _provider(
+        TeiMock(info_documents=[tei_info_document()], embed_outcomes=[]),
+        deployment_semantics=other,
+    ).describe()
+
+    assert identity.deployment.payload()["tei_default_prompt_mode"] == expected_mode
+    assert identity.deployment.payload() != other.payload()
+    assert identity.embedding_config_sha256(_GENERATION) != (
+        baseline.embedding_config_sha256(_GENERATION)
+    )
+
+
+def test_the_three_default_prompt_policies_are_three_distinct_identities() -> None:
+    """Nothing in ``/info`` separates these three, so the fingerprint must.
+
+    Same build, same weights, same dtype, same pooling, same limits and the same
+    request bytes: the only difference is a container flag. If one digest covered
+    all three, a manifest would be comparable with pools of vectors that are not.
+    """
+    digests = {
+        policy: _provider(
+            TeiMock(info_documents=[tei_info_document()], embed_outcomes=[]),
+            deployment_semantics=policy,
+        )
+        .describe()
+        .embedding_config_sha256(_GENERATION)
+        for policy in (
+            TeiDeploymentSemantics(),
+            TeiDeploymentSemantics(
+                default_prompt_mode=TeiDefaultPromptMode.NAMED, default_prompt_name="query"
+            ),
+            TeiDeploymentSemantics.with_literal_default_prompt("query: "),
+        )
+    }
+
+    assert len(set(digests.values())) == 3
+
+
+def test_a_literal_default_prompt_is_bound_by_digest_and_never_stored() -> None:
+    """The prompt text never becomes provenance; its digest does.
+
+    An operator's default prompt is deployment-authored prose, and a manifest is a
+    durable record, so the value that identifies it is the digest and the text is
+    dropped at the door.
+    """
+    prompt = f"{SECRET_ARTICLE_SENTINEL} default prompt"
+
+    semantics = TeiDeploymentSemantics.with_literal_default_prompt(prompt)
+    payload = semantics.payload()
+
+    assert payload["tei_default_prompt_sha256"] == hashlib.sha256(prompt.encode()).hexdigest()
+    assert payload["tei_default_prompt_name"] is None
+    rendered = canonical_json(payload)
+    _assert_no_sentinel("literal default prompt payload", rendered)
+    _assert_no_sentinel("literal default prompt str", str(semantics))
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "expected"),
+    [
+        (
+            {
+                "default_prompt_mode": TeiDefaultPromptMode.NAMED,
+                "default_prompt_name": "query",
+                "dense_path": None,
+            },
+            None,
+        ),
+        (
+            {"default_prompt_mode": TeiDefaultPromptMode.NONE, "default_prompt_name": "query"},
+            "while the default prompt policy says",
+        ),
+        (
+            {"default_prompt_mode": TeiDefaultPromptMode.NAMED},
+            "must name it",
+        ),
+        (
+            {
+                "default_prompt_mode": TeiDefaultPromptMode.LITERAL,
+                "default_prompt_sha256": "not-a-digest",
+            },
+            "64 lowercase hexadecimal",
+        ),
+        (
+            {"default_prompt_mode": TeiDefaultPromptMode.LITERAL},
+            "must bind the SHA-256",
+        ),
+        ({"dense_path": "/etc/passwd"}, "not a deterministic model-relative path"),
+        ({"dense_path": "../../elsewhere"}, "not a deterministic model-relative path"),
+        ({"dense_path": ""}, "not a deterministic model-relative path"),
+        ({"dense_path": "dense/2 Dense"}, "not a deterministic model-relative path"),
+        ({"dense_path": "dense/2_Dense"}, None),
+    ],
+    ids=[
+        "consistent-named",
+        "name-without-policy",
+        "policy-without-name",
+        "literal-bad-digest",
+        "literal-without-digest",
+        "absolute-dense-path",
+        "traversing-dense-path",
+        "empty-dense-path",
+        "spaced-dense-path",
+        "model-relative-dense-path",
+    ],
+)
+def test_an_unusable_deployment_attestation_is_refused_at_construction(
+    kwargs: dict[str, object], expected: str | None
+) -> None:
+    """The policy and the values have to agree, or the fingerprint describes nothing.
+
+    Refused here rather than at ``describe()``: an attestation that contradicts
+    itself is a configuration bug, and the cheapest moment to hear about it is
+    before a socket is opened.
+    """
+    if expected is None:
+        assert TeiDeploymentSemantics(**kwargs).payload() is not None  # type: ignore[arg-type]
+        return
+
+    with pytest.raises(EmbeddingContractError, match=expected):
+        TeiDeploymentSemantics(**kwargs)  # type: ignore[arg-type]
+
+
+def test_an_empty_literal_default_prompt_is_refused() -> None:
+    """An empty template is the 'none' policy, not a third one."""
+    with pytest.raises(EmbeddingContractError, match="must be non-empty"):
+        TeiDeploymentSemantics.with_literal_default_prompt("")
+
+
+def test_the_provider_refuses_to_be_built_without_an_attestation() -> None:
+    """No default: an unstated startup policy is the failure this contract prevents."""
+    mock = TeiMock(info_documents=[tei_info_document()], embed_outcomes=[])
+
+    with pytest.raises(TypeError, match="deployment_semantics"):
+        TeiEmbeddingProvider(  # type: ignore[call-arg]
+            base_url=_BASE_URL,
+            expected_model=_EXPECTED,
+            generation_config=_GENERATION,
+            runtime_config=_runtime(batch_size=1),
+            transport=mock.transport(),
+        )
+
+
+def test_settings_built_providers_use_the_reference_attestation() -> None:
+    """The application path attests to the reference deployment, by name.
+
+    ``tei_provider_from_settings`` defaults to
+    :data:`REFERENCE_TEI_DEPLOYMENT_SEMANTICS` because that is what
+    ``compose.embedding.yaml`` starts; a deployment started any other way passes its
+    own attestation rather than silently keeping the reference one.
+    """
+    settings = build_settings().model_copy(
+        update={
+            "tei_url": AnyHttpUrl("http://tei.invalid:8080"),
+            "tei_expected_model_id": TEI_MODEL_ID,
+            "tei_expected_model_sha": TEI_MODEL_SHA,
+        }
+    )
+
+    provider = tei_provider_from_settings(settings, generation_config=_GENERATION)
+    attested = tei_provider_from_settings(
+        settings,
+        generation_config=_GENERATION,
+        deployment_semantics=TeiDeploymentSemantics(
+            default_prompt_mode=TeiDefaultPromptMode.NAMED, default_prompt_name="query"
+        ),
+    )
+
+    assert provider.deployment_semantics == REFERENCE_TEI_DEPLOYMENT_SEMANTICS
+    assert attested.deployment_semantics.default_prompt_name == "query"
+    provider.close()
+    attested.close()
 
 
 def test_info_parses_the_externally_tagged_model_type_object() -> None:
@@ -200,19 +465,110 @@ def test_info_parses_the_externally_tagged_model_type_object() -> None:
     assert _provider(mock).describe().model_pooling == "cls"
 
 
-@pytest.mark.parametrize("pooling", [None, "mean", "cls", "last_token"])
-def test_info_accepts_every_pooling_spelling(pooling: str | None) -> None:
-    """The variant payload is model configuration, not part of this contract.
+@pytest.mark.parametrize("pooling", ["mean", "cls", "last_token"])
+def test_info_records_every_named_pooling(pooling: str) -> None:
+    """Pooling is recorded exactly as served, whatever the head is.
 
-    ``{"embedding": null}`` is what a dense model with no pooling layer reports,
-    and ``{"embedding": "mean"}`` is the plain-string spelling. Only the variant
-    name is load-bearing, so only it is required.
+    What matters is not *which* pooling but that it is named at all, so each
+    variant name is recorded verbatim and reaches the fingerprint.
     """
     mock = TeiMock(
-        info_documents=[tei_info_document(model_type={"embedding": pooling})],
+        info_documents=[tei_info_document(model_type={"embedding": {"pooling": pooling}})],
         embed_outcomes=[],
     )
+
     assert _provider(mock).describe().model_pooling == pooling
+
+
+@pytest.mark.parametrize(
+    "model_type",
+    [
+        None,
+        "embedding",
+        {"embedding": {}},
+        {"embedding": {"pooling": ""}},
+        {"embedding": {"pooling": None}},
+        {"embedding": {"pooling": 3}},
+        {"embedding": {"pooling": True}},
+        {"embedding": {"pooling": ["cls"]}},
+        {"embedding": {"pooling": None, "extra": 1}},
+        {"embedding": None},
+        {"embedding": "mean"},
+        {"embedding": ["cls"]},
+    ],
+    ids=[
+        "absent",
+        "bare-string",
+        "empty-object",
+        "empty-pooling",
+        "null-pooling",
+        "numeric-pooling",
+        "boolean-pooling",
+        "list-pooling",
+        "extra-keys",
+        "null-payload",
+        "string-payload",
+        "list-payload",
+    ],
+)
+def test_an_embedding_variant_without_usable_pooling_is_refused(model_type: object) -> None:
+    """Pooling is load-bearing, so "unknown" must never enter the identity.
+
+    Every one of these documents once produced an identity with
+    ``model_pooling=None``: the parser accepted the variant key, found no usable
+    pooling, and recorded the absence as though it were a fact. A ``None`` pooling
+    is then hashed into ``embedding_config_sha256`` and written into the manifest,
+    where it reads as a decision rather than a gap — and CLS over the same weights
+    is a different vector space from mean, so the two are not comparable at all.
+
+    The refusals happen at ``describe()``, before any vector is generated.
+    """
+    mock = TeiMock(info_documents=[tei_info_document(model_type=model_type)], embed_outcomes=[])
+    provider = _provider(mock)
+
+    with pytest.raises(TeiIdentityError, match="pooling"):
+        provider.describe()
+
+    assert mock.embed_requests == []
+    provider.close()
+
+
+@pytest.mark.parametrize(
+    "model_type",
+    [
+        {},
+        {"embedding": {"pooling": "cls"}, "reranker": {"pooling": "mean"}},
+    ],
+    ids=["no-variant", "two-variants"],
+)
+def test_a_model_type_naming_anything_but_one_variant_is_refused(model_type: object) -> None:
+    """Zero variants names nothing; several names an ambiguity. Neither is guessed at."""
+    mock = TeiMock(info_documents=[tei_info_document(model_type=model_type)], embed_outcomes=[])
+
+    with pytest.raises(TeiIdentityError, match="variant keys"):
+        _provider(mock).describe()
+
+    assert mock.embed_requests == []
+
+
+def test_a_refused_pooling_echoes_a_bounded_value_not_the_document() -> None:
+    """The value is length-bounded for control; the document is never relayed.
+
+    A base URL pointing at something that is not TEI can carry a hostile
+    ``model_type``, and a traceback that repeated 8 KiB of it would bury the
+    actionable sentence.
+    """
+    hostile: list[str] = ["p" * 512] * 16
+    mock = TeiMock(
+        info_documents=[tei_info_document(model_type={"embedding": {"pooling": hostile}})],
+        embed_outcomes=[],
+    )
+
+    with pytest.raises(TeiIdentityError) as caught:
+        _provider(mock).describe()
+
+    assert "p" * 512 not in str(caught.value)
+    assert len(str(caught.value)) < 1024
 
 
 def test_info_ignores_unknown_fields() -> None:
@@ -395,6 +751,7 @@ def test_embed_serializes_the_configured_semantics(
     provider = TeiEmbeddingProvider(
         base_url=_BASE_URL,
         expected_model=_EXPECTED,
+        deployment_semantics=_DEPLOYMENT,
         generation_config=config,
         runtime_config=_runtime(batch_size=1),
         transport=mock.transport(),
@@ -616,6 +973,7 @@ def test_embed_requires_the_requested_dimension() -> None:
     provider = TeiEmbeddingProvider(
         base_url=_BASE_URL,
         expected_model=_EXPECTED,
+        deployment_semantics=_DEPLOYMENT,
         generation_config=config,
         runtime_config=_runtime(batch_size=1),
         transport=mock.transport(),
@@ -637,6 +995,7 @@ def test_embed_accepts_the_requested_dimension() -> None:
     provider = TeiEmbeddingProvider(
         base_url=_BASE_URL,
         expected_model=_EXPECTED,
+        deployment_semantics=_DEPLOYMENT,
         generation_config=config,
         runtime_config=_runtime(batch_size=1),
         transport=mock.transport(),
@@ -893,6 +1252,7 @@ def test_the_retry_body_is_built_once_not_once_per_attempt() -> None:
     provider = TeiEmbeddingProvider(
         base_url=_BASE_URL,
         expected_model=_EXPECTED,
+        deployment_semantics=_DEPLOYMENT,
         generation_config=_GENERATION,
         runtime_config=_runtime(batch_size=1),
         transport=mock.transport(),
@@ -1281,6 +1641,7 @@ def test_the_base_url_is_normalised() -> None:
     provider = TeiEmbeddingProvider(
         base_url=f"{_BASE_URL}/",
         expected_model=_EXPECTED,
+        deployment_semantics=_DEPLOYMENT,
         generation_config=_GENERATION,
         runtime_config=_runtime(batch_size=1),
         transport=mock.transport(),
@@ -1342,6 +1703,7 @@ def test_a_mutable_expected_revision_is_refused_before_any_request(mutable: str)
         TeiEmbeddingProvider(
             base_url=_BASE_URL,
             expected_model=ExpectedTeiModel(model_id=TEI_MODEL_ID, model_sha=mutable),
+            deployment_semantics=_DEPLOYMENT,
             generation_config=_GENERATION,
             runtime_config=_runtime(batch_size=1),
             transport=mock.transport(),
@@ -1365,6 +1727,7 @@ def test_a_mutable_expected_model_id_is_refused_before_any_request(mutable: str)
         TeiEmbeddingProvider(
             base_url=_BASE_URL,
             expected_model=ExpectedTeiModel(model_id=mutable, model_sha=TEI_MODEL_SHA),
+            deployment_semantics=_DEPLOYMENT,
             generation_config=_GENERATION,
             runtime_config=_runtime(batch_size=1),
             transport=mock.transport(),
@@ -1380,6 +1743,7 @@ def test_a_missing_expected_model_is_refused_before_any_request() -> None:
         TeiEmbeddingProvider(
             base_url=_BASE_URL,
             expected_model=ExpectedTeiModel(model_id="", model_sha=TEI_MODEL_SHA),
+            deployment_semantics=_DEPLOYMENT,
             generation_config=_GENERATION,
             runtime_config=_runtime(batch_size=1),
             transport=mock.transport(),

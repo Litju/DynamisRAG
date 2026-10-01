@@ -1,12 +1,22 @@
 """The model-agnostic embedding boundary (RES-137).
 
     canonical passages
-        -> EmbeddingInput              (frozen, content-addressed)
+        -> EmbeddingInput              (frozen, content-addressed, text bound to
+                                        its own digest)
         -> EmbeddingProvider           (a port that knows no vendor)
         -> TEI adapter                 (one HTTP protocol, revision tei-http-v1)
         -> exact vectors
         -> PassageEmbeddingManifest    (deterministic, byte-reproducible)
         -> PassageVector / EmbeddingModelIdentity  (the RES-136 boundary)
+
+Three things decide what a vector *is*, and they are kept separable because a
+fingerprint that merges the wrong two lies: the **observed** runtime identity
+(:class:`EmbeddingProviderIdentity`), the **attested** startup semantics of the
+serving process (:class:`EmbeddingDeploymentSemantics`, which no status document
+can report), and the **requested** generation semantics
+(:class:`EmbeddingGenerationConfig`). All three are hashed into
+``embedding_config_sha256``. Execution policy — batch size, timeout, retries,
+capacity limits — is not, and never can be.
 
 PostgreSQL stays the only authority for what a passage *is*. Everything here is
 derived from it and can be deleted and rebuilt; nothing here reads or writes a
@@ -24,6 +34,7 @@ from __future__ import annotations
 from dynamisrag.embedding.contracts import (
     MIN_EMBEDDING_DIMENSION,
     TRUNCATION_DIRECTIONS,
+    EmbeddingDeploymentSemantics,
     EmbeddingGenerationConfig,
     EmbeddingInput,
     EmbeddingJsonValue,
@@ -31,6 +42,7 @@ from dynamisrag.embedding.contracts import (
     EmbeddingProviderIdentity,
     EmbeddingRetryPolicy,
     EmbeddingRuntimeConfig,
+    ProtocolFixedDeploymentSemantics,
     TruncationDirection,
     canonical_json,
     passage_content_sha256,
@@ -57,6 +69,7 @@ from dynamisrag.embedding.manifest import (
 )
 from dynamisrag.embedding.tei import (
     NON_RETRYABLE_TEI_STATUS_CODES,
+    REFERENCE_TEI_DEPLOYMENT_SEMANTICS,
     TEI_EMBED_PATH,
     TEI_EMBEDDING_MODEL_TYPE,
     TEI_HTTP_PROTOCOL_REVISION,
@@ -64,6 +77,8 @@ from dynamisrag.embedding.tei import (
     TEI_PROVIDER_NAME,
     TRANSIENT_TEI_STATUS_CODES,
     ExpectedTeiModel,
+    TeiDefaultPromptMode,
+    TeiDeploymentSemantics,
     TeiEmbeddingProvider,
     TeiServingInfo,
     tei_embed_request_body,
@@ -75,6 +90,7 @@ __all__ = [
     "MIN_EMBEDDING_DIMENSION",
     "NON_RETRYABLE_TEI_STATUS_CODES",
     "PASSAGE_EMBEDDING_MANIFEST_REVISION",
+    "REFERENCE_TEI_DEPLOYMENT_SEMANTICS",
     "TEI_EMBEDDING_MODEL_TYPE",
     "TEI_EMBED_PATH",
     "TEI_HTTP_PROTOCOL_REVISION",
@@ -83,6 +99,7 @@ __all__ = [
     "TRANSIENT_TEI_STATUS_CODES",
     "TRUNCATION_DIRECTIONS",
     "EmbeddingContractError",
+    "EmbeddingDeploymentSemantics",
     "EmbeddingGenerationConfig",
     "EmbeddingInput",
     "EmbeddingJsonValue",
@@ -97,6 +114,9 @@ __all__ = [
     "ExpectedTeiModel",
     "PassageEmbeddingEntry",
     "PassageEmbeddingManifest",
+    "ProtocolFixedDeploymentSemantics",
+    "TeiDefaultPromptMode",
+    "TeiDeploymentSemantics",
     "TeiEmbeddingProvider",
     "TeiIdentityError",
     "TeiServingInfo",

@@ -3,19 +3,26 @@
 Three separable concerns, deliberately kept apart because conflating them is the
 mistake that makes an embedding index unreproducible:
 
-* :class:`EmbeddingGenerationConfig` — **semantics.** What was asked of the
-  model: normalization, truncation and its direction, the prompt template, the
+* :class:`EmbeddingGenerationConfig` — **request semantics.** What was asked of
+  the model: normalization, truncation and its direction, the prompt template, the
   requested dimensions. These values change the numbers the model returns, so
   they are hashed into the downstream ``embedding_config_sha256``.
+* :class:`EmbeddingDeploymentSemantics` and
+  :class:`ProtocolFixedDeploymentSemantics` — **startup semantics.** What the
+  serving process was *launched* with: a default prompt, a dense-module override.
+  No request can state these and no status document can report them, so they are
+  attested rather than observed — and they are hashed into the same digest, because
+  two servers differing only in a startup flag return different vectors for
+  byte-identical requests.
+* :class:`EmbeddingProviderIdentity` — **observed provenance.** What the serving
+  runtime *said it was*, read from the server and never from a branch, a tag,
+  ``latest`` or a client-side string.
 * :class:`EmbeddingRuntimeConfig` and :class:`EmbeddingRetryPolicy` —
   **execution policy.** Batch size, timeout, attempt count, backoff. None of
   these change a single returned float; they only change how the work is
   scheduled. They are therefore never hashed into a semantic identity, and a run
   that needed three attempts instead of one produces the same vectors and the
   same manifest as a run that needed one.
-* :class:`EmbeddingProviderIdentity` — **observed provenance.** What the serving
-  runtime *said it was*, read from the server and never from a branch, a tag,
-  ``latest`` or a client-side string.
 
 **The port is vendor-blind.** :class:`EmbeddingProvider` mentions no TEI, no
 HTTP, no base URL, no OpenSearch, no PostgreSQL and no model family. Its two
@@ -50,6 +57,7 @@ from dynamisrag.embedding.identity import (
 __all__ = [
     "MIN_EMBEDDING_DIMENSION",
     "TRUNCATION_DIRECTIONS",
+    "EmbeddingDeploymentSemantics",
     "EmbeddingGenerationConfig",
     "EmbeddingInput",
     "EmbeddingJsonValue",
@@ -57,6 +65,7 @@ __all__ = [
     "EmbeddingProviderIdentity",
     "EmbeddingRetryPolicy",
     "EmbeddingRuntimeConfig",
+    "ProtocolFixedDeploymentSemantics",
     "TruncationDirection",
     "canonical_json",
     "passage_content_sha256",
@@ -535,30 +544,108 @@ class EmbeddingRuntimeConfig:
 
 
 @dataclass(frozen=True)
+class ProtocolFixedDeploymentSemantics:
+    """Deployment semantics for a serving protocol that has no per-deployment knobs.
+
+    Some serving APIs expose everything that affects their output through the
+    request, so there is no startup configuration left over that could change the
+    floats. Stating *that* is not the same as staying silent about it: an omitted
+    attestation would be indistinguishable from an adapter that simply forgot to
+    declare an unobservable ``--default-prompt``, and the first thing to be
+    compared is what the manifest records.
+
+    Naming it keeps the field on
+    :class:`EmbeddingProviderIdentity` mandatory, so no provider can reach a
+    fingerprint without saying where its numbers came from.
+    """
+
+    def payload(self) -> Mapping[str, object]:
+        return {"deployment_semantics": "fixed-by-protocol-revision"}
+
+    def __str__(self) -> str:
+        return "no per-deployment startup semantics; all output semantics are requested"
+
+
+class EmbeddingDeploymentSemantics(Protocol):
+    """Startup semantics that change the vectors and that no request can state.
+
+    This is the third thing an embedding fingerprint has to bind, and it exists
+    because two of the usual three are not enough:
+
+    * :class:`EmbeddingProviderIdentity` — what the server was observed to be;
+    * :class:`EmbeddingGenerationConfig` — what the request asked for.
+
+    Neither covers a startup flag. A model server can be launched with a default
+    prompt, a dense-module override or a truncation boundary that no request
+    mentions, and two servers differing only in those flags return different
+    vectors for byte-identical requests. If that state is not bound, one
+    ``embedding_config_sha256`` covers two deployments that produce incomparable
+    floats — which is the exact failure the fingerprint exists to make impossible.
+
+    **Implementations state a policy; they never claim to have observed it.**
+    A serving runtime that cannot report its own startup configuration -- which
+    is the normal case, and the case for TEI -- leaves the provider attesting to a
+    policy it was configured with. The honest way to model that is to say so in
+    the type and in the name, and to hash the policy into the fingerprint so the
+    artifact records the assumption it was made under. A subclass states *which*
+    knobs exist and what this deployment claims about them.
+
+    :meth:`payload` must be **disjoint** from
+    :meth:`EmbeddingGenerationConfig.payload`: a colliding key would let one half
+    of the fingerprint silently overwrite the other, and the overwritten half would
+    stop being part of the identity. The collision is refused rather than resolved.
+    """
+
+    def payload(self) -> Mapping[str, object]:
+        """The canonical, hashable description of this deployment's startup semantics.
+
+        Key names must be namespaced to whatever they describe (``tei_*``,
+        ``openai_*``) for the same reason: two vendors' attestations are hashed
+        into the same fingerprint, and an unprefixed ``default_prompt`` would
+        collide across them.
+        """
+        ...
+
+
+@dataclass(frozen=True)
 class EmbeddingProviderIdentity:
-    """What a provider *observed* about itself, plus the semantic fingerprint.
+    """What a provider observed about itself, what it attests about itself, and
+    the semantic fingerprint built from both.
 
-    Every field here is something the provider **read from the server**, not
-    something a caller configured. That distinction is the whole provenance
-    story: a configured model name is a claim, and a floating one is a claim
-    about a moving target; the served ``model_id`` together with an immutable
-    ``model_sha`` is evidence.
+    Three sources of truth, kept separable because they are separable in the world
+    and collapsing them is what makes a fingerprint lie:
 
-    :meth:`embedding_config_sha256` binds both the observed serving runtime and
-    the requested generation semantics, because a TEI implementation change
-    changes the floats it returns even for identical bytes in an identical
-    request. That digest is what becomes
+    **Observed** — every field except :attr:`deployment` is something the provider
+    *read from the server*. A configured model name is a claim, and a floating one
+    is a claim about a moving target; the served ``model_id`` together with an
+    immutable ``model_sha`` is evidence.
+
+    **Attested** — :attr:`deployment` is a policy this process was configured
+    with, because the serving runtime cannot be asked. It is hashed into the
+    fingerprint for exactly that reason, and it is named ``attested`` everywhere
+    rather than presented as an observation.
+
+    **Requested** — :class:`EmbeddingGenerationConfig` is not a field here; it is
+    supplied per request, and is folded into the same digest.
+
+    :meth:`embedding_config_sha256` binds all three, because a TEI implementation
+    change, a server default prompt and a different normalization each change the
+    floats independently. That digest is what becomes
     :attr:`~dynamisrag.embedding.identity.EmbeddingModelIdentity.embedding_config_sha256`
     downstream, while the model id and revision stay separate first-class fields
     so they can be read without decomposing a digest.
 
-    ``max_client_batch_size``, ``max_input_length``, ``max_batch_tokens`` and
-    ``max_batch_requests`` are the served deployment's advertised capacity. They
-    are readable on this value and are deliberately **absent from
-    :meth:`payload`**, and therefore from every digest taken over it: they describe
-    how much the server could do at once, not what the vectors are, and a
-    re-tuned ``--max-client-batch-size`` would otherwise rename every index built
-    from weights that never changed.
+    ``max_input_length`` is **semantic, not capacity**. TEI uses it as the
+    tokenizer truncation boundary, so with ``truncate`` on, 512 and 1024 embed
+    different tokens and can return different vectors; it is therefore in
+    :meth:`semantic_runtime_payload` and in every digest taken over it.
+
+    ``max_client_batch_size``, ``max_batch_tokens`` and ``max_batch_requests`` are
+    the served deployment's advertised capacity. They remain readable on this value
+    and are deliberately **absent from :meth:`payload`**, and therefore from every
+    digest taken over it: they describe how much the server could do at once, not
+    what the vectors are, and a re-tuned ``--max-client-batch-size`` would
+    otherwise rename every index built from weights that never changed.
     """
 
     provider: str
@@ -569,18 +656,46 @@ class EmbeddingProviderIdentity:
     model_id: str
     model_sha: str
     model_dtype: str
-    model_pooling: str | None
-    max_client_batch_size: int
+    model_pooling: str
     max_input_length: int
+    max_client_batch_size: int
     max_batch_tokens: int
     max_batch_requests: int | None
+    deployment: EmbeddingDeploymentSemantics
+
+    def __post_init__(self) -> None:
+        """Refuse an embedding identity that does not know its own pooling.
+
+        Pooling is load-bearing — CLS and mean pooling over identical weights are
+        vectors in different spaces — so an identity carrying ``None`` would put
+        "unknown" into the fingerprint and record it in the artifact as though it
+        were a fact. A provider that genuinely does not know is refused here,
+        which is the earliest point, rather than being admitted and hashed.
+        """
+        if not self.model_pooling:
+            raise EmbeddingContractError(
+                "an embedding provider identity must state the pooling its runtime uses. Pooling "
+                "is load-bearing -- CLS and mean pooling over identical weights are vectors in "
+                "different spaces -- so an identity that does not know it would record 'unknown' "
+                "as a fact and hash it into the fingerprint. A serving runtime that cannot report "
+                "its pooling must be refused.",
+                operation="embedding_provider_identity",
+            )
+        if not dict(self.deployment.payload()):
+            raise EmbeddingContractError(
+                "an embedding provider identity must state its deployment semantics, even if only "
+                "to say that the serving protocol fixes them. An empty attestation cannot be "
+                "distinguished from an adapter that failed to declare an unobservable startup "
+                "flag, so the fingerprint would bind an assumption nobody recorded.",
+                operation="embedding_provider_identity",
+            )
 
     def semantic_runtime_payload(self) -> dict[str, object]:
         """The observed runtime facts that bind the numerical output.
 
         Exactly the runtime half of the embedding fingerprint: which provider
-        spoke, under which protocol revision, running which TEI build, over which
-        weights dtype, and with which pooling.
+        spoke, under which protocol revision, running which build, over which
+        weights dtype, with which pooling, and truncating at which length.
 
         Pooling belongs here rather than in the request semantics because it is
         not a request parameter — it is decided when the serving container starts,
@@ -589,8 +704,22 @@ class EmbeddingProviderIdentity:
         leaving it out would make two runs of the same model look interchangeable
         when nothing about them is.
 
-        Deliberately excluded: the server-advertised capacity limits, and the
-        docker label. The label is a convenience string derived from the same
+        ``max_input_length`` belongs here for the same kind of reason, and it used
+        to be filed as capacity, which was wrong. It is the tokenizer truncation
+        boundary, so with ``truncate`` on, 512 and 1024 embed different tokens
+        and return different vectors. A field that decides which tokens the model
+        sees is not a statement about how much work the server could do at once.
+
+        **Not here, on purpose:** ``model_id`` and ``model_sha``. They stay
+        first-class, readable fields on
+        :class:`~dynamisrag.embedding.identity.EmbeddingModelIdentity` — folding
+        them into a digest would make them unreadable without decompressing it,
+        and the downstream identity would lose the one thing an operator asks
+        first. They *are* part of the run identity, though: see
+        :meth:`run_identity_payload`.
+
+        Deliberately excluded: the remaining server-advertised capacity limits, and
+        the docker label. The label is a convenience string derived from the same
         build as ``runtime_sha``, so hashing it would add a second spelling of an
         identity that is already pinned; a capacity limit is not an identity at
         all.
@@ -602,25 +731,78 @@ class EmbeddingProviderIdentity:
             "tei_sha": self.runtime_sha,
             "model_dtype": self.model_dtype,
             "model_pooling": self.model_pooling,
+            "max_input_length": self.max_input_length,
+        }
+
+    def run_identity_payload(self) -> dict[str, object]:
+        """Everything that must hold for the whole bracket of one embedding run.
+
+        The semantic runtime payload **plus the model identity**. The two are
+        separated because they answer different questions: the first is what the
+        fingerprint is made of, and the second must be *equal* between two
+        observations for a run to describe one index.
+
+        Leaving the model out of that comparison is the failure this method
+        exists to prevent. A provider that swaps models behind one URL between the
+        ``describe()`` that opens a run and the ``describe()`` that closes it would
+        return two sets of vectors that no single
+        :class:`~dynamisrag.embedding.identity.EmbeddingModelIdentity` describes, and
+        the manifest would record the first one. Nothing in the fingerprint would
+        reveal it, because the fingerprint deliberately does not contain the model
+        id: the artifact would state a model that produced some of its own vectors.
+
+        Kept vendor-neutral on purpose. Whatever a provider happens to call its
+        expected model, the run identity is this: same provider, same protocol
+        revision, same build, same weights, same dtype, same pooling, same
+        truncation boundary, same deployment attestation.
+        """
+        return {
+            **self.semantic_runtime_payload(),
+            "model_id": self.model_id,
+            "model_sha": self.model_sha,
         }
 
     def embedding_config_sha256(self, generation_config: EmbeddingGenerationConfig) -> str:
         """The embedding-generation fingerprint digest.
 
-        Taken over the observed runtime identity and the requested generation
-        semantics together, because the same request against two TEI builds, or
-        the same weights under different normalization, produce different vectors.
-        Downstream this value *is* the model's ``embedding_config_sha256``: a
-        vector index that names one runtime and one request semantic set is
-        comparable with another that does the same, and nothing else is.
+        Taken over **three** things, each of which changes the returned floats
+        independently of the other two:
+
+        1. the observed semantic runtime (:meth:`semantic_runtime_payload`),
+        2. the attested deployment semantics (:attr:`deployment`),
+        3. the requested generation semantics.
+
+        Dropping any one of them produces a digest that covers two different
+        deployments. Two TEI builds can honour identical bytes and return
+        different floats; so can two servers that differ only in a ``--default-
+        prompt`` nobody mentioned; so can the same weights under different
+        normalization. Downstream this value *is* the model's
+        ``embedding_config_sha256``: a vector index that names one runtime, one
+        deployment attestation and one request semantic set is comparable with
+        another that does the same, and with nothing else.
+
+        The three payloads are merged into one flat object, so a key that appears
+        in two of them would silently displace one of them from the digest. That
+        is refused rather than resolved: a fingerprint that quietly dropped half
+        of what it claims to bind is worse than no fingerprint, because it is
+        indistinguishable from a correct one.
         """
+        runtime = self.semantic_runtime_payload()
+        deployment = dict(self.deployment.payload())
+        requested = generation_config.payload()
+        overlapping = sorted((runtime.keys() | requested.keys()) & deployment.keys())
+        if overlapping:
+            raise EmbeddingContractError(
+                f"an embedding deployment attestation declares {overlapping}, which the observed "
+                "runtime or the generation config already binds under the same name. The three "
+                f"halves of {self.protocol_revision!r}'s fingerprint are merged into one object, "
+                "so a shared key would displace one of them from the digest and leave a "
+                "fingerprint that silently under-binds what it claims to. Namespace the deployment "
+                "keys.",
+                operation="embedding_config_sha256",
+            )
         return hashlib.sha256(
-            canonical_json(
-                {
-                    **self.semantic_runtime_payload(),
-                    **generation_config.payload(),
-                }
-            ).encode("utf-8")
+            canonical_json({**runtime, **deployment, **requested}).encode("utf-8")
         ).hexdigest()
 
     def embedding_model_identity(
@@ -642,28 +824,39 @@ class EmbeddingProviderIdentity:
     def payload(self) -> dict[str, object]:
         """The recorded provider provenance that the manifest binds.
 
-        The observed *identity*: which provider and protocol revision, which TEI
-        build, which weights at which dtype with which pooling, the repository and
-        its immutable commit, and the container stamp that build was distributed
-        under.
+        The observed *identity* plus the attested *deployment semantics*: which
+        provider and protocol revision, which build, which weights at which dtype
+        with which pooling, truncating at which length, the repository and its
+        immutable commit, the container stamp that build was distributed under,
+        and the startup policy this process is attesting to.
 
-        Deliberately **excludes** the server-advertised capacity limits
-        (``max_client_batch_size``, ``max_input_length``, ``max_batch_tokens``,
+        The deployment attestation is recorded even though the server cannot
+        report it. A manifest that names a pool of vectors without saying which
+        unobservable startup policy produced them cannot be compared with another
+        manifest, and cannot be rebuilt from a different container that happens to
+        serve the same weights.
+
+        Deliberately **excludes** the remaining server-advertised capacity limits
+        (``max_client_batch_size``, ``max_batch_tokens``,
         ``max_batch_requests``). They remain readable on the identity for
         operators, but they are not in the bytes, because they describe the
         deployment's capacity rather than what the vectors *are* — and a capacity
         re-tune would otherwise rename every index built from a model whose
         weights never changed. The client-side request partition is unhashed for
         the same reason and in the same breath: neither is an identity.
+        (``max_input_length`` is the one that was reclassified: it is the
+        tokenizer truncation boundary, so it decides which tokens the model sees.)
 
-        Safe to render: every value is a model or server identifier or a digest.
-        No endpoint URL, credential, hostname, timing or passage content.
+        Safe to render: every value is a model or server identifier, a digest, a
+        count or an enumeration chosen by this process. No endpoint URL,
+        credential, hostname, timing or passage content.
         """
         return {
             **self.semantic_runtime_payload(),
             "tei_docker_label": self.runtime_docker_label,
             "model_id": self.model_id,
             "model_sha": self.model_sha,
+            "deployment_semantics": dict(self.deployment.payload()),
         }
 
     def require_same_semantic_runtime(
@@ -671,26 +864,30 @@ class EmbeddingProviderIdentity:
     ) -> None:
         """Refuse a run whose two observations disagree, or return ``None``.
 
-        Compares only the *semantic* runtime identity — see
-        :meth:`semantic_runtime_payload`. The server-advertised capacity limits
-        are excluded on purpose: a restart that came back with the same weights,
-        the same serving build and the same dtype produced the same numbers even
-        if an operator re-tuned a batching flag meanwhile, and failing on that
-        would report a drift that did not happen.
+        Compares the **run identity** — see :meth:`run_identity_payload` — which is
+        the semantic runtime payload *and* the model identity. Both are load-bearing
+        for a single run, and a vendor-blind port that compared only the first would
+        accept a provider that changed model or revision mid-run and then recorded
+        the first identity over vectors from both.
 
-        Called once per embedding run, immediately before the first batch and
-        again after the last. A model server can be restarted, or replaced behind
-        the same URL, while batches are in flight; the vectors it produced on
-        either side of that would be a set of floats no single model identity
-        describes, and would name an index nothing could rebuild.
+        The remaining server-advertised capacity limits are excluded on purpose: a
+        restart that came back with the same weights, the same serving build and the
+        same truncation boundary produced the same numbers even if an operator
+        re-tuned a batching flag meanwhile, and failing on that would report a
+        drift that did not happen.
+
+        Called once per embedding run, immediately before the first batch and again
+        after the last. A model server can be restarted, or replaced behind the same
+        URL, while batches are in flight; the vectors it produced on either side of
+        that would be a set of floats no single model identity describes, and would
+        name an index nothing could rebuild.
         """
-        if self.semantic_runtime_payload() == observed_later.semantic_runtime_payload():
+        if self.run_identity_payload() == observed_later.run_identity_payload():
             return
         raise TeiIdentityError(
-            "the provider's semantic runtime identity changed during one embedding run, so this "
-            "run's batch vectors were not all produced by one model. No manifest is produced: a "
-            "set of vectors spanning two identities is not reproducible and names no index that "
-            "could be rebuilt.",
+            "the provider's run identity changed during one embedding run, so this run's batch "
+            "vectors were not all produced by one model. No manifest is produced: a set of vectors "
+            "spanning two identities is not reproducible and names no index that could be rebuilt.",
             operation=operation,
         )
 
