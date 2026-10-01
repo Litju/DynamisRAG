@@ -27,12 +27,14 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Final
 
 import pytest
 
 from dynamisrag.embedding import (
     PASSAGE_EMBEDDING_MANIFEST_REVISION,
+    REFERENCE_TEI_DEPLOYMENT_SEMANTICS,
     EmbeddingContractError,
     EmbeddingGenerationConfig,
     EmbeddingInput,
@@ -43,7 +45,11 @@ from dynamisrag.embedding import (
     ExpectedTeiModel,
     PassageEmbeddingEntry,
     PassageEmbeddingManifest,
+    ProtocolFixedDeploymentSemantics,
+    TeiDefaultPromptMode,
+    TeiDeploymentSemantics,
     TeiEmbeddingProvider,
+    TeiIdentityError,
     TruncationDirection,
     build_passage_embedding_manifest,
     canonical_embedding_inputs,
@@ -67,6 +73,9 @@ _RUN_DIMENSION: Final[int] = _DIMENSION
 _EXPECTED: Final[ExpectedTeiModel] = ExpectedTeiModel(
     model_id=TEI_MODEL_ID, model_sha=TEI_MODEL_SHA
 )
+_DEPLOYMENT: Final[TeiDeploymentSemantics] = REFERENCE_TEI_DEPLOYMENT_SEMANTICS
+"""The reference deployment's attestation, so these runs are the ones a teammate
+reproduces from ``compose.embedding.yaml``."""
 _GENERATION: Final[EmbeddingGenerationConfig] = EmbeddingGenerationConfig(
     normalize=True,
     truncate=False,
@@ -92,6 +101,7 @@ def _identity(**overrides: object) -> EmbeddingProviderIdentity:
         "max_input_length": 512,
         "max_batch_tokens": 8192,
         "max_batch_requests": 8,
+        "deployment": _DEPLOYMENT,
     }
     values.update(overrides)
     return EmbeddingProviderIdentity(**values)  # type: ignore[arg-type]
@@ -173,6 +183,7 @@ def _run(
     provider = TeiEmbeddingProvider(
         base_url=_BASE_URL,
         expected_model=_EXPECTED,
+        deployment_semantics=_DEPLOYMENT,
         generation_config=_GENERATION,
         runtime_config=EmbeddingRuntimeConfig(
             batch_size=batch_size,
@@ -220,7 +231,9 @@ def test_the_manifest_serializes_canonically() -> None:
         + b'","values":[1.0,1.25,1.5,1.75]}],"generation_config":{"dimensions":null,'
         b'"normalize":true,"prompt_name":null,"truncate":false,'
         b'"truncation_direction":"right"},"manifest_revision":"passage-embeddings-v1",'
-        b'"provider":{"model_dtype":"float32","model_id":"'
+        b'"provider":{"deployment_semantics":{"tei_default_prompt_mode":"none",'
+        b'"tei_default_prompt_name":null,"tei_default_prompt_sha256":null,"tei_dense_path":null},'
+        b'"max_input_length":512,"model_dtype":"float32","model_id":"'
         + TEI_MODEL_ID.encode()
         + b'","model_pooling":"cls","model_sha":"'
         + TEI_MODEL_SHA.encode()
@@ -316,17 +329,20 @@ def test_the_manifest_binds_no_operational_telemetry() -> None:
             "Bearer",
         )
     )
-    # The server's advertised capacity limits are absent from the bytes, and so
-    # are the client's batch ordinals. A re-tuned `--max-client-batch-size` must not
-    # rename an index built from weights that never changed.
+    # The server's advertised *capacity* limits are absent from the bytes, and so
+    # are the client's batch ordinals. A re-tuned `--max-client-batch-size` must
+    # not rename an index built from weights that never changed.
     assert "max_batch_requests" not in rendered
     assert "max_client_batch_size" not in rendered
     assert "max_batch_tokens" not in rendered
-    assert "max_input_length" not in rendered
     assert '"batch"' not in rendered
     assert '"batch_ordinal"' not in rendered
-    # And the recorded provider payload is exactly the observed identity, with
-    # nothing else in it -- no URL, no credential, no hostname, no capacity.
+    # `max_input_length` is the exception, and it is here on purpose: it is the
+    # tokenizer truncation boundary, so it decides which tokens the model sees.
+    assert '"max_input_length":512' in rendered
+    # And the recorded provider payload is exactly the observed identity plus the
+    # attested deployment semantics -- no URL, no credential, no hostname, and no
+    # capacity beyond the truncation boundary.
     assert set(payload["provider"]) == {
         "provider",
         "provider_protocol_revision",
@@ -334,12 +350,32 @@ def test_the_manifest_binds_no_operational_telemetry() -> None:
         "tei_sha",
         "model_dtype",
         "model_pooling",
+        "max_input_length",
         "tei_docker_label",
         "model_id",
         "model_sha",
+        "deployment_semantics",
     }
     # Still readable on the identity for an operator, just not in the bytes.
     assert _manifest().provider.max_client_batch_size == 8
+
+
+def test_the_manifest_records_the_attested_deployment_semantics() -> None:
+    """The artifact states the startup policy, because the server cannot.
+
+    A pool of vectors with no record of the unobservable flags that produced it
+    cannot be compared with another pool, and cannot be rebuilt from a container
+    that happens to serve the same weights. The attestation is recorded rather
+    than left in the code that made it.
+    """
+    recorded = json.loads(_manifest().manifest_bytes)["provider"]["deployment_semantics"]
+
+    assert recorded == {
+        "tei_default_prompt_mode": "none",
+        "tei_default_prompt_name": None,
+        "tei_default_prompt_sha256": None,
+        "tei_dense_path": None,
+    }
 
 
 def test_two_runs_of_the_same_vectors_and_identity_share_a_digest() -> None:
@@ -599,27 +635,48 @@ def test_recorded_in_the_artifact_but_absent_from_the_fingerprint(
     "overrides",
     [
         {"max_client_batch_size": 32},
-        {"max_input_length": 1024},
         {"max_batch_tokens": 16384},
         {"max_batch_requests": 16},
     ],
-    ids=["max-client-batch-size", "max-input-length", "max-batch-tokens", "max-batch-requests"],
+    ids=["max-client-batch-size", "max-batch-tokens", "max-batch-requests"],
 )
 def test_capacity_limits_are_absent_from_the_artifact_entirely(
     overrides: dict[str, object],
 ) -> None:
     """A re-tuned batching flag must not rename an index.
 
-    The advertised limits describe how much the server could do at once, not what
-    the vectors are, so they are in neither the bytes nor the fingerprint. The
-    client-side request partition is unhashed for the same reason: a run stays
+    These advertised limits describe how much the server could do at once, not
+    what the vectors are, so they are in neither the bytes nor the fingerprint.
+    The client-side request partition is unhashed for the same reason: a run stays
     comparable with one that happened to be batched differently. They remain
     readable on the identity for an operator.
+
+    ``max_input_length`` used to sit in this list and was wrong: it is the
+    tokenizer truncation boundary, so it belongs on the other side. See
+    :func:`test_the_truncation_boundary_is_semantic_not_capacity`.
     """
     changed = _manifest(identity=_identity(**overrides))
 
     assert changed.embedding_config_sha256 == _baseline().embedding_config_sha256
     assert changed.manifest_sha256 == _baseline().manifest_sha256
+
+
+def test_the_truncation_boundary_is_semantic_not_capacity() -> None:
+    """``max_input_length`` decides which tokens the model sees, so it is identity.
+
+    With ``truncate`` on, TEI cuts the token sequence at this length: 512 and 1024
+    embed *different* tokens of the same passage and can return different vectors.
+    A field that changes the input to the model is not a statement about how much
+    work the server could do at once, and classifying it as capacity meant a
+    re-tuned ``--max-input-length`` silently produced a second vector space under
+    one fingerprint.
+    """
+    narrowed = _manifest(identity=_identity(max_input_length=1024))
+
+    assert narrowed.provider.max_client_batch_size == _baseline().provider.max_client_batch_size
+    assert narrowed.embedding_config_sha256 != _baseline().embedding_config_sha256
+    assert narrowed.manifest_sha256 != _baseline().manifest_sha256
+    assert "max_input_length" in narrowed.provider.semantic_runtime_payload()
 
 
 @pytest.mark.parametrize(
@@ -819,6 +876,272 @@ def test_the_execution_policy_is_not_reachable_from_any_hashed_contract() -> Non
     }
 
     assert hashed_types.isdisjoint(EmbeddingRuntimeConfig.__dataclass_fields__)
+
+
+# ---------------------------------------------------------------------------
+# Run identity: what must hold for the whole bracket of one run
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"model_id": "intfloat/e5-small-v2"},
+        {"model_sha": "b" * 40},
+        {"max_input_length": 1024},
+        {"runtime_sha": "f" * 40},
+        {"model_pooling": "mean"},
+    ],
+    ids=["model-id", "model-revision", "truncation-boundary", "runtime-build", "pooling"],
+)
+def test_the_run_identity_compares_the_model_and_the_truncation_boundary(
+    overrides: dict[str, object],
+) -> None:
+    """A run must not span two models, and the check is the vendor-blind one.
+
+    The model id and its immutable revision were absent from this comparison, so a
+    provider that swapped either between the ``describe()`` that opens a run and the
+    ``describe()`` that closes it produced two sets of vectors and recorded the
+    first identity over both. Nothing downstream could see it: the fingerprint
+    deliberately does not contain the model id, so the manifest would faithfully
+    describe a model that had produced only some of its own vectors.
+
+    ``max_input_length`` joins them for the same kind of reason — it is the
+    truncation boundary, so a change mid-run means two different token sequences
+    were embedded under one name.
+
+    Asserted on the identity alone, with no provider, no server and no TEI: this is
+    the abstraction's own invariant, and a test that needed a TEI mock would only
+    prove TEI happens to check it.
+    """
+    with pytest.raises(TeiIdentityError, match="run identity changed"):
+        _identity().require_same_semantic_runtime(
+            _identity(**overrides), operation="embed_passages"
+        )
+
+
+def test_the_run_identity_accepts_one_runtime_observed_twice() -> None:
+    """The control for the drift cases: the same identity twice is not a drift."""
+    _identity().require_same_semantic_runtime(_identity(), operation="embed_passages")
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"max_client_batch_size": 32},
+        {"max_batch_tokens": 16384},
+        {"max_batch_requests": 16},
+        {"runtime_docker_label": "sha-000000"},
+    ],
+    ids=[
+        "max-client-batch-size",
+        "max-batch-tokens",
+        "max-batch-requests",
+        "docker-label",
+    ],
+)
+def test_the_run_identity_ignores_capacity_and_the_docker_label(
+    overrides: dict[str, object],
+) -> None:
+    """A restart with the same weights is the same run, whatever else changed.
+
+    Capacity flags and the container stamp say nothing about the floats, so failing
+    on them would report a drift that did not happen — and an operator who re-tuned
+    a batching flag would find embedding runs refusing for no reason.
+    """
+    _identity().require_same_semantic_runtime(_identity(**overrides), operation="embed_passages")
+
+
+def test_the_run_identity_carries_the_model_even_though_the_fingerprint_does_not() -> None:
+    """The two payloads are deliberately different sets, and this is the difference.
+
+    ``model_id`` and ``model_sha`` stay readable first-class fields on the RES-136
+    identity, so folding them into a digest would only make them unreadable — yet a
+    run still has to be refused if either moves. Comparing the *run* identity is how
+    both are true at once.
+    """
+    fingerprint = _identity().semantic_runtime_payload()
+    run = _identity().run_identity_payload()
+
+    assert "model_id" not in fingerprint
+    assert "model_sha" not in fingerprint
+    assert run["model_id"] == TEI_MODEL_ID
+    assert run["model_sha"] == TEI_MODEL_SHA
+    assert set(fingerprint) < set(run)
+
+
+def test_a_neutral_provider_that_changes_model_mid_run_produces_no_manifest() -> None:
+    """End to end, with a port implementation that is not TEI at all.
+
+    The point of the invariant is that it holds for *whatever* provider RES-138
+    ends up choosing, so the test provider here implements only the two operations
+    the port declares and names no vendor, no URL and no wire format. Its two
+    observations differ only in the model revision, which is the case the old
+    check missed: the drift is in the model, and no manifest may exist.
+    """
+    provider = _NeutralProvider(
+        identities=(
+            _identity(),
+            _identity(model_sha="b" * 40, model_id="intfloat/e5-small-v2"),
+        )
+    )
+
+    with pytest.raises(TeiIdentityError, match="run identity changed"):
+        embed_passages(provider, _inputs(3))
+
+    assert provider.embed_calls == 1
+    assert provider.finished_runs == 0
+
+
+def test_a_neutral_provider_whose_identity_holds_produces_the_same_manifest() -> None:
+    """The control for the drift case: identical observations, a real manifest.
+
+    Without this, the drift test above would also pass for an implementation that
+    simply always refused.
+    """
+    manifest = embed_passages(_NeutralProvider(identities=(_identity(), _identity())), _inputs(3))
+
+    assert (
+        manifest.manifest_sha256
+        == _manifest(embeddings=[[0.0, 0.5], [1.0, 0.5], [2.0, 0.5]]).manifest_sha256
+    )
+    assert manifest.embedding_model_identity.model_id == TEI_MODEL_ID
+    assert manifest.embedding_model_identity.model_revision == TEI_MODEL_SHA
+
+
+class _NeutralProvider:
+    """A provider that is nothing but the port, to test the port's own invariant.
+
+    Implements :class:`~dynamisrag.embedding.contracts.EmbeddingProvider` with a
+    scripted sequence of identities and a fixed vector per input, so a test can put
+    two different observations around one generation. ``embed_calls`` and
+    ``finished_runs`` exist so a test can assert the run reached the work at all —
+    a drift test that never embedded would pass just as well against a provider
+    that refused on arrival.
+    """
+
+    def __init__(self, *, identities: tuple[EmbeddingProviderIdentity, ...]) -> None:
+        self._identities = identities
+        self._reads = 0
+        self._dimension = 2
+        self.embed_calls = 0
+        self.finished_runs = 0
+
+    def describe(self) -> EmbeddingProviderIdentity:
+        """One scripted identity per call, so the last read is the drift case."""
+        identity = self._identities[min(self._reads, len(self._identities) - 1)]
+        self._reads += 1
+        return identity
+
+    def embed(self, inputs: Sequence[EmbeddingInput]) -> tuple[tuple[float, ...], ...]:
+        self.embed_calls += 1
+        return tuple((float(index), 0.5) for index in range(len(inputs)))
+
+    @property
+    def batch_size(self) -> int:
+        return 8
+
+    @property
+    def generation_config(self) -> EmbeddingGenerationConfig:
+        return _GENERATION
+
+
+# ---------------------------------------------------------------------------
+# Deployment semantics: attested, not observed
+# ---------------------------------------------------------------------------
+
+
+def test_a_different_deployment_attestation_moves_the_fingerprint() -> None:
+    """Two containers, same build, same model, different default prompt.
+
+    Nothing in ``/info`` distinguishes them, and no request can set or clear the
+    difference, so this is precisely the pair that one fingerprint must not cover:
+    the vectors differ and nothing else does.
+    """
+    attested = _manifest(identity=_identity(deployment=TeiDeploymentSemantics())).manifest_sha256
+    prompted = _manifest(
+        identity=_identity(
+            deployment=TeiDeploymentSemantics(
+                default_prompt_mode=TeiDefaultPromptMode.NAMED, default_prompt_name="query"
+            )
+        )
+    ).manifest_sha256
+    overridden = _manifest(
+        identity=_identity(deployment=TeiDeploymentSemantics(dense_path="dense/2_Dense"))
+    ).manifest_sha256
+
+    assert attested != prompted
+    assert attested != overridden
+    assert prompted != overridden
+
+
+def test_the_deployment_keys_are_namespaced_and_disjoint_from_the_other_halves() -> None:
+    """Three payloads are merged into one object, so a shared key would displace a half."""
+    runtime = _identity().semantic_runtime_payload()
+    deployment = _identity().deployment.payload()
+    requested = _GENERATION.payload()
+
+    assert set(deployment) == {
+        "tei_default_prompt_mode",
+        "tei_default_prompt_name",
+        "tei_default_prompt_sha256",
+        "tei_dense_path",
+    }
+    assert set(deployment).isdisjoint(runtime)
+    assert set(deployment).isdisjoint(requested)
+
+
+def test_a_colliding_deployment_key_is_refused_rather_than_silently_applied() -> None:
+    """A fingerprint that dropped half of itself is worse than none.
+
+    The merge order would let the deployment's ``prompt_name`` overwrite the
+    request's, and the resulting digest would look entirely ordinary while no longer
+    binding what the request actually sent.
+    """
+
+    @dataclass(frozen=True)
+    class _Colliding(ProtocolFixedDeploymentSemantics):
+        def payload(self) -> dict[str, object]:
+            return {"prompt_name": "query"}
+
+    with pytest.raises(EmbeddingContractError, match="displace one of them from the digest"):
+        _identity(deployment=_Colliding()).embedding_config_sha256(_GENERATION)
+
+
+def test_an_identity_that_does_not_state_its_deployment_semantics_is_refused() -> None:
+    """Silence is not an attestation.
+
+    An empty payload cannot be told apart from an adapter that forgot to declare an
+    unobservable ``--default-prompt``, which is the mistake being prevented.
+    """
+
+    @dataclass(frozen=True)
+    class _Silent(ProtocolFixedDeploymentSemantics):
+        def payload(self) -> dict[str, object]:
+            return {}
+
+    with pytest.raises(EmbeddingContractError, match="must state its deployment semantics"):
+        _identity(deployment=_Silent())
+
+
+def test_an_identity_that_does_not_know_its_pooling_is_refused() -> None:
+    """Pooling is load-bearing, so an unknown one is a refusal rather than a record.
+
+    ``model_pooling`` is typed as a plain ``str`` precisely so that ``None`` cannot
+    reach the fingerprint as a fact: the constructor raises instead, before any
+    manifest exists to carry it.
+    """
+    with pytest.raises(EmbeddingContractError, match="must state the pooling"):
+        _identity(model_pooling="")
+
+
+def test_a_protocol_fixed_deployment_still_says_something() -> None:
+    """The vendor-neutral attestation is a statement, not an omission."""
+    identity = _identity(deployment=ProtocolFixedDeploymentSemantics())
+
+    assert identity.deployment.payload() == {"deployment_semantics": "fixed-by-protocol-revision"}
+    assert identity.embedding_config_sha256(_GENERATION) != _digest()
+    assert "no per-deployment startup semantics" in str(identity.deployment)
 
 
 # ---------------------------------------------------------------------------

@@ -23,12 +23,25 @@ model name is a claim; a branch, a tag, ``latest`` or any other moving alias is
 refused outright — both as the expectation and, via
 :class:`~dynamisrag.embedding.identity.EmbeddingModelIdentity`, as an output.
 
+**Some output-affecting configuration is attested, not observed.** ``/info``
+reports the build, the model, the dtype, the pooling and the batching limits. It
+reports nothing about ``--default-prompt``, ``--default-prompt-name`` or
+``--dense-path``, and no request field can set or clear them — so a null
+``prompt_name`` on the wire means "the server's default prompt, if it has one",
+not "no prompt". :class:`TeiDeploymentSemantics` states that policy explicitly and
+binds it into ``embedding_config_sha256``, which is the only honest option: the
+alternative is one fingerprint covering two deployments that return incomparable
+vectors. It is named *attested* everywhere because that is exactly what it is.
+
 **Drift is detected, not assumed away.** A model server can restart, or be
 replaced behind the same URL, while batches are in flight. One run therefore
 reads ``/info`` before its first batch and again after its final batch, and
-refuses the whole run unless the semantic runtime identity is identical. A
-manifest of vectors generated under two identities would be a set of floats no
-single model describes, and would name an index nothing could rebuild.
+refuses the whole run unless the **run identity** is identical — which includes
+the model id and its immutable revision, not only the build. A vendor-blind port
+that compared only the runtime would accept a provider that swapped models
+mid-run and then record the first identity over vectors from both. A manifest of
+vectors generated under two identities would be a set of floats no single model
+describes, and would name an index nothing could rebuild.
 
 **Batching is deterministic client-side partitioning.** ``batch_size`` is
 configured and never silently shrunk to the server's advertised
@@ -54,10 +67,12 @@ configured.
 
 from __future__ import annotations
 
+import hashlib
 import re
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from enum import StrEnum
 from math import isfinite
 from typing import Final, Self, cast
 
@@ -65,6 +80,7 @@ import httpx2
 
 from dynamisrag.config import Settings
 from dynamisrag.embedding.contracts import (
+    EmbeddingDeploymentSemantics,
     EmbeddingGenerationConfig,
     EmbeddingInput,
     EmbeddingJsonValue,
@@ -81,10 +97,11 @@ from dynamisrag.embedding.errors import (
     TeiTransportError,
     TeiUnexpectedResponse,
 )
-from dynamisrag.embedding.identity import require_embedding_identifier
+from dynamisrag.embedding.identity import require_embedding_identifier, require_sha256_hex
 
 __all__ = [
     "NON_RETRYABLE_TEI_STATUS_CODES",
+    "REFERENCE_TEI_DEPLOYMENT_SEMANTICS",
     "TEI_EMBEDDING_MODEL_TYPE",
     "TEI_EMBED_PATH",
     "TEI_HTTP_PROTOCOL_REVISION",
@@ -92,6 +109,8 @@ __all__ = [
     "TEI_PROVIDER_NAME",
     "TRANSIENT_TEI_STATUS_CODES",
     "ExpectedTeiModel",
+    "TeiDefaultPromptMode",
+    "TeiDeploymentSemantics",
     "TeiEmbeddingProvider",
     "TeiServingInfo",
     "tei_embed_request_body",
@@ -173,6 +192,234 @@ request is made instead of after a batch of vectors has been generated.
 """
 
 
+class TeiDefaultPromptMode(StrEnum):
+    """What the serving process will apply when a request says ``prompt_name: null``.
+
+    TEI's tokenization resolves a null ``prompt_name`` to the deployment's default
+    prompt, so ``None`` on the wire is **not** "no prompt" — it is "whatever the
+    server was started with, if anything". That distinction is the whole reason
+    this enum exists.
+
+    ``NONE``
+        The deployment is attested to have no default prompt, so a null
+        ``prompt_name`` means the model applies none.
+
+    ``NAMED``
+        The deployment is attested to use one of the prompt templates in the
+        model's own prompt table, named by :attr:`TeiDeploymentSemantics.
+        default_prompt_name`. The name is bound, not the template text, because
+        the template is the model's and is already fixed by the pinned revision.
+
+    ``LITERAL``
+        The deployment was started with ``--default-prompt`` and a literal
+        template. Neither the name nor the text is in the fingerprint; the SHA-256
+        of the exact UTF-8 bytes is, so the attestation is checkable without
+        republishing prompt text into provenance.
+    """
+
+    NONE = "none"
+    NAMED = "named"
+    LITERAL = "literal"
+
+
+_TEI_DENSE_PATH_SEGMENT: Final[re.Pattern[str]] = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+"""One path segment of a model-relative ``--dense-path``.
+
+No separators, no leading dot, nothing a shell or a filesystem would reinterpret:
+the value ends up in a fingerprint and in a compose file, so it has to be a plain
+identifier at every level. A relative path is required because TEI resolves
+``--dense-path`` inside the served model, which makes it meaningless — and
+unreproducible — outside one.
+"""
+
+
+@dataclass(frozen=True)
+class TeiDeploymentSemantics:
+    """The output-affecting startup configuration this process is **attesting** to.
+
+    Not observed. TEI's ``GET /info`` reports the build, the model, the dtype, the
+    pooling and the batching limits; it reports **nothing** about ``--default-
+    prompt``, ``--default-prompt-name`` or ``--dense-path``, and there is no request
+    field that can set or clear them for one call. So the only honest description
+    of this state is a claim made by whoever configured the deployment — which is
+    why every name here says *attested* and why the value is hashed into
+    ``embedding_config_sha256`` rather than quietly omitted.
+
+    Omitting it is the failure this type prevents. Without it, two servers with
+    identical build, model, dtype, pooling and limit, differing only in a default
+    prompt, would share one ``embedding_config_sha256`` and one manifest format
+    while returning vectors that are not comparable.
+
+    The two knobs it models:
+
+    ``default_prompt_mode`` / ``default_prompt_name`` / ``default_prompt_sha256``
+        The server-side default prompt. See :class:`TeiDefaultPromptMode` for why a
+        null ``prompt_name`` is not "no prompt". Inconsistent combinations are
+        refused on construction: ``NONE`` with a name, ``NAMED`` without one,
+        ``LITERAL`` without a digest, and so on.
+
+    ``dense_path``
+        ``None`` for no override, or a deterministic **model-relative** path to a
+        Dense module. TEI documents this as selecting a module that can transform
+        the pooled embedding, so an override changes the returned vectors and the
+        dimension. When one is declared it is bound into the fingerprint, under the
+        same pinned model revision that supplies the module.
+
+    Reference deployment: :data:`REFERENCE_TEI_DEPLOYMENT_SEMANTICS`, which
+    ``compose.embedding.yaml`` is written to match.
+    """
+
+    default_prompt_mode: TeiDefaultPromptMode = TeiDefaultPromptMode.NONE
+    default_prompt_name: str | None = None
+    default_prompt_sha256: str | None = None
+    dense_path: str | None = None
+
+    def __post_init__(self) -> Self:
+        try:
+            mode = TeiDefaultPromptMode(self.default_prompt_mode)
+        except ValueError:
+            raise EmbeddingContractError(
+                f"TEI deployment default_prompt_mode {self.default_prompt_mode!r} is not a known "
+                "policy; it must be one of "
+                f"{[candidate.value for candidate in TeiDefaultPromptMode]}.",
+                operation="tei_deployment_semantics",
+            ) from None
+        object.__setattr__(self, "default_prompt_mode", mode)
+        if mode is TeiDefaultPromptMode.NONE:
+            self._require_absent(
+                self.default_prompt_name, "default_prompt_name", "no default prompt is configured"
+            )
+            self._require_absent(
+                self.default_prompt_sha256, "default_prompt_sha256", "no default prompt exists"
+            )
+        elif mode is TeiDefaultPromptMode.NAMED:
+            if not isinstance(self.default_prompt_name, str) or not self.default_prompt_name:
+                raise EmbeddingContractError(
+                    "a TEI deployment attested to use a named default prompt must name it, with a "
+                    "non-empty prompt name that exists in the served model's prompt table. Without "
+                    "the name, a null prompt_name on the wire resolves to something the "
+                    "fingerprint cannot state.",
+                    operation="tei_deployment_semantics",
+                )
+            self._require_absent(
+                self.default_prompt_sha256,
+                "default_prompt_sha256",
+                "a named prompt is fixed by the pinned model revision, so it needs no digest",
+            )
+        else:
+            self._require_absent(
+                self.default_prompt_name,
+                "default_prompt_name",
+                "a literal default prompt is identified by its digest, not by a name",
+            )
+            if self.default_prompt_sha256 is None:
+                raise EmbeddingContractError(
+                    "a TEI deployment attested to use a literal --default-prompt must bind the "
+                    "SHA-256 of that prompt's exact UTF-8 bytes. The prompt text itself is never "
+                    "recorded, so the digest is the only thing that lets two deployments with "
+                    "different literals be told apart.",
+                    operation="tei_deployment_semantics",
+                )
+            require_sha256_hex(
+                self.default_prompt_sha256,
+                kind="TEI default prompt digest",
+                operation="tei_deployment_semantics",
+            )
+        if self.dense_path is not None:
+            _require_model_relative_dense_path(self.dense_path)
+        return self
+
+    @staticmethod
+    def _require_absent(value: object, field: str, because: str) -> None:
+        if value is not None:
+            raise EmbeddingContractError(
+                f"TEI deployment {field} is set while the default prompt policy says {because}. "
+                "The policy and the value have to agree, because the fingerprint binds both and a "
+                "disagreement between them would describe a deployment nobody can construct.",
+                operation="tei_deployment_semantics",
+            )
+
+    @classmethod
+    def with_literal_default_prompt(cls, prompt: str) -> TeiDeploymentSemantics:
+        """Attest to a ``--default-prompt`` started from this literal text.
+
+        The text is reduced to a digest immediately and never stored on the value,
+        so it cannot reach a manifest, an exception or a ``safe_summary()``. That
+        is the point of binding a digest rather than the prompt: an operator's
+        default prompt is deployment-authored prose, and provenance records should
+        identify it without republishing it.
+        """
+        if not prompt:
+            raise EmbeddingContractError(
+                "a literal TEI default prompt must be non-empty. An empty template would be a "
+                "statement that the server prepends nothing, which is the 'none' policy.",
+                operation="tei_deployment_semantics",
+            )
+        return cls(
+            default_prompt_mode=TeiDefaultPromptMode.LITERAL,
+            default_prompt_sha256=hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+        )
+
+    def payload(self) -> dict[str, object]:
+        """The canonical, hashable description of this attestation.
+
+        Keys are namespaced to ``tei_`` because several vendors' attestations are
+        merged into one fingerprint, and an unprefixed ``default_prompt`` would
+        collide across them.
+        """
+        return {
+            "tei_default_prompt_mode": self.default_prompt_mode.value,
+            "tei_default_prompt_name": self.default_prompt_name,
+            "tei_default_prompt_sha256": self.default_prompt_sha256,
+            "tei_dense_path": self.dense_path,
+        }
+
+
+REFERENCE_TEI_DEPLOYMENT_SEMANTICS: Final[TeiDeploymentSemantics] = TeiDeploymentSemantics()
+"""The attestation for the reference deployment in ``compose.embedding.yaml``.
+
+Three claims, each of which the compose file is written to make true:
+
+* **no default prompt** — the container is started without ``--default-prompt`` or
+  ``--default-prompt-name``, so a null ``prompt_name`` resolves to no template;
+* **no dense-path override** — no ``--dense-path``, so the model is pooled by its
+  own configuration;
+* **an immutable revision** — ``--revision`` is a Hub commit id, which the compose
+  file requires rather than defaults.
+
+This is the one source of truth for the policy; ``compose.embedding.yaml`` carries
+no contradicting flag, and a test asserts that. The default prompt is the one item
+TEI's CLI cannot express negatively: there is no ``--no-default-prompt``, so "no
+default prompt" is an *absence*, and an absence can only be proven by inspecting
+what the command line does not contain. A named prompt, by contrast, is an
+addition and could be pinned explicitly — this deployment simply has nothing to
+pin.
+"""
+
+
+def _require_model_relative_dense_path(value: str) -> None:
+    """Require a deterministic, model-relative ``--dense-path``.
+
+    Relative because TEI resolves the override inside the served model: an
+    absolute path would name something outside the pinned revision, which is
+    exactly the un-reproducible configuration the fingerprint exists to exclude.
+    Every segment must be a plain identifier, which excludes ``..``, a leading
+    ``/`` and any shell or path syntax that would mean one thing in a compose file
+    and another in the fingerprint.
+    """
+    segments = value.split("/")
+    if not value or any(_TEI_DENSE_PATH_SEGMENT.fullmatch(segment) is None for segment in segments):
+        raise EmbeddingContractError(
+            f"TEI deployment dense_path {value!r} is not a deterministic model-relative path. It "
+            "must name a module inside the pinned model revision, as slash-separated segments of "
+            "letters, digits, '.', '_' and '-'. An absolute or traversing path would name "
+            "something outside the revision, and TEI's --dense-path can transform the pooled "
+            "embedding, so an override that is not reproducible would move the vectors under one "
+            "fingerprint.",
+            operation="tei_deployment_semantics",
+        )
+
+
 @dataclass(frozen=True)
 class ExpectedTeiModel:
     """What this deployment insists the served model is.
@@ -218,10 +465,15 @@ class TeiServingInfo:
         {"classifier": null}  # a sequence classifier
 
     so a plain string comparison against ``"embedding"`` would never match. The
-    variant name is what decides *whether this server can embed at all*, and the
-    pooling value is recorded because it changes the numbers the model returns:
-    CLS pooling and mean pooling over identical weights are different vector
-    spaces, and that is the largest silent-identity hazard in the whole contract.
+    variant name is what decides *whether this server can embed at all*, and for
+    the embedding variant the pooling value is required, not optional: it is
+    recorded because it changes the numbers the model returns, and CLS pooling and
+    mean pooling over identical weights are different vector spaces. That is the
+    largest silent-identity hazard in the whole contract, so an embedding variant
+    whose pooling is absent, null, empty or not a string is refused rather than
+    recorded as unknown. A *non*-embedding variant has no pooling, so
+    :attr:`model_pooling` is ``None`` for it and the variant name is what gets
+    refused.
 
     Every other field is parsed strictly; nothing is defaulted. ``docker_label``
     and ``max_batch_requests`` are genuinely optional in TEI — the first because a
@@ -250,8 +502,36 @@ class TeiServingInfo:
     max_batch_requests: int | None
     max_client_batch_size: int
 
-    def to_identity(self, *, protocol_revision: str) -> EmbeddingProviderIdentity:
-        """The provider identity this observed runtime stands for."""
+    def to_identity(
+        self,
+        *,
+        protocol_revision: str,
+        deployment: EmbeddingDeploymentSemantics,
+    ) -> EmbeddingProviderIdentity:
+        """The provider identity this observed runtime stands for.
+
+        ``deployment`` is threaded in rather than discovered, because it cannot be:
+        the startup semantics are not in ``/info``. Passing them here is what makes
+        the split visible in the signature — observed facts on ``self``, an
+        attestation from the caller — and it is why the resulting identity can be
+        compared for drift and hashed into a fingerprint without either half
+        pretending to be the other.
+
+        Refuses when the served variant is not an embedding model, or did not
+        state its pooling: this is the single place both are known, and an identity
+        carrying ``None`` for either would record "unknown" as a fact.
+        """
+        if self.model_pooling is None:
+            raise TeiIdentityError(
+                f"GET {TEI_INFO_PATH} declares no usable pooling for its "
+                f"{_bounded(repr(self.model_type))!r} model. Pooling decides which operation turns "
+                "token states into a vector, and CLS pooling over identical weights is a different "
+                "vector space from mean pooling, so an identity that does not know it could not be "
+                "reproduced. This adapter embeds through embedding models only, and 1.9.x states "
+                'pooling as {"embedding": {"pooling": "..."}}.',
+                operation="describe",
+                error_type="model_type",
+            )
         return EmbeddingProviderIdentity(
             provider=TEI_PROVIDER_NAME,
             protocol_revision=protocol_revision,
@@ -262,10 +542,11 @@ class TeiServingInfo:
             model_sha=self.model_sha,
             model_dtype=self.model_dtype,
             model_pooling=self.model_pooling,
-            max_client_batch_size=self.max_client_batch_size,
             max_input_length=self.max_input_length,
+            max_client_batch_size=self.max_client_batch_size,
             max_batch_tokens=self.max_batch_tokens,
             max_batch_requests=self.max_batch_requests,
+            deployment=deployment,
         )
 
 
@@ -314,6 +595,7 @@ class TeiEmbeddingProvider:
         "_base_url",
         "_client",
         "_closed",
+        "_deployment",
         "_expected",
         "_generation",
         "_runtime",
@@ -325,6 +607,7 @@ class TeiEmbeddingProvider:
         *,
         base_url: str,
         expected_model: ExpectedTeiModel,
+        deployment_semantics: TeiDeploymentSemantics,
         generation_config: EmbeddingGenerationConfig,
         runtime_config: EmbeddingRuntimeConfig,
         bearer_token: str | None = None,
@@ -333,6 +616,15 @@ class TeiEmbeddingProvider:
         sleeper: Callable[[float], None] | None = None,
     ) -> None:
         """Build a provider for one TEI deployment. No network I/O happens here.
+
+        ``deployment_semantics`` is a **required** argument, and it is required
+        rather than defaulted because it is a claim about output-affecting startup
+        configuration that no request and no status document can establish. A
+        default would let a caller embed through a server with a default prompt it
+        never declared, under a fingerprint that says it has none.
+        :data:`REFERENCE_TEI_DEPLOYMENT_SEMANTICS` is the attestation the reference
+        ``compose.embedding.yaml`` is written to satisfy, and
+        :func:`tei_provider_from_settings` uses it for that reason alone.
 
         ``transport`` is a test seam: :class:`httpx2.MockTransport` exercises
         every branch — including a server that changes identity mid-run — with no
@@ -346,6 +638,7 @@ class TeiEmbeddingProvider:
         """
         self._base_url: Final[str] = base_url.rstrip("/")
         self._expected: Final[ExpectedTeiModel] = expected_model
+        self._deployment: Final[TeiDeploymentSemantics] = deployment_semantics
         self._generation: Final[EmbeddingGenerationConfig] = generation_config
         self._runtime: Final[EmbeddingRuntimeConfig] = runtime_config
         self._closed = False
@@ -381,6 +674,15 @@ class TeiEmbeddingProvider:
         return self._generation
 
     @property
+    def deployment_semantics(self) -> TeiDeploymentSemantics:
+        """The startup policy this provider attests to, not one it observed.
+
+        Readable so a deployment can log or assert what it claimed; it is bound
+        into ``embedding_config_sha256`` and into every recorded manifest.
+        """
+        return self._deployment
+
+    @property
     def runtime_config(self) -> EmbeddingRuntimeConfig:
         """The operational policy: batching, timeout, retries. Never hashed."""
         return self._runtime
@@ -409,8 +711,15 @@ class TeiEmbeddingProvider:
         expected id and revision, this raises
         :class:`~dynamisrag.embedding.errors.TeiIdentityError`. There is no
         fallback that reports a configured name instead.
+
+        What comes back is observed facts plus the deployment attestation this
+        provider was built with — never a claim that ``/info`` reported the startup
+        policy, because it cannot.
         """
-        return self._serving_info().to_identity(protocol_revision=TEI_HTTP_PROTOCOL_REVISION)
+        return self._serving_info().to_identity(
+            protocol_revision=TEI_HTTP_PROTOCOL_REVISION,
+            deployment=self._deployment,
+        )
 
     def embed(self, inputs: Sequence[EmbeddingInput]) -> tuple[tuple[float, ...], ...]:
         """Embed one run, in the given order.
@@ -665,6 +974,7 @@ def tei_provider_from_settings(
     settings: Settings,
     *,
     generation_config: EmbeddingGenerationConfig,
+    deployment_semantics: TeiDeploymentSemantics = REFERENCE_TEI_DEPLOYMENT_SEMANTICS,
     transport: httpx2.BaseTransport | None = None,
     sleeper: Callable[[float], None] | None = None,
 ) -> TeiEmbeddingProvider:
@@ -676,6 +986,15 @@ def tei_provider_from_settings(
     and it is hashed into the embedding fingerprint. Reading it from configuration
     would put a value that defines an index's identity on the same footing as a
     timeout.
+
+    **The deployment attestation defaults to the reference deployment** and is
+    overridable for the same reason: it is a claim about a container's command
+    line, so it belongs with the caller that knows that command line rather than in
+    a settings variable nobody would remember to change. The default is
+    :data:`REFERENCE_TEI_DEPLOYMENT_SEMANTICS` — "no default prompt, no dense-path
+    override" — which is exactly what ``compose.embedding.yaml`` starts. A
+    deployment started any other way must pass its own attestation; silently
+    keeping the reference one would record a policy the server does not have.
 
     What *is* read from settings is the identity the deployment insists on
     (``tei_expected_model_id``/``tei_expected_model_sha``) and the operational
@@ -689,6 +1008,7 @@ def tei_provider_from_settings(
     return TeiEmbeddingProvider(
         base_url=base_url,
         expected_model=ExpectedTeiModel(model_id=expected_id, model_sha=expected_sha),
+        deployment_semantics=deployment_semantics,
         generation_config=generation_config,
         runtime_config=EmbeddingRuntimeConfig(
             batch_size=settings.tei_batch_size,
@@ -872,10 +1192,23 @@ def _parse_model_type(value: EmbeddingJsonValue) -> tuple[str, str | None]:
         {"embedding": {"pooling": "cls"}}
         {"classifier": null}
 
-    Both the ``{"embedding": null}`` and the ``{"embedding": "cls"}`` spellings of
-    the payload are accepted, since the payload is model configuration rather than
-    a shape this contract depends on — but the *variant name* is not negotiable,
-    and an object with zero or several keys is refused rather than guessed at.
+    Three rules, in order, and each one is a refusal rather than a coercion:
+
+    1. **Exactly one variant key.** Zero keys names no variant; several names an
+       ambiguity. Either way there is no single thing to embed through.
+    2. **An embedding variant must carry a non-empty string ``pooling``.** The
+       payload has to be an object, and ``pooling`` has to be present, a string
+       and non-empty. The earlier permissive spellings — ``{"embedding": null}``,
+       ``{"embedding": "mean"}``, ``{"embedding": {}}``,
+       ``{"embedding": {"pooling": null}}``, ``{"embedding": {"pooling": ""}}`` —
+       all produced an identity with ``pooling=None``, which is a load-bearing
+       field being recorded as unknown and then hashed. Pooling decides which
+       operation turns token states into a vector, so an identity that does not
+       know it names a vector space it cannot describe.
+    3. **A non-embedding variant reports no pooling.** It has none to report, so
+       ``None`` is the truthful value and the variant *name* is what
+       :func:`_require_expected_model` refuses. Refusing a classifier here would
+       give a worse message than the one that says exactly what is wrong.
     """
     if not isinstance(value, Mapping):
         raise TeiIdentityError(
@@ -896,10 +1229,33 @@ def _parse_model_type(value: EmbeddingJsonValue) -> tuple[str, str | None]:
             error_type="model_type",
         )
     name, payload = next(iter(variants.items()))
-    if isinstance(payload, Mapping):
-        pooling = cast("Mapping[str, EmbeddingJsonValue]", payload).get("pooling")
-        return name, pooling if isinstance(pooling, str) and pooling else None
-    return name, payload if isinstance(payload, str) and payload else None
+    if name.casefold() != TEI_EMBEDDING_MODEL_TYPE:
+        # Not an embedding model. Its name is the fact; whether this adapter can
+        # use it is `_require_expected_model`'s refusal to make.
+        return name, None
+    if not isinstance(payload, Mapping):
+        raise TeiIdentityError(
+            f"GET {TEI_INFO_PATH} declares the {TEI_EMBEDDING_MODEL_TYPE!r} model_type as "
+            f"{type(payload).__name__}, where TEI 1.9.x reports "
+            '{"embedding": {"pooling": "<non-empty string>"}}. Pooling is load-bearing, so a '
+            "variant whose pooling this adapter cannot read is refused rather than recorded as "
+            "unknown: an identity with an absent pooling names a vector space it cannot describe.",
+            operation="describe",
+            error_type="model_type",
+        )
+    pooling = cast("Mapping[str, EmbeddingJsonValue]", payload).get("pooling")
+    if not isinstance(pooling, str) or not pooling:
+        raise TeiIdentityError(
+            f"GET {TEI_INFO_PATH} declares model_type "
+            f'{{"embedding": {{"pooling": {_bounded(repr(pooling))}}}}} where 1.9.x requires a '
+            "non-empty string. Pooling decides which operation turns token states into a vector, "
+            "and CLS pooling over identical weights is a different vector space from mean pooling, "
+            "so an embedding identity with an unreadable pooling is refused rather than recorded. "
+            "The value is bounded, not the document.",
+            operation="describe",
+            error_type="model_type",
+        )
+    return name, pooling
 
 
 def _require_info_str(envelope: Mapping[str, EmbeddingJsonValue], key: str) -> str:
