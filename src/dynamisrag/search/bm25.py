@@ -32,8 +32,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from dynamisrag.search.client import JsonValue, OpenSearchClient
 from dynamisrag.search.errors import SearchBackendError
 from dynamisrag.search.schema import (
+    BM25_COMPATIBLE_INDEX_SCHEMA_REVISIONS,
     BM25_SIMILARITY_REVISION,
-    PASSAGE_INDEX_SCHEMA_REVISION,
 )
 
 __all__ = [
@@ -266,11 +266,17 @@ class Bm25SearchService:
                 f"{BM25_SIMILARITY_REVISION!r}",
                 operation="search",
             )
-        if index_schema_revision != _expected_schema_revision():
+        if index_schema_revision not in BM25_COMPATIBLE_INDEX_SCHEMA_REVISIONS:
+            # Compatibility is a property of the lexical mapping, not a version
+            # number, so the accepted set is declared in `schema` and membership
+            # is checked here. An unknown revision is refused rather than searched:
+            # the query would be answered by analysis this build does not
+            # implement, which returns a confident ranking nobody chose.
             raise SearchBackendError(
                 f"UnexpectedPayload: the active index declares projection schema revision "
-                f"{index_schema_revision!r} but this build reads "
-                f"{_expected_schema_revision()!r}",
+                f"{index_schema_revision!r}, which this build cannot serve. Query revision "
+                f"{BM25_QUERY_REVISION} is defined against "
+                f"{sorted(BM25_COMPATIBLE_INDEX_SCHEMA_REVISIONS)}",
                 operation="search",
             )
 
@@ -389,10 +395,6 @@ class Bm25SearchService:
                 operation="search",
             ) from error
         return hit
-
-
-def _expected_schema_revision() -> str:
-    return PASSAGE_INDEX_SCHEMA_REVISION
 
 
 def _validate_query(query: str) -> str:

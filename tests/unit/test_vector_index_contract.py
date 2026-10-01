@@ -44,6 +44,7 @@ from dynamisrag.search.bm25 import BM25_FIELDS, BM25_QUERY_REVISION, SOURCE_FIEL
 from dynamisrag.search.client import JsonValue, canonical_json_line
 from dynamisrag.search.errors import VectorContractError
 from dynamisrag.search.schema import (
+    BM25_COMPATIBLE_INDEX_SCHEMA_REVISIONS,
     BM25_SIMILARITY_NAME,
     BM25_SIMILARITY_PARAMS,
     BM25_SIMILARITY_REVISION,
@@ -752,6 +753,27 @@ def test_a_different_vector_config_produces_different_provenance() -> None:
     assert cosine["vector_space_type"] != inner["vector_space_type"]
     assert cosine["vector_space_type"] == "cosinesimil"
     assert inner["vector_space_type"] == "innerproduct"
+
+
+def test_bm25_is_defined_against_an_explicit_compatibility_set() -> None:
+    """A set, and membership is a claim about the *lexical* mapping.
+
+    ``passage-index-v2`` is in it because it keeps v1's text fields, analyzer and
+    similarity byte for byte. Adding a revision here asserts that the ``bm25-v1``
+    query is still computed by the same rules over the same analysis — which is
+    why an unknown revision is refused rather than searched.
+    """
+    assert (
+        frozenset({PASSAGE_INDEX_SCHEMA_REVISION, VECTOR_PASSAGE_INDEX_SCHEMA_REVISION})
+        == BM25_COMPATIBLE_INDEX_SCHEMA_REVISIONS
+    )
+    assert (
+        frozenset({"passage-index-v1", "passage-index-v2"})
+        == BM25_COMPATIBLE_INDEX_SCHEMA_REVISIONS
+    )
+    # Not derived from a package or server version, and not open-ended.
+    assert "passage-index-v0" not in BM25_COMPATIBLE_INDEX_SCHEMA_REVISIONS
+    assert "passage-index-v3" not in BM25_COMPATIBLE_INDEX_SCHEMA_REVISIONS
 
 
 def test_the_vector_field_is_never_selected_into_a_lexical_hit() -> None:
