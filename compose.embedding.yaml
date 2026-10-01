@@ -20,11 +20,39 @@
 # embeddings. See the README section "Serving an embedding model".
 #
 # The image is an exact patch release, so a teammate and CI observe the same
-# adapter behaviour. `--revision` is a Hugging Face Hub **commit id**, never a
-# tag: the adapter refuses a mutable model identity, and this container is where
-# that has to start. Required variables use `:?` for the same reason the rest of
+# adapter behaviour. Required variables use `:?` for the same reason the rest of
 # the stack does -- a missing or blank value must fail loudly rather than quietly
 # start a model server nobody asked for.
+#
+# ---------------------------------------------------------------------------
+# DEPLOYMENT SEMANTICS -- the attestation, and why it lives here
+# ---------------------------------------------------------------------------
+#
+# `TeiDeploymentSemantics` is what DynamisRAG *claims* about this container, and it
+# is hashed into `embedding_config_sha256`. It is a claim rather than an
+# observation because TEI's `GET /info` reports the build, the model, the dtype, the
+# pooling and the batching limits, and reports nothing about the flags below. Two
+# servers with an identical `/info` and different command lines return different
+# vectors for byte-identical requests, so leaving this unstated would let one
+# fingerprint cover two vector spaces.
+#
+# The reference deployment is `REFERENCE_TEI_DEPLOYMENT_SEMANTICS`:
+#
+#   * NO DEFAULT PROMPT   -- no `--default-prompt`, no `--default-prompt-name`.
+#     A request's `prompt_name: null` therefore resolves to no template. This is
+#     the one item TEI's CLI cannot express negatively: there is no
+#     `--no-default-prompt`, so "no default prompt" is an *absence*. An absence
+#     cannot be pinned by a flag; it can only be shown by what this command line
+#     does not contain, which is why a test asserts it.
+#   * NO DENSE-PATH OVERRIDE -- no `--dense-path`, so the model is pooled by its
+#     own configuration. Upstream documents `--dense-path` as selecting a Dense
+#     module that can transform the pooled embedding and its dimension, so an
+#     override would move the vectors under an unchanged fingerprint.
+#   * IMMUTABLE MODEL REVISION -- `--revision` is required to be a Hub commit id.
+#
+# If you add any flag that can change returned embeddings, the attestation above
+# has to change with it, in the same commit. `tests/unit/test_tei_deployment.py`
+# fails when this file and `REFERENCE_TEI_DEPLOYMENT_SEMANTICS` disagree.
 
 name: dynamisrag
 
@@ -40,20 +68,46 @@ services:
       - ${DYNAMISRAG_TEI_MODEL_SHA:?set DYNAMISRAG_TEI_MODEL_SHA to the immutable Hub commit id}
       - --port
       - "80"
-      # 32 is TEI's own default. The adapter refuses a configured client batch
-      # larger than whatever this reports -- rather than silently shrinking to
-      # fit -- so lowering it is how a single-node CPU deployment forces the
-      # client to partition more finely.
+      # Explicitly NO --default-prompt and NO --dense-path. See the deployment
+      # semantics above: these are the two flags that can change returned vectors
+      # while leaving `/info` identical, and the attestation says this container
+      # has neither.
+      #
+      # --max-client-batch-size is stated rather than defaulted. It is operational,
+      # not semantic -- it is not in any fingerprint -- but making it explicit is
+      # what lets the adapter's own "a configured batch above the advertised limit
+      # is a configuration error" check be reasoned about without reading TEI's
+      # defaults. 32 is also TEI's own default; lowering it is how a single-node
+      # CPU deployment forces the client to partition more finely. It never
+      # truncates a request: TEI's own guard for an over-sized batch is a 422,
+      # which is why the client checks first.
       - --max-client-batch-size
       - ${DYNAMISRAG_TEI_MAX_CLIENT_BATCH_SIZE:-32}
     # Loopback only, like every other service in this project. A model server that
     # answers a bearer-less `POST /embed` must never be reachable from the network.
+    # Plaintext HTTP, which is why `DYNAMISRAG_TEI_URL` is `http://127.0.0.1:8080`
+    # and not `https://`: `verify_tls=false` disables certificate verification,
+    # it does not make an HTTPS URL speak plaintext.
     ports:
       - "127.0.0.1:8080:80"
+    environment:
+      # The one place the model's cache location is decided. The official 1.9.4
+      # image already sets `HUGGINGFACE_HUB_CACHE=/data`, so the named volume is
+      # mounted there to match it. Stating it as well makes the pairing explicit
+      # rather than a coincidence of two files: a future image that moved the
+      # default would change where the weights land, and this line would then be
+      # the one that keeps the cache persistent.
+      #
+      # The previous `tei-model-cache:/models` mount persisted nothing -- the
+      # server downloaded to `/data` and every `down`/`up` re-downloaded the
+      # model, while `/models` stayed empty. The commit id, not this cache, is
+      # what makes the served model reproducible, so the cache is disposable; but
+      # a named volume that does not hold the cache is not a cache.
+      HUGGINGFACE_HUB_CACHE: /data
     volumes:
-      # Named so the download survives `stop`/`start`. Still disposable: the Hub
-      # commit id, not this cache, is what makes the served model reproducible.
-      - tei-model-cache:/models
+      # Named so the download survives `stop`/`start`, and mounted at the path the
+      # image uses for its Hub cache.
+      - tei-model-cache:/data
     healthcheck:
       # `/info` is the very document the adapter reads to prove which model is
       # being served, so a "healthy" container here means its identity is
