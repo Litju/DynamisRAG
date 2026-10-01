@@ -332,6 +332,38 @@ def test_a_dimension_outside_the_accepted_range_is_rejected(dimension: int) -> N
         _config(dimension=dimension)
 
 
+def test_the_dimension_range_is_the_opensearch_mapping_limit() -> None:
+    """Not a sanity bound: the node's own ``knn_vector.dimension`` ceiling.
+
+    OpenSearch 3.8 enforces ``1 <= dimension <= 16000`` for a Lucene HNSW field
+    while the index is created. A wider local bound would accept a config the
+    node then refuses, which is exactly the mutation-then-failure ordering this
+    contract exists to prevent, so the constant must be the node's limit rather
+    than a more generous number of this project's choosing.
+    """
+    assert MIN_VECTOR_DIMENSION == 1
+    assert MAX_VECTOR_DIMENSION == 16_000
+
+
+@pytest.mark.parametrize("dimension", [1, 16_000])
+def test_the_dimension_range_boundaries_are_accepted(dimension: int) -> None:
+    """Both endpoints of the node's range are inside this contract.
+
+    ``dimension=1`` is the degenerate case that is still well-defined under
+    ``l2`` and ``innerproduct``, and ``16000`` is the largest mapping the pinned
+    node will create — so the two together pin the range from both sides.
+    """
+    assert _config(dimension=dimension).dimension == dimension
+    assert _config(dimension=dimension).field_mapping()["dimension"] == dimension
+
+
+@pytest.mark.parametrize("dimension", [0, 16_001])
+def test_the_dimension_range_boundaries_outside_are_rejected(dimension: int) -> None:
+    """One below the floor and one above the node's ceiling."""
+    with pytest.raises(VectorContractError, match="outside the accepted range"):
+        _config(dimension=dimension)
+
+
 def test_a_zero_length_vector_is_not_a_dimension() -> None:
     """The lower bound is one: a zero-length vector has no direction."""
     assert MIN_VECTOR_DIMENSION == 1

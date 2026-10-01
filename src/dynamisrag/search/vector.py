@@ -206,13 +206,19 @@ MIN_VECTOR_DIMENSION: Final[int] = 1
 """Smallest accepted dimension. A zero-length vector has no direction, so under
 any space it is either a zero vector or an outright error."""
 
-MAX_VECTOR_DIMENSION: Final[int] = 65_536
-"""Largest accepted dimension.
+MAX_VECTOR_DIMENSION: Final[int] = 16_000
+"""Largest accepted dimension: the OpenSearch mapping limit itself.
 
-A generous sanity bound, not a model decision: real embedding models emit
-somewhere between roughly 100 and 4,096 dimensions, so a value an order of
-magnitude above that is a miscounted vector rather than a configuration choice.
-It exists to reject a units mistake, not to constrain a model.
+This is *not* a sanity bound and not a model decision. It is the hard limit the
+pinned OpenSearch 3.8 node enforces on ``knn_vector.dimension``, Lucene engine
+included, and the node enforces it while creating the index — so a config above
+it is not a miscounted vector, it is a config the node will reject after this
+project has already begun mutating the index. Declaring the node's own limit is
+what keeps "validate before mutation" true rather than aspirational.
+
+Real embedding models emit somewhere between roughly 100 and 4,096 dimensions, so
+nothing legitimate comes close; the bound exists because the node's limit does,
+not to constrain a model.
 """
 
 _POSITIVE_INFINITY: Final[float] = float("inf")
@@ -363,8 +369,10 @@ class VectorIndexConfig:
         if not MIN_VECTOR_DIMENSION <= self.dimension <= MAX_VECTOR_DIMENSION:
             raise VectorContractError(
                 f"vector dimension {self.dimension} is outside the accepted range "
-                f"{MIN_VECTOR_DIMENSION}..{MAX_VECTOR_DIMENSION}. A dimension far above any real "
-                "embedding model is a miscounted vector rather than a configuration choice.",
+                f"{MIN_VECTOR_DIMENSION}..{MAX_VECTOR_DIMENSION}. That range is the OpenSearch "
+                "knn_vector.dimension limit for the Lucene engine, enforced by the node while the "
+                "index is created, so a config outside it would be refused there only after the "
+                "write had begun.",
                 operation="vector_config",
             )
         if self.space not in SUPPORTED_VECTOR_SPACES:
