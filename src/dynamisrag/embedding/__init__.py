@@ -21,6 +21,18 @@ ranks models, measures retrieval quality or scores a query.
 
 from __future__ import annotations
 
+from dynamisrag.embedding.contracts import (
+    MIN_EMBEDDING_DIMENSION,
+    TRUNCATION_DIRECTIONS,
+    EmbeddingGenerationConfig,
+    EmbeddingInput,
+    EmbeddingProvider,
+    EmbeddingProviderIdentity,
+    EmbeddingRetryPolicy,
+    EmbeddingRuntimeConfig,
+    TruncationDirection,
+    canonical_json,
+)
 from dynamisrag.embedding.errors import (
     MAX_SAFE_DETAIL_LENGTH,
     EmbeddingContractError,
@@ -32,15 +44,37 @@ from dynamisrag.embedding.errors import (
     TeiUnexpectedResponse,
 )
 from dynamisrag.embedding.identity import EmbeddingModelIdentity
+from dynamisrag.embedding.manifest import (
+    PASSAGE_EMBEDDING_MANIFEST_REVISION,
+    PassageEmbeddingEntry,
+    PassageEmbeddingManifest,
+    build_passage_embedding_manifest,
+    canonical_embedding_inputs,
+)
 
 __all__ = [
     "MAX_SAFE_DETAIL_LENGTH",
+    "MIN_EMBEDDING_DIMENSION",
+    "PASSAGE_EMBEDDING_MANIFEST_REVISION",
+    "TRUNCATION_DIRECTIONS",
     "EmbeddingContractError",
+    "EmbeddingGenerationConfig",
+    "EmbeddingInput",
     "EmbeddingManifestError",
     "EmbeddingModelIdentity",
+    "EmbeddingProvider",
     "EmbeddingProviderError",
+    "EmbeddingProviderIdentity",
     "EmbeddingResponseError",
+    "EmbeddingRetryPolicy",
+    "EmbeddingRuntimeConfig",
+    "PassageEmbeddingEntry",
+    "PassageEmbeddingManifest",
     "TeiIdentityError",
     "TeiTransportError",
     "TeiUnexpectedResponse",
+    "TruncationDirection",
+    "build_passage_embedding_manifest",
+    "canonical_embedding_inputs",
+    "canonical_json",
 ]
