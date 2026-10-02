@@ -692,7 +692,6 @@ a hope.
 """
 
 RES138_CALIBRATION_ITEMS_PER_CELL: Final[int] = 2
-RES138_CALIBRATION_SELECTION_REVISION: Final[str] = "res138-calibration-selection-v1"
 RES138_CALIBRATION_TOP_K: Final[int] = 10
 """Calibration set shape: 2 items per (workload, kind, band) cell, top-10 ordering.
 
@@ -775,6 +774,7 @@ RES138_ARTIFACT_REVISIONS: Final[Mapping[str, str]] = {
     "source_manifest": "res138-source-manifest-v1",
     "model_manifest": "res138-model-manifest-v1",
     "shard": "res138-shard-v1",
+    "calibration_selection": "res138-calibration-selection-v1",
     "mrl_calibration": "res138-mrl-calibration-v1",
     "preflight": "res138-preflight-v1",
     "results": "res138-results-v1",
@@ -786,7 +786,17 @@ Named in one place because an artifact whose identity does not name its own
 schema cannot be compared with, or replaced by, another one. A change to what
 any artifact *binds* arrives as a new revision string here, never as a silent
 difference in a payload.
+
+``calibration_selection`` is in this list rather than beside the other
+calibration constants because it *is* an artifact: the provenance record of which
+items were drawn and why. Its revision is an input to the item digest, so letting
+it drift away from the table would let two builds draw different items while
+agreeing on every revision they published.
 """
+
+RES138_CALIBRATION_SELECTION_REVISION: Final[str] = RES138_ARTIFACT_REVISIONS[
+    "calibration_selection"
+]
 
 
 # ---------------------------------------------------------------------------

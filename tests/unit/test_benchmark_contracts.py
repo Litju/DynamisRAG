@@ -49,6 +49,7 @@ from dynamisrag.benchmark.contracts import (
     RES138_BOOTSTRAP_SEED,
     RES138_CALIBRATION_BANDS,
     RES138_CALIBRATION_ITEMS_PER_CELL,
+    RES138_CALIBRATION_SELECTION_REVISION,
     RES138_CALIBRATION_TOP_K,
     RES138_CANDIDATE_DIMENSIONS,
     RES138_CORPUS_CHUNK_SIZE,
@@ -370,18 +371,22 @@ def test_the_calibration_set_shape_is_frozen() -> None:
     assert RES138_CALIBRATION_TOP_K == 10
 
 
-def test_exactly_nine_artifact_revisions_are_declared() -> None:
+def test_exactly_ten_artifact_revisions_are_declared() -> None:
     assert RES138_ARTIFACT_REVISIONS == {
         "plan": "res138-plan-v1",
         "runtime": "res138-runtime-v1",
         "source_manifest": "res138-source-manifest-v1",
         "model_manifest": "res138-model-manifest-v1",
         "shard": "res138-shard-v1",
+        "calibration_selection": "res138-calibration-selection-v1",
         "mrl_calibration": "res138-mrl-calibration-v1",
         "preflight": "res138-preflight-v1",
         "results": "res138-results-v1",
         "selection": "res138-selection-v1",
     }
+    # The calibration selection record is an artifact, so its revision is bound to
+    # the one table rather than declared beside the other calibration constants.
+    assert RES138_CALIBRATION_SELECTION_REVISION == "res138-calibration-selection-v1"
 
 
 # ---------------------------------------------------------------------------
