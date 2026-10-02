@@ -1,0 +1,332 @@
+"""The benchmark-only native SentenceTransformers runner for the hosted GPU session.
+
+This module exists for exactly one reason, and that reason is stated in the RES-138
+execution amendment: **managed Colab must not run Docker.** TEI cannot serve inside
+a Colab runtime, so the model forward passes that the benchmark needs are performed
+by a native ``sentence-transformers`` model on the GPU.
+
+Everything else about it is bounded by the frozen contracts:
+
+* the exact pinned revision is loaded, never ``main`` and never a resolved HEAD;
+* CUDA is required, and a missing device is a refusal with an actionable message
+  rather than a silent CPU fallback that would produce different numbers;
+* outputs are ``float32``, L2-normalised, and checked for finiteness before they
+  reach an artifact;
+* **no hidden truncation**: the model's own boundary is compared against the frozen
+  native boundary, and every input is tokenised and checked *before* encoding, so an
+  over-context item is refused and reported by id;
+* the model-native prompt is applied by name, from the pinned repository's own
+  prompt table, and the prompts have already been verified against the frozen
+  contents by :func:`~dynamisrag.benchmark.res138.verify_pinned_model_metadata`.
+
+**It is not a production provider and does not pretend to be.** It does not
+implement ``EmbeddingProvider``, it does not produce an
+:class:`~dynamisrag.embedding.identity.EmbeddingModelIdentity`, and nothing here
+is wired into the embedding boundary. The provenance it records says
+``benchmark-only-native-sentence-transformers`` precisely so that a later reader
+cannot mistake these vectors for TEI-served ones. The
+:data:`~dynamisrag.benchmark.contracts.RES138_TEI_EQUIVALENCE_GATE` is the check that
+decides whether they are numerically equivalent, and it is evaluated locally against
+TEI 1.9.4 rather than here.
+
+**It is also the only module in the project that imports torch.** That is why
+nothing imports *it*: the notebook constructs it explicitly, and CI never loads it.
+"""
+
+from __future__ import annotations
+
+import platform
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from importlib import metadata
+from pathlib import Path
+from typing import Final
+
+import numpy as np
+from numpy.typing import NDArray
+
+from dynamisrag.benchmark.artifacts import ShardKind
+from dynamisrag.benchmark.contracts import RES138_MODEL_CANDIDATES, ModelCandidateSpec
+from dynamisrag.benchmark.errors import BenchmarkExecutionError
+from dynamisrag.benchmark.runtime import RuntimeProbe, require_cuda_available
+
+__all__ = [
+    "RES138_RUNNER_PROVIDER",
+    "HubModelMetadataReader",
+    "SentenceTransformersCalibrationEncoder",
+    "observed_library_versions",
+    "probe_colab_runtime",
+]
+
+RES138_RUNNER_PROVIDER: Final[str] = "benchmark-only-native-sentence-transformers"
+"""The provider name recorded in benchmark provenance.
+
+Deliberately **not** ``tei`` and deliberately not the name of any
+:class:`~dynamisrag.embedding.contracts.EmbeddingProvider` implementation. A
+benchmark artifact that claimed TEI provenance for native Colab inference would be
+a false statement about how the numbers were produced, and the TEI equivalence gate
+exists precisely because the two are not assumed to be the same thing.
+"""
+
+
+def observed_library_versions() -> Mapping[str, str]:
+    """The installed versions of the libraries the numbers depend on.
+
+    Read from the installed distributions rather than from ``__version__``
+    attributes, because those differ between the two for the same package and the
+    fingerprint has to record one string per library.
+    """
+    versions: dict[str, str] = {}
+    for distribution in (
+        "sentence-transformers",
+        "transformers",
+        "huggingface-hub",
+        "numpy",
+        "torch",
+    ):
+        try:
+            versions[distribution] = metadata.version(distribution)
+        except metadata.PackageNotFoundError:
+            versions[distribution] = "not-installed"
+    return versions
+
+
+def probe_colab_runtime(*, code_sha: str, nvidia_driver_version: str) -> RuntimeProbe:
+    """Read the live runtime into a :class:`RuntimeProbe`.
+
+    ``nvidia_driver_version`` is passed in rather than shelled out to here: the
+    notebook is allowed to invoke a shell, this module is not, and ``nvidia-smi`` is
+    the only source of the driver string. It is validated by the probe, so a
+    missing or unparsed value is a refusal rather than an empty field in the
+    fingerprint.
+    """
+    import torch
+
+    require_cuda_available(
+        available=bool(torch.cuda.is_available()),
+        device_count=int(torch.cuda.device_count()),
+        operation="probe_colab_runtime",
+    )
+    properties = torch.cuda.get_device_properties(0)
+    capability = f"{properties.major}.{properties.minor}"
+    versions = observed_library_versions()
+    return RuntimeProbe(
+        code_sha=code_sha,
+        python_version=platform.python_version(),
+        python_implementation=platform.python_implementation(),
+        platform_system=platform.system(),
+        platform_release=platform.release(),
+        platform_machine=platform.machine(),
+        gpu_name=properties.name,
+        gpu_total_memory_bytes=int(properties.total_memory),
+        gpu_compute_capability=capability,
+        nvidia_driver_version=nvidia_driver_version,
+        cuda_runtime_version=str(torch.version.cuda or "none"),
+        torch_version=versions["torch"],
+        numpy_version=versions["numpy"],
+        sentence_transformers_version=versions["sentence-transformers"],
+        transformers_version=versions["transformers"],
+        huggingface_hub_version=versions["huggingface-hub"],
+    )
+
+
+@dataclass
+class SentenceTransformersCalibrationEncoder:
+    """One candidate, loaded on the GPU, encoding through the model-native prompts.
+
+    Implements both protocols the harness needs —
+    :class:`~dynamisrag.benchmark.res138.CalibrationEncoder` and, through
+    :meth:`describe`, the model provenance a preflight records.
+
+    **Load-time refusals.** A model whose own ``max_seq_length`` is *shorter* than
+    the frozen native boundary would truncate inputs nobody declared; that is
+    refused at construction. A loaded model's pooling and its normalisation stage
+    have already been checked against the pinned repository by
+    :func:`~dynamisrag.benchmark.res138.verify_pinned_model_metadata`, which reads
+    the same files this model was loaded from.
+    """
+
+    candidate: ModelCandidateSpec
+    batch_size: int = 32
+    cache_folder: Path | None = None
+    device: str = "cuda"
+
+    def __post_init__(self) -> None:
+        import torch
+        from sentence_transformers import SentenceTransformer
+
+        require_cuda_available(
+            available=bool(torch.cuda.is_available()),
+            device_count=int(torch.cuda.device_count()),
+            operation="load_candidate",
+        )
+        if self.batch_size < 1:
+            raise BenchmarkExecutionError(
+                f"batch_size {self.batch_size} is not a positive number of inputs per forward "
+                "pass.",
+                operation="load_candidate",
+                model_id=self.candidate.model_id,
+            )
+        self.model = SentenceTransformer(
+            self.candidate.model_id,
+            revision=self.candidate.revision,
+            cache_folder=str(self.cache_folder) if self.cache_folder is not None else None,
+            device=self.device,
+        )
+        self.tokenizer = self.model.tokenizer
+        if self.model.max_seq_length < self.candidate.native_max_sequence_length:
+            raise BenchmarkExecutionError(
+                f"the loaded model reports max_seq_length {self.model.max_seq_length}, shorter "
+                f"than the frozen native {self.candidate.native_max_sequence_length}. Encoding at "
+                "that boundary would truncate inputs silently, which this benchmark does not do.",
+                operation="load_candidate",
+                model_id=self.candidate.model_id,
+                expected=str(self.candidate.native_max_sequence_length),
+                observed=str(self.model.max_seq_length),
+            )
+        prompts = self.model[0].prompts
+        for kind in ("query", "document"):
+            expected = self.candidate.prompt(kind=kind).content
+            observed = prompts.get(kind)
+            if observed != expected:
+                raise BenchmarkExecutionError(
+                    f"the loaded model resolves the {kind} prompt to {observed!r}, not the frozen "
+                    f"{expected!r}. The prompts were verified against the pinned repository before "
+                    "the model was loaded, so a mismatch here means the loaded weights are not the "
+                    "pinned ones.",
+                    operation="load_candidate",
+                    model_id=self.candidate.model_id,
+                    expected=repr(expected),
+                    observed=repr(observed),
+                )
+
+    def describe(self) -> dict[str, object]:
+        """Model provenance for the preflight artifact."""
+        return {
+            "provider": RES138_RUNNER_PROVIDER,
+            "model_id": self.candidate.model_id,
+            "model_revision": self.candidate.revision,
+            "pooling_mode": self.candidate.pooling_mode,
+            "native_max_sequence_length": self.candidate.native_max_sequence_length,
+            "loaded_max_seq_length": int(self.model.max_seq_length),
+            "batch_size": self.batch_size,
+            "device": self.device,
+            "dtype": "float32",
+            "normalized": True,
+            "prompt_sha256": self.candidate.prompt_sha256,
+        }
+
+    def observed_max_sequence_length(self) -> int:
+        """The truncation boundary the loaded model reports for itself."""
+        return int(self.model.max_seq_length)
+
+    def token_counts(self, texts: Sequence[str]) -> tuple[int, ...]:
+        """Token length of each input under the model's own tokenizer.
+
+        Counted without special tokens and without truncation, so a number larger
+        than the boundary is a real over-context input rather than an artifact of
+        how the length was measured.
+        """
+        encoded = self.tokenizer(
+            list(texts), add_special_tokens=True, truncation=False, padding=False
+        )
+        return tuple(len(ids) for ids in encoded["input_ids"])
+
+    def encode(
+        self, texts: Sequence[str], *, kind: ShardKind, dimension: int
+    ) -> NDArray[np.float32]:
+        """Encode with the model-native prompt, normalised, at ``dimension``.
+
+        ``truncate_dim`` is what asks the model for a 512-dimensional output from
+        weights whose native dimension is larger; the MRL calibration exists to
+        establish whether that is numerically the same as deriving it, and the
+        benchmark uses whichever the calibration approved.
+        """
+        if kind is not ShardKind.DOCUMENTS and kind is not ShardKind.QUERIES:
+            raise BenchmarkExecutionError(
+                f"cannot encode with prompt kind {kind!r}.",
+                operation="encode_calibration",
+                model_id=self.candidate.model_id,
+            )
+        vectors = self.model.encode(
+            list(texts),
+            batch_size=self.batch_size,
+            prompt_name=kind.prompt_name,
+            normalize_embeddings=True,
+            convert_to_numpy=True,
+            truncate_dim=dimension,
+            show_progress_bar=False,
+        )
+        matrix = np.ascontiguousarray(np.asarray(vectors), dtype=np.float32)
+        if matrix.shape != (len(texts), dimension):
+            raise BenchmarkExecutionError(
+                f"the model returned {matrix.shape} for {len(texts)} inputs at dimension "
+                f"{dimension}. An encode that did not return the requested shape would be stored "
+                "in a shard whose declared dimension is a lie.",
+                operation="encode_calibration",
+                model_id=self.candidate.model_id,
+            )
+        if not bool(np.all(np.isfinite(matrix))):
+            raise BenchmarkExecutionError(
+                "the model returned a non-finite component. Every distance to a non-finite "
+                "vector is undefined, and values are deliberately not reported.",
+                operation="encode_calibration",
+                model_id=self.candidate.model_id,
+            )
+        return matrix
+
+
+class HubModelMetadataReader:
+    """Read pinned model files from the Hub, with no token and no HEAD resolution.
+
+    Every read is addressed by ``model_id`` and ``revision``, so what is read is
+    what was frozen. Nothing here asks the Hub what a branch points at.
+    """
+
+    def __init__(self, *, token: str | None = None) -> None:
+        self._token = token
+
+    def read_model_file(self, model_id: str, revision: str, filename: str) -> Mapping[str, object]:
+        """Fetch one file at one revision and decode it as JSON.
+
+        A token, if one is ever needed, comes from Colab Secrets and is passed in;
+        it is never written into a notebook cell, an artifact or a log line.
+        """
+        from huggingface_hub import hf_hub_download
+
+        try:
+            path = hf_hub_download(
+                repo_id=model_id,
+                filename=filename,
+                revision=revision,
+                token=self._token,
+            )
+        except Exception as error:
+            # The Hub raises a family of transport, revision and authorisation
+            # errors, and the harness needs one actionable message naming the file
+            # that could not be read at the revision that was asked for.
+            raise BenchmarkExecutionError(
+                f"{filename} could not be read for {model_id} at revision {revision} "
+                f"({type(error).__name__}). Both candidates are public and need no token; if this "
+                "persists, the revision may have been moved and the frozen model identities must "
+                "be re-established before anything is measured.",
+                operation="read_pinned_model_file",
+                model_id=model_id,
+                expected=revision,
+            ) from None
+        import json
+
+        with Path(path).open("r", encoding="utf-8") as handle:
+            decoded: object = json.load(handle)
+        if not isinstance(decoded, dict):
+            raise BenchmarkExecutionError(
+                f"{filename} for {model_id} is a JSON {type(decoded).__name__}, not an object.",
+                operation="read_pinned_model_file",
+                model_id=model_id,
+            )
+        return decoded
+
+
+def frozen_candidates() -> tuple[ModelCandidateSpec, ...]:
+    """The two frozen candidates, re-exported so the notebook imports one module."""
+    return RES138_MODEL_CANDIDATES

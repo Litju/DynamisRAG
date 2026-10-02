@@ -142,12 +142,20 @@ def _ranked_ids(
     item scores every item including itself. Reused from the production ranking
     path rather than reimplemented, so the ordering a calibration disagreement is
     reported against is the ordering the benchmark would actually use.
+
+    The items are put into canonical id order first. A calibration set is emitted
+    in ``(workload, kind, band)`` order so that its *construction* is auditable,
+    which is not the order a retrieval matrix is ever held in; comparing two
+    matrices in a non-canonical order would be refused by the ranking itself.
     """
+    order = np.argsort(np.array(list(item_ids)), kind="stable")
+    ordered_ids = tuple(item_ids[int(index)] for index in order)
+    ordered = np.ascontiguousarray(matrix[order])
     rankings: tuple[QueryRanking, ...] = exact_top_k(
-        query_matrix=matrix,
-        document_matrix=matrix,
-        query_ids=tuple(item_ids),
-        document_ids=tuple(item_ids),
+        query_matrix=ordered,
+        document_matrix=ordered,
+        query_ids=ordered_ids,
+        document_ids=ordered_ids,
         top_k=RES138_CALIBRATION_TOP_K,
     )
     return tuple(tuple(hit.document_id for hit in ranking.hits) for ranking in rankings)

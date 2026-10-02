@@ -157,7 +157,19 @@ typeCheckingMode = "strict"
 include = ["src", "tests", "alembic"]
 venvPath = "."
 venv = ".venv"
-exclude = ["**/__pycache__", ".venv", "alembic/versions"]
+exclude = [
+    "**/__pycache__",
+    ".venv",
+    "alembic/versions",
+    # RES-138's Colab runner. `torch`, `sentence-transformers` and `transformers`
+    # are deliberately absent from every dependency group -- they are pinned in
+    # `requirements/res138-colab.txt` for the hosted GPU session only -- so there
+    # is nothing here for a checker to resolve and strict mode would report every
+    # third-party symbol as unknown. The module's own logic is checked indirectly:
+    # the harness it serves is typed, and its interface is a Protocol the harness
+    # consumes. Nothing imports this module, so CI never loads it.
+    "src/dynamisrag/benchmark/runner.py",
+]
 reportUnnecessaryTypeIgnoreComment = "error"
 reportPrivateUsage = "error"
 reportMissingTypeStubs = false
