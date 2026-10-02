@@ -9,6 +9,13 @@ reading the committed JSON rather than by trusting review:
   ``CODE_SHA``, ``RUN_MODE = "preflight"``, an empty approval digest, the Drive root,
   shard size 4096, the candidate dimensions, the bootstrap triple, and the frozen BEIR
   and model identities written out rather than left to the repository alone;
+* **code identity is established before the code is imported.** This is the property the
+  previous version of the notebook got wrong and it is asserted structurally: the first
+  ``dynamisrag`` import anywhere in the notebook must come *after* the detached checkout,
+  *after* the ``rev-parse HEAD`` comparison and *after* the ``sys.path`` insertion that
+  makes the import legal. A clean Colab runtime has no DynamisRAG installed, so an import
+  placed earlier is not a style question — it fails at runtime and would run unverified
+  code if it did not.
 * **code transport is GitHub and an exact detached SHA** — a clone, a fetch of
   ``CODE_SHA``, ``checkout --detach``, a ``rev-parse HEAD`` comparison and a
   ``status --porcelain`` cleanliness check. No bundle, no tarball, and nothing that
@@ -60,8 +67,77 @@ def _code_cells() -> list[str]:
     return _cells("code")
 
 
+def _indexed_code_cells() -> list[tuple[int, str]]:
+    """Code cells in execution order, as ``(position, source)`` pairs.
+
+    Position rather than a character offset: Colab executes top to bottom, so the index of
+    a cell is what "before" means here. The first code cell is 0.
+    """
+    return [
+        (position, source)
+        for position, source in enumerate(
+            "".join(cast("list[str]", cell["source"]))
+            for cell in cast("list[dict[str, object]]", _notebook()["cells"])
+            if cell["cell_type"] == "code"
+        )
+    ]
+
+
+def _dynamisrag_imports(tree: ast.AST) -> list[int]:
+    """Line numbers of every ``import dynamisrag`` / ``from dynamisrag... import``.
+
+    Read through ``ast`` rather than by substring, so a match in a comment, a docstring or
+    a longer module name (``dynamisragging``) cannot satisfy — or fail — this check.
+    """
+    lines: list[int] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            lines.extend(
+                alias.lineno for alias in node.names if alias.name.split(".")[0] == "dynamisrag"
+            )
+        elif (
+            isinstance(node, ast.ImportFrom)
+            and node.level == 0
+            and node.module is not None
+            and node.module.split(".")[0] == "dynamisrag"
+        ):
+            lines.append(node.lineno)
+    return sorted(lines)
+
+
+def _call_lines(tree: ast.AST, function: str, first_argument: str) -> list[int]:
+    """Line numbers of statements calling ``function("first_argument", ...)``."""
+
+    def dotted(node: ast.AST) -> str | None:
+        if isinstance(node, ast.Name):
+            return node.id
+        if isinstance(node, ast.Attribute):
+            owner = dotted(node.value)
+            return None if owner is None else f"{owner}.{node.attr}"
+        return None
+
+    lines: list[int] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or dotted(node.func) != function:
+            continue
+        if (
+            node.args
+            and isinstance(node.args[0], ast.Constant)
+            and node.args[0].value == first_argument
+        ):
+            lines.append(node.lineno)
+    return sorted(lines)
+
+
 def _all_source() -> str:
     return "\n".join(_cells("code") + _cells("markdown"))
+
+
+def _cell_containing(fragment: str) -> str:
+    """The single code cell containing ``fragment``, or an assertion failure."""
+    matching = [source for source in _code_cells() if fragment in source]
+    assert len(matching) == 1, f"{len(matching)} code cells contain {fragment!r}, expected one"
+    return matching[0]
 
 
 def test_every_code_cell_is_valid_python() -> None:
@@ -165,6 +241,133 @@ def test_the_notebook_imports_the_runner_only_after_the_repository_is_on_the_pat
     assert runner > clone
 
 
+# ---------------------------------------------------------------------------
+# Code identity before code
+#
+# The defect this guards against is not stylistic. A fresh Colab runtime has no
+# DynamisRAG installed, so an import placed before the checkout fails; and if it did not
+# fail it would be importing whatever `pip install dynamisrag` happened to provide rather
+# than the commit the run is bound to. Every earlier notebook revision put `runtime`,
+# `contracts` and `res138` imports in the GPU and Drive cells, before `git clone`.
+#
+# Ordering is asserted by cell position and, inside the checkout cell, by line number —
+# so `import dynamisrag` sitting *after* `sys.path.insert` in the same cell passes, and an
+# import sitting before it does not.
+# ---------------------------------------------------------------------------
+
+
+def test_no_dynamisrag_import_precedes_the_exact_checkout_or_the_sys_path_insertion() -> None:
+    indexed = _indexed_code_cells()
+
+    # The bootstrap must exist at all, or every comparison below is vacuous.
+    checkout_cells = [
+        position for position, source in indexed if 'git("checkout", "--detach", CODE_SHA' in source
+    ]
+    assert len(checkout_cells) == 1, "the notebook must check out CODE_SHA exactly once, detached"
+    checkout = checkout_cells[0]
+    checkout_cell = indexed[checkout][1]
+
+    tree = ast.parse(checkout_cell)
+    rev_parse = _call_lines(tree, "git", "rev-parse")
+    path_insert = [
+        node.lineno
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "insert"
+        and isinstance(node.func.value, ast.Attribute)
+        and node.func.value.attr == "path"
+        and isinstance(node.func.value.value, ast.Name)
+        and node.func.value.value.id == "sys"
+    ]
+    assert rev_parse, "the checkout cell must compare git rev-parse HEAD with CODE_SHA"
+    assert path_insert, "the checkout cell must insert the cloned src directory into sys.path"
+    assert 'sys.path.insert(0, str(REPO_DIR / "src"))' in checkout_cell
+
+    # The verified cutoff inside the checkout cell: after rev-parse and after sys.path.
+    boundary = max(*rev_parse, *path_insert)
+
+    for position, source in indexed:
+        import_lines = _dynamisrag_imports(ast.parse(source))
+        if not import_lines:
+            continue
+        if position < checkout:
+            raise AssertionError(
+                f"code cell {position} imports dynamisrag before the exact detached checkout in "
+                f"code cell {checkout}; a fresh Colab runtime has no DynamisRAG installed"
+            )
+        if position == checkout and min(import_lines) < boundary:
+            raise AssertionError(
+                f"the checkout cell imports dynamisrag at line {min(import_lines)}, before the "
+                f"verified rev-parse and sys.path insertion at line {boundary}"
+            )
+
+
+def test_the_gpu_bootstrap_cell_uses_raw_torch_and_nothing_from_the_repository() -> None:
+    cell = _cell_containing("torch.cuda.is_available()")
+
+    assert _dynamisrag_imports(ast.parse(cell)) == []
+    assert "from dynamisrag.benchmark.runtime import" not in cell
+    assert "require_cuda_available" not in cell
+    # The actionable message the harness contract would have supplied, in the notebook.
+    assert "Hardware accelerator" in cell
+    assert "torch.cuda.device_count()" in cell
+
+
+def test_the_drive_bootstrap_cell_checks_literal_paths_before_the_repository_exists() -> None:
+    cell = _cell_containing("drive.mount(")
+
+    assert _dynamisrag_imports(ast.parse(cell)) == []
+    assert "RES138_DRIVE_LOCATIONS" not in cell, (
+        "the storage contract cannot be read before the repository is on the path"
+    )
+    # The paths it does check are built from the parameter-cell literals.
+    for literal in (
+        'DRIVE_ROOT = "/content/drive/MyDrive/DynamisRAG/RES-138"',
+        'DRIVE_RUNS_SUBDIR = "runs"',
+        'DRIVE_SOURCES_SUBDIR = "sources/beir"',
+        'DRIVE_NOTEBOOKS_SUBDIR = "notebooks"',
+    ):
+        assert literal in _code_cells()[0]
+    for derived in (
+        'DRIVE_RUNS_PATH = f"{DRIVE_ROOT}/{DRIVE_RUNS_SUBDIR}"',
+        'DRIVE_SOURCES_PATH = f"{DRIVE_ROOT}/{DRIVE_SOURCES_SUBDIR}"',
+        'DRIVE_NOTEBOOKS_PATH = f"{DRIVE_ROOT}/{DRIVE_NOTEBOOKS_SUBDIR}"',
+    ):
+        assert derived in cell
+
+
+def test_the_notebook_literals_are_checked_against_the_repository_after_the_checkout() -> None:
+    indexed = _indexed_code_cells()
+    checkout = next(
+        position for position, source in indexed if 'git("checkout", "--detach", CODE_SHA' in source
+    )
+    later = [source for position, source in indexed if position > checkout]
+    joined = "\n".join(later)
+
+    assert "Res138ColabConfig(" in joined
+    for checked in (
+        "RES138_DRIVE_ROOT",
+        "RES138_BEIR_SOURCES",
+        "RES138_MODEL_CANDIDATES",
+        "RES138_DRIVE_LOCATIONS",
+        "RES138_SHARD_SIZE",
+        "RES138_CANDIDATE_DIMENSIONS",
+        "RES138_BOOTSTRAP_SEED",
+    ):
+        assert checked in joined, f"{checked} is never compared with the parameter cell"
+
+
+def test_the_notebook_refuses_a_blank_or_non_commit_code_sha_before_cloning() -> None:
+    cell = _cell_containing("CODE_SHA {CODE_SHA!r} is not exactly 40 lowercase hexadecimal")
+
+    assert "if not CODE_SHA:" in cell
+    assert 're.fullmatch(r"[0-9a-f]{40}", CODE_SHA)' in cell
+    assert "CODE_SHA is empty" in cell
+    # The clone is a later cell, so both refusals happen first.
+    assert cell.index("re.fullmatch") < cell.index('print(f"CODE_SHA')
+
+
 def test_the_preflight_is_the_default_and_the_stop_is_reachable() -> None:
     source = _all_source()
     assert 'RUN_MODE = "preflight"' in source
@@ -189,11 +392,13 @@ def test_the_full_run_cell_is_unreachable_without_both_conditions() -> None:
 def test_the_notebook_checks_the_environment_before_it_spends_anything() -> None:
     source = _all_source()
     ordered = (
-        "require_cuda_available",
+        # Raw torch first, then Drive, then the code identity the rest of the notebook
+        # depends on, then the dependency install that must not move the CUDA runtime.
+        "torch.cuda.is_available()",
         "drive.mount",
         'git("clone"',
         "pip",
-        "require_torch_unchanged",
+        "require_torch_unchanged(",
         "capture_runtime_fingerprint",
         "create_res138_run",
         "verify_and_cache_beir_sources",
