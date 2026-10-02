@@ -229,7 +229,7 @@ def test_the_notebook_does_not_reimplement_the_benchmark() -> None:
         "require_approved_preflight",
         "verify_and_cache_beir_sources",
         "verify_pinned_model_metadata",
-        "run_mrl_calibration",
+        "calibrate_frozen_candidates",
     ):
         assert required in source
 
@@ -389,6 +389,98 @@ def test_the_full_run_cell_is_unreachable_without_both_conditions() -> None:
     assert "evaluate_workload(" not in earlier
 
 
+# ---------------------------------------------------------------------------
+# One model load per candidate
+#
+# The previous notebook looped workload -> candidate and constructed an encoder for
+# every pair: six model loads for twelve decisions the calibration set already spans.
+# A comment saying "loaded once" would prove nothing, so this asserts it from the JSON:
+# the notebook has exactly one model-construction call site, it is not inside a loop,
+# and the loop over candidates cannot exist in the notebook at all because the loop is
+# inside calibrate_frozen_candidates. The unit test of that function asserts one
+# construction per candidate; this asserts the notebook cannot route around it.
+# ---------------------------------------------------------------------------
+
+
+def test_the_notebook_constructs_no_encoder_of_its_own() -> None:
+    """It must call the single-load orchestration, not build models in a cell."""
+
+    source = _all_source()
+    assert "SentenceTransformersCalibrationEncoder(" not in source
+    assert "calibrate_frozen_candidates(" in source
+
+
+def _called(node: ast.Call) -> str | None:
+    if isinstance(node.func, ast.Name):
+        return node.func.id
+    if isinstance(node.func, ast.Attribute):
+        return node.func.attr
+    return None
+
+
+def _statement_loops(source: str) -> list[ast.stmt]:
+    """Top-level ``for``/``while`` statements in a code cell, comprehensions excluded."""
+
+    return [
+        node
+        for node in ast.parse(source).body
+        if isinstance(node, (ast.For, ast.While, ast.AsyncFor))
+    ]
+
+
+def test_the_calibration_cell_has_no_statement_loop_around_the_load() -> None:
+    """Read through ``ast``, so a comprehension is not mistaken for a loop.
+
+    The previous cell looped ``for entry in loaded: for candidate in ...:`` and built an
+    encoder in the inner body. What has to be impossible is a *statement* loop enclosing
+    the construction, because that is exactly what turns one call into six.
+    """
+
+    cell = _cell_containing("calibrate_frozen_candidates(")
+    calls = [
+        node
+        for node in ast.walk(ast.parse(cell))
+        if isinstance(node, ast.Call) and _called(node) == "calibrate_frozen_candidates"
+    ]
+    assert len(calls) == 1
+    loops = _statement_loops(cell)
+    for loop in loops:
+        for inner in ast.walk(loop):
+            if isinstance(inner, ast.Call) and _called(inner) == "calibrate_frozen_candidates":
+                raise AssertionError(
+                    "calibrate_frozen_candidates is inside a statement loop, so the model would "
+                    "be built once per iteration"
+                )
+    # The only statement loops are the read-only report loops below.
+    assert all(
+        isinstance(node, ast.For)
+        and isinstance(node.target, ast.Name)
+        and node.target.id in {"decision", "run"}
+        for node in loops
+    ), [type(node).__name__ for node in loops]
+
+
+def test_the_calibration_cell_draws_one_set_spanning_every_workload() -> None:
+    """The single set is what makes one load sufficient; a per-workload set would not be."""
+
+    cell = _cell_containing("calibrate_frozen_candidates(")
+
+    assert "select_calibration_set([entry.workload for entry in loaded])" in cell
+    assert "candidates=FROZEN_CANDIDATES," in cell
+    # The load count is reported, so a reviewer can see it against the candidate count.
+    assert 'print(f"model loads: {len(candidate_runs)}")' in cell
+
+
+def test_the_notebook_prints_the_three_dtypes_separately_for_each_loaded_model() -> None:
+    """The reviewer must be able to see requested, observed and output distinct."""
+
+    cell = _cell_containing("calibrate_frozen_candidates(")
+
+    assert "requested_compute=" in cell
+    assert "observed_compute=" in cell
+    assert "output=" in cell
+
+
 def test_the_notebook_checks_the_environment_before_it_spends_anything() -> None:
     source = _all_source()
     ordered = (
@@ -403,7 +495,7 @@ def test_the_notebook_checks_the_environment_before_it_spends_anything() -> None
         "create_res138_run",
         "verify_and_cache_beir_sources",
         "verify_pinned_model_metadata",
-        "run_mrl_calibration",
+        "calibrate_frozen_candidates",
         "write_preflight_bundle",
     )
     positions = [source.index(fragment) for fragment in ordered]
