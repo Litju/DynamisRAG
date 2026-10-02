@@ -294,6 +294,39 @@ def test_exactly_one_benchmark_module_imports_torch_and_nothing_imports_it() -> 
 # ---------------------------------------------------------------------------
 
 
+def test_the_gpu_runner_never_names_a_candidate_or_branches_on_one() -> None:
+    """Loading policy belongs to the frozen candidate, not to the code that loads it.
+
+    Voyage 4 Nano needs ``trust_remote_code=True`` and Qwen does not. A runner that
+    decided that from the model id would give the same two answers today and would be
+    one candidate away from handing the wrong loading policy to a third — and the
+    decision would be invisible in every artifact, because nothing about the payload
+    would record it. So it is refused structurally: no candidate id appears in the
+    runner, and no comparison in it reads ``model_id``.
+    """
+    path = _DYNAMISRAG / "benchmark" / "runner.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+
+    # No string *value* in the runner may name a candidate. Prose about why the policy
+    # differs is encouraged; a literal is how the policy would leak back into the code.
+    literals = {
+        node.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    }
+    for model_id in _CANDIDATE_MODEL_IDS:
+        offenders = sorted(value for value in literals if model_id in value)
+        assert offenders == [], f"runner.py has a literal naming {model_id}: {offenders}"
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Compare):
+            continue
+        read = any(
+            isinstance(part, ast.Attribute) and part.attr == "model_id" for part in node.comparators
+        )
+        assert not read, f"runner.py:{node.lineno} branches on a candidate's model id"
+
+
 def test_the_nine_declared_artifact_revisions_are_the_only_ones_in_the_benchmark() -> None:
     declared = set(RES138_ARTIFACT_REVISIONS.values())
     found: set[str] = set()

@@ -114,9 +114,12 @@ def test_the_plan_declares_everything_a_reviewer_has_to_object_to() -> None:
     sharding = cast("dict[str, object]", payload["sharding"])
     assert sharding["shard_size"] == RES138_SHARD_SIZE
     assert payload["matrices"] == {
-        "dtype": RES138_SCORE_DTYPE.__name__,
+        "artifact_dtype": RES138_SCORE_DTYPE.__name__,
         "normalization": RES138_NORMALIZATION,
     }
+    compute = cast("dict[str, object]", payload["compute"])
+    assert compute["dtype_per_candidate"] == "candidates[].compute_dtype"
+    assert compute["observed_after_load"] is True
     mrl = cast("dict[str, object]", payload["mrl"])
     assert mrl["derivation_revision"] == RES138_MRL_DERIVATION_REVISION
     execution = cast("dict[str, object]", payload["execution"])
@@ -131,6 +134,24 @@ def test_the_plan_declares_everything_a_reviewer_has_to_object_to() -> None:
         "require_identical_top_k": True,
     }
     assert cast("dict[str, object]", payload["bootstrap"])["seed"] == 138
+
+
+def test_the_plan_declares_each_candidates_frozen_loading_semantics() -> None:
+    """A plan that omits them cannot tell a reviewer how the weights would be loaded."""
+
+    payload = benchmark_plan(_CODE_SHA).payload
+    declared = {
+        cast("str", record["model_id"]): record
+        for record in cast("list[dict[str, object]]", payload["candidates"])
+    }
+    assert set(declared) == {candidate.model_id for candidate in RES138_MODEL_CANDIDATES}
+    assert declared["voyageai/voyage-4-nano"]["trust_remote_code"] is True
+    assert declared["Qwen/Qwen3-Embedding-0.6B"]["trust_remote_code"] is False
+    for candidate in RES138_MODEL_CANDIDATES:
+        record = declared[candidate.model_id]
+        assert record["compute_dtype"] == "float32"
+        assert record["output_dtype"] == "float32"
+        assert record["revision"] == candidate.revision
 
 
 def test_the_generation_semantics_are_res_137_configs_not_a_parallel_invention() -> None:
@@ -260,6 +281,9 @@ def test_the_pinned_metadata_of_both_candidates_verifies() -> None:
     assert first["prompt_sha256"] == RES138_MODEL_CANDIDATES[0].prompt_sha256
     assert first["normalized_by_model"] is True
     assert first["native_max_sequence_length"] == 32768
+    assert first["trust_remote_code"] is True
+    assert first["compute_dtype"] == "float32"
+    assert first["output_dtype"] == "float32"
     assert reader.read[0] == (
         RES138_MODEL_CANDIDATES[0].model_id,
         RES138_MODEL_CANDIDATES[0].revision,

@@ -34,7 +34,7 @@ the freeze itself, because a freeze that is only a comment is not a freeze:
 from __future__ import annotations
 
 import hashlib
-from typing import Final
+from typing import Any, Final, cast
 
 import pytest
 
@@ -66,6 +66,7 @@ from dynamisrag.benchmark.contracts import (
     RES138_RETRIEVAL_TOP_K,
     RES138_RUN_ID_PREFIX,
     RES138_SHARD_SIZE,
+    RES138_SUPPORTED_DTYPES,
     RES138_TEI_EQUIVALENCE_GATE,
     RES138_WORKLOAD_NAMES,
     BeirSourceSpec,
@@ -79,6 +80,8 @@ from dynamisrag.benchmark.contracts import (
     ordered_ids_sha256,
     require_candidate_dimension,
     require_code_sha,
+    require_exact_bool,
+    require_frozen_dtype,
     require_shard_size,
     text_sha256,
 )
@@ -268,6 +271,90 @@ def test_pooling_and_truncation_boundaries_are_declared_and_sourced() -> None:
     assert "131072" in qwen.sequence_length_source
 
 
+def test_remote_code_trust_is_frozen_per_candidate_and_is_not_uniform() -> None:
+    """Voyage needs custom modelling code; Qwen does not. One flag, two different answers.
+
+    Asserted as a pair because a single-candidate assertion would pass under either a
+    uniform ``True`` or a uniform ``False``. The whole reason this is a frozen field is
+    that the two answers differ.
+    """
+    voyage, qwen = RES138_MODEL_CANDIDATES
+
+    assert voyage.trust_remote_code is True
+    assert qwen.trust_remote_code is False
+
+
+def test_both_candidates_are_frozen_to_float32_for_compute_and_for_output() -> None:
+    """One explicit compute dtype for all four candidate runs.
+
+    The local sealed TEI 1.9.4 reference reported ``model_dtype float32``, and TEI
+    equivalence is the gate that decides whether native Colab vectors may be used for
+    production at all. Qwen's own pinned config declares bfloat16 and Voyage's
+    recommended GPU path uses BF16; neither is inherited.
+    """
+    assert RES138_SUPPORTED_DTYPES == ("float32",)
+    for candidate in RES138_MODEL_CANDIDATES:
+        assert candidate.compute_dtype == "float32"
+        assert candidate.output_dtype == "float32"
+
+
+def test_the_loading_semantics_are_part_of_the_hashed_candidate_payload() -> None:
+    """A payload without them would let two loads of the same weights share a digest."""
+
+    for candidate in RES138_MODEL_CANDIDATES:
+        payload = dict(candidate.payload())
+        assert payload["trust_remote_code"] is candidate.trust_remote_code
+        assert payload["compute_dtype"] == candidate.compute_dtype
+        assert payload["output_dtype"] == candidate.output_dtype
+
+
+def _with(candidate: ModelCandidateSpec, **changes: object) -> ModelCandidateSpec:
+    """The same candidate with fields replaced, for digest comparisons."""
+    fields: dict[str, Any] = {
+        name: getattr(candidate, name) for name in ModelCandidateSpec.__dataclass_fields__
+    }
+    fields.update(changes)
+    return ModelCandidateSpec(**fields)
+
+
+def test_flipping_remote_code_trust_changes_the_hashed_candidate_identity() -> None:
+    """Loading the same weights with a different code-trust policy is a different run."""
+
+    voyage = RES138_MODEL_CANDIDATES[0]
+    flipped = _with(voyage, trust_remote_code=not voyage.trust_remote_code)
+
+    assert dict(flipped.payload()) != dict(voyage.payload())
+    assert dict(flipped.payload())["trust_remote_code"] is (not voyage.trust_remote_code)
+    # Nothing else moved, so the difference is attributable to that one field.
+    differing = {
+        key
+        for key in dict(voyage.payload())
+        if dict(flipped.payload())[key] != dict(voyage.payload())[key]
+    }
+    assert differing == {"trust_remote_code"}
+
+
+def test_a_dtype_outside_the_closed_set_is_refused_by_the_helper_too() -> None:
+    """The gate is on the value, so a caller that skips the dataclass is still stopped."""
+
+    assert (
+        require_frozen_dtype("float32", kind="dtype", operation="test", because="test") == "float32"
+    )
+    for refused in ("bfloat16", "float16", "torch.float32", "", 32, None):
+        with pytest.raises(BenchmarkContractError):
+            require_frozen_dtype(refused, kind="dtype", operation="test", because="test")
+
+
+def test_a_remote_code_flag_that_is_not_a_boolean_is_refused() -> None:
+    """``1`` is an int that equals ``True``; a policy must be declared, not coerced."""
+
+    assert require_exact_bool(value=True, kind="flag", operation="test", because="test") is True
+    assert require_exact_bool(value=False, kind="flag", operation="test", because="test") is False
+    for refused in (1, 0, "true", "", None):
+        with pytest.raises(BenchmarkContractError):
+            require_exact_bool(refused, kind="flag", operation="test", because="test")
+
+
 @pytest.mark.parametrize("revision", ["main", "latest", "v1.0", "HEAD", "67fabc9"])
 def test_a_mutable_or_abbreviated_candidate_revision_is_refused(revision: str) -> None:
     with pytest.raises(BenchmarkContractError):
@@ -275,6 +362,9 @@ def test_a_mutable_or_abbreviated_candidate_revision_is_refused(revision: str) -
             model_id=_VOYAGE_ID,
             revision=revision,
             license="Apache-2.0",
+            trust_remote_code=True,
+            compute_dtype="float32",
+            output_dtype="float32",
             pooling_mode="mean",
             native_max_sequence_length=32768,
             sequence_length_source="test",
@@ -290,6 +380,14 @@ def test_a_mutable_or_abbreviated_candidate_revision_is_refused(revision: str) -
         pytest.param({"native_max_sequence_length": 0}, id="non-positive-boundary"),
         pytest.param({"native_max_sequence_length": True}, id="boolean-boundary"),
         pytest.param({"sequence_length_source": ""}, id="unsourced-boundary"),
+        pytest.param({"trust_remote_code": 1}, id="integer-remote-code-flag"),
+        pytest.param({"trust_remote_code": "true"}, id="string-remote-code-flag"),
+        pytest.param({"compute_dtype": "bfloat16"}, id="unfrozen-compute-dtype"),
+        pytest.param({"compute_dtype": "torch.float32"}, id="spelled-out-compute-dtype"),
+        pytest.param({"compute_dtype": 32}, id="integer-compute-dtype"),
+        pytest.param({"compute_dtype": "FLOAT32"}, id="uppercase-compute-dtype"),
+        pytest.param({"output_dtype": "float16"}, id="unfrozen-output-dtype"),
+        pytest.param({"output_dtype": None}, id="missing-output-dtype"),
     ],
 )
 def test_a_candidate_that_cannot_state_itself_is_refused(mutation: dict[str, object]) -> None:
@@ -297,6 +395,9 @@ def test_a_candidate_that_cannot_state_itself_is_refused(mutation: dict[str, obj
         "model_id": _QWEN_ID,
         "revision": _QWEN_REVISION,
         "license": "Apache-2.0",
+        "trust_remote_code": False,
+        "compute_dtype": "float32",
+        "output_dtype": "float32",
         "pooling_mode": "last_token",
         "native_max_sequence_length": 32768,
         "sequence_length_source": "test",
@@ -305,7 +406,7 @@ def test_a_candidate_that_cannot_state_itself_is_refused(mutation: dict[str, obj
     }
     fields.update(mutation)
     with pytest.raises(BenchmarkContractError):
-        ModelCandidateSpec(**fields)  # pyright: ignore[reportArgumentType]
+        ModelCandidateSpec(**cast("dict[str, Any]", fields))
 
 
 @pytest.mark.parametrize("name", ["passage", "QUERY", ""])

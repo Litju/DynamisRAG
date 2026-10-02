@@ -126,6 +126,7 @@ __all__ = [
     "create_res138_run",
     "generation_semantics",
     "generation_semantics_sha256",
+    "merge_model_provenance",
     "require_approved_preflight",
     "run_mrl_calibration",
     "verify_and_cache_beir_sources",
@@ -347,7 +348,19 @@ def benchmark_plan(code_sha: str, *, operation: str = "benchmark_plan") -> Artif
                 "build under local scratch, close, hash locally, copy to Drive, verify the copy"
             ),
         },
-        "matrices": {"dtype": RES138_SCORE_DTYPE.__name__, "normalization": RES138_NORMALIZATION},
+        "matrices": {
+            "artifact_dtype": RES138_SCORE_DTYPE.__name__,
+            "normalization": RES138_NORMALIZATION,
+        },
+        "compute": {
+            "dtype_per_candidate": "candidates[].compute_dtype",
+            "observed_after_load": True,
+            "note": (
+                "the dtype the weights execute in is a per-candidate frozen field, requested at "
+                "load and then read back off the loaded parameters. It is not implied by "
+                "matrices.artifact_dtype, which is only the dtype of the persisted matrix."
+            ),
+        },
         "mrl": {
             "derivation_revision": RES138_MRL_DERIVATION_REVISION,
             "base_dimension": RES138_BASE_DIMENSION,
@@ -549,6 +562,9 @@ def verify_pinned_model_metadata(
                 "model_id": candidate.model_id,
                 "revision": candidate.revision,
                 "license": candidate.license,
+                "trust_remote_code": candidate.trust_remote_code,
+                "compute_dtype": candidate.compute_dtype,
+                "output_dtype": candidate.output_dtype,
                 "pooling_mode": candidate.pooling_mode,
                 "similarity_fn_name": "cosine",
                 "normalized_by_model": True,
@@ -560,6 +576,61 @@ def verify_pinned_model_metadata(
             }
         )
     return tuple(reported)
+
+
+def merge_model_provenance(
+    *,
+    pinned: Sequence[Mapping[str, Res138JsonValue]],
+    runners: Sequence[Mapping[str, Res138JsonValue]],
+    operation: str = "merge_model_provenance",
+) -> tuple[Res138JsonValue, ...]:
+    """One record per candidate: what the repository declared, and what the model reported.
+
+    Two independent observations of one candidate, kept in one record and under one key
+    each rather than flattened together. The *pinned* half is what the checked-out
+    repository's own files said at the frozen revision; the *runtime* half is what the
+    loaded model reported about itself. Flattening them would be a lie whenever they
+    disagree, and they can disagree — a library that silently downcasts a load, or a
+    repository whose config asks for a dtype the frozen contract does not.
+
+    A runtime record for a candidate that was never verified against its pinned
+    repository is refused. Recording "loaded successfully" as though it were "is the
+    pinned candidate" is precisely the substitution this benchmark exists to prevent,
+    and it would be invisible in a flat payload.
+    """
+    by_model = {
+        str(record["model_id"]): record
+        for record in runners
+        if isinstance(record.get("model_id"), str)
+    }
+    if len(by_model) != len(runners):
+        raise BenchmarkExecutionError(
+            f"{len(runners) - len(by_model)} of {len(runners)} runtime provenance records do not "
+            "name a model, so they cannot be attached to the candidate they describe.",
+            operation=operation,
+        )
+    merged: list[Res138JsonValue] = []
+    for record in pinned:
+        model_id = str(record["model_id"])
+        runtime = by_model.pop(model_id, None)
+        if runtime is None:
+            raise BenchmarkExecutionError(
+                f"no runtime provenance was recorded for {model_id!r}. Every candidate the pinned "
+                "repository check covered must also have been loaded, or the preflight is claiming "
+                "an identity it did not observe.",
+                operation=operation,
+                model_id=model_id,
+            )
+        merged.append({**record, "runtime": dict(runtime)})
+    if by_model:
+        raise BenchmarkExecutionError(
+            f"runtime provenance was recorded for {sorted(by_model)}, which the pinned repository "
+            "check did not cover. A run cannot describe a model it never verified against its "
+            "pinned revision.",
+            operation=operation,
+            count=len(by_model),
+        )
+    return tuple(merged)
 
 
 def _declared_pooling_mode(pooling: Mapping[str, object]) -> str:

@@ -87,6 +87,7 @@ __all__ = [
     "RES138_RETRIEVAL_TOP_K",
     "RES138_RUN_ID_PREFIX",
     "RES138_SHARD_SIZE",
+    "RES138_SUPPORTED_DTYPES",
     "RES138_TEI_EQUIVALENCE_GATE",
     "RES138_WORKLOAD_NAMES",
     "BeirSourceSpec",
@@ -103,8 +104,10 @@ __all__ = [
     "ordered_ids_sha256",
     "require_candidate_dimension",
     "require_code_sha",
+    "require_exact_bool",
     "require_exact_int",
     "require_exact_str",
+    "require_frozen_dtype",
     "require_shard_size",
     "text_sha256",
 ]
@@ -161,6 +164,46 @@ def require_exact_str(value: object, *, kind: str, operation: str) -> str:
     raise BenchmarkContractError(
         f"benchmark {kind} must be a string, got {value!r} of type {type(value).__name__}. The "
         "value is hashed into artifact identity, so its type is part of that identity.",
+        operation=operation,
+    )
+
+
+def require_exact_bool(value: object, *, kind: str, operation: str, because: str) -> bool:
+    """Require a real ``bool``.
+
+    ``True`` and ``1`` are equal and hash alike in most serialisers, so a flag that
+    arrived as the integer ``1`` would be indistinguishable from the boolean in a
+    hashed payload while meaning something quite different at the call site: one is a
+    policy, the other is a number that happened to be truthy. This gate exists so the
+    frozen contract records which of the two was declared.
+
+    ``because`` names what the flag decides, because a bare "must be a bool" does not
+    tell a reader which of their two declarations was wrong.
+    """
+    if isinstance(value, bool):
+        return value
+    raise BenchmarkContractError(
+        f"benchmark {kind} must be true or false, got {value!r} of type {type(value).__name__}. "
+        f"{because}",
+        operation=operation,
+    )
+
+
+def require_frozen_dtype(value: object, *, kind: str, operation: str, because: str) -> str:
+    """Require a dtype name from the closed supported set.
+
+    **A closed set, not a pattern.** Any string shaped like a dtype would pass a
+    pattern, and the whole point of freezing the compute dtype is that a run cannot
+    quietly execute in a different precision than the plan declares. Widening this set is
+    an amendment to the benchmark contract and has to be a visible edit to the constant
+    above, not a value that arrives from a config or a CLI flag.
+    """
+    name = require_exact_str(value, kind=kind, operation=operation)
+    if name in RES138_SUPPORTED_DTYPES:
+        return name
+    raise BenchmarkContractError(
+        f"benchmark {kind} is {name!r}, which is not one of the frozen "
+        f"{list(RES138_SUPPORTED_DTYPES)}. {because}",
         operation=operation,
     )
 
@@ -447,12 +490,31 @@ def text_sha256(text: str) -> str:
 
 @dataclass(frozen=True)
 class ModelCandidateSpec:
-    """One frozen candidate: weights, revision, pooling, boundary and prompts.
+    """One frozen candidate: weights, revision, loading, pooling, boundary and prompts.
 
     ``revision`` is a 40-character commit, frozen before any result exists. It is
     never resolved at run time: the benchmark does not ask the Hub what the
     branch points at today, because a model identity that follows a branch is not
     an identity.
+
+    **Loading is part of the identity, not a detail of the runner.**
+    ``trust_remote_code`` says whether the repository ships its own modelling code
+    that ``transformers`` must be allowed to execute, and it is not a preference:
+    Voyage 4 Nano cannot be constructed at all without it, while granting it for a
+    repository that does not need it would execute unreviewed code from the Hub for
+    no reason. It is a property of the frozen candidate, so it is declared here, put
+    in the hashed candidate payload, put in the plan, and passed to
+    ``SentenceTransformer`` verbatim. A runner that decided it from the model id
+    would put a policy about *this* model inside the code that loads *every* model,
+    where the next candidate added would silently inherit it.
+
+    ``compute_dtype`` is the dtype the weights are loaded and executed in, and
+    ``output_dtype`` is the dtype of the persisted matrix. **They are different
+    facts and conflating them produces a provenance lie**: a NumPy artifact cast to
+    float32 says nothing about the precision the forward pass ran in. The runner
+    requests ``compute_dtype``, then reads the dtype back off the loaded parameters
+    and records what it actually observed, so a model that ignored the request is a
+    failed preflight rather than a quietly mislabelled artifact.
 
     ``native_max_sequence_length`` is the truncation boundary the benchmark
     declares it will *not* exceed, read from the pinned repository:
@@ -469,6 +531,9 @@ class ModelCandidateSpec:
     model_id: str
     revision: str
     license: str
+    trust_remote_code: bool
+    compute_dtype: str
+    output_dtype: str
     pooling_mode: str
     native_max_sequence_length: int
     sequence_length_source: str
@@ -494,6 +559,41 @@ class ModelCandidateSpec:
                 operation="model_candidate_spec",
                 model_id=self.model_id,
             )
+        object.__setattr__(
+            self,
+            "trust_remote_code",
+            require_exact_bool(
+                self.trust_remote_code,
+                kind="candidate trust_remote_code",
+                operation="model_candidate_spec",
+                because="It decides whether code from the model repository is executed while "
+                "loading the weights, so it is a policy declared for this candidate rather than "
+                "a truthy value.",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "compute_dtype",
+            require_frozen_dtype(
+                self.compute_dtype,
+                kind="candidate compute_dtype",
+                operation="model_candidate_spec",
+                because="The precision the weights execute in is identity-bearing: the same "
+                "weights in two precisions return different vectors, and RES-138 needs one "
+                "explicit compute dtype for all four candidate runs to be comparable.",
+            ),
+        )
+        object.__setattr__(
+            self,
+            "output_dtype",
+            require_frozen_dtype(
+                self.output_dtype,
+                kind="candidate output_dtype",
+                operation="model_candidate_spec",
+                because="It is the dtype of the persisted matrix, and it is recorded separately "
+                "from the compute dtype so the two cannot be mistaken for one another.",
+            ),
+        )
         if self.pooling_mode not in RES138_POOLING_MODES:
             raise BenchmarkContractError(
                 f"candidate model {self.model_id!r} declares pooling mode {self.pooling_mode!r}, "
@@ -553,6 +653,9 @@ class ModelCandidateSpec:
             "model_id": self.model_id,
             "revision": self.revision,
             "license": self.license,
+            "trust_remote_code": self.trust_remote_code,
+            "compute_dtype": self.compute_dtype,
+            "output_dtype": self.output_dtype,
             "pooling_mode": self.pooling_mode,
             "native_max_sequence_length": self.native_max_sequence_length,
             "sequence_length_source": self.sequence_length_source,
@@ -560,6 +663,25 @@ class ModelCandidateSpec:
             "document_prompt": self.document_prompt.payload(),
             "prompt_sha256": self.prompt_sha256,
         }
+
+
+RES138_SUPPORTED_DTYPES: Final[tuple[str, ...]] = ("float32",)
+"""The only dtype names any RES-138 candidate may declare, for compute and for output.
+
+**One value, on purpose, and not a tuning constant.** The TEI 1.9.4 reference on this
+machine reported ``model_dtype float32``, and TEI equivalence is the gate that decides
+whether native Colab vectors may be used for production at all — so float32 is the
+reference-compatible choice. It is also the choice that keeps the four candidate runs
+comparable with one another: two candidates computed in different precisions would not
+be measuring the same thing, and a per-candidate precision is exactly the kind of
+post-hoc freedom this table exists to remove.
+
+Both models are small enough that float32 is expected to fit on a normal Colab GPU. **If
+it does not, that is a feasibility finding to report, not a licence to switch.** Adding
+``bfloat16`` here would be an amendment to the frozen contract, and the honest way to make
+one is to edit this tuple, re-run the plan and publish a new plan digest — before any
+quality number exists, and with the reason recorded.
+"""
 
 
 RES138_POOLING_MODES: Final[tuple[str, ...]] = ("mean", "last_token")
@@ -581,6 +703,9 @@ RES138_MODEL_CANDIDATES: Final[tuple[ModelCandidateSpec, ...]] = (
         model_id="voyageai/voyage-4-nano",
         revision="67fabc9bef010dabc5f6024aa1b1b6b93410426f",
         license="Apache-2.0",
+        trust_remote_code=True,
+        compute_dtype="float32",
+        output_dtype="float32",
         pooling_mode="mean",
         native_max_sequence_length=32768,
         sequence_length_source="sentence_bert_config.json:max_seq_length at the pinned revision",
@@ -591,6 +716,9 @@ RES138_MODEL_CANDIDATES: Final[tuple[ModelCandidateSpec, ...]] = (
         model_id="Qwen/Qwen3-Embedding-0.6B",
         revision="97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
         license="Apache-2.0",
+        trust_remote_code=False,
+        compute_dtype="float32",
+        output_dtype="float32",
         pooling_mode="last_token",
         native_max_sequence_length=32768,
         sequence_length_source=(
@@ -617,6 +745,20 @@ longer says what is frozen here.
 A ``None`` default prompt and a ``cosine`` similarity function are declared by
 both repositories, which is what makes ``prompt_name = "query"`` / ``"document"``
 contractually available to TEI for both models.
+
+**``trust_remote_code`` differs between the two, and that difference is the whole
+reason it is a field.** Voyage 4 Nano ships custom modelling code, and its own
+sentence-transformers usage requires the flag; the pinned repository cannot be
+constructed without it. Qwen does not, so the flag is ``False`` for it. A runner
+that branched on ``model_id`` would produce the same two answers today and would
+be one candidate away from a third candidate inheriting the wrong answer, which is
+why the policy lives in the frozen identity instead of in the code that loads it.
+
+**Both compute and output dtypes are ``float32``**, for the reasons in
+:data:`RES138_SUPPORTED_DTYPES`. Qwen's pinned ``config.json`` declares
+``bfloat16``, and Voyage's recommended GPU path uses BF16; neither is inherited
+here. The requested dtype is passed to ``SentenceTransformer`` explicitly, and the
+dtype observed on the loaded parameters afterwards is what gets recorded.
 """
 
 RES138_MODEL_IDS: Final[tuple[str, ...]] = tuple(

@@ -46,7 +46,11 @@ import numpy as np
 from numpy.typing import NDArray
 
 from dynamisrag.benchmark.artifacts import ShardKind
-from dynamisrag.benchmark.contracts import RES138_MODEL_CANDIDATES, ModelCandidateSpec
+from dynamisrag.benchmark.contracts import (
+    RES138_MODEL_CANDIDATES,
+    RES138_SUPPORTED_DTYPES,
+    ModelCandidateSpec,
+)
 from dynamisrag.benchmark.errors import BenchmarkExecutionError
 from dynamisrag.benchmark.runtime import RuntimeProbe, require_cuda_available
 
@@ -54,8 +58,11 @@ __all__ = [
     "RES138_RUNNER_PROVIDER",
     "HubModelMetadataReader",
     "SentenceTransformersCalibrationEncoder",
+    "load_keyword_arguments",
     "observed_library_versions",
     "probe_colab_runtime",
+    "resolve_compute_dtype",
+    "torch_dtype_for",
 ]
 
 RES138_RUNNER_PROVIDER: Final[str] = "benchmark-only-native-sentence-transformers"
@@ -63,10 +70,92 @@ RES138_RUNNER_PROVIDER: Final[str] = "benchmark-only-native-sentence-transformer
 
 Deliberately **not** ``tei`` and deliberately not the name of any
 :class:`~dynamisrag.embedding.contracts.EmbeddingProvider` implementation. A
-benchmark artifact that claimed TEI provenance for native Colab inference would be
-a false statement about how the numbers were produced, and the TEI equivalence gate
+benchmark artifact that claimed TEI provenance for native Colab inference would
+be a false statement about how the numbers were produced, and the TEI equivalence gate
 exists precisely because the two are not assumed to be the same thing.
 """
+
+
+def load_keyword_arguments(
+    candidate: ModelCandidateSpec,
+    *,
+    cache_folder: Path | None,
+    device: str,
+    compute_dtype: object,
+) -> dict[str, object]:
+    """The exact keyword arguments this frozen candidate is loaded with.
+
+    A pure function, taking the resolved torch dtype as an argument rather than
+    importing torch itself, so the load semantics are ordinary testable Python in a
+    repository where torch is not installed. It is also the whole of the loading
+    policy: **every** value here comes from the frozen candidate, so there is no
+    place in the runner where a model id decides how a model is loaded.
+
+    ``trust_remote_code`` and ``revision`` are passed verbatim and separately —
+    ``trust_remote_code`` because it is what makes Voyage constructible at all,
+    ``revision`` because loading anything other than the pinned commit would
+    invalidate the artifact that names it. ``model_kwargs={"torch_dtype": ...}`` is
+    the sentence-transformers 5.0.0 supported shape for "load the weights in this
+    precision", and it is what stops the model falling back to the dtype its own
+    config declares (Qwen's pinned config says ``bfloat16``).
+    """
+    return {
+        "revision": candidate.revision,
+        "trust_remote_code": candidate.trust_remote_code,
+        "cache_folder": str(cache_folder) if cache_folder is not None else None,
+        "device": device,
+        "model_kwargs": {"torch_dtype": compute_dtype},
+    }
+
+
+def resolve_compute_dtype(
+    compute_dtype: str, *, candidate: ModelCandidateSpec, operation: str
+) -> str:
+    """The frozen dtype name, or a refusal. Pure, so CI can prove the refusal.
+
+    The frozen contract has already checked the name against
+    :data:`RES138_SUPPORTED_DTYPES` at construction, so reaching here with anything else
+    means a hand-built spec, a widened table or a runner and a contract that have
+    drifted apart. All three are stops: this benchmark reports that its own identity is
+    in question rather than resolving a name it does not recognise.
+    """
+    if compute_dtype in RES138_SUPPORTED_DTYPES:
+        return compute_dtype
+    raise BenchmarkExecutionError(
+        f"candidate model {candidate.model_id!r} declares compute dtype {compute_dtype!r}, which "
+        f"is not one of the frozen {list(RES138_SUPPORTED_DTYPES)}. The compute dtype is part of "
+        "the benchmark identity and is not resolved from a default, a model config or a CLI flag; "
+        "if it needs to change, the frozen contract has to be amended deliberately and the plan "
+        "recomputed before any result exists.",
+        operation=operation,
+        model_id=candidate.model_id,
+        observed=compute_dtype,
+    )
+
+
+def torch_dtype_for(compute_dtype: str, *, candidate: ModelCandidateSpec, operation: str) -> object:
+    """Map the frozen dtype name onto the runtime torch dtype.
+
+    The only step that needs torch, and therefore the only step a GPU-only run performs:
+    the name has already been checked by :func:`resolve_compute_dtype`, so this is an
+    attribute lookup with a refusal for the case where the name is frozen but the
+    installed torch does not have it.
+    """
+    name = resolve_compute_dtype(compute_dtype, candidate=candidate, operation=operation)
+
+    import torch
+
+    try:
+        return getattr(torch, name)
+    except AttributeError:
+        raise BenchmarkExecutionError(
+            f"the frozen compute dtype {name!r} is not a dtype this torch build provides. The "
+            "contract and the runtime have diverged, and loading in whatever dtype torch offers "
+            "instead would produce vectors under an identity the plan does not declare.",
+            operation=operation,
+            model_id=candidate.model_id,
+            observed=name,
+        ) from None
 
 
 def observed_library_versions() -> Mapping[str, str]:
@@ -167,11 +256,20 @@ class SentenceTransformersCalibrationEncoder:
                 operation="load_candidate",
                 model_id=self.candidate.model_id,
             )
+        self.requested_compute_dtype = self.candidate.compute_dtype
+        self.compute_dtype = torch_dtype_for(
+            self.requested_compute_dtype,
+            candidate=self.candidate,
+            operation="load_candidate",
+        )
         self.model = SentenceTransformer(
             self.candidate.model_id,
-            revision=self.candidate.revision,
-            cache_folder=str(self.cache_folder) if self.cache_folder is not None else None,
-            device=self.device,
+            **load_keyword_arguments(
+                self.candidate,
+                cache_folder=self.cache_folder,
+                device=self.device,
+                compute_dtype=self.compute_dtype,
+            ),
         )
         self.tokenizer = self.model.tokenizer
         if self.model.max_seq_length < self.candidate.native_max_sequence_length:
