@@ -404,6 +404,7 @@ class _Encoder:
         self.max_sequence_length = max_sequence_length
         self.over_context = over_context
         self.calls: list[tuple[int, str]] = []
+        self.boundary_reads = 0
 
     def token_counts(self, texts: Sequence[str]) -> tuple[int, ...]:
         return tuple(
@@ -412,6 +413,7 @@ class _Encoder:
         )
 
     def observed_max_sequence_length(self) -> int:
+        self.boundary_reads += 1
         return self.max_sequence_length
 
     def encode(
@@ -451,28 +453,67 @@ def _workload(name: str = "scifact") -> RetrievalWorkload:
     )
 
 
-def test_the_calibration_decides_every_candidate_and_both_paths() -> None:
+def test_the_calibration_decides_both_paths_for_the_one_candidate_it_is_given() -> None:
     calibration = select_calibration_set([_workload()])
     encoder = _Encoder()
+    candidate = RES138_MODEL_CANDIDATES[0]
 
-    decisions = run_mrl_calibration(encoder=encoder, calibration=calibration)
+    decisions = run_mrl_calibration(encoder=encoder, calibration=calibration, candidate=candidate)
 
-    assert len(decisions) == 4
+    assert len(decisions) == 2
     assert {(decision.model_id, decision.kind) for decision in decisions} == {
-        (candidate.model_id, kind)
-        for candidate in RES138_MODEL_CANDIDATES
-        for kind in (ShardKind.DOCUMENTS, ShardKind.QUERIES)
+        (candidate.model_id, kind) for kind in (ShardKind.DOCUMENTS, ShardKind.QUERIES)
     }
     assert sorted({dimension for dimension, _ in encoder.calls}) == [512, 1024]
     # The fake returns a prefix, so the shortcut holds exactly for this encoder.
     assert all(decision.derived512_allowed for decision in decisions)
 
 
+def test_one_encoder_covers_every_workload_without_reloading() -> None:
+    """The reason the signature takes one candidate: the set already spans the workloads."""
+
+    calibration = select_calibration_set([_workload("scifact"), _workload("nfcorpus")])
+    encoder = _Encoder()
+    candidate = RES138_MODEL_CANDIDATES[1]
+
+    decisions = run_mrl_calibration(encoder=encoder, calibration=calibration, candidate=candidate)
+
+    assert len(decisions) == 4
+    assert {(decision.workload, decision.kind.value) for decision in decisions} == {
+        (workload, kind)
+        for workload in ("nfcorpus", "scifact")
+        for kind in ("documents", "queries")
+    }
+    # One encoder, one boundary read per (workload, path) pair -- not a reload per workload.
+    assert encoder.boundary_reads == 4
+
+
+def test_the_decisions_come_back_in_a_deterministic_order() -> None:
+    """A report and a re-run must agree without depending on mapping iteration order."""
+
+    calibration = select_calibration_set([_workload("scifact"), _workload("nfcorpus")])
+
+    decisions = run_mrl_calibration(
+        encoder=_Encoder(), calibration=calibration, candidate=RES138_MODEL_CANDIDATES[0]
+    )
+
+    assert [(decision.workload, decision.kind.value) for decision in decisions] == [
+        ("nfcorpus", "documents"),
+        ("nfcorpus", "queries"),
+        ("scifact", "documents"),
+        ("scifact", "queries"),
+    ]
+
+
 def test_a_loaded_boundary_shorter_than_the_frozen_one_is_refused() -> None:
     calibration = select_calibration_set([_workload()])
 
     with pytest.raises(BenchmarkExecutionError) as caught:
-        run_mrl_calibration(encoder=_Encoder(max_sequence_length=512), calibration=calibration)
+        run_mrl_calibration(
+            encoder=_Encoder(max_sequence_length=512),
+            calibration=calibration,
+            candidate=RES138_MODEL_CANDIDATES[0],
+        )
     assert "would truncate inputs nobody declared" in str(caught.value)
 
 
@@ -481,18 +522,12 @@ def test_an_over_context_input_is_refused_before_encoding_and_by_id() -> None:
     encoder = _Encoder(over_context=True)
 
     with pytest.raises(BenchmarkExecutionError) as caught:
-        run_mrl_calibration(encoder=encoder, calibration=calibration)
+        run_mrl_calibration(
+            encoder=encoder, calibration=calibration, candidate=RES138_MODEL_CANDIDATES[0]
+        )
     assert caught.value.item_id is not None
     assert "does not truncate" in str(caught.value)
     assert encoder.calls == []
-
-
-def test_a_calibration_over_two_workloads_is_refused() -> None:
-    calibration = select_calibration_set([_workload("scifact"), _workload("nfcorpus")])
-
-    with pytest.raises(BenchmarkContractError) as caught:
-        run_mrl_calibration(encoder=_Encoder(), calibration=calibration)
-    assert "one workload at a time" in str(caught.value)
 
 
 # ---------------------------------------------------------------------------
@@ -555,7 +590,13 @@ def _loaded() -> tuple[LoadedWorkload, ...]:
 def _write_preflight(tmp_path: Path, *, approved: str = "") -> tuple[Path, str]:
     config = Res138ColabConfig(code_sha=_CODE_SHA, approved_preflight_sha256=approved)
     calibration = select_calibration_set([_workload()])
-    decisions = run_mrl_calibration(encoder=_Encoder(), calibration=calibration)
+    decisions = tuple(
+        decision
+        for candidate in RES138_MODEL_CANDIDATES
+        for decision in run_mrl_calibration(
+            encoder=_Encoder(), calibration=calibration, candidate=candidate
+        )
+    )
     path = tmp_path / PREFLIGHT_FILENAME
     digest = write_preflight_bundle(
         path,

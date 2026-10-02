@@ -36,16 +36,17 @@ nothing imports *it*: the notebook constructs it explicitly, and CI never loads 
 from __future__ import annotations
 
 import platform
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from importlib import metadata
 from pathlib import Path
-from typing import Final
+from typing import Final, Protocol
 
 import numpy as np
 from numpy.typing import NDArray
 
 from dynamisrag.benchmark.artifacts import ShardKind
+from dynamisrag.benchmark.calibration import CalibrationSet
 from dynamisrag.benchmark.contracts import (
     RES138_MODEL_CANDIDATES,
     RES138_PROMPT_NAMES,
@@ -53,18 +54,24 @@ from dynamisrag.benchmark.contracts import (
     ModelCandidateSpec,
 )
 from dynamisrag.benchmark.errors import BenchmarkExecutionError
+from dynamisrag.benchmark.mrl import MrlPathDecision
+from dynamisrag.benchmark.res138 import CalibrationEncoder, run_mrl_calibration
 from dynamisrag.benchmark.runtime import RuntimeProbe, require_cuda_available
 
 __all__ = [
     "RES138_RUNNER_PROVIDER",
+    "CalibratedEncoder",
+    "CandidateCalibrationRun",
     "HubModelMetadataReader",
     "SentenceTransformersCalibrationEncoder",
+    "calibrate_frozen_candidates",
     "dtype_name",
     "load_keyword_arguments",
     "model_provenance",
     "observed_library_versions",
     "observed_parameter_dtype",
     "probe_colab_runtime",
+    "release_cuda_cache",
     "require_frozen_prompts",
     "require_observed_compute_dtype",
     "resolve_compute_dtype",
@@ -578,6 +585,131 @@ class HubModelMetadataReader:
                 model_id=model_id,
             )
         return decoded
+
+
+def release_cuda_cache() -> None:
+    """Collect the freed model and hand its blocks back to the CUDA allocator.
+
+    **Call this after the reference to a loaded encoder has been dropped.** This function
+    cannot release a reference it does not hold; :func:`calibrate_frozen_candidates`
+    deletes the encoder and then calls this, in that order, in a ``finally`` so a failed
+    calibration releases just as reliably as a successful one.
+
+    ``gc.collect`` closes the reference cycles an ``nn.Module`` can take part in, and
+    ``empty_cache`` then returns the blocks the allocator is holding *for that dead model*
+    to the driver — without it, the second candidate would be sharing a card with the
+    first one's cached blocks, which on a Colab GPU is the difference between fitting and
+    not.
+
+    It lives in this module because this is the one module allowed to import torch, so no
+    module normal CI imports grows a CUDA call. Nothing it does is recorded: allocator
+    statistics are not part of any identity, because they differ between two runs of
+    identical code.
+    """
+    import gc
+
+    import torch
+
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+
+class CalibratedEncoder(CalibrationEncoder, Protocol):
+    """A :class:`CalibrationEncoder` that also describes the loaded model.
+
+    The extra method is what lets the per-candidate provenance be collected in the same
+    pass as the decisions, so a caller does not have to keep the encoder alive to record
+    anything about it — and therefore does not have to keep a model alive past the point
+    where it is released.
+    """
+
+    def describe(self) -> Mapping[str, object]:
+        """What this loaded model reports about itself."""
+        ...
+
+
+@dataclass(frozen=True)
+class CandidateCalibrationRun:
+    """One candidate's whole calibration: what was loaded, and what it decided.
+
+    ``provenance`` is captured before the encoder is released, because after the release
+    there is no model left to ask. ``decisions`` stays per ``(path, workload)``, so the
+    semantic granularity is unchanged by the fact that the model was loaded once.
+    """
+
+    candidate: ModelCandidateSpec
+    provenance: Mapping[str, object]
+    decisions: tuple[MrlPathDecision, ...]
+
+
+def _gpu_encoder(
+    candidate: ModelCandidateSpec, *, batch_size: int, cache_folder: Path | None, device: str
+) -> CalibratedEncoder:
+    return SentenceTransformersCalibrationEncoder(
+        candidate=candidate, batch_size=batch_size, cache_folder=cache_folder, device=device
+    )
+
+
+def calibrate_frozen_candidates(
+    *,
+    calibration: CalibrationSet,
+    candidates: Sequence[ModelCandidateSpec],
+    batch_size: int,
+    cache_folder: Path | None = None,
+    device: str = "cuda",
+    encoder_factory: Callable[[ModelCandidateSpec], CalibratedEncoder] | None = None,
+    release: Callable[[], None] | None = None,
+    operation: str = "calibrate_frozen_candidates",
+) -> tuple[CandidateCalibrationRun, ...]:
+    """Load each frozen candidate **once** and calibrate every workload and path with it.
+
+    The preflight loop used to be workload-major — for each of three workloads, for each
+    of two candidates, build an encoder — which is six model constructions for the same
+    evidence. On a metered Colab runtime that is six downloads and six cold starts, and it
+    is pure waste: the deterministic calibration set already spans every workload, so a
+    single pass over the set decides ``(model, path, workload)`` for all of them. Two
+    loads, twelve decisions.
+
+    **One load per candidate is the point, so it is asserted rather than intended.** The
+    loop body constructs exactly one encoder per candidate, and :func:`release_cuda_cache`
+    runs between candidates in a ``finally``, whether or not the calibration succeeded.
+
+    ``encoder_factory`` and ``release`` are injected so the loop structure — one load per
+    candidate, one release per candidate, all workloads covered — is ordinary testable
+    Python. The defaults are the GPU paths; CI passes fakes and never reaches a model.
+    """
+    if not candidates:
+        raise BenchmarkExecutionError(
+            "no candidates were given to calibrate. An empty calibration list decides nothing, and "
+            "a preflight with no MRL decision cannot authorise a full run.",
+            operation=operation,
+        )
+    build = encoder_factory or (
+        lambda candidate: _gpu_encoder(
+            candidate, batch_size=batch_size, cache_folder=cache_folder, device=device
+        )
+    )
+    finish = release if release is not None else release_cuda_cache
+
+    runs: list[CandidateCalibrationRun] = []
+    for candidate in candidates:
+        encoder = build(candidate)
+        try:
+            provenance = dict(encoder.describe())
+            decisions = run_mrl_calibration(
+                encoder=encoder,
+                calibration=calibration,
+                candidate=candidate,
+                operation=operation,
+            )
+        finally:
+            del encoder
+            finish()
+        runs.append(
+            CandidateCalibrationRun(candidate=candidate, provenance=provenance, decisions=decisions)
+        )
+    return tuple(runs)
 
 
 def frozen_candidates() -> tuple[ModelCandidateSpec, ...]:

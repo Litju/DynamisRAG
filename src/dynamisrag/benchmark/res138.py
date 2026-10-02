@@ -710,19 +710,28 @@ def run_mrl_calibration(
     *,
     encoder: CalibrationEncoder,
     calibration: CalibrationSet,
-    candidates: Sequence[ModelCandidateSpec] | None = None,
+    candidate: ModelCandidateSpec,
     operation: str = "run_mrl_calibration",
 ) -> tuple[MrlPathDecision, ...]:
-    """Calibrate native-512 against derived-512 for every candidate and both paths.
+    """Calibrate native-512 against derived-512 for one candidate, over every workload.
 
-    Two native encodes per item per model per dimension — one at 1024 to derive
-    from, one at 512 to compare with — and nothing else. No corpus is touched, so
-    a decision that the shortcut does not hold costs minutes rather than hours.
+    Two native encodes per item per side — one at 1024 to derive from, one at 512 to
+    compare with — and nothing else. No corpus is touched, so a decision that the shortcut
+    does not hold costs minutes rather than hours.
+
+    **One candidate, every workload.** The deterministic calibration set already spans all
+    three workloads, and the decision is per ``(model, path, workload)`` because that is
+    what was actually calibrated: a shortcut proved on SciFact's abstracts need not hold
+    on TREC-COVID's mixed-length corpus. Covering all of them in one call is what lets the
+    caller hold the model in memory across them — refusing more than one workload would
+    force a reload per workload and produce exactly the same decisions more slowly.
+
+    Decisions come back in ``(workload, kind)`` order, so a report and a re-run agree
+    without depending on the order a mapping happened to iterate in.
     """
-    selected = tuple(candidates) if candidates is not None else _FROZEN_MODEL_CANDIDATES
-    workload = _single_workload(calibration)
+    workloads = sorted({item.workload for item in calibration.items})
     decisions: list[MrlPathDecision] = []
-    for candidate in selected:
+    for workload in workloads:
         for kind in (ShardKind.DOCUMENTS, ShardKind.QUERIES):
             item_ids = calibration.ids(workload=workload, kind=kind.value)
             if not item_ids:
@@ -768,19 +777,6 @@ def run_mrl_calibration(
                 )
             )
     return tuple(decisions)
-
-
-def _single_workload(calibration: CalibrationSet) -> str:
-    """The workload every calibration item belongs to, or an explicit refusal."""
-    workloads = {item.workload for item in calibration.items}
-    if len(workloads) != 1:
-        raise BenchmarkContractError(
-            f"an MRL calibration over {len(workloads)} workloads must be run one workload at a "
-            f"time, because one encoder call cannot mix corpora: {sorted(workloads)}.",
-            operation="run_mrl_calibration",
-            count=len(workloads),
-        )
-    return workloads.pop()
 
 
 def _require_within_sequence_limit(
