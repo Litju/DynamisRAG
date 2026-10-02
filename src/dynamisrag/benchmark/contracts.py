@@ -103,6 +103,8 @@ __all__ = [
     "ordered_ids_sha256",
     "require_candidate_dimension",
     "require_code_sha",
+    "require_exact_int",
+    "require_exact_str",
     "require_shard_size",
     "text_sha256",
 ]
@@ -118,7 +120,7 @@ __all__ = [
 # ---------------------------------------------------------------------------
 
 
-def _require_exact_int(
+def require_exact_int(
     value: object, *, kind: str, operation: str, minimum: int, because: str
 ) -> int:
     """Require a real ``int`` at or above ``minimum``.
@@ -146,7 +148,7 @@ def _require_exact_int(
     return value
 
 
-def _require_exact_str(value: object, *, kind: str, operation: str) -> str:
+def require_exact_str(value: object, *, kind: str, operation: str) -> str:
     """Require a real ``str``, empty or not, and reject the look-alikes.
 
     A prompt content field is legitimately the empty string — Qwen's document
@@ -242,7 +244,7 @@ class BeirSourceSpec:
                 operation="beir_source_spec",
                 workload=self.workload,
             ) from None
-        byte_size = _require_exact_int(
+        byte_size = require_exact_int(
             self.byte_size,
             kind="frozen source byte_size",
             operation="beir_source_spec",
@@ -396,7 +398,7 @@ class RetrievalPromptSpec:
         object.__setattr__(
             self,
             "content",
-            _require_exact_str(
+            require_exact_str(
                 self.content, kind="retrieval prompt content", operation="retrieval_prompt_spec"
             ),
         )
@@ -500,7 +502,7 @@ class ModelCandidateSpec:
                 operation="model_candidate_spec",
                 model_id=self.model_id,
             )
-        limit = _require_exact_int(
+        limit = require_exact_int(
             self.native_max_sequence_length,
             kind="candidate native_max_sequence_length",
             operation="model_candidate_spec",
@@ -1029,7 +1031,7 @@ class RetrievalQrel:
         object.__setattr__(
             self,
             "relevance",
-            _require_exact_int(
+            require_exact_int(
                 self.relevance,
                 kind="relevance judgment level",
                 operation="retrieval_qrel",
