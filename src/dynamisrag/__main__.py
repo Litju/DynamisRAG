@@ -43,9 +43,6 @@ import uvicorn
 from sqlalchemy.orm import Session
 
 from dynamisrag.application import create_app
-from dynamisrag.benchmark.bundle import verify_run_bundle
-from dynamisrag.benchmark.errors import BenchmarkError
-from dynamisrag.benchmark.res138 import benchmark_plan
 from dynamisrag.config import load_settings
 from dynamisrag.db.engine import create_database_engine
 from dynamisrag.logging_config import configure_logging
@@ -218,7 +215,14 @@ def _res138_plan(code_sha: str, out: str | None) -> int:
     The digest is the point of the command: a reviewer can compute the plan's
     identity on their own machine, with no GPU, no Drive mount and no model, and
     compare it with the one a Colab session recorded.
+
+    The harness is imported here rather than at module scope so that starting the
+    served application — the other thing this program does — never loads benchmark
+    code or the numeric stack behind it.
     """
+    from dynamisrag.benchmark.errors import BenchmarkError
+    from dynamisrag.benchmark.res138 import benchmark_plan
+
     try:
         envelope = benchmark_plan(code_sha)
     except BenchmarkError as error:
@@ -233,6 +237,9 @@ def _res138_plan(code_sha: str, out: str | None) -> int:
 
 def _verify_res138_bundle(path: str, expect_code_sha: str | None) -> int:
     """Verify a bundle and print the report, or exit non-zero naming the failure."""
+    from dynamisrag.benchmark.bundle import verify_run_bundle
+    from dynamisrag.benchmark.errors import BenchmarkError
+
     try:
         report = verify_run_bundle(Path(path), expect_code_sha=expect_code_sha)
     except BenchmarkError as error:
