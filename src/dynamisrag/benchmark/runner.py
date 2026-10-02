@@ -433,7 +433,7 @@ class SentenceTransformersCalibrationEncoder:
         self.model = SentenceTransformer(
             self.candidate.model_id,
             **load_keyword_arguments(
-                self.candidate,
+                candidate=self.candidate,
                 cache_folder=self.cache_folder,
                 device=self.device,
                 compute_dtype=self.compute_dtype,

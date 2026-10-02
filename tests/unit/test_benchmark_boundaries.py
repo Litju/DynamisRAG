@@ -289,6 +289,71 @@ def test_exactly_one_benchmark_module_imports_torch_and_nothing_imports_it() -> 
         assert "runner" not in _imported_modules(path), f"{_relative(path)} imports the GPU runner"
 
 
+def test_no_gpu_cleanup_leaks_out_of_the_gpu_runner() -> None:
+    """``empty_cache``/``synchronize`` are GPU operations, and belong in one module.
+
+    The calibration loop releases each model between candidates. If that cleanup moved into
+    a module normal CI imports, "CI never touches a GPU" would become an intention rather
+    than a fact -- and a test suite that empties a caching allocator is a test suite that
+    needs a GPU.
+    """
+    offenders: list[str] = []
+    for path in _python_files(_DYNAMISRAG):
+        text = path.read_text(encoding="utf-8")
+        if any(
+            call in text for call in ("empty_cache", "cuda.synchronize", "cuda.memory_allocated")
+        ):
+            offenders.append(_relative(path))
+    assert offenders == ["src/dynamisrag/benchmark/runner.py"]
+
+
+def test_nothing_outside_the_benchmark_reaches_it_however_transitively() -> None:
+    """The direct check above cannot see a two-hop import.
+
+    ``application -> search.projection -> benchmark.runner`` would pass a module-level test
+    and still pull torch into the served process on a machine with no GPU stack. So the
+    import graph is walked: from every module outside ``dynamisrag/benchmark``, follow
+    ``dynamisrag.*`` imports transitively and require that the benchmark package is never
+    reached. Computed statically, because a runtime ``sys.modules`` assertion would depend
+    on which test happened to run first.
+    """
+    by_module: dict[str, Path] = {}
+    for path in _python_files(_DYNAMISRAG):
+        relative = path.relative_to(_DYNAMISRAG).with_suffix("")
+        parts = relative.parts
+        if parts[-1] == "__init__":
+            parts = parts[:-1]
+        by_module[".".join(parts)] = path
+
+    graph = {name: _dynamisrag_imports(path) for name, path in by_module.items()}
+
+    def reaches(start: str) -> set[str]:
+        seen: set[str] = set()
+        pending = [start]
+        while pending:
+            current = pending.pop()
+            for imported in graph.get(current, set()):
+                if imported in seen or imported not in graph:
+                    continue
+                seen.add(imported)
+                pending.append(imported)
+        return seen
+
+    for name in sorted(graph):
+        if name.startswith("dynamisrag.benchmark"):
+            continue
+        leaked = sorted(
+            target for target in reaches(name) if target.startswith("dynamisrag.benchmark")
+        )
+        assert leaked == [], f"{name} can reach the benchmark through {leaked}"
+
+
+def _dynamisrag_imports(path: Path) -> set[str]:
+    """The ``dynamisrag.*`` modules this file imports, whether at module scope or not."""
+
+    return {name for name in _imported_modules(path) if name.startswith("dynamisrag")}
+
+
 # ---------------------------------------------------------------------------
 # One place declares the artifact schemas
 # ---------------------------------------------------------------------------

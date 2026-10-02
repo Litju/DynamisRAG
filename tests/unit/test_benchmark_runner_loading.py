@@ -31,6 +31,7 @@ object standing in for the resolved dtype and for the loaded model.
 
 from __future__ import annotations
 
+import ast
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, Final, cast
@@ -65,6 +66,16 @@ _RESOLVED: Final[object] = object()
 A single reused object, so ``is`` comparisons in the assertions below mean identity: a
 runner that substituted some other object for the resolved dtype would fail.
 """
+
+
+def _called(node: ast.AST) -> str | None:
+    """The dotted tail of a call target: ``SentenceTransformer`` or ``model.parameters``."""
+
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    return None
 
 
 def _keyword_arguments(
@@ -387,6 +398,107 @@ def test_the_output_dtype_is_the_persisted_matrix_dtype_for_every_candidate() ->
 
     assert {candidate.output_dtype for candidate in RES138_MODEL_CANDIDATES} == {"float32"}
     assert RES138_SCORE_DTYPE is np.float32
+
+
+# ---------------------------------------------------------------------------
+# The encoder is wired to the load semantics, not merely able to reach them
+# ---------------------------------------------------------------------------
+
+
+def _runner_tree() -> ast.Module:
+    from tests._support import REPO_ROOT
+
+    return ast.parse(
+        (REPO_ROOT / "src" / "dynamisrag" / "benchmark" / "runner.py").read_text(encoding="utf-8")
+    )
+
+
+def _encoder_body() -> ast.FunctionDef:
+    """``SentenceTransformersCalibrationEncoder.__post_init__``."""
+
+    for node in ast.walk(_runner_tree()):
+        if (
+            not isinstance(node, ast.ClassDef)
+            or node.name != "SentenceTransformersCalibrationEncoder"
+        ):
+            continue
+        for member in node.body:
+            if isinstance(member, ast.FunctionDef) and member.name == "__post_init__":
+                return member
+    raise AssertionError("the calibration encoder has no __post_init__")
+
+
+def test_the_encoder_constructs_the_model_from_the_frozen_load_arguments() -> None:
+    """Proves the wiring, not just the helper: the constructor is **load_keyword_arguments(...)."""
+
+    construction = next(
+        node
+        for node in ast.walk(_encoder_body())
+        if isinstance(node, ast.Call) and _called(node.func) == "SentenceTransformer"
+    )
+
+    # The model id is the positional argument; everything else is the frozen spec.
+    assert isinstance(construction.args[0], ast.Attribute)
+    assert _called(construction.args[0]) == "model_id"
+    assert len(construction.args) == 1, "only the model id is positional"
+    assert [keyword.arg for keyword in construction.keywords] == [None]
+    unpacked = construction.keywords[0].value
+    assert isinstance(unpacked, ast.Call)
+    assert _called(unpacked.func) == "load_keyword_arguments"
+
+
+def test_the_encoder_passes_its_own_load_settings_into_the_frozen_arguments() -> None:
+    settings = {
+        keyword.arg: _called(keyword.value)
+        for node in ast.walk(_encoder_body())
+        if isinstance(node, ast.Call) and _called(node.func) == "load_keyword_arguments"
+        for keyword in node.keywords
+        if keyword.arg is not None
+    }
+
+    assert settings == {
+        "candidate": "candidate",
+        "cache_folder": "cache_folder",
+        "device": "device",
+        "compute_dtype": "compute_dtype",
+    }
+
+
+def test_the_encoder_observes_the_compute_dtype_before_it_encodes_anything() -> None:
+    """The check has to happen at load time; after the first encode is far too late."""
+
+    observed = next(
+        node
+        for node in ast.walk(_encoder_body())
+        if isinstance(node, ast.Call) and _called(node.func) == "require_observed_compute_dtype"
+    )
+    settings = {keyword.arg for keyword in observed.keywords if keyword.arg is not None}
+
+    assert {"candidate", "model", "operation"} <= settings
+
+
+def test_the_encoder_verifies_the_prompts_before_it_encodes_anything() -> None:
+    checked = next(
+        node
+        for node in ast.walk(_encoder_body())
+        if isinstance(node, ast.Call) and _called(node.func) == "require_frozen_prompts"
+    )
+    settings = {keyword.arg for keyword in checked.keywords if keyword.arg is not None}
+
+    assert {"candidate", "model", "operation"} <= settings
+
+
+def test_the_runner_module_imports_no_gpu_package_at_module_scope() -> None:
+    """Otherwise this very module could not be imported by CI to prove the above."""
+
+    module_level: set[str] = set()
+    for node in _runner_tree().body:
+        if isinstance(node, ast.Import):
+            module_level.update(alias.name.split(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            module_level.add(node.module.split(".")[0])
+
+    assert module_level & {"torch", "sentence_transformers", "huggingface_hub"} == set()
 
 
 def test_the_frozen_dtype_name_resolves_and_anything_else_is_a_refusal() -> None:

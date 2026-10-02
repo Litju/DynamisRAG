@@ -655,38 +655,91 @@ no corpus, derives no Matryoshka shortcut, ranks nothing and writes no artifact 
 its own — every one of those is an import from `dynamisrag.benchmark`, and
 `tests/unit/test_benchmark_colab.py` fails if the notebook ever grows its own.
 
-A preflight run, top to bottom:
+A preflight run, top to bottom. The ordering is part of the contract, not a matter
+of taste: a clean Colab runtime has no DynamisRAG installed, so nothing may import any part
+of it until the exact commit has been cloned, verified and put on `sys.path`.
 
 1. **Parameters.** Set `CODE_SHA` to the exact 40-character commit of the harness
-   branch. `RUN_MODE` is `"preflight"` by default; `APPROVED_PREFLIGHT_SHA256`
-   is empty.
-2. **GPU.** `require_cuda_available` — a CPU runtime fails here with a clear
-   message, because a CPU MRL comparison would not answer the question the gate
-   asks.
-3. **Drive.** Mount, then require every folder in the storage contract to exist.
-   A missing folder is named.
-4. **Code.** Clone `--no-checkout`, `fetch --depth 1 origin <CODE_SHA>`,
-   `checkout --detach`, compare `rev-parse HEAD` with `CODE_SHA`, and require a
-   clean tree. GitHub is the only code transport: no bundle, no tarball, and
-   Colab never authors or pushes anything.
-5. **Install.** `pip install -r requirements/res138-colab.txt`, then
+   branch. `RUN_MODE` is `"preflight"` by default; `APPROVED_PREFLIGHT_SHA256` is
+   empty. Nothing is imported here.
+2. **GPU.** Raw `torch` only. A CPU runtime fails here with the actionable message,
+   because a CPU MRL comparison would not answer the question the gate asks, and
+   because the refusal has to arrive before twenty minutes of model load rather
+   than after it.
+3. **Drive.** Mount, then require the literal paths from the parameter cell to
+   exist. A missing folder is named. The repository's storage contract cannot be read
+   yet, so it is compared against these literals in step 6.
+4. **`CODE_SHA` shape.** 40 lowercase hexadecimal characters, checked with the
+   standard library before a clone is attempted. Blank and `main` both fail.
+5. **Code.** Clone `--no-checkout`, `fetch --depth 1 origin <CODE_SHA>`,
+   `checkout --detach`, compare `rev-parse HEAD` with `CODE_SHA`, require a clean
+   tree, and only then insert `REPO_DIR/src` into `sys.path` and import DynamisRAG.
+   GitHub is the only code transport: no bundle, no tarball, and Colab never authors or
+   pushes anything.
+6. **Literals against contracts.** The parameter cell repeats the frozen Drive root,
+   archive digests, model revisions, shard size, candidate dimensions and bootstrap
+   triple so it can state what it is about to check. This step makes that repetition
+   load-bearing: it compares them with the contracts at this commit and stops on any
+   disagreement, then constructs `Res138ColabConfig`.
+7. **Install.** `pip install -r requirements/res138-colab.txt`, then
    `require_torch_unchanged(before, after)`. That file pins
    `sentence-transformers==5.0.0` and `transformers==4.51.3` — the versions both
-   pinned model repositories declare in their own `config_sentence_transformers.json`
-   — and pins **no torch and no CUDA wheel**, because Colab owns the CUDA runtime
-   and a pin would either fail to install or silently replace a working build. The
+   pinned model repositories declare in their own `config_sentence_transformers.json` —
+   and pins **no torch and no CUDA wheel**, because Colab owns the CUDA runtime and a
+   pin would either fail to install or silently replace a working build. The
    before/after comparison is what makes that safe to rely on.
-6. **Plan, runtime, sources, prompts.** The plan is written from the cloned tree
-   and its digest printed. The runtime fingerprint records the torch, CUDA and
-   Colab versions. `verify_and_cache_beir_sources` checks each archive against the
-   frozen SHA-256 in `contracts.py` and refuses on mismatch; `verify_pinned_model_metadata`
-   confirms the served commit ids, pooling, prompt strings and positional limits.
-7. **Calibration.** `select_calibration_set` draws 2 items per
-   (workload × kind × length band) — 36 items over the three workloads — and
-   `run_mrl_calibration` decides the Matryoshka shortcut separately for each
-   model, path and workload.
-8. **Preflight bundle and hard stop.** `write_preflight_bundle` writes the
-   artifact and prints its SHA-256. The cell then stops.
+8. **Plan, runtime, sources, prompts.** The plan is written from the cloned tree and
+   its digest printed. The runtime fingerprint records the torch, CUDA and Colab
+   versions. `verify_and_cache_beir_sources` checks each archive against the frozen
+   SHA-256 in `contracts.py` and refuses on mismatch; `verify_pinned_model_metadata`
+   confirms the served commit ids, pooling, prompt strings, positional limits and the
+   frozen loading semantics.
+9. **Calibration.** `select_calibration_set` draws 2 items per
+   (workload × kind × length band) — 36 items over the three workloads — **once**, and
+   `calibrate_frozen_candidates` loads each candidate **once** and decides the
+   Matryoshka shortcut separately for every model, path and workload: 2 models × 2
+   paths × 3 workloads is 12 decisions from 2 model loads. Between candidates the
+   encoder is deleted, collected and the CUDA caching allocator emptied, so the second
+   model does not share a card with the first model's dead blocks.
+10. **Preflight bundle and hard stop.** `write_preflight_bundle` writes the artifact
+    and prints its SHA-256. The cell then stops.
+
+### Frozen model loading semantics
+
+Loading is part of the candidate identity, because it changes the vectors and nothing
+else would record the change:
+
+| Candidate                   | `trust_remote_code` | compute dtype | output dtype |
+| --------------------------- | ------------------- | ------------- | ------------ |
+| `voyageai/voyage-4-nano`    | `true`              | `float32`     | `float32`    |
+| `Qwen/Qwen3-Embedding-0.6B` | `false`             | `float32`     | `float32`    |
+
+`trust_remote_code` is `true` for Voyage because the pinned repository ships custom
+modelling code and cannot be constructed without it, and `false` for Qwen because it
+does not. That difference is the reason the field exists: a runner that branched on the
+model id would give the same two answers today and would be one candidate away from
+handing the wrong policy to a third, invisibly.
+`tests/unit/test_benchmark_boundaries.py` refuses any string literal naming a candidate
+in `runner.py`.
+
+The compute dtype is frozen to `float32` for both. The local sealed TEI 1.9.4 reference
+reported `model_dtype float32`, TEI equivalence is the gate that decides whether native
+Colab vectors may be used in production at all, and one explicit compute dtype keeps the
+four candidate runs comparable. Qwen's pinned config declares `bfloat16` and Voyage's
+recommended GPU path is BF16; neither is inherited. The dtype is passed explicitly as
+`model_kwargs={"torch_dtype": torch.float32}` and then **read back** off
+`next(model.parameters()).dtype` and compared with the frozen value — a model that
+ignored the request is a failed preflight, not a quietly mislabelled artifact. If float32
+turns out not to fit the assigned Colab GPU, that is a feasibility finding to report, not
+a licence to switch: amending the closed `RES138_SUPPORTED_DTYPES` set is a visible
+contract edit, and it changes the plan digest.
+
+Provenance records `requested_compute_dtype`, `observed_compute_dtype` and
+`output_dtype` as three separate fields and no bare `dtype`. The output matrix itself is
+unchanged: `numpy.float32`, C-contiguous, finite, normalised. No CUDA allocator telemetry
+is recorded anywhere, because free and reserved VRAM differ between two runs of identical
+code.
+
 
 The last cell can only run with `RUN_MODE == "full"` **and** an
 `APPROVED_PREFLIGHT_SHA256` that matches the digest a reviewer computed locally.
