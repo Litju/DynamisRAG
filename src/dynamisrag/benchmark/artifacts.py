@@ -60,6 +60,7 @@ __all__ = [
     "RES138_NORMALIZATION",
     "RES138_RUN_MANIFEST_REVISION",
     "ArtifactEnvelope",
+    "Res138JsonValue",
     "Res138RunManifest",
     "ShardKind",
     "ShardSidecar",
@@ -96,9 +97,17 @@ that a hashed payload must not.
 """
 
 type Res138JsonValue = (
-    str | int | float | bool | list["Res138JsonValue"] | dict[str, "Res138JsonValue"] | None
+    str | int | float | bool | Sequence["Res138JsonValue"] | Mapping[str, "Res138JsonValue"] | None
 )
-"""The JSON value domain an artifact payload may hold."""
+"""The JSON value domain an artifact payload may hold.
+
+The array and object members are the ``Sequence``/``Mapping`` protocols rather
+than concrete ``list``/``dict``, so a freshly built payload — a comprehension
+returning ``list[str]``, for instance — is still a ``Res138JsonValue`` without a
+cast. That mirrors the JSON value domain
+:mod:`dynamisrag.embedding.contracts` already declares, so a value crossing the
+embedding boundary and a value crossing this one are checked the same way.
+"""
 
 
 def require_artifact_revision(name: str, *, operation: str) -> str:
