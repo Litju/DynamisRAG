@@ -35,6 +35,23 @@ dev = [
     "pytest>=8.3",
     "ruff>=0.8",
 ]
+benchmark = [
+    # RES-138's benchmark harness reads and writes float32 matrices and scores
+    # exact cosine over them. That is the only numeric dependency in the project,
+    # it is a default group so CI can prove the harness invariants, and it is a
+    # CPU wheel with no CUDA and no model in it. Nothing under
+    # `dynamisrag.embedding`, `dynamisrag.search` or `dynamisrag.db` imports it,
+    # so production installs are unaffected by its presence.
+    "numpy>=2.3,<2.4",
+]
+
+[tool.uv]
+# Both groups are installed by `uv sync --locked` and therefore by CI: the
+# benchmark's own tests are ordinary unit tests and must run on every push.
+# `torch`, `sentence-transformers` and `transformers` are deliberately absent
+# from every group — they are pinned in `requirements/res138-colab.txt` for the
+# hosted GPU session only, and a normal test run must never reach the Hub.
+default-groups = ["dev", "benchmark"]
 
 [build-system]
 requires = ["hatchling"]
