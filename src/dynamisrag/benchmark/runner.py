@@ -48,6 +48,7 @@ from numpy.typing import NDArray
 from dynamisrag.benchmark.artifacts import ShardKind
 from dynamisrag.benchmark.contracts import (
     RES138_MODEL_CANDIDATES,
+    RES138_PROMPT_NAMES,
     RES138_SUPPORTED_DTYPES,
     ModelCandidateSpec,
 )
@@ -61,6 +62,7 @@ __all__ = [
     "load_keyword_arguments",
     "observed_library_versions",
     "probe_colab_runtime",
+    "require_frozen_prompts",
     "resolve_compute_dtype",
     "torch_dtype_for",
 ]
@@ -106,6 +108,57 @@ def load_keyword_arguments(
         "device": device,
         "model_kwargs": {"torch_dtype": compute_dtype},
     }
+
+
+def require_frozen_prompts(
+    *, candidate: ModelCandidateSpec, model: object, operation: str
+) -> dict[str, object]:
+    """Require the loaded model's prompt table to be the frozen one, before any encode.
+
+    **The prompt table lives on the ``SentenceTransformer``, not on its first module.**
+    Since sentence-transformers 5.0.0 the ``Transformer`` module at index 0 does not own
+    the prompts; ``SentenceTransformer.prompts`` does, and reading module 0's attribute is
+    either an ``AttributeError`` or — worse — a stale value that happens to look right.
+    Either way the check that guards the vectors would be checking nothing.
+
+    The table is read through ``getattr(model, "prompts", ...)`` rather than
+    ``model[0].prompts``, so this function is provable against a stub whose subscript
+    raises: a regression test can only assert the authority if the lookup can be made to
+    fail loudly.
+
+    This is the *runtime* half of the check. The pinned repository's own
+    ``config_sentence_transformers.json`` was already verified against the frozen
+    contents by :func:`~dynamisrag.benchmark.res138.verify_pinned_model_metadata`, so a
+    mismatch here means the object that was loaded is not the object that was verified.
+
+    The verified table is returned as well as checked, so the caller records exactly what
+    it compared against rather than a second lookup that could differ.
+    """
+    prompts = getattr(model, "prompts", None)
+    if not isinstance(prompts, Mapping):
+        raise BenchmarkExecutionError(
+            f"the loaded model for {candidate.model_id!r} exposes no prompt table. The prompts are "
+            "owned by the SentenceTransformer instance, not by its first module; a model whose "
+            "table cannot be read cannot be asked for a named prompt, and encoding without one "
+            "would silently drop the model-native instruction.",
+            operation=operation,
+            model_id=candidate.model_id,
+        )
+    for kind in RES138_PROMPT_NAMES:
+        expected = candidate.prompt(kind=kind).content
+        observed = prompts.get(kind)
+        if observed != expected:
+            raise BenchmarkExecutionError(
+                f"the loaded model resolves the {kind} prompt to {observed!r}, not the frozen "
+                f"{expected!r}. The prompts were verified against the pinned repository before "
+                "the model was loaded, so a mismatch here means the loaded weights are not the "
+                "pinned ones. Nothing was substituted and no encode was attempted.",
+                operation=operation,
+                model_id=candidate.model_id,
+                expected=repr(expected),
+                observed=repr(observed),
+            )
+    return {kind: str(prompts[kind]) for kind in RES138_PROMPT_NAMES}
 
 
 def resolve_compute_dtype(
@@ -282,21 +335,10 @@ class SentenceTransformersCalibrationEncoder:
                 expected=str(self.candidate.native_max_sequence_length),
                 observed=str(self.model.max_seq_length),
             )
-        prompts = self.model[0].prompts
-        for kind in ("query", "document"):
-            expected = self.candidate.prompt(kind=kind).content
-            observed = prompts.get(kind)
-            if observed != expected:
-                raise BenchmarkExecutionError(
-                    f"the loaded model resolves the {kind} prompt to {observed!r}, not the frozen "
-                    f"{expected!r}. The prompts were verified against the pinned repository before "
-                    "the model was loaded, so a mismatch here means the loaded weights are not the "
-                    "pinned ones.",
-                    operation="load_candidate",
-                    model_id=self.candidate.model_id,
-                    expected=repr(expected),
-                    observed=repr(observed),
-                )
+        prompts = require_frozen_prompts(
+            candidate=self.candidate, model=self.model, operation="load_candidate"
+        )
+        self.prompts = dict(prompts)
 
     def describe(self) -> dict[str, object]:
         """Model provenance for the preflight artifact."""

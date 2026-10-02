@@ -17,11 +17,16 @@ What is pinned:
 * **the two candidates differ in exactly the two fields that are allowed to differ.**
   Asserted as a set difference rather than field by field, so a third difference —
   a device, a batch size, a dtype — would fail here rather than pass unnoticed.
+* **the loaded model is asked for its prompts on the instance.** Since
+  sentence-transformers 5.0.0 the prompt table lives on ``SentenceTransformer.prompts``;
+  the first ``Transformer`` module does not own it. The runner reads the attribute, and the
+  stub below makes reading module 0 impossible, so a regression to ``model[0].prompts``
+  fails here rather than passing quietly on a version where it happens to work.
 * **a dtype name is resolved, never defaulted.** The refusal is a pure function, so CI
   proves it without torch.
 
 No torch, no sentence-transformers, no GPU and no network: everything here is a stub
-object standing in for the resolved dtype.
+object standing in for the resolved dtype and for the loaded model.
 """
 
 from __future__ import annotations
@@ -37,7 +42,11 @@ from dynamisrag.benchmark.contracts import (
     ModelCandidateSpec,
 )
 from dynamisrag.benchmark.errors import BenchmarkContractError, BenchmarkExecutionError
-from dynamisrag.benchmark.runner import load_keyword_arguments, resolve_compute_dtype
+from dynamisrag.benchmark.runner import (
+    load_keyword_arguments,
+    require_frozen_prompts,
+    resolve_compute_dtype,
+)
 
 _VOYAGE: Final[ModelCandidateSpec] = RES138_MODEL_CANDIDATES[0]
 _QWEN: Final[ModelCandidateSpec] = RES138_MODEL_CANDIDATES[1]
@@ -117,6 +126,111 @@ def test_the_two_candidates_differ_in_exactly_the_two_fields_that_may_differ() -
     assert {key for key in voyage if voyage[key] != qwen[key]} == {
         "revision",
         "trust_remote_code",
+    }
+
+
+# ---------------------------------------------------------------------------
+# The prompt table is owned by the SentenceTransformer, not by its first module
+# ---------------------------------------------------------------------------
+
+
+class _FirstModule:
+    """What module 0 looked like under the old lookup.
+
+    ``prompts`` is present and **deliberately wrong**, so an implementation that reads
+    ``model[0].prompts`` does not merely crash -- it compares against a prompt that was
+    never frozen, and the regression below is the one that catches it.
+    """
+
+    prompts = {
+        "query": "a prompt nobody froze",
+        "document": "another prompt nobody froze",
+    }
+
+
+class _LoadedModel:
+    """A loaded model whose prompt table is the frozen one.
+
+    Subscripting raises, because indexing module 0 is not how the prompts are reached in
+    sentence-transformers 5.0.0. Making the alternative impossible is what turns "which
+    object is the prompt authority" into a test rather than a convention.
+    """
+
+    def __init__(self, candidate: ModelCandidateSpec) -> None:
+        self.prompts = {
+            "query": candidate.query_prompt.content,
+            "document": candidate.document_prompt.content,
+        }
+
+    def __getitem__(self, index: int) -> object:
+        raise AssertionError(f"the prompts must be read from the model, not from module {index}")
+
+
+def test_the_prompt_table_is_read_from_the_sentence_transformer_instance() -> None:
+    model = _LoadedModel(_VOYAGE)
+
+    verified = require_frozen_prompts(candidate=_VOYAGE, model=model, operation="test")
+
+    assert verified == {
+        "query": _VOYAGE.query_prompt.content,
+        "document": _VOYAGE.document_prompt.content,
+    }
+
+
+def test_the_prompts_the_runner_verified_are_the_ones_it_records() -> None:
+    """Returned as well as checked, so provenance is not a second, divergent lookup."""
+
+    verified = require_frozen_prompts(
+        candidate=_VOYAGE, model=_LoadedModel(_VOYAGE), operation="test"
+    )
+
+    assert verified["query"] == _VOYAGE.query_prompt.content
+    assert verified["document"] == _VOYAGE.document_prompt.content
+
+
+def test_a_stale_prompt_table_on_the_first_module_is_never_what_is_compared() -> None:
+    """Under the old lookup the runner would have read _FirstModule.prompts."""
+
+    model = _LoadedModel(_QWEN)
+
+    assert require_frozen_prompts(candidate=_QWEN, model=model, operation="t") == {
+        "query": _QWEN.query_prompt.content,
+        "document": _QWEN.document_prompt.content,
+    }
+
+
+def test_a_prompt_table_the_instance_does_not_expose_is_a_refusal() -> None:
+    class _NoTable:
+        def __getitem__(self, index: int) -> object:
+            return _FirstModule()
+
+    with pytest.raises(BenchmarkExecutionError) as caught:
+        require_frozen_prompts(candidate=_VOYAGE, model=_NoTable(), operation="t")
+
+    assert "exposes no prompt table" in str(caught.value)
+    assert "not by its first module" in str(caught.value)
+
+
+def test_a_prompt_that_differs_from_the_frozen_one_is_refused_before_any_encode() -> None:
+    model = _LoadedModel(_QWEN)
+    model.prompts["query"] = "Instruct: something else\nQuery:"
+
+    with pytest.raises(BenchmarkExecutionError) as caught:
+        require_frozen_prompts(candidate=_QWEN, model=model, operation="t")
+
+    assert "resolves the query prompt" in str(caught.value)
+    assert caught.value.model_id == _QWEN.model_id
+    assert "no encode was attempted" in str(caught.value)
+
+
+def test_an_empty_document_prompt_is_verified_rather_than_treated_as_missing() -> None:
+    """Qwen's document prompt is the empty string. That is the frozen value, not an absence."""
+
+    assert _QWEN.document_prompt.content == ""
+
+    assert require_frozen_prompts(candidate=_QWEN, model=_LoadedModel(_QWEN), operation="t") == {
+        "query": _QWEN.query_prompt.content,
+        "document": "",
     }
 
 
