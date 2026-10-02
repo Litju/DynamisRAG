@@ -31,9 +31,11 @@ object standing in for the resolved dtype and for the loaded model.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, Final, cast
 
+import numpy as np
 import pytest
 
 from dynamisrag.benchmark.contracts import (
@@ -42,9 +44,14 @@ from dynamisrag.benchmark.contracts import (
     ModelCandidateSpec,
 )
 from dynamisrag.benchmark.errors import BenchmarkContractError, BenchmarkExecutionError
+from dynamisrag.benchmark.retrieval import RES138_SCORE_DTYPE
 from dynamisrag.benchmark.runner import (
+    dtype_name,
     load_keyword_arguments,
+    model_provenance,
+    observed_parameter_dtype,
     require_frozen_prompts,
+    require_observed_compute_dtype,
     resolve_compute_dtype,
 )
 
@@ -232,6 +239,154 @@ def test_an_empty_document_prompt_is_verified_rather_than_treated_as_missing() -
         "query": _QWEN.query_prompt.content,
         "document": "",
     }
+
+
+# ---------------------------------------------------------------------------
+# Three dtypes, and only one of them is evidence about the forward pass
+# ---------------------------------------------------------------------------
+
+
+class _Dtype:
+    """A torch-shaped dtype without torch."""
+
+    def __init__(self, name: str) -> None:
+        self._name = name
+
+    def __str__(self) -> str:
+        return f"torch.{self._name}"
+
+
+class _Parameter:
+    def __init__(self, dtype: str) -> None:
+        self.dtype = _Dtype(dtype)
+
+
+class _WeightedModel:
+    """A model that reports parameters, the way ``nn.Module.parameters()`` does."""
+
+    def __init__(self, *dtypes: str) -> None:
+        self._parameters = tuple(_Parameter(dtype) for dtype in dtypes)
+
+    def parameters(self) -> Iterator[object]:
+        return iter(self._parameters)
+
+
+def test_a_dtype_name_is_read_without_its_torch_prefix() -> None:
+    """The artifact should carry the spelling the contract declares, not a repr."""
+
+    assert dtype_name(_Dtype("float32")) == "float32"
+    assert dtype_name(_Dtype("bfloat16")) == "bfloat16"
+    assert dtype_name("float32") == "float32"
+
+
+def test_the_observed_dtype_is_read_off_the_parameters_not_the_config() -> None:
+    model = _WeightedModel("float32", "float32", "float32")
+
+    assert observed_parameter_dtype(model, operation="t") == "float32"
+    assert require_observed_compute_dtype(candidate=_VOYAGE, model=model, operation="t") == (
+        "float32"
+    )
+
+
+def test_a_model_whose_weights_are_not_in_the_frozen_dtype_is_refused() -> None:
+    """The whole point: a requested dtype is not evidence that it was used."""
+
+    model = _WeightedModel("bfloat16", "bfloat16")
+
+    with pytest.raises(BenchmarkExecutionError) as caught:
+        require_observed_compute_dtype(candidate=_QWEN, model=model, operation="t")
+
+    assert "float32" in str(caught.value)
+    assert "bfloat16" in str(caught.value)
+    assert "Nothing was encoded" in str(caught.value)
+    assert caught.value.expected == "float32"
+    assert caught.value.observed == "bfloat16"
+
+
+def test_a_model_with_no_parameters_cannot_report_a_compute_dtype() -> None:
+    with pytest.raises(BenchmarkExecutionError) as caught:
+        observed_parameter_dtype(_WeightedModel(), operation="t")
+
+    assert "reports no parameters" in str(caught.value)
+
+
+def test_the_provenance_separates_the_requested_the_observed_and_the_output_dtype() -> None:
+    """Three fields, and no bare ``dtype``, because ``dtype`` meant the wrong one before."""
+
+    provenance = model_provenance(
+        candidate=_VOYAGE,
+        requested_compute_dtype="float32",
+        observed_compute_dtype="float32",
+        loaded_max_sequence_length=32768,
+        batch_size=16,
+        device="cuda",
+    )
+
+    assert "dtype" not in provenance
+    assert provenance["requested_compute_dtype"] == "float32"
+    assert provenance["observed_compute_dtype"] == "float32"
+    assert provenance["output_dtype"] == "float32"
+
+
+def test_the_provenance_carries_exactly_the_declared_fields() -> None:
+    """A reviewer must be able to see every field the run depends on, and no others."""
+
+    provenance = model_provenance(
+        candidate=_QWEN,
+        requested_compute_dtype="float32",
+        observed_compute_dtype="float32",
+        loaded_max_sequence_length=32768,
+        batch_size=16,
+        device="cuda",
+    )
+
+    assert set(provenance) == {
+        "provider",
+        "model_id",
+        "model_revision",
+        "trust_remote_code",
+        "requested_compute_dtype",
+        "observed_compute_dtype",
+        "output_dtype",
+        "pooling_mode",
+        "native_max_sequence_length",
+        "loaded_max_sequence_length",
+        "batch_size",
+        "device",
+        "normalized",
+        "prompt_sha256",
+    }
+    assert provenance["provider"] == "benchmark-only-native-sentence-transformers"
+    assert provenance["model_id"] == _QWEN.model_id
+    assert provenance["model_revision"] == _QWEN.revision
+    assert provenance["trust_remote_code"] is False
+    assert provenance["normalized"] is True
+    assert provenance["prompt_sha256"] == _QWEN.prompt_sha256
+
+
+def test_the_provenance_records_no_cuda_allocator_telemetry() -> None:
+    """Free VRAM varies with the allocator's mood; it does not belong in an identity."""
+
+    rendered = " ".join(
+        model_provenance(
+            candidate=_VOYAGE,
+            requested_compute_dtype="float32",
+            observed_compute_dtype="float32",
+            loaded_max_sequence_length=32768,
+            batch_size=16,
+            device="cuda",
+        )
+    )
+
+    for telemetry in ("memory", "reserved", "allocated", "free_bytes", "max_memory"):
+        assert telemetry not in rendered
+
+
+def test_the_output_dtype_is_the_persisted_matrix_dtype_for_every_candidate() -> None:
+    """Unchanged by this repair: the shard contract still stores float32 unit rows."""
+
+    assert {candidate.output_dtype for candidate in RES138_MODEL_CANDIDATES} == {"float32"}
+    assert RES138_SCORE_DTYPE is np.float32
 
 
 def test_the_frozen_dtype_name_resolves_and_anything_else_is_a_refusal() -> None:

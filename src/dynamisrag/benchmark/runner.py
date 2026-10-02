@@ -59,10 +59,14 @@ __all__ = [
     "RES138_RUNNER_PROVIDER",
     "HubModelMetadataReader",
     "SentenceTransformersCalibrationEncoder",
+    "dtype_name",
     "load_keyword_arguments",
+    "model_provenance",
     "observed_library_versions",
+    "observed_parameter_dtype",
     "probe_colab_runtime",
     "require_frozen_prompts",
+    "require_observed_compute_dtype",
     "resolve_compute_dtype",
     "torch_dtype_for",
 ]
@@ -159,6 +163,110 @@ def require_frozen_prompts(
                 observed=repr(observed),
             )
     return {kind: str(prompts[kind]) for kind in RES138_PROMPT_NAMES}
+
+
+def dtype_name(value: object) -> str:
+    """The bare name of a dtype: ``torch.float32`` -> ``"float32"``.
+
+    Compared as a string so that the frozen contract and the loaded model can be checked
+    against each other without importing torch here, and so the value that ends up in an
+    artifact is the same spelling the contract declares rather than a repr.
+    """
+    name = str(value)
+    return name[len("torch.") :] if name.startswith("torch.") else name
+
+
+def observed_parameter_dtype(model: object, *, operation: str) -> str:
+    """The dtype of the loaded model's first parameter, by name.
+
+    Read off the parameters rather than off ``config.torch_dtype`` or the model card,
+    because it is the dtype the forward pass will actually execute in. It is also the
+    read sentence-transformers itself uses to settle the module-wide dtype after loading,
+    so it is the same observation rather than a second opinion.
+
+    ``next(model.parameters())`` is used rather than a named module: the first parameter
+    is whichever submodule the stack begins with, and the benchmark does not care which,
+    only that the value is the one the forward pass will see.
+    """
+    try:
+        parameter = next(iter(model.parameters()))  # pyright: ignore[reportAttributeError]
+    except StopIteration:
+        raise BenchmarkExecutionError(
+            "the loaded model reports no parameters, so the precision it would execute in "
+            "cannot be observed. A model with no parameters produced no vectors, and recording "
+            "a requested dtype for it would claim a fact nothing supports.",
+            operation=operation,
+        ) from None
+    return dtype_name(getattr(parameter, "dtype", object()))
+
+
+def require_observed_compute_dtype(
+    *, candidate: ModelCandidateSpec, model: object, operation: str
+) -> str:
+    """Require the loaded weights to be in the frozen compute dtype, and return its name.
+
+    **Recording the requested dtype is not evidence that it was used.** A library may
+    downcast, may ignore ``model_kwargs``, or may resolve the dtype from a config this
+    benchmark never read. What closes that gap is reading the dtype back off the loaded
+    parameters and refusing when it differs — otherwise a bfloat16 run would be published
+    under a float32 identity, and every later comparison against TEI would be comparing
+    precisions as well as models.
+    """
+    observed = observed_parameter_dtype(model, operation=operation)
+    if observed != candidate.compute_dtype:
+        raise BenchmarkExecutionError(
+            f"the frozen compute dtype for {candidate.model_id!r} is "
+            f"{candidate.compute_dtype!r} and the requested dtype was passed to the loader, but "
+            f"the loaded parameters are {observed!r}. A model that ignored the requested "
+            "precision would produce vectors under an identity the plan does not declare, and "
+            "this benchmark will not label them float32. Nothing was encoded.",
+            operation=operation,
+            model_id=candidate.model_id,
+            expected=candidate.compute_dtype,
+            observed=observed,
+        )
+    return observed
+
+
+def model_provenance(
+    *,
+    candidate: ModelCandidateSpec,
+    requested_compute_dtype: str,
+    observed_compute_dtype: str,
+    loaded_max_sequence_length: int,
+    batch_size: int,
+    device: str,
+) -> Mapping[str, object]:
+    """What one loaded candidate reports about itself, for the preflight artifact.
+
+    **Three dtypes, not one, and no bare ``dtype`` key.** ``requested_compute_dtype`` is
+    what the frozen contract asked for, ``observed_compute_dtype`` is what the loaded
+    parameters are — equal, or the run would already have been refused — and
+    ``output_dtype`` is the dtype of the persisted matrix. The previous single
+    ``dtype: "float32"`` was the third of these and was recorded as though it were the
+    first, which is a false statement about how the vectors were produced: a NumPy array
+    cast to float32 says nothing about the precision the forward pass ran in.
+
+    Nothing here is CUDA allocator telemetry. Free and reserved VRAM vary with the
+    allocator's mood and with what else the session has done, so recording them would put
+    a number that changes between two runs of identical code into the run identity.
+    """
+    return {
+        "provider": RES138_RUNNER_PROVIDER,
+        "model_id": candidate.model_id,
+        "model_revision": candidate.revision,
+        "trust_remote_code": candidate.trust_remote_code,
+        "requested_compute_dtype": requested_compute_dtype,
+        "observed_compute_dtype": observed_compute_dtype,
+        "output_dtype": candidate.output_dtype,
+        "pooling_mode": candidate.pooling_mode,
+        "native_max_sequence_length": candidate.native_max_sequence_length,
+        "loaded_max_sequence_length": loaded_max_sequence_length,
+        "batch_size": batch_size,
+        "device": device,
+        "normalized": True,
+        "prompt_sha256": candidate.prompt_sha256,
+    }
 
 
 def resolve_compute_dtype(
@@ -324,6 +432,9 @@ class SentenceTransformersCalibrationEncoder:
                 compute_dtype=self.compute_dtype,
             ),
         )
+        self.observed_compute_dtype = require_observed_compute_dtype(
+            candidate=self.candidate, model=self.model, operation="load_candidate"
+        )
         self.tokenizer = self.model.tokenizer
         if self.model.max_seq_length < self.candidate.native_max_sequence_length:
             raise BenchmarkExecutionError(
@@ -341,20 +452,22 @@ class SentenceTransformersCalibrationEncoder:
         self.prompts = dict(prompts)
 
     def describe(self) -> dict[str, object]:
-        """Model provenance for the preflight artifact."""
-        return {
-            "provider": RES138_RUNNER_PROVIDER,
-            "model_id": self.candidate.model_id,
-            "model_revision": self.candidate.revision,
-            "pooling_mode": self.candidate.pooling_mode,
-            "native_max_sequence_length": self.candidate.native_max_sequence_length,
-            "loaded_max_seq_length": int(self.model.max_seq_length),
-            "batch_size": self.batch_size,
-            "device": self.device,
-            "dtype": "float32",
-            "normalized": True,
-            "prompt_sha256": self.candidate.prompt_sha256,
-        }
+        """Model provenance for the preflight artifact.
+
+        ``observed_compute_dtype`` is what the loaded parameters are, not what was asked
+        for; ``__post_init__`` has already refused a model where the two differ, so the
+        two fields being equal here is a fact rather than a hope.
+        """
+        return dict(
+            model_provenance(
+                candidate=self.candidate,
+                requested_compute_dtype=self.requested_compute_dtype,
+                observed_compute_dtype=self.observed_compute_dtype,
+                loaded_max_sequence_length=int(self.model.max_seq_length),
+                batch_size=self.batch_size,
+                device=self.device,
+            )
+        )
 
     def observed_max_sequence_length(self) -> int:
         """The truncation boundary the loaded model reports for itself."""
