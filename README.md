@@ -125,6 +125,20 @@ Invoke-RestMethod http://127.0.0.1:8000/readyz
 │   │                          # identity), errors.py, manifest.py
 │   │                          # (passage-embeddings-v1), tei.py (tei-http-v1 adapter
 │   │                          # + TeiDeploymentSemantics)
+│   ├── benchmark/             # RES-138 retrieval benchmark; no result, no default.
+│   │                          # contracts.py (frozen workloads, model revisions,
+│   │                          # prompts, dimensions, Drive layout, artifact
+│   │                          # revisions), artifacts.py (canonical envelopes,
+│   │                          # shards, run manifests, verified Drive copies),
+│   │                          # runtime.py (runtime fingerprint, CUDA/torch guards),
+│   │                          # beir.py (verified acquisition + loading),
+│   │                          # retrieval.py + quality.py (exact scoring, metrics,
+│   │                          # paired bootstrap), mrl.py (Matryoshka gate),
+│   │                          # calibration.py (deterministic item selection),
+│   │                          # selection.py (predeclared rule, never applied),
+│   │                          # res138.py (notebook-facing facade), runner.py
+│   │                          # (Colab-only GPU encoder; the only torch importer),
+│   │                          # bundle.py (local no-trust-on-first-use verifier)
 │   ├── logging_config.py      # stdlib-only deterministic logging
 │   ├── db/                    # engine.py (SQLAlchemy/psycopg), probe.py
 │   ├── health/                # models.py, router.py (/healthz, /readyz)
@@ -132,6 +146,10 @@ Invoke-RestMethod http://127.0.0.1:8000/readyz
 │                              # schema.py (versioned index), projection.py,
 │                              # bm25.py (versioned query + service),
 │                              # router.py (/search), opensearch.py (probe)
+├── notebooks/
+│   └── res138_colab.ipynb     # orchestration only; algorithms live in the harness
+├── requirements/
+│   └── res138-colab.txt       # Colab-only pins; no torch, no CUDA wheel
 ├── tests/
 │   ├── unit/                  # no infrastructure required
 │   └── integration/           # requires the live stack
@@ -292,6 +310,9 @@ would duplicate retrieval content under different identities.
 dynamisrag                                     # serve the HTTP API (unchanged)
 dynamisrag search "probiotic soy exercise"     # BM25 over the projection, JSON on stdout
 dynamisrag search "colon lesions" --limit 5
+
+dynamisrag benchmark res138-plan --code-sha <40-hex>
+dynamisrag benchmark verify-res138-bundle <path>
 ```
 
 The CLI uses the same search service and the same `SearchResponse` as
@@ -438,9 +459,10 @@ deterministic client batching, the bounded retry policy, response validation, an
 the manifest.
 
 Not decided here, deliberately: **which embedding model is best** and **which
-dimension to index**. Those are a retrieval-quality question and belong to the
-next issue in this milestone. Nothing in this repository ranks models or scores a
-query, and no default model is configured.
+dimension to index**. Those are a retrieval-quality question. The harness that will
+answer them lives in [`src/dynamisrag/benchmark/`](#the-res-138-retrieval-benchmark)
+and has produced no result: nothing has been ranked, no candidate has been
+selected, and no default model or dimension is configured anywhere in this tree.
 
 ### Identity is observed, never asserted
 
@@ -587,6 +609,124 @@ digest. A boolean reaching the hashed bytes would give one semantic setting two
 fingerprints; a NaN backoff satisfies every bound in Python and then fails inside
 `time.sleep`, at a point chosen by when the server happened to be overloaded.
 
+## The RES-138 retrieval benchmark
+
+The embedding model and the dimension to index at are **not decided in this
+repository**. `src/dynamisrag/benchmark/` is the harness that will produce that
+evidence on a GPU, and it currently holds no result: no ranking has been run, no
+candidate has been selected, and no default exists anywhere in the tree. That last
+property is asserted rather than promised — `tests/unit/test_benchmark_boundaries.py`
+walks every source file and fails if any module binds `DEFAULT_EMBEDDING_MODEL`,
+`DEFAULT_DIMENSION` or a selected candidate, if any production package imports
+`dynamisrag.benchmark` at all, or if a production module names either candidate.
+
+What the harness *is*: frozen workloads, frozen model revisions, exact retrieval,
+two recall metrics and nDCG@10, a paired bootstrap, exact Matryoshka derivation, a
+deterministic calibration set, content-addressed artifacts, a resumable run
+manifest, and a local verifier that re-checks a finished bundle from its bytes
+alone.
+
+### Two commands run locally, with no GPU and no model
+
+```powershell
+uv run dynamisrag benchmark res138-plan --code-sha <40-hex> --out plan.json
+uv run dynamisrag benchmark verify-res138-bundle <path> [--code-sha <40-hex>]
+```
+
+`res138-plan` writes the frozen plan for an exact commit and prints its SHA-256.
+That digest is reproducible on any machine with no GPU, no Drive and no Hub
+account, which is what makes it useful: a reviewer computes the plan identity
+independently and compares it with the one a Colab session recorded.
+
+`verify-res138-bundle` takes a run directory or a zip of one and refuses it unless
+every shard, sidecar, run manifest and bundle manifest agrees — declared digests,
+shard ordinals with no gap and no duplicate, canonical `passage_key` order within
+and across shards, matrix dtype and normalisation, the runtime revision, and the
+model and dataset identities the run claims. It trusts nothing on first use: it
+recomputes every digest it verifies.
+
+Both commands import the benchmark inside the handler, so starting the served
+application never loads the harness or the numeric stack behind it.
+
+### The GPU preflight, in Colab
+
+`notebooks/res138_colab.ipynb` is orchestration only. It computes no metric, parses
+no corpus, derives no Matryoshka shortcut, ranks nothing and writes no artifact of
+its own — every one of those is an import from `dynamisrag.benchmark`, and
+`tests/unit/test_benchmark_colab.py` fails if the notebook ever grows its own.
+
+A preflight run, top to bottom:
+
+1. **Parameters.** Set `CODE_SHA` to the exact 40-character commit of the harness
+   branch. `RUN_MODE` is `"preflight"` by default; `APPROVED_PREFLIGHT_SHA256`
+   is empty.
+2. **GPU.** `require_cuda_available` — a CPU runtime fails here with a clear
+   message, because a CPU MRL comparison would not answer the question the gate
+   asks.
+3. **Drive.** Mount, then require every folder in the storage contract to exist.
+   A missing folder is named.
+4. **Code.** Clone `--no-checkout`, `fetch --depth 1 origin <CODE_SHA>`,
+   `checkout --detach`, compare `rev-parse HEAD` with `CODE_SHA`, and require a
+   clean tree. GitHub is the only code transport: no bundle, no tarball, and
+   Colab never authors or pushes anything.
+5. **Install.** `pip install -r requirements/res138-colab.txt`, then
+   `require_torch_unchanged(before, after)`. That file pins
+   `sentence-transformers==5.0.0` and `transformers==4.51.3` — the versions both
+   pinned model repositories declare in their own `config_sentence_transformers.json`
+   — and pins **no torch and no CUDA wheel**, because Colab owns the CUDA runtime
+   and a pin would either fail to install or silently replace a working build. The
+   before/after comparison is what makes that safe to rely on.
+6. **Plan, runtime, sources, prompts.** The plan is written from the cloned tree
+   and its digest printed. The runtime fingerprint records the torch, CUDA and
+   Colab versions. `verify_and_cache_beir_sources` checks each archive against the
+   frozen SHA-256 in `contracts.py` and refuses on mismatch; `verify_pinned_model_metadata`
+   confirms the served commit ids, pooling, prompt strings and positional limits.
+7. **Calibration.** `select_calibration_set` draws 2 items per
+   (workload × kind × length band) — 36 items over the three workloads — and
+   `run_mrl_calibration` decides the Matryoshka shortcut separately for each
+   model, path and workload.
+8. **Preflight bundle and hard stop.** `write_preflight_bundle` writes the
+   artifact and prints its SHA-256. The cell then stops.
+
+The last cell can only run with `RUN_MODE == "full"` **and** an
+`APPROVED_PREFLIGHT_SHA256` that matches the digest a reviewer computed locally.
+It stops rather than embedding anything until both hold.
+
+### Storage
+
+| Purpose                                | Path                                                    |
+| -------------------------------------- | ------------------------------------------------------- |
+| Mounted Drive root                     | `/content/drive/MyDrive/DynamisRAG/RES-138`             |
+| All active work (ephemeral disk)       | `/content/res138`                                       |
+| Finished checkpoints and evidence      | `…/RES-138/runs/<run-id>/`                              |
+
+Drive holds evidence and finished checkpoints. It is never used for large random
+I/O: a mounted Drive is a network filesystem, and writing a shard matrix into it
+byte by byte turns a compute run into an I/O benchmark.
+
+The folder ids are recorded in `RES138_DRIVE_LOCATIONS` for provenance and
+operator confirmation only. No computation requires one — a run that needed a
+folder id to start would break the moment the tree is reorganised.
+
+### What the preflight proves, and what it does not
+
+It proves that on one GPU, at one pinned torch build, the derived 512-dimension
+prefix is a valid substitute for the full 1024-dimension vector **on 36 short
+scientific items** — cosine ≥ 0.999999, max component difference ≤ 1e-5, identical
+top-10 — and that every frozen identity in the plan is the one on disk.
+
+It proves nothing about retrieval quality, which needs the corpus pass, and it
+records no TEI equivalence result: that gate is evaluated locally against
+TEI 1.9.4 because Colab cannot run Docker.
+
+### Interrupting and resuming
+
+`open_drive_run` is idempotent. The run manifest is keyed by a derived run id
+computed from the plan, source, runtime and model identities — not from a
+timestamp — so a reconnect finds its own run, re-verifies every artifact already
+present and resumes at the first shard that is missing. A manifest whose identity
+disagrees with the run refuses to be reused.
+
 ## Migrations
 
 ```powershell
@@ -634,7 +774,11 @@ Neither suite touches a Hugging Face Hub endpoint and neither needs a GPU. The
 embedding adapter's protocol tests run against `httpx2.MockTransport` over a
 scripted TEI 1.9.x server, so `POST /embed` bodies, retry behaviour and
 mid-run identity drift are all asserted with no socket open and no model
-downloaded. The PostgreSQL and OpenSearch integration suite is unchanged and
+downloaded. The benchmark suite is the same in kind: the retrieval metrics are
+checked against exact brute-force results on small corpora, the Matryoshka gate
+against constructed vectors, the bundle verifier against bundles a test assembles
+and then corrupts one field at a time, and the Colab notebook against its
+committed JSON. The PostgreSQL and OpenSearch integration suite is unchanged and
 remains deterministic.
 
 ## Quality gates
@@ -652,6 +796,14 @@ Ruff owns formatting *and* linting, and Pyright runs in strict mode with
 errors. The whole suite — `src`, `tests` and `alembic` — is covered; only
 `tests/**` relaxes `assert`-style rules and `alembic/versions/*.py` tolerates the
 unused `op` / `sa` imports that Alembic's own revision template emits.
+
+Two exclusions are deliberate and both are narrow. `notebooks/` is outside ruff,
+because a notebook cell is meant to print; its invariants are asserted by parsing
+the committed JSON in `tests/unit/test_benchmark_colab.py` instead.
+`src/dynamisrag/benchmark/runner.py` is outside Pyright, because it is the only
+module that imports `torch` and `sentence_transformers`, and neither is installed
+in CI by design — the type checker would otherwise report the absence of a
+dependency the repository refuses to depend on. Nothing else is excluded.
 
 ## Running the server
 
@@ -690,12 +842,15 @@ connectivity, Alembic baseline, JATS canonical import, structure-aware chunking,
 the versioned deterministic passage projection (`passage-index-v1`), versioned BM25
 retrieval, the vector-capable projection (`passage-index-v2`, Lucene HNSW), the
 model-agnostic embedding boundary with its TEI adapter
-(`EmbeddingProvider`, `passage-embeddings-v1`) and the lint/type/test/CI gates.
+(`EmbeddingProvider`, `passage-embeddings-v1`), the RES-138 retrieval benchmark
+harness (frozen contracts, exact scoring, Matryoshka gate, content-addressed
+artifacts, resumable run manifest, local bundle verifier, Colab notebook — with no
+result and no default), and the lint/type/test/CI gates.
 
 Not implemented here, by design: which embedding model and dimension are **best**
-(a retrieval-quality benchmark, taken in a later issue), a production ANN
-retrieval API, BM25+dense fusion, reranking, generation, and agents. Those belong
-to later issues in this milestone.
+(the harness for that question exists but has not been run through a corpus pass),
+a production ANN retrieval API, BM25+dense fusion, reranking, generation, and
+agents. Those belong to later issues in this milestone.
 
 What that means concretely. Embedding *generation* is implemented and
 reproducible: the adapter calls a TEI server you point it at, proves which model
