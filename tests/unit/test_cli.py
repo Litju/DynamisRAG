@@ -1,6 +1,6 @@
 """The ``dynamisrag`` command surface.
 
-Three behaviours are pinned here:
+Four behaviours are pinned here:
 
 * ``dynamisrag`` with no arguments still starts the server — the pre-existing
   behaviour, unchanged. ``uvicorn.run`` is patched so the test never blocks;
@@ -8,6 +8,10 @@ Three behaviours are pinned here:
   :class:`~dynamisrag.search.bm25.Bm25SearchService` and emits the same
   :class:`~dynamisrag.search.bm25.SearchResponse` as ``GET /search`` — there is
   no second search implementation to drift;
+* ``dynamisrag benchmark ...`` reads no service: it writes the frozen RES-138 plan
+  for an exact commit and prints its digest, or verifies a bundle on this
+  workstation with no trust on first use. Both print JSON and both exit non-zero
+  with one safe line on failure;
 * a backend failure is a non-zero exit status with one safe stderr line, and
   never a traceback.
 """
@@ -15,6 +19,7 @@ Three behaviours are pinned here:
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any, Final
 
 import pytest
@@ -27,6 +32,7 @@ from tests._support import UNIT_TEST_PASSWORD, build_settings
 _PROJECTION_SHA: Final[str] = "c" * 64
 _CHUNKER_REVISION: Final[str] = "structure-v1.1.b19e0939b5de"
 _PASSAGE_KEY: Final[str] = "a" * 64
+_CODE_SHA: Final[str] = "a" * 40
 
 
 def _response(query: str) -> SearchResponse:
@@ -360,11 +366,88 @@ def test_help_describes_both_subcommands(capsys: pytest.CaptureFixture[str]) -> 
     assert caught.value.code == 0
     assert "search" in out
     assert "project-passages" in out
+    assert "benchmark" in out
 
 
 def test_an_unknown_subcommand_is_rejected(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as caught:
         cli.main(["frobnicate"])
+
+    assert caught.value.code != 0
+    assert "invalid choice" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# benchmark
+# ---------------------------------------------------------------------------
+
+
+def test_the_plan_is_written_and_its_digest_printed(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    destination = tmp_path / "plan.json"
+
+    status = cli.main(
+        ["benchmark", "res138-plan", "--code-sha", _CODE_SHA, "--out", str(destination)]
+    )
+
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+    assert status == 0
+    assert payload["artifact_revision"] == "res138-plan-v1"
+    assert len(payload["sha256"]) == 64
+    written = json.loads(destination.read_text(encoding="utf-8"))
+    assert written["artifact_revision"] == "res138-plan-v1"
+    assert written["code_sha"] == _CODE_SHA
+
+
+def test_the_plan_digest_is_reproducible_and_refuses_a_moving_identity(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    first = tmp_path / "first.json"
+    second = tmp_path / "second.json"
+    assert cli.main(["benchmark", "res138-plan", "--code-sha", _CODE_SHA, "--out", str(first)]) == 0
+    assert (
+        cli.main(["benchmark", "res138-plan", "--code-sha", _CODE_SHA, "--out", str(second)]) == 0
+    )
+    capsys.readouterr()
+    assert first.read_bytes() == second.read_bytes()
+
+    status = cli.main(["benchmark", "res138-plan", "--code-sha", "main"])
+    captured = capsys.readouterr()
+    assert status != 0
+    assert "40 lowercase hexadecimal" in captured.err
+    assert "Traceback" not in captured.err
+
+
+def test_bundle_verification_reports_or_names_the_failure(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    status = cli.main(["benchmark", "verify-res138-bundle", str(tmp_path / "absent")])
+
+    captured = capsys.readouterr()
+    assert status != 0
+    assert captured.out == ""
+    assert captured.err.startswith(
+        "dynamisrag benchmark verify-res138-bundle: BenchmarkArtifactError:"
+    )
+    assert "not a directory" in captured.err
+    assert "Traceback" not in captured.err
+
+
+def test_the_benchmark_group_requires_a_command(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as caught:
+        cli.main(["benchmark"])
+
+    assert caught.value.code != 0
+    assert capsys.readouterr().err != ""
+
+
+def test_the_benchmark_group_reports_an_unknown_command(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit) as caught:
+        cli.main(["benchmark", "frobnicate"])
 
     assert caught.value.code != 0
     assert "invalid choice" in capsys.readouterr().err
