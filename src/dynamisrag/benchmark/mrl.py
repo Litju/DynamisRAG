@@ -34,9 +34,9 @@ queries, and pooling is not the only thing that differs between them.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Final
+from typing import Final, cast
 
 import numpy as np
 from numpy.typing import NDArray
@@ -163,17 +163,24 @@ def _ranked_ids(
 
 @dataclass(frozen=True)
 class MrlPathDecision:
-    """Whether one model, on one path, may use derived-512 vectors.
+    """Whether one model, on one path, over one workload, may use derived-512 vectors.
 
     ``derived512_allowed`` is the only field a caller branches on; the numbers
     beside it are what make that branch reviewable, and they are hashed into the
     calibration artifact so a decision cannot be revisited without changing the
     artifact's digest.
+
+    The decision is per *workload* as well as per model and path, because that is
+    what was actually calibrated: one encoder call covers one workload's items, and
+    a shortcut that holds on SciFact's abstracts need not hold on TREC-COVID's
+    mixed-length corpus. A full benchmark uses a derived vector for a model and path
+    only if every workload agreed.
     """
 
     model_id: str
     model_revision: str
     kind: ShardKind
+    workload: str
     derivation_revision: str
     derived_dimension: int
     vector_count: int
@@ -224,6 +231,7 @@ class MrlPathDecision:
             "model_id": self.model_id,
             "model_revision": self.model_revision,
             "kind": self.kind.value,
+            "workload": self.workload,
             "derivation_revision": self.derivation_revision,
             "derived_dimension": self.derived_dimension,
             "vector_count": self.vector_count,
@@ -245,6 +253,7 @@ def evaluate_mrl_equivalence(
     *,
     candidate: ModelCandidateSpec,
     kind: ShardKind,
+    workload: str,
     item_ids: Sequence[str],
     native_512: NDArray[np.float32],
     native_1024: NDArray[np.float32],
@@ -300,6 +309,7 @@ def evaluate_mrl_equivalence(
         model_id=candidate.model_id,
         model_revision=candidate.revision,
         kind=kind,
+        workload=workload,
         derivation_revision=RES138_MRL_DERIVATION_REVISION,
         derived_dimension=derived.shape[1],
         vector_count=derived.shape[0],
@@ -311,6 +321,25 @@ def evaluate_mrl_equivalence(
         gate_maximum_absolute_difference=RES138_MRL_CALIBRATION_GATE.maximum_absolute_difference,
         gate_require_identical_top_k=RES138_MRL_CALIBRATION_GATE.require_identical_top_k,
         derived512_allowed=allowed,
+    )
+
+
+def _item_workload(item: Res138JsonValue) -> str:
+    """The workload one recorded calibration item belongs to.
+
+    Read through a mapping cast because the payload elements are the JSON value
+    domain: a calibration item is an object, and an artifact that recorded a
+    calibration item as a bare string would be refused here rather than silently
+    attributed to a workload named "documents".
+    """
+    if isinstance(item, Mapping):
+        workload = cast("Mapping[str, Res138JsonValue]", item).get("workload")
+        if isinstance(workload, str):
+            return workload
+    raise BenchmarkContractError(
+        "a recorded calibration item does not name a workload, so a decision taken on it cannot be "
+        "attributed to the corpus it came from.",
+        operation="build_mrl_calibration_payload",
     )
 
 
@@ -329,23 +358,33 @@ def build_mrl_calibration_payload(
     """
     if not decisions:
         raise BenchmarkContractError(
-            "an MRL calibration with no decisions is not a calibration. Both models and both paths "
-            "must be decided before the full run may start.",
+            "an MRL calibration with no decisions is not a calibration. Both models, both paths "
+            "and every workload must be decided before the full run may start.",
+            operation=operation,
+        )
+    calibrated = sorted({_item_workload(item) for item in calibration_items})
+    if not calibrated:
+        raise BenchmarkContractError(
+            "the MRL calibration records no calibration items, so its decisions cannot be "
+            "attributed to inputs.",
             operation=operation,
         )
     models = {decision.model_id for decision in decisions}
     expected_pairs = {
-        (candidate.model_id, kind.value)
+        (candidate.model_id, kind.value, workload)
         for candidate in RES138_MODEL_CANDIDATES
         for kind in ShardKind
+        for workload in calibrated
     }
-    decided_pairs = {(decision.model_id, decision.kind.value) for decision in decisions}
+    decided_pairs = {
+        (decision.model_id, decision.kind.value, decision.workload) for decision in decisions
+    }
     missing = sorted(expected_pairs - decided_pairs)
     if missing:
         raise BenchmarkContractError(
-            f"the MRL calibration does not decide every model/path pair; missing {missing}. "
-            "A partial calibration would leave the corpus pass to guess whether the shortcut holds "
-            "for the paths nobody tested.",
+            f"the MRL calibration does not decide every model/path/workload pair; missing "
+            f"{missing}. A partial calibration would leave the corpus pass to guess whether the "
+            "shortcut holds for the combinations nobody tested.",
             operation=operation,
         )
     if models != {candidate.model_id for candidate in RES138_MODEL_CANDIDATES}:
@@ -359,6 +398,7 @@ def build_mrl_calibration_payload(
         "derivation_revision": RES138_MRL_DERIVATION_REVISION,
         "calibration_selection_revision": RES138_CALIBRATION_SELECTION_REVISION,
         "calibration_items": list(calibration_items),
+        "workloads": calibrated,
         "decisions": [decision.payload() for decision in decisions],
         "derived512_allowed_everywhere": all(decision.derived512_allowed for decision in decisions),
     }

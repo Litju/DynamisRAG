@@ -68,6 +68,13 @@ packages = ["src/dynamisrag"]
 line-length = 100
 target-version = "py312"
 src = ["src", "tests"]
+# `notebooks/` holds the committed Colab notebook. It is excluded from both the
+# linter and the formatter deliberately: a notebook cell is *supposed* to print
+# its progress and to keep its own shape, and reformatting cells would make every
+# orchestration edit look like a code change. The notebook's structural
+# invariants are asserted in `tests/unit/test_benchmark_colab.py`, and every
+# algorithm it calls is tested where it lives.
+extend-exclude = ["notebooks"]
 
 [tool.ruff.format]
 docstring-code-format = true

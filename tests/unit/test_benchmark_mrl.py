@@ -169,6 +169,7 @@ def _decide(
     return evaluate_mrl_equivalence(
         candidate=_CANDIDATE,
         kind=kind,
+        workload="unit",
         item_ids=item_ids,
         native_512=native_512,
         native_1024=native_1024,
@@ -264,14 +265,22 @@ def _ids(count: int) -> tuple[str, ...]:
 def test_a_calibration_that_decides_only_some_pairs_is_refused() -> None:
     native_512, native_1024 = _exact_pair(6, seed=101)
     decision = _decide(native_512=native_512, native_1024=native_1024, item_ids=_ids(6))
-    items: list[str] = []
+    items = [{"workload": "unit", "kind": "documents", "item_id": "d000"}]
     with pytest.raises(BenchmarkContractError) as caught:
         build_mrl_calibration_payload(
             decisions=[decision], calibration_items=items, operation="test"
         )
-    assert "does not decide every model/path pair" in str(caught.value)
+    assert "does not decide every model/path/workload pair" in str(caught.value)
+    with pytest.raises(BenchmarkContractError) as empty_items:
+        build_mrl_calibration_payload(decisions=[decision], calibration_items=[], operation="test")
+    assert "no calibration items" in str(empty_items.value)
     with pytest.raises(BenchmarkContractError):
         build_mrl_calibration_payload(decisions=[], calibration_items=items, operation="test")
+    with pytest.raises(BenchmarkContractError) as unlabelled:
+        build_mrl_calibration_payload(
+            decisions=[decision], calibration_items=["d000"], operation="test"
+        )
+    assert "does not name a workload" in str(unlabelled.value)
 
 
 def test_a_complete_calibration_payload_states_the_inputs_and_every_decision() -> None:
@@ -280,6 +289,7 @@ def test_a_complete_calibration_payload_states_the_inputs_and_every_decision() -
         evaluate_mrl_equivalence(
             candidate=candidate,
             kind=kind,
+            workload="unit",
             item_ids=_ids(18),
             native_512=native_512,
             native_1024=native_1024,
@@ -291,7 +301,7 @@ def test_a_complete_calibration_payload_states_the_inputs_and_every_decision() -
 
     payload = build_mrl_calibration_payload(
         decisions=decisions,
-        calibration_items=[{"workload": "scifact", "item_id": "d000"}],
+        calibration_items=[{"workload": "unit", "item_id": "d000"}],
         operation="test",
     )
 

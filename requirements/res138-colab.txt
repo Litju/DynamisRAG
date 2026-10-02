@@ -1,0 +1,46 @@
+# RES-138 Colab benchmark dependencies.
+#
+# Read before installing anything here.
+#
+# **This file deliberately pins no torch.** Colab owns the CUDA runtime and the
+# PyTorch build that goes with the GPU it gives you; a pinned torch would either
+# fail to install or, worse, replace a working CUDA build with a CPU wheel and
+# silently change the numerics of a run that has already recorded its fingerprint.
+# The notebook captures torch, its CUDA runtime and its build tag *before* this
+# file is installed and compares them afterwards, refusing the run if any of them
+# moved. `pip install -r requirements/res138-colab.txt` must therefore leave torch
+# alone.
+#
+# **What is pinned, and why.** Every package below either decides numbers or reads
+# the weights, and every pin is an exact version:
+#
+#   sentence-transformers 5.0.0 / transformers 4.51.3 are the versions the two
+#       candidate repositories declare in their own
+#       `config_sentence_transformers.json` `__version__` block at the pinned
+#       revisions. That is the stack the model authors validated, and a tokeniser
+#       or pooling change between these versions would change the vectors.
+#   tokenizers 0.21.1 and huggingface-hub 0.30.2 are the versions transformers
+#       4.51.3 declares, pinned here so a resolver cannot quietly take a newer one.
+#   numpy 2.3.1 matches the repository's own `benchmark` dependency group, so the
+#       matrices written on Colab are the ones the local verifier reads.
+#
+# **Transitive packages that are not pinned** (scipy, scikit-learn, Pillow, tqdm,
+# pyyaml, filelock, packaging, regex, requests, safetensors) are satisfied by the
+# runtime Colab already provides. They do not decide any number this benchmark
+# reports: the embedding path is tokeniser -> transformer -> pooling ->
+# normalisation, and those four are pinned above. What *is* pinned here is what
+# the preflight records: `res138-runtime-v1` captures the resolved version of
+# every library that participated, so a runtime whose transitive versions differ
+# from the ones assumed here produces a different runtime fingerprint and therefore
+# a different run id.
+#
+# **No pyarrow, no datasets, no parquet.** The three BEIR archives are parsed with
+# the standard library from the original ZIP distributions, so the corpus is the
+# corpus rather than a repackaging of it, and no parquet engine is installed to
+# make that possible.
+
+sentence-transformers==5.0.0
+transformers==4.51.3
+tokenizers==0.21.1
+huggingface-hub==0.30.2
+numpy==2.3.1

@@ -649,19 +649,20 @@ def run_mrl_calibration(
     a decision that the shortcut does not hold costs minutes rather than hours.
     """
     selected = tuple(candidates) if candidates is not None else _FROZEN_MODEL_CANDIDATES
+    workload = _single_workload(calibration)
     decisions: list[MrlPathDecision] = []
     for candidate in selected:
         for kind in (ShardKind.DOCUMENTS, ShardKind.QUERIES):
-            item_ids = calibration.ids(workload=_single_workload(calibration), kind=kind.value)
+            item_ids = calibration.ids(workload=workload, kind=kind.value)
             if not item_ids:
                 raise BenchmarkContractError(
-                    f"the calibration set holds no {kind.value} for a single workload. MRL "
+                    f"the calibration set holds no {kind.value} for workload {workload!r}. MRL "
                     "calibration compares one workload's items at a time so that the query path "
                     "and the document path are decided on the inputs they will actually embed.",
                     operation=operation,
                     model_id=candidate.model_id,
                 )
-            texts = calibration.texts(workload=_single_workload(calibration), kind=kind.value)
+            texts = calibration.texts(workload=workload, kind=kind.value)
             observed = encoder.observed_max_sequence_length()
             if observed < candidate.native_max_sequence_length:
                 raise BenchmarkExecutionError(
@@ -688,6 +689,7 @@ def run_mrl_calibration(
                 evaluate_mrl_equivalence(
                     candidate=candidate,
                     kind=kind,
+                    workload=workload,
                     item_ids=item_ids,
                     native_512=native_512,
                     native_1024=native_1024,
@@ -803,14 +805,7 @@ def write_preflight_bundle(
         )
     calibration_payload = build_mrl_calibration_payload(
         decisions=decisions,
-        calibration_items=cast(
-            "list[Res138JsonValue]",
-            [
-                item.payload()
-                for item in calibration.items
-                if item.workload == _single_workload(calibration)
-            ],
-        ),
+        calibration_items=[item.payload() for item in calibration.items],
         operation="write_preflight_bundle",
     )
     payload: dict[str, Res138JsonValue] = {
