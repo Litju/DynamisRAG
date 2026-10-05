@@ -13,7 +13,6 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
-from pathlib import Path
 from typing import Final
 
 from tests._support import REPO_ROOT
