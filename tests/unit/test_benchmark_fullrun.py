@@ -22,7 +22,11 @@ from dynamisrag.benchmark.artifacts import (
     shard_paths,
     write_artifact,
 )
-from dynamisrag.benchmark.bundle import RES138_RUN_MANIFEST_FILENAME, verify_run_bundle
+from dynamisrag.benchmark.bundle import (
+    RES138_RUN_MANIFEST_FILENAME,
+    verify_run_bundle,
+    write_bundle_manifest,
+)
 from dynamisrag.benchmark.contracts import (
     RES138_BASE_DIMENSION,
     RES138_BEIR_SOURCES,
@@ -51,7 +55,11 @@ from dynamisrag.benchmark.fullrun import (
     execute_full_run,
     require_full_run_approval,
 )
-from dynamisrag.benchmark.mrl import MrlPathDecision, build_mrl_calibration_payload
+from dynamisrag.benchmark.mrl import (
+    MrlPathDecision,
+    build_mrl_calibration_payload,
+    derive_mrl_prefix,
+)
 from dynamisrag.benchmark.res138 import (
     RUN_MODE_FULL,
     RUN_MODE_PREFLIGHT,
@@ -879,3 +887,142 @@ def _execute_result_identities(directory: Path) -> tuple[tuple[str, str], ...]:
     full = read_artifact(directory / "full-run.json", name="full_run")
     records = cast("list[dict[str, object]]", full.payload["result_artifacts"])
     return tuple((str(item["path"]), str(item["sha256"])) for item in records)
+
+
+# ---------------------------------------------------------------------------
+# Mutation seals: the two scientific relations the outer integrity graph misses
+#
+# Every test below builds a valid completed bundle, mutates persisted evidence,
+# and then mechanically refreshes every digest the bundle declares — the matrix
+# SHA in the sidecar, the sidecar SHA in the full-run shard summary, the full-run
+# SHA and every size and digest in the bundle manifest. The outer graph is
+# therefore self-consistent and the refusal can only come from the new checks:
+# `derive_mrl_prefix` over the persisted source, and `exact_top_k` over the
+# persisted matrices compared with the stored ranking.
+# ---------------------------------------------------------------------------
+
+
+def _rewrite_matrix(
+    matrix_path: Path,
+    matrix: np.ndarray,
+    *,
+    derived_from: str | None = None,
+) -> None:
+    """Persist a mutated matrix and mechanically refresh its sidecar digest."""
+    np.save(matrix_path, np.ascontiguousarray(matrix, dtype=np.float32), allow_pickle=False)
+    sidecar_path = matrix_path.with_suffix(".json")
+    sidecar = json.loads(sidecar_path.read_text(encoding="utf-8"))
+    sidecar["matrix_sha256"] = file_sha256(matrix_path)
+    sidecar["matrix_byte_size"] = matrix_path.stat().st_size
+    if derived_from is not None:
+        sidecar["derived_from_matrix_sha256"] = derived_from
+    sidecar_path.write_text(canonical_json(sidecar), encoding="utf-8")
+
+
+def _refresh_outer_integrity_graph(directory: Path) -> None:
+    """Rewrite the full-run shard summary and the bundle manifest from disk."""
+    full_path = directory / "full-run.json"
+    document = json.loads(full_path.read_text(encoding="utf-8"))
+    for entry in cast("list[dict[str, object]]", document["shards"]):
+        group = (
+            directory
+            / str(entry["model_id"]).replace("/", "__")
+            / str(entry["workload"])
+            / str(entry["kind"])
+            / str(entry["dimension"])
+        )
+        for shard in cast("list[dict[str, object]]", entry["shards"]):
+            stem = f"shard-{int(cast(int, shard['shard_index'])):05d}"
+            sidecar_path = group / stem / f"{stem}.json"
+            sidecar = json.loads(sidecar_path.read_text(encoding="utf-8"))
+            shard["matrix_sha256"] = sidecar["matrix_sha256"]
+            shard["sidecar_sha256"] = file_sha256(sidecar_path)
+    full_path.write_text(canonical_json(document), encoding="utf-8")
+    write_bundle_manifest(directory)
+
+
+def test_a_persisted_512_matrix_that_is_not_the_derivation_of_its_source_is_refused(
+    tmp_path: Path,
+) -> None:
+    """Mutate the derived matrix, refresh every digest, and still refuse.
+
+    The mutation keeps float32, C-contiguity, finiteness and unit rows, so every
+    per-file check passes, and the 1024 source is untouched, so the recorded source
+    link is still a truthful name. What no longer holds is the scientific relation:
+    the persisted 512 rows are not ``derive_mrl_prefix`` of the linked 1024 bytes.
+    """
+    _, directory, _, _, _, _, _ = _execute(tmp_path)
+    candidate = RES138_MODEL_CANDIDATES[0]
+    matrix_path = (
+        shard_paths(
+            directory,
+            candidate=candidate,
+            workload="scifact",
+            kind=ShardKind.DOCUMENTS,
+            dimension=512,
+        )
+        / "shard-00000"
+        / "shard-00000.npy"
+    )
+    mutated = np.load(matrix_path, allow_pickle=False).copy()
+    mutated[0, 1] = np.float32(mutated[0, 1] + 0.25)
+    mutated[0] = (mutated[0] / np.linalg.norm(mutated[0].astype(np.float64))).astype(np.float32)
+    assert mutated.dtype == np.float32
+    assert mutated.flags.c_contiguous
+    assert bool(np.all(np.isfinite(mutated)))
+
+    _rewrite_matrix(matrix_path, mutated)
+    _refresh_outer_integrity_graph(directory)
+
+    with pytest.raises(BenchmarkArtifactError, match="derive_mrl_prefix"):
+        verify_run_bundle(directory, expect_code_sha=_CODE_SHA)
+
+
+def test_embeddings_that_do_not_reproduce_the_stored_ranking_are_refused(
+    tmp_path: Path,
+) -> None:
+    """Change retrieval while keeping every artifact and digest self-consistent.
+
+    A document outside the stored order's prefix is given the query's vector, and
+    the derived 512 matrix is regenerated from the mutated 1024 source so the MRL
+    relation still holds. Every affected matrix, sidecar, summary entry and bundle
+    digest is refreshed mechanically, and the stored per-query artifact is left
+    untouched: the stored metrics still reconstruct from the stored hits, so only
+    reconstructing ``exact_top_k`` from the persisted matrices can see the lie.
+    """
+    _, directory, _, _, _, _, _ = _execute(tmp_path)
+    candidate = RES138_MODEL_CANDIDATES[0]
+    base_path = (
+        shard_paths(
+            directory,
+            candidate=candidate,
+            workload="scifact",
+            kind=ShardKind.DOCUMENTS,
+            dimension=RES138_BASE_DIMENSION,
+        )
+        / "shard-00000"
+        / "shard-00000.npy"
+    )
+    mutated = np.load(base_path, allow_pickle=False)
+    mutated[50] = mutated[0]
+    _rewrite_matrix(base_path, mutated)
+
+    small_path = (
+        shard_paths(
+            directory,
+            candidate=candidate,
+            workload="scifact",
+            kind=ShardKind.DOCUMENTS,
+            dimension=512,
+        )
+        / "shard-00000"
+        / "shard-00000.npy"
+    )
+    derived = derive_mrl_prefix(
+        np.ascontiguousarray(mutated, dtype=np.float32), operation="mutation_test"
+    )
+    _rewrite_matrix(small_path, derived, derived_from=file_sha256(base_path))
+    _refresh_outer_integrity_graph(directory)
+
+    with pytest.raises(BenchmarkArtifactError, match="exact retrieval the persisted matrices"):
+        verify_run_bundle(directory, expect_code_sha=_CODE_SHA)
