@@ -2,14 +2,15 @@
 #
 # Read before installing anything here.
 #
-# **This file deliberately pins no torch.** Colab owns the CUDA runtime and the
-# PyTorch build that goes with the GPU it gives you; a pinned torch would either
-# fail to install or, worse, replace a working CUDA build with a CPU wheel and
-# silently change the numerics of a run that has already recorded its fingerprint.
-# The notebook captures torch, its CUDA runtime and its build tag *before* this
-# file is installed and compares them afterwards, refusing the run if any of them
-# moved. `pip install -r requirements/res138-colab.txt` must therefore leave torch
-# alone.
+# **This file pins no NumPy, no torch and no CUDA wheel.** Colab owns the
+# interpreter, the CUDA runtime, the PyTorch build and NumPy. NumPy in particular is
+# already imported by the live kernel before a notebook cell runs, so a requirement
+# that asked pip to replace it would swap package files under an interpreter that
+# still holds the previous version's already-imported modules -- an ImportError in
+# the middle of a model pass, not a version upgrade. The notebook captures torch, its
+# CUDA runtime and the installed NumPy version *before* installing this file and
+# refuses the run if any of them moved. The actual NumPy version is observed and
+# recorded in the `res138-runtime-v1` fingerprint; it is not prescribed here.
 #
 # **What is pinned, and why.** Every package below either decides numbers or reads
 # the weights, and every pin is an exact version:
@@ -21,8 +22,9 @@
 #       or pooling change between these versions would change the vectors.
 #   tokenizers 0.21.1 and huggingface-hub 0.30.2 are the versions transformers
 #       4.51.3 declares, pinned here so a resolver cannot quietly take a newer one.
-#   numpy 2.3.1 matches the repository's own `benchmark` dependency group, so the
-#       matrices written on Colab are the ones the local verifier reads.
+#   nothing else: the benchmark's own numeric dependency (`numpy>=2.3,<2.4` in the
+#       repository's local/CI `benchmark` dependency group) is deliberately not
+#       installed here, because a second NumPy must never enter the kernel.
 #
 # **Transitive packages that are not pinned** (scipy, scikit-learn, Pillow, tqdm,
 # pyyaml, filelock, packaging, regex, requests, safetensors) are satisfied by the
@@ -43,4 +45,3 @@ sentence-transformers==5.0.0
 transformers==4.51.3
 tokenizers==0.21.1
 huggingface-hub==0.30.2
-numpy==2.3.1

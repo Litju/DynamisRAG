@@ -149,7 +149,7 @@ Invoke-RestMethod http://127.0.0.1:8000/readyz
 ├── notebooks/
 │   └── res138_colab.ipynb     # orchestration only; algorithms live in the harness
 ├── requirements/
-│   └── res138-colab.txt       # Colab-only pins; no torch, no CUDA wheel
+│   └── res138-colab.txt       # Colab-only model pins; no NumPy, no torch, no CUDA wheel
 ├── tests/
 │   ├── unit/                  # no infrastructure required
 │   └── integration/           # requires the live stack
@@ -656,8 +656,10 @@ its own — every one of those is an import from `dynamisrag.benchmark`, and
 `tests/unit/test_benchmark_colab.py` fails if the notebook ever grows its own.
 
 A preflight run, top to bottom. The ordering is part of the contract, not a matter
-of taste: a clean Colab runtime has no DynamisRAG installed, so nothing may import any part
-of it until the exact commit has been cloned, verified and put on `sys.path`.
+of taste: a clean Colab runtime has no DynamisRAG installed, and its NumPy is already
+loaded by the kernel, so nothing may import any part of the repository until the exact
+commit has been cloned, verified, its dependencies installed from the checkout and the
+model pins, and the installs have been proven not to have moved torch, CUDA or NumPy.
 
 1. **Parameters.** Set `CODE_SHA` to the exact 40-character commit of the harness
    branch. `RUN_MODE` is `"preflight"` by default; `APPROVED_PREFLIGHT_SHA256` is
@@ -668,40 +670,54 @@ of it until the exact commit has been cloned, verified and put on `sys.path`.
    than after it.
 3. **Drive.** Mount, then require the literal paths from the parameter cell to
    exist. A missing folder is named. The repository's storage contract cannot be read
-   yet, so it is compared against these literals in step 6.
+   yet, so it is compared against these literals in step 11.
 4. **`CODE_SHA` shape.** 40 lowercase hexadecimal characters, checked with the
    standard library before a clone is attempted. Blank and `main` both fail.
 5. **Code.** Clone `--no-checkout`, `fetch --depth 1 origin <CODE_SHA>`,
-   `checkout --detach`, compare `rev-parse HEAD` with `CODE_SHA`, require a clean
-   tree, and only then insert `REPO_DIR/src` into `sys.path` and import DynamisRAG.
-   GitHub is the only code transport: no bundle, no tarball, and Colab never authors or
-   pushes anything.
-6. **Literals against contracts.** The parameter cell repeats the frozen Drive root,
-   archive digests, model revisions, shard size, candidate dimensions and bootstrap
-   triple so it can state what it is about to check. This step makes that repetition
-   load-bearing: it compares them with the contracts at this commit and stops on any
-   disagreement, then constructs `Res138ColabConfig`.
-7. **Install.** `pip install -r requirements/res138-colab.txt`, then
-   `require_torch_unchanged(before, after)`. That file pins
-   `sentence-transformers==5.0.0` and `transformers==4.51.3` — the versions both
-   pinned model repositories declare in their own `config_sentence_transformers.json` —
-   and pins **no torch and no CUDA wheel**, because Colab owns the CUDA runtime and a
-   pin would either fail to install or silently replace a working build. The
-   before/after comparison is what makes that safe to rely on.
-8. **Plan, runtime, sources, prompts.** The plan is written from the cloned tree and
-   its digest printed. The runtime fingerprint records the torch, CUDA and Colab
-   versions. `verify_and_cache_beir_sources` checks each archive against the frozen
-   SHA-256 in `contracts.py` and refuses on mismatch; `verify_pinned_model_metadata`
-   confirms the served commit ids, pooling, prompt strings, positional limits and the
-   frozen loading semantics.
-9. **Calibration.** `select_calibration_set` draws 2 items per
-   (workload × kind × length band) — 36 items over the three workloads — **once**, and
-   `calibrate_frozen_candidates` loads each candidate **once** and decides the
-   Matryoshka shortcut separately for every model, path and workload: 2 models × 2
-   paths × 3 workloads is 12 decisions from 2 model loads. Between candidates the
-   encoder is deleted, collected and the CUDA caching allocator emptied, so the second
-   model does not share a card with the first model's dead blocks.
-10. **Preflight bundle and hard stop.** `write_preflight_bundle` writes the artifact
+   `checkout --detach`, then compare `rev-parse HEAD` with `CODE_SHA` and require a
+   clean tree. GitHub is the only code transport: no bundle, no tarball, and Colab
+   never authors or pushes anything. **Nothing is imported and `sys.path` is not
+   touched in this step** — the checkout exists on disk and nothing else.
+6. **Capture before.** torch's version, its CUDA runtime and the installed NumPy
+   version are recorded from installed distribution metadata. NumPy is read with
+   `importlib.metadata` rather than imported, so the capture cannot load into the
+   kernel the very module it is protecting.
+7. **Runtime dependencies.** `pip install <cloned repo>` installs
+   `[project.dependencies]` from the exact checkout. PEP 735 dependency groups are not
+   a pip concept, so the `benchmark` group — and the local `numpy>=2.3,<2.4` constraint
+   it carries — cannot be installed by this command.
+8. **Model stack.** `pip install -r requirements/res138-colab.txt` installs
+   `sentence-transformers==5.0.0`, `transformers==4.51.3`, `tokenizers==0.21.1` and
+   `huggingface-hub==0.30.2` — the versions both pinned model repositories declare in
+   their own `config_sentence_transformers.json`. The file pins **no NumPy, no torch and
+   no CUDA wheel**, because Colab owns those and replacing NumPy in the live kernel is
+   what broke the first preflight. The NumPy version actually installed is recorded in
+   the runtime fingerprint, not prescribed by the file.
+9. **Prove nothing moved.** torch, the CUDA runtime and NumPy are compared with the
+   step-6 values and any drift raises. The comparison uses the standard library and the
+   already-imported torch only, because the repository is still not on `sys.path`.
+10. **Import.** `sys.path.insert(0, REPO_DIR/src)`, then the first `dynamisrag` import;
+    the printed `dynamisrag.__file__` shows the clone won over the copy the runtime
+    install also placed in site-packages.
+11. **Literals against contracts.** The parameter cell repeats the frozen Drive root,
+    archive digests, model revisions, shard size, candidate dimensions and bootstrap
+    triple so it can state what it is about to check. This step makes that repetition
+    load-bearing: it compares them with the contracts at this commit and stops on any
+    disagreement, then constructs `Res138ColabConfig`.
+12. **Plan, runtime, sources, prompts.** The plan is written from the cloned tree and
+    its digest printed. The runtime fingerprint records the torch, CUDA and Colab
+    versions. `verify_and_cache_beir_sources` checks each archive against the frozen
+    SHA-256 in `contracts.py` and refuses on mismatch; `verify_pinned_model_metadata`
+    confirms the served commit ids, pooling, prompt strings, positional limits and the
+    frozen loading semantics.
+13. **Calibration.** `select_calibration_set` draws 2 items per
+    (workload × kind × length band) — 36 items over the three workloads — **once**, and
+    `calibrate_frozen_candidates` loads each candidate **once** and decides the
+    Matryoshka shortcut separately for every model, path and workload: 2 models × 2
+    paths × 3 workloads is 12 decisions from 2 model loads. Between candidates the
+    encoder is deleted, collected and the CUDA caching allocator emptied, so the second
+    model does not share a card with the first model's dead blocks.
+14. **Preflight bundle and hard stop.** `write_preflight_bundle` writes the artifact
     and prints its SHA-256. The cell then stops.
 
 ### Frozen model loading semantics

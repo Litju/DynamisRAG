@@ -9,19 +9,20 @@ reading the committed JSON rather than by trusting review:
   ``CODE_SHA``, ``RUN_MODE = "preflight"``, an empty approval digest, the Drive root,
   shard size 4096, the candidate dimensions, the bootstrap triple, and the frozen BEIR
   and model identities written out rather than left to the repository alone;
-* **code identity is established before the code is imported.** This is the property the
-  previous version of the notebook got wrong and it is asserted structurally: the first
-  ``dynamisrag`` import anywhere in the notebook must come *after* the detached checkout,
-  *after* the ``rev-parse HEAD`` comparison and *after* the ``sys.path`` insertion that
-  makes the import legal. A clean Colab runtime has no DynamisRAG installed, so an import
-  placed earlier is not a style question — it fails at runtime and would run unverified
-  code if it did not.
+* **dependency establishment precedes every benchmark import.** This is the property the
+  first live preflight got wrong and it is asserted structurally: every ``dynamisrag``
+  import must come *after* the detached checkout, *after* both dependency installs (the
+  checked-out runtime dependencies and the model stack) and *after* the ``sys.path``
+  insertion that makes the import legal. A clean Colab runtime has no DynamisRAG installed,
+  so an import placed earlier fails at runtime; and a dependency install that runs after an
+  import can replace package files under already-loaded modules, which is exactly how the
+  pinned NumPy replacement broke the live kernel with a ``_center`` symbol mismatch.
 * **code transport is GitHub and an exact detached SHA** — a clone, a fetch of
   ``CODE_SHA``, ``checkout --detach``, a ``rev-parse HEAD`` comparison and a
   ``status --porcelain`` cleanliness check. No bundle, no tarball, and nothing that
   commits or pushes;
-* **no torch in the requirements**, and the pinned versions are the ones the pinned
-  model repositories declare;
+* **no NumPy and no torch or CUDA wheel in the requirements**, and the pinned model
+  versions are the ones the pinned model repositories declare;
 * **the notebook does not implement the benchmark.** It parses no corpus, computes no
   metric, does no Matryoshka arithmetic, does no ranking, does no artifact
   serialisation and selects nothing: every such job is an import from
@@ -100,30 +101,6 @@ def _dynamisrag_imports(tree: ast.AST) -> list[int]:
             and node.level == 0
             and node.module is not None
             and node.module.split(".")[0] == "dynamisrag"
-        ):
-            lines.append(node.lineno)
-    return sorted(lines)
-
-
-def _call_lines(tree: ast.AST, function: str, first_argument: str) -> list[int]:
-    """Line numbers of statements calling ``function("first_argument", ...)``."""
-
-    def dotted(node: ast.AST) -> str | None:
-        if isinstance(node, ast.Name):
-            return node.id
-        if isinstance(node, ast.Attribute):
-            owner = dotted(node.value)
-            return None if owner is None else f"{owner}.{node.attr}"
-        return None
-
-    lines: list[int] = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call) or dotted(node.func) != function:
-            continue
-        if (
-            node.args
-            and isinstance(node.args[0], ast.Constant)
-            and node.args[0].value == first_argument
         ):
             lines.append(node.lineno)
     return sorted(lines)
@@ -239,68 +216,6 @@ def test_the_notebook_imports_the_runner_only_after_the_repository_is_on_the_pat
     clone = source.index('sys.path.insert(0, str(REPO_DIR / "src"))')
     runner = source.index("from dynamisrag.benchmark.runner import")
     assert runner > clone
-
-
-# ---------------------------------------------------------------------------
-# Code identity before code
-#
-# The defect this guards against is not stylistic. A fresh Colab runtime has no
-# DynamisRAG installed, so an import placed before the checkout fails; and if it did not
-# fail it would be importing whatever `pip install dynamisrag` happened to provide rather
-# than the commit the run is bound to. Every earlier notebook revision put `runtime`,
-# `contracts` and `res138` imports in the GPU and Drive cells, before `git clone`.
-#
-# Ordering is asserted by cell position and, inside the checkout cell, by line number —
-# so `import dynamisrag` sitting *after* `sys.path.insert` in the same cell passes, and an
-# import sitting before it does not.
-# ---------------------------------------------------------------------------
-
-
-def test_no_dynamisrag_import_precedes_the_exact_checkout_or_the_sys_path_insertion() -> None:
-    indexed = _indexed_code_cells()
-
-    # The bootstrap must exist at all, or every comparison below is vacuous.
-    checkout_cells = [
-        position for position, source in indexed if 'git("checkout", "--detach", CODE_SHA' in source
-    ]
-    assert len(checkout_cells) == 1, "the notebook must check out CODE_SHA exactly once, detached"
-    checkout = checkout_cells[0]
-    checkout_cell = indexed[checkout][1]
-
-    tree = ast.parse(checkout_cell)
-    rev_parse = _call_lines(tree, "git", "rev-parse")
-    path_insert = [
-        node.lineno
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Attribute)
-        and node.func.attr == "insert"
-        and isinstance(node.func.value, ast.Attribute)
-        and node.func.value.attr == "path"
-        and isinstance(node.func.value.value, ast.Name)
-        and node.func.value.value.id == "sys"
-    ]
-    assert rev_parse, "the checkout cell must compare git rev-parse HEAD with CODE_SHA"
-    assert path_insert, "the checkout cell must insert the cloned src directory into sys.path"
-    assert 'sys.path.insert(0, str(REPO_DIR / "src"))' in checkout_cell
-
-    # The verified cutoff inside the checkout cell: after rev-parse and after sys.path.
-    boundary = max(*rev_parse, *path_insert)
-
-    for position, source in indexed:
-        import_lines = _dynamisrag_imports(ast.parse(source))
-        if not import_lines:
-            continue
-        if position < checkout:
-            raise AssertionError(
-                f"code cell {position} imports dynamisrag before the exact detached checkout in "
-                f"code cell {checkout}; a fresh Colab runtime has no DynamisRAG installed"
-            )
-        if position == checkout and min(import_lines) < boundary:
-            raise AssertionError(
-                f"the checkout cell imports dynamisrag at line {min(import_lines)}, before the "
-                f"verified rev-parse and sys.path insertion at line {boundary}"
-            )
 
 
 def test_the_gpu_bootstrap_cell_uses_raw_torch_and_nothing_from_the_repository() -> None:
@@ -485,12 +400,19 @@ def test_the_notebook_checks_the_environment_before_it_spends_anything() -> None
     source = _all_source()
     ordered = (
         # Raw torch first, then Drive, then the code identity the rest of the notebook
-        # depends on, then the dependency install that must not move the CUDA runtime.
+        # depends on, then the capture, the two installs that must not move the
+        # runtime-owned components, their verification, and only then the first import.
         "torch.cuda.is_available()",
         "drive.mount",
         'git("clone"',
-        "pip",
-        "require_torch_unchanged(",
+        'git("rev-parse", "HEAD"',
+        "TORCH_BEFORE = {",
+        "str(REPO_DIR)]",
+        "res138-colab.txt",
+        "runtime_drift = {",
+        'sys.path.insert(0, str(REPO_DIR / "src"))',
+        "import dynamisrag",
+        "from dynamisrag.benchmark.contracts import",
         "capture_runtime_fingerprint",
         "create_res138_run",
         "verify_and_cache_beir_sources",
@@ -499,7 +421,7 @@ def test_the_notebook_checks_the_environment_before_it_spends_anything() -> None
         "write_preflight_bundle",
     )
     positions = [source.index(fragment) for fragment in ordered]
-    assert positions == sorted(positions)
+    assert positions == sorted(positions), list(zip(ordered, positions, strict=True))
 
 
 def test_the_notebook_reports_a_gpu_the_drive_a_code_and_a_prompt_failure_clearly() -> None:
@@ -509,13 +431,12 @@ def test_the_notebook_reports_a_gpu_the_drive_a_code_and_a_prompt_failure_clearl
         "checked out",
         "the checkout is not clean",
         "these Drive folders do not exist",
-        "pip install failed",
-        "require_torch_unchanged(",
+        "installing the checked-out DynamisRAG runtime dependencies failed",
+        "installing requirements/res138-colab.txt failed",
+        "the dependency installs changed runtime-owned components",
         "nvidia-smi could not report the driver version",
     ):
         assert message in source
-    # The torch-unchanged refusal is the harness's, not a notebook re-implementation of it.
-    assert "before=TORCH_BEFORE, after=TORCH_AFTER" in source
 
 
 # ---------------------------------------------------------------------------
@@ -523,29 +444,42 @@ def test_the_notebook_reports_a_gpu_the_drive_a_code_and_a_prompt_failure_clearl
 # ---------------------------------------------------------------------------
 
 
-def test_the_requirements_file_pins_no_torch_and_no_cuda_wheel() -> None:
-    lines = [
+def _requirement_lines() -> list[str]:
+    return [
         line.strip()
         for line in _REQUIREMENTS.read_text(encoding="utf-8").splitlines()
         if line.strip() and not line.strip().startswith("#")
     ]
+
+
+def test_the_requirements_file_contains_no_numpy() -> None:
+    """Colab owns NumPy; a replacement inside the live kernel is the preflight bug."""
+
+    lines = _requirement_lines()
     assert lines == [
         "sentence-transformers==5.0.0",
         "transformers==4.51.3",
         "tokenizers==0.21.1",
         "huggingface-hub==0.30.2",
-        "numpy==2.3.1",
     ]
     assert all("==" in line for line in lines), "every pin is exact"
+    assert not any("numpy" in line.lower() for line in lines)
+
+
+def test_the_requirements_file_contains_no_torch_or_cuda_package() -> None:
+    """A pinned torch or CUDA wheel would replace the runtime the run fingerprinted."""
+
+    lines = _requirement_lines()
     for forbidden in ("torch", "torchvision", "torchaudio", "nvidia-", "cu1", "triton"):
-        assert not any(line.split("==")[0].startswith(forbidden) for line in lines)
+        assert not any(line.lower().startswith(forbidden) for line in lines)
 
 
 def test_the_requirements_file_explains_what_it_deliberately_omits() -> None:
     text = _REQUIREMENTS.read_text(encoding="utf-8")
-    assert "pins no torch" in text
-    assert "Colab owns the CUDA runtime" in text
+    assert "pins no NumPy, no torch and no CUDA wheel" in text
+    assert "Colab owns" in text
     assert "res138-runtime-v1" in text
+    assert "not prescribed here" in text
     assert "No pyarrow" in text
 
 
