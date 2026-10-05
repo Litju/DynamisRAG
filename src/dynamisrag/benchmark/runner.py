@@ -540,14 +540,24 @@ class HubModelMetadataReader:
     """Read pinned model files from the Hub, with no token and no HEAD resolution.
 
     Every read is addressed by ``model_id`` and ``revision``, so what is read is
-    what was frozen. Nothing here asks the Hub what a branch points at.
+    what was frozen. Nothing here asks the Hub what a branch points at. The decoded
+    document is returned exactly as it was written — object or array — because
+    ``modules.json`` is legitimately a JSON list; the caller validates each file's shape.
     """
 
     def __init__(self, *, token: str | None = None) -> None:
         self._token = token
 
-    def read_model_file(self, model_id: str, revision: str, filename: str) -> Mapping[str, object]:
+    def read_model_file(self, model_id: str, revision: str, filename: str) -> object:
         """Fetch one file at one revision and decode it as JSON.
+
+        The decoded document is returned unchanged, whatever its top-level shape:
+        ``config_sentence_transformers.json`` and ``1_Pooling/config.json`` are
+        objects, while ``modules.json`` is an array, and this reader is not the place
+        that knows which file must be which.
+        :func:`~dynamisrag.benchmark.res138.verify_pinned_model_metadata` validates
+        each file it asks for and refuses a repository that does not publish the shape
+        the frozen contract needs.
 
         A token, if one is ever needed, comes from Colab Secrets and is passed in;
         it is never written into a notebook cell, an artifact or a log line.
@@ -578,12 +588,6 @@ class HubModelMetadataReader:
 
         with Path(path).open("r", encoding="utf-8") as handle:
             decoded: object = json.load(handle)
-        if not isinstance(decoded, dict):
-            raise BenchmarkExecutionError(
-                f"{filename} for {model_id} is a JSON {type(decoded).__name__}, not an object.",
-                operation="read_pinned_model_file",
-                model_id=model_id,
-            )
         return decoded
 
 

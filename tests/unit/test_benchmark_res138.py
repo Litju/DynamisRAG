@@ -31,9 +31,12 @@ What is pinned:
 
 from __future__ import annotations
 
+import json
+import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Final, cast
+from types import ModuleType
+from typing import Final, cast, get_type_hints
 
 import numpy as np
 import pytest
@@ -73,6 +76,7 @@ from dynamisrag.benchmark.res138 import (
     write_preflight_bundle,
 )
 from dynamisrag.benchmark.retrieval import RES138_SCORE_DTYPE
+from dynamisrag.benchmark.runner import HubModelMetadataReader
 from dynamisrag.benchmark.runtime import RuntimeProbe, capture_runtime_fingerprint
 from dynamisrag.embedding.contracts import EmbeddingGenerationConfig
 
@@ -390,6 +394,128 @@ def test_an_ambiguous_pooling_configuration_is_refused() -> None:
 
 _VOYAGE_KEY: Final[str] = "voyageai/voyage-4-nano"
 _VOYAGE_REVISION: Final[str] = "67fabc9bef010dabc5f6024aa1b1b6b93410426f"
+
+
+def _install_fake_hub(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    files: Mapping[tuple[str, str], object],
+) -> list[tuple[str, str, str]]:
+    """A stand-in ``huggingface_hub`` whose download writes the fixture to a temp file.
+
+    The concrete reader imports ``hf_hub_download`` at function scope and normal CI has
+    no Hugging Face stack, so the module is injected into ``sys.modules`` for one test
+    and the recorded calls prove the exact ``(model, revision, filename)`` addressed.
+    """
+
+    calls: list[tuple[str, str, str]] = []
+
+    def hf_hub_download(
+        repo_id: str,
+        filename: str,
+        revision: str,
+        token: str | None = None,
+    ) -> str:
+        calls.append((repo_id, revision, filename))
+        raw = files[(f"{repo_id}@{revision}", filename)]
+        path = tmp_path / f"{len(calls):02d}-{filename.replace('/', '_')}"
+        path.write_text(json.dumps(raw), encoding="utf-8")
+        return str(path)
+
+    module = ModuleType("huggingface_hub")
+    module.__dict__["hf_hub_download"] = hf_hub_download
+    monkeypatch.setitem(sys.modules, "huggingface_hub", module)
+    return calls
+
+
+def test_the_concrete_hub_reader_returns_each_decoded_document_unchanged(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The reader has no shape policy of its own: ``modules.json`` is an array and stays one."""
+
+    candidate = RES138_MODEL_CANDIDATES[0]
+    key = f"{candidate.model_id}@{candidate.revision}"
+    files = _pinned_files()
+    calls = _install_fake_hub(monkeypatch, tmp_path, files)
+    reader = HubModelMetadataReader()
+
+    sentence = reader.read_model_file(
+        candidate.model_id, candidate.revision, "config_sentence_transformers.json"
+    )
+    pooling = reader.read_model_file(
+        candidate.model_id, candidate.revision, "1_Pooling/config.json"
+    )
+    modules = reader.read_model_file(candidate.model_id, candidate.revision, "modules.json")
+
+    assert sentence == files[(key, "config_sentence_transformers.json")]
+    assert isinstance(sentence, dict)
+    assert pooling == files[(key, "1_Pooling/config.json")]
+    assert isinstance(pooling, dict)
+    assert modules == files[(key, "modules.json")]
+    assert isinstance(modules, list)
+    assert calls == [
+        (candidate.model_id, candidate.revision, "config_sentence_transformers.json"),
+        (candidate.model_id, candidate.revision, "1_Pooling/config.json"),
+        (candidate.model_id, candidate.revision, "modules.json"),
+    ]
+
+
+def test_the_concrete_hub_reader_and_caller_accept_the_pinned_documents(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The boundary that failed live: object configs and the array ``modules.json`` all pass."""
+
+    from dynamisrag.benchmark.res138 import verify_pinned_model_metadata
+
+    _install_fake_hub(monkeypatch, tmp_path, _pinned_files())
+    provenance = verify_pinned_model_metadata(HubModelMetadataReader())
+
+    assert len(provenance) == 2
+    first = cast("dict[str, object]", provenance[0])
+    assert first["model_id"] == RES138_MODEL_CANDIDATES[0].model_id
+    assert first["normalized_by_model"] is True
+
+
+def test_the_caller_refuses_malformed_shapes_the_concrete_reader_passes_through(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """File-specific validation stays in ``verify_pinned_model_metadata``, not in the reader."""
+
+    from dynamisrag.benchmark.res138 import verify_pinned_model_metadata
+
+    key = f"{_VOYAGE_KEY}@{_VOYAGE_REVISION}"
+    cases: list[tuple[str, object, str]] = [
+        (
+            f"{key}:modules.json",
+            {"type": "sentence_transformers.models.Normalize"},
+            "not a list of modules",
+        ),
+        (
+            f"{key}:config_sentence_transformers.json",
+            ["not", "an", "object"],
+            "declares no prompts",
+        ),
+        (
+            f"{key}:1_Pooling/config.json",
+            [{"pooling_mode_mean_tokens": True}],
+            "active pooling modes",
+        ),
+    ]
+    for name, payload, message in cases:
+        _install_fake_hub(monkeypatch, tmp_path, _pinned_files(**{name: payload}))
+        with pytest.raises(BenchmarkExecutionError) as caught:
+            verify_pinned_model_metadata(HubModelMetadataReader())
+        assert message in str(caught.value)
+
+
+def test_the_concrete_hub_reader_matches_the_metadata_reader_protocol() -> None:
+    """The declared return is ``object``, so a regression to a mapping shape fails here."""
+
+    from dynamisrag.benchmark.res138 import ModelMetadataReader
+
+    reader: ModelMetadataReader = HubModelMetadataReader()
+    assert callable(reader.read_model_file)
+    assert get_type_hints(HubModelMetadataReader.read_model_file)["return"] is object
 
 
 # ---------------------------------------------------------------------------
