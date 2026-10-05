@@ -1,4 +1,26 @@
-"""Offline validation of a completed RES-138 quality/performance result set."""
+"""Offline validation of a completed RES-138 quality/performance result set.
+
+Beyond the outer integrity graph — every declared digest, every canonical JSON
+artifact, every metric recomputed from the stored rankings — this layer closes
+two scientific relations that a bundle can otherwise violate while every hash and
+every metric remains internally consistent:
+
+* **persisted matrices → stored rankings.** Each candidate/dimension/workload
+  group is loaded from its persisted shards and ranked with the same
+  :func:`~dynamisrag.benchmark.retrieval.exact_top_k` the live run used, and the
+  reconstructed ranking is compared with the stored per-query artifact field by
+  field: query id, rank, document id, score, retained depth and tie order.
+* **persisted 1024 → derived 512.** For every MRL decision that allows the
+  shortcut, the linked 1024 matrix is loaded and
+  :func:`~dynamisrag.benchmark.mrl.derive_mrl_prefix` is run over it, and the
+  result must equal the persisted 512 matrix byte for byte. The
+  ``derived_from_matrix_sha256`` link remains necessary but is not sufficient:
+  it names a source, it does not prove the derivation happened from it.
+
+Verification is bounded per group: one candidate/dimension/workload corpus is
+held at a time and released before the next, and each derived pair is checked
+per shard rather than across a whole corpus.
+"""
 
 from __future__ import annotations
 
@@ -7,6 +29,9 @@ from collections.abc import Mapping, Sequence
 from itertools import pairwise
 from pathlib import Path, PurePosixPath
 from typing import NoReturn, cast
+
+import numpy as np
+from numpy.typing import NDArray
 
 from dynamisrag.benchmark.artifacts import (
     ArtifactEnvelope,
@@ -17,6 +42,7 @@ from dynamisrag.benchmark.artifacts import (
     file_sha256,
     read_artifact,
     read_shard_sidecar,
+    verify_shard_matrix,
 )
 from dynamisrag.benchmark.bootstrap import RES138_BOOTSTRAP_PARAMETERS, paired_bootstrap
 from dynamisrag.benchmark.contracts import (
@@ -39,9 +65,13 @@ from dynamisrag.benchmark.metrics import (
     macro_across_workloads,
     per_query_metric,
 )
-from dynamisrag.benchmark.mrl import MrlPathDecision, decode_mrl_calibration_decisions
+from dynamisrag.benchmark.mrl import (
+    MrlPathDecision,
+    decode_mrl_calibration_decisions,
+    derive_mrl_prefix,
+)
 from dynamisrag.benchmark.res138 import verify_preflight_bundle
-from dynamisrag.benchmark.retrieval import QueryRanking, RankedDocument
+from dynamisrag.benchmark.retrieval import QueryRanking, RankedDocument, exact_top_k
 from dynamisrag.embedding.contracts import canonical_json
 
 
@@ -269,6 +299,28 @@ def verify_full_run_bundle(  # noqa: PLR0912, PLR0915 - validates one cross-arti
                         metric_rows.append(_metric_row(cast("Mapping[str, object]", raw_metric)))
                     else:
                         _fail(f"{query_path} has an invalid per-query metrics value")
+                # The stored ranking has to be the ranking the persisted matrices
+                # retrieve, computed by the same exact_top_k the live run used. The
+                # stored hits above are already checked to be well formed and the
+                # metrics below are recomputed from them; both remain self-consistent
+                # if the matrices are replaced. This comparison is what binds the
+                # ranking evidence to the bytes it claims to have been measured on.
+                persisted_queries = _load_persisted_group_matrix(
+                    root,
+                    sidecars[(candidate.model_id, dimension, workload_name, ShardKind.QUERIES)],
+                )
+                persisted_documents = _load_persisted_group_matrix(
+                    root,
+                    sidecars[(candidate.model_id, dimension, workload_name, ShardKind.DOCUMENTS)],
+                )
+                reproduced_rankings = exact_top_k(
+                    query_matrix=persisted_queries,
+                    document_matrix=persisted_documents,
+                    query_ids=query_ids,
+                    document_ids=document_ids,
+                )
+                _require_reproduced_rankings(query_path, rankings, reproduced_rankings)
+                del persisted_queries, persisted_documents, reproduced_rankings
                 current_qrels_tuple = tuple(current_qrels)
                 current_hashes_tuple = tuple(query_hashes)
                 if (
@@ -600,6 +652,8 @@ def _shard_inventory(  # noqa: PLR0912 - reject foreign shard identities before 
                 base_sidecar,
                 derived512_allowed=decision.derived512_allowed,
             )
+            if decision.derived512_allowed:
+                _require_derived_matrix_equivalence(root, small_sidecar, base_sidecar)
     return groups, ids_by_group
 
 
@@ -623,6 +677,98 @@ def _require_derived_binding(
             f"derived 512 shard {output.shard_index} of {output.model_id}/{output.workload}/"
             f"{output.kind.value} has changed timing evidence"
         )
+
+
+def _require_derived_matrix_equivalence(
+    root: Path, output: ShardSidecar, base: ShardSidecar
+) -> None:
+    """Prove a persisted 512 shard is the frozen derivation of its 1024 source.
+
+    The sidecar's ``derived_from_matrix_sha256`` link says which 1024 matrix the
+    shard claims to come from, and the outer bundle check says both matrices hash
+    to what their sidecars declare. Neither says the 512 rows *are* the derivation:
+    a bundle can hold a linked, fully re-hashed 1024/512 pair whose 512 matrix was
+    produced natively, derived under different rules, or altered deliberately. The
+    comparison runs the repository's one MRL implementation over the persisted
+    source and requires the persisted output to equal it byte for byte. One shard
+    pair is held at a time.
+    """
+    base_matrix = verify_shard_matrix(_shard_matrix_path(root, base), base)
+    derived = derive_mrl_prefix(base_matrix, operation="verify_derived_512")
+    persisted = verify_shard_matrix(_shard_matrix_path(root, output), output)
+    if derived.shape != persisted.shape or not bool(np.array_equal(derived, persisted)):
+        _fail(
+            f"the persisted 512 matrix of shard {output.shard_index} of "
+            f"{output.model_id}/{output.workload}/{output.kind.value} is not "
+            "derive_mrl_prefix of its linked 1024 source, byte for byte. The source link and "
+            "every digest can be consistent while the 512 rows were produced another way, so "
+            "the derivation has to be re-run over the persisted source to close that gap"
+        )
+
+
+def _shard_matrix_path(root: Path, sidecar: ShardSidecar) -> Path:
+    """Where a sidecar's matrix lives, from the sidecar's own identity fields."""
+    stem = f"shard-{sidecar.shard_index:05d}"
+    return (
+        root
+        / sidecar.model_id.replace("/", "__")
+        / sidecar.workload
+        / sidecar.kind.value
+        / str(sidecar.dimension)
+        / stem
+        / f"{stem}.npy"
+    )
+
+
+def _load_persisted_group_matrix(
+    root: Path, sidecars: Sequence[ShardSidecar]
+) -> NDArray[np.float32]:
+    """Load one candidate/dimension/workload matrix from its persisted shards.
+
+    One shard is hashed, validated and copied at a time into a preallocated
+    matrix, so a verification holds one corpus plus one shard rather than every
+    shard of a group at once. The caller releases the matrix as soon as the
+    reconstructed ranking has been compared.
+    """
+    if not sidecars:
+        _fail("a retrieval shard group holds no shards")
+    dimension = sidecars[0].dimension
+    rows = sum(sidecar.row_count for sidecar in sidecars)
+    matrix = np.empty((rows, dimension), dtype=np.float32)
+    offset = 0
+    for sidecar in sidecars:
+        if sidecar.dimension != dimension:
+            _fail(f"retrieval shard group {sidecar.model_id} mixes dimensions")
+        shard = verify_shard_matrix(_shard_matrix_path(root, sidecar), sidecar)
+        matrix[offset : offset + sidecar.row_count] = shard
+        offset += sidecar.row_count
+    return matrix
+
+
+def _require_reproduced_rankings(
+    label: str,
+    stored: Sequence[QueryRanking],
+    reproduced: Sequence[QueryRanking],
+) -> None:
+    """Require the stored rankings to be exactly what the persisted matrices retrieve.
+
+    Every load-bearing field is compared, not a digest: the query id, the rank,
+    the document id, the score, the retained depth and the frozen tie order. A
+    bundle whose stored hits were produced from different matrices — or by an
+    approximate index, or under a changed tie break — would otherwise stay
+    internally consistent with its own metrics and every digest it declares.
+    """
+    if len(stored) != len(reproduced):
+        _fail(f"{label} stores {len(stored)} query rankings for {len(reproduced)} queries")
+    for recorded, rebuilt in zip(stored, reproduced, strict=True):
+        if recorded.query_id != rebuilt.query_id:
+            _fail(f"{label} changed query order between the artifact and the persisted matrices")
+        if [hit.payload() for hit in recorded.hits] != [hit.payload() for hit in rebuilt.hits]:
+            _fail(
+                f"{label} stored ranking for query {recorded.query_id!r} is not the exact "
+                "retrieval the persisted matrices produce; the query id, rank, document id, "
+                "score, retained depth and tie order must all reconstruct from the bytes alone"
+            )
 
 
 def _verify_summary_shards(
