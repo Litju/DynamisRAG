@@ -687,15 +687,19 @@ model pins, and the installs have been proven not to have moved torch, CUDA or N
    a pip concept, so the `benchmark` group — and the local `numpy>=2.3,<2.4` constraint
    it carries — cannot be installed by this command.
 8. **Model stack.** `pip install -r requirements/res138-colab.txt` installs
-   `sentence-transformers==5.0.0`, `transformers==4.51.3`, `tokenizers==0.21.1` and
-   `huggingface-hub==0.30.2` — the versions both pinned model repositories declare in
-   their own `config_sentence_transformers.json`. The file pins **no NumPy, no torch and
-   no CUDA wheel**, because Colab owns those and replacing NumPy in the live kernel is
-   what broke the first preflight. The NumPy version actually installed is recorded in
-   the runtime fingerprint, not prescribed by the file.
-9. **Prove nothing moved.** torch, the CUDA runtime and NumPy are compared with the
-   step-6 values and any drift raises. The comparison uses the standard library and the
-   already-imported torch only, because the repository is still not on `sys.path`.
+   `sentence-transformers==5.0.0`, `transformers==4.54.0`, `tokenizers==0.21.1` and
+   `huggingface-hub==0.34.0`. Voyage's pinned repository metadata declares Transformers
+   4.51.3, but the same pinned repository's custom modeling module imports APIs unavailable
+   in 4.51.3. That declaration is preserved as observed provenance; Transformers 4.54.0 is
+   the separate execution-stack override and the minimum checked compatible runtime for
+   the frozen Voyage revision. The file still pins **no NumPy, no torch and no CUDA wheel**.
+9. **Prove nothing moved, then smoke-test the model stack.** torch, the CUDA runtime and
+   NumPy are compared with the step-6 values and any drift raises. Only after that passes,
+   the notebook asserts all four exact model-stack versions and imports
+   `PreTrainedModel`, `Qwen3Model`, `Cache`, `create_causal_mask`,
+   `BaseModelOutputWithPooling`, `Unpack` and `TransformersKwargs`. This gate has no
+   network dependency and runs before the repository import, Hub metadata verification,
+   model download or calibration.
 10. **Import.** `sys.path.insert(0, REPO_DIR/src)`, then the first `dynamisrag` import;
     the printed `dynamisrag.__file__` shows the clone won over the copy the runtime
     install also placed in site-packages.
