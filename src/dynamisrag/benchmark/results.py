@@ -488,12 +488,7 @@ def verify_full_run_bundle(  # noqa: PLR0912, PLR0915 - validates one cross-arti
         sources=sources,
         common=common,
         decisions=decisions,
-        load_batch_sizes={
-            _string(item.get("model_id"), "preflight model id"): _integer(
-                item.get("batch_size"), "preflight batch size"
-            )
-            for item in _mapping_rows(preflight.payload.get("models"), "preflight models")
-        },
+        load_batch_sizes=_preflight_batch_sizes(preflight),
     )
 
 
@@ -1015,6 +1010,34 @@ def _mapping_rows(value: object, label: str) -> list[Mapping[str, object]]:
     if not all(isinstance(item, Mapping) for item in items):
         _fail(f"{label} is not a list of objects")
     return [cast("Mapping[str, object]", item) for item in items]
+
+
+def _mapping(value: object, label: str) -> Mapping[str, object]:
+    if not isinstance(value, Mapping):
+        _fail(f"{label} is not an object")
+    return cast("Mapping[str, object]", value)
+
+
+def _preflight_batch_sizes(preflight: ArtifactEnvelope) -> dict[str, int]:
+    """The loaded-model batch size per pinned model id, from the real preflight schema.
+
+    ``write_preflight_bundle`` composes each record through ``merge_model_provenance``:
+    the pinned repository half at the top level and the loaded-model half under
+    ``runtime``. The flat ``batch_size`` this reader used to require at the top level
+    is a shape no preflight ever emitted, so a bundle verified with it could only be
+    one produced against a fabricated artifact.
+    """
+    sizes: dict[str, int] = {}
+    for item in _mapping_rows(preflight.payload.get("models"), "preflight models"):
+        model_id = _string(item.get("model_id"), "preflight model id")
+        revision = _string(item.get("revision"), "preflight model revision")
+        runtime = _mapping(item.get("runtime"), "preflight runtime model record")
+        if runtime.get("model_id") != model_id or runtime.get("model_revision") != revision:
+            _fail(f"preflight runtime record for {model_id!r} names another model or revision")
+        if model_id in sizes:
+            _fail(f"preflight models repeat candidate {model_id!r}")
+        sizes[model_id] = _integer(runtime.get("batch_size"), "preflight batch size")
+    return sizes
 
 
 def _string(value: object, label: str) -> str:

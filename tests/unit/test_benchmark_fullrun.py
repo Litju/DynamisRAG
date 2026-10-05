@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
-from collections.abc import Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 from pathlib import Path
 from typing import Final, cast
@@ -22,14 +22,17 @@ from dynamisrag.benchmark.artifacts import (
     shard_paths,
     write_artifact,
 )
+from dynamisrag.benchmark.beir import BeirWorkloadReport, VerifiedSource
 from dynamisrag.benchmark.bundle import (
     RES138_RUN_MANIFEST_FILENAME,
     verify_run_bundle,
     write_bundle_manifest,
 )
+from dynamisrag.benchmark.calibration import CalibrationItem, CalibrationSet
 from dynamisrag.benchmark.contracts import (
     RES138_BASE_DIMENSION,
     RES138_BEIR_SOURCES,
+    RES138_CALIBRATION_BANDS,
     RES138_MODEL_CANDIDATES,
     RES138_MRL_CALIBRATION_GATE,
     RES138_MRL_DERIVATION_REVISION,
@@ -57,18 +60,22 @@ from dynamisrag.benchmark.fullrun import (
 )
 from dynamisrag.benchmark.mrl import (
     MrlPathDecision,
-    build_mrl_calibration_payload,
     derive_mrl_prefix,
 )
 from dynamisrag.benchmark.res138 import (
+    PREFLIGHT_FILENAME,
     RUN_MODE_FULL,
     RUN_MODE_PREFLIGHT,
+    LoadedWorkload,
     Res138ColabConfig,
     benchmark_plan,
     create_res138_run,
-    generation_semantics_sha256,
+    merge_model_provenance,
+    verify_pinned_model_metadata,
+    write_preflight_bundle,
 )
 from dynamisrag.benchmark.retrieval import exact_top_k
+from dynamisrag.benchmark.runner import model_provenance
 from dynamisrag.benchmark.runtime import (
     RuntimeFingerprint,
     RuntimeProbe,
@@ -223,6 +230,124 @@ def _decisions(
     return tuple(result)
 
 
+class _PinnedMetadata:
+    """The frozen repository files, answered the way the Hub reader answers them."""
+
+    def read_model_file(self, model_id: str, revision: str, filename: str) -> object:
+        candidate = next(
+            entry
+            for entry in RES138_MODEL_CANDIDATES
+            if entry.model_id == model_id and entry.revision == revision
+        )
+        if filename == "config_sentence_transformers.json":
+            return {
+                "prompts": {
+                    "query": candidate.query_prompt.content,
+                    "document": candidate.document_prompt.content,
+                },
+                "similarity_fn_name": "cosine",
+            }
+        if filename == "1_Pooling/config.json":
+            return {
+                "pooling_mode_mean_tokens": candidate.pooling_mode == "mean",
+                "pooling_mode_lasttoken": candidate.pooling_mode != "mean",
+            }
+        if filename == "modules.json":
+            return [{"type": "sentence_transformers.models.Normalize"}]
+        raise AssertionError(f"unexpected pinned file {filename!r}")
+
+
+def _loaded(workloads: Mapping[str, RetrievalWorkload]) -> tuple[LoadedWorkload, ...]:
+    """The canonical loaded-workload records ``write_preflight_bundle`` embeds as sources."""
+    loaded: list[LoadedWorkload] = []
+    for source in RES138_BEIR_SOURCES:
+        workload = workloads[source.workload]
+        loaded.append(
+            LoadedWorkload(
+                workload=workload,
+                source=VerifiedSource(
+                    spec=source, path=Path(f"{source.workload}.zip"), sha256=source.sha256
+                ),
+                report=BeirWorkloadReport(
+                    spec=source,
+                    workload_summary=dict(workload.summary()),
+                    queries_in_archive=len(workload.queries),
+                    documents_in_archive=len(workload.documents),
+                    documents_without_embedding_text=0,
+                    excluded_document_ids_sha256=None,
+                    queries_without_judgement=0,
+                    queries_without_embedding_text=0,
+                    qrel_rows=len(workload.qrels),
+                    max_relevance=1,
+                    min_relevance=1,
+                ),
+            )
+        )
+    return tuple(loaded)
+
+
+def _model_records() -> tuple[Mapping[str, Res138JsonValue], ...]:
+    """Model provenance through the real merge: pinned repository half plus runtime half."""
+    pinned = cast(
+        "Sequence[Mapping[str, Res138JsonValue]]",
+        verify_pinned_model_metadata(_PinnedMetadata()),
+    )
+    runners = tuple(
+        cast(
+            "Mapping[str, Res138JsonValue]",
+            dict(
+                model_provenance(
+                    candidate=candidate,
+                    requested_compute_dtype=candidate.compute_dtype,
+                    observed_compute_dtype=candidate.compute_dtype,
+                    loaded_max_sequence_length=candidate.native_max_sequence_length,
+                    batch_size=_BATCH_SIZE,
+                    device="cuda",
+                )
+            ),
+        )
+        for candidate in RES138_MODEL_CANDIDATES
+    )
+    return cast(
+        "tuple[Mapping[str, Res138JsonValue], ...]",
+        merge_model_provenance(pinned=pinned, runners=runners),
+    )
+
+
+def _calibration_set() -> CalibrationSet:
+    """A complete calibration set over the frozen workloads, in the emitted item shape."""
+    return CalibrationSet(
+        items=tuple(
+            CalibrationItem(
+                workload=workload,
+                kind=kind,
+                band=band,
+                item_id=f"{workload}-{kind}-{band}",
+                content_sha256="0" * 64,
+                length=8,
+                text=f"{workload} {kind} {band}",
+            )
+            for workload in RES138_WORKLOAD_NAMES
+            for kind in ("documents", "queries")
+            for band in RES138_CALIBRATION_BANDS
+        )
+    )
+
+
+def _mutate_preflight(path: Path, mutate: Callable[[dict[str, object]], None]) -> str:
+    """Rewrite a real preflight with one payload mutation and return the new digest."""
+    payload = cast("dict[str, object]", dict(read_artifact(path, name="preflight").payload))
+    mutate(payload)
+    return write_artifact(
+        path, name="preflight", payload=cast("dict[str, Res138JsonValue]", payload)
+    )
+
+
+def _drop_one_decision(payload: dict[str, object]) -> None:
+    calibration = cast("dict[str, object]", payload["mrl_calibration"])
+    cast("list[object]", calibration["decisions"]).pop()
+
+
 def _approval(
     tmp_path: Path,
     *,
@@ -230,6 +355,7 @@ def _approval(
     failed: tuple[str, str, ShardKind] | None = None,
     omit_decision: bool = False,
 ) -> tuple[Res138ColabConfig, Path, RuntimeFingerprint, dict[str, RetrievalWorkload]]:
+    """A real, approved preflight built through the same writer the notebook calls."""
     workloads = _workloads()
     fingerprint = _fingerprint(code_sha)
     runs_root = tmp_path / "runs"
@@ -241,47 +367,20 @@ def _approval(
         dataset_digests=tuple(_SOURCE_DIGESTS.items()),
     )
     decisions = _decisions(workloads=workloads, failed=failed)
-    calibration = build_mrl_calibration_payload(
+    preflight_path = run_directory / PREFLIGHT_FILENAME
+    approval_sha = write_preflight_bundle(
+        preflight_path,
+        config=preflight_config,
+        fingerprint=fingerprint,
+        run_id=fingerprint.run_id,
+        loaded=_loaded(workloads),
+        model_provenance=_model_records(),
+        calibration=_calibration_set(),
         decisions=decisions,
-        calibration_items=[{"workload": name} for name in RES138_WORKLOAD_NAMES],
-        operation="test_preflight",
+        artifact_digests={},
     )
     if omit_decision:
-        cast("list[object]", calibration["decisions"]).pop()
-    sources = [
-        {
-            "workload": dict(workload.summary()),
-            "sha256": _SOURCE_DIGESTS[name],
-            "qrel_rows": len(workload.qrels),
-        }
-        for name, workload in workloads.items()
-    ]
-    payload = {
-        "code_sha": code_sha,
-        "run_id": fingerprint.run_id,
-        "run_mode": RUN_MODE_PREFLIGHT,
-        "runtime": dict(fingerprint.payload),
-        "runtime_sha256": fingerprint.sha256,
-        "plan_sha256": benchmark_plan(code_sha).sha256,
-        "generation_semantics_sha256": generation_semantics_sha256(),
-        "sources": sources,
-        "models": [
-            {
-                "model_id": candidate.model_id,
-                "model_revision": candidate.revision,
-                "batch_size": _BATCH_SIZE,
-            }
-            for candidate in RES138_MODEL_CANDIDATES
-        ],
-        "mrl_calibration": calibration,
-        "artifact_digests": {},
-    }
-    preflight_path = run_directory / "preflight.json"
-    approval_sha = write_artifact(
-        preflight_path,
-        name="preflight",
-        payload=cast("dict[str, Res138JsonValue]", payload),
-    )
+        approval_sha = _mutate_preflight(preflight_path, _drop_one_decision)
     config = Res138ColabConfig(
         code_sha=code_sha,
         run_mode=RUN_MODE_FULL,
@@ -694,6 +793,171 @@ def test_missing_calibration_decision_refuses_before_model_construction(tmp_path
             release=lambda: None,
             clock=_Clock(),
         )
+    assert loads == []
+
+
+def _legacy_flat_model_policy_refuses(models: object) -> bool:
+    """The exact read the pre-repair validator performed, kept only to prove it fails.
+
+    The old validator read ``models[].model_revision`` and ``models[].batch_size`` at
+    the model record's top level. ``write_preflight_bundle`` writes the loaded-model
+    half under ``runtime``; those flat fields never exist at that level in a real
+    artifact, which is the bug this regression pins.
+    """
+    if not isinstance(models, list):
+        return True
+    candidate_revisions = {
+        candidate.model_id: candidate.revision for candidate in RES138_MODEL_CANDIDATES
+    }
+    seen: set[str] = set()
+    for raw in cast("list[object]", models):
+        if not isinstance(raw, Mapping):
+            return True
+        item = cast("Mapping[str, object]", raw)
+        model_id = item.get("model_id")
+        if (
+            model_id not in candidate_revisions
+            or item.get("model_revision") != candidate_revisions.get(cast("str", model_id))
+            or item.get("batch_size") != _BATCH_SIZE
+        ):
+            return True
+        seen.add(cast("str", model_id))
+    return seen != set(candidate_revisions)
+
+
+def test_a_real_preflight_passes_the_repaired_validator_and_fails_the_legacy_flat_read(
+    tmp_path: Path,
+) -> None:
+    config, preflight, fingerprint, workloads = _approval(tmp_path)
+    models = read_artifact(preflight, name="preflight").payload["models"]
+
+    assert _legacy_flat_model_policy_refuses(models) is True
+    records = cast("list[Mapping[str, object]]", models)
+    assert len(records) == len(RES138_MODEL_CANDIDATES)
+    for record in records:
+        assert "model_revision" not in record
+        assert "batch_size" not in record
+        runtime = cast("Mapping[str, object]", record["runtime"])
+        assert runtime["model_id"] == record["model_id"]
+        assert runtime["model_revision"] == record["revision"]
+        assert runtime["batch_size"] == _BATCH_SIZE
+
+    approved, decisions = require_full_run_approval(
+        config=config,
+        preflight_path=preflight,
+        fingerprint=fingerprint,
+        workloads=workloads,
+        source_digests=_SOURCE_DIGESTS,
+        plan_sha256=benchmark_plan(_CODE_SHA).sha256,
+    )
+    assert approved.sha256 == config.approved_preflight_sha256
+    assert len(decisions) == len(RES138_MODEL_CANDIDATES) * len(RES138_WORKLOAD_NAMES) * 2
+
+
+def test_the_bundle_verifier_reads_the_runtime_batch_size_from_the_real_preflight(
+    tmp_path: Path,
+) -> None:
+    from dynamisrag.benchmark.artifacts import build_artifact
+    from dynamisrag.benchmark.results import (
+        _preflight_batch_sizes,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    _, preflight, _, _ = _approval(tmp_path)
+
+    assert _preflight_batch_sizes(read_artifact(preflight, name="preflight")) == {
+        candidate.model_id: _BATCH_SIZE for candidate in RES138_MODEL_CANDIDATES
+    }
+
+    flat = build_artifact(
+        "preflight",
+        {
+            "models": [
+                {
+                    "model_id": candidate.model_id,
+                    "revision": candidate.revision,
+                    "batch_size": _BATCH_SIZE,
+                }
+                for candidate in RES138_MODEL_CANDIDATES
+            ]
+        },
+        operation="test",
+    )
+    with pytest.raises(BenchmarkArtifactError, match="runtime"):
+        _preflight_batch_sizes(flat)
+
+
+def _model_records_in(payload: dict[str, object]) -> list[dict[str, object]]:
+    return cast("list[dict[str, object]]", payload["models"])
+
+
+def _runtime_in(payload: dict[str, object]) -> dict[str, object]:
+    return cast("dict[str, object]", _model_records_in(payload)[0]["runtime"])
+
+
+def _drift_top_level_revision(payload: dict[str, object]) -> None:
+    _model_records_in(payload)[0]["revision"] = "f" * 40
+
+
+def _drift_runtime_model_revision(payload: dict[str, object]) -> None:
+    _runtime_in(payload)["model_revision"] = "f" * 40
+
+
+def _drift_runtime_model_id(payload: dict[str, object]) -> None:
+    _runtime_in(payload)["model_id"] = "not/the-frozen-candidate"
+
+
+def _drift_runtime_batch_size(payload: dict[str, object]) -> None:
+    _runtime_in(payload)["batch_size"] = _BATCH_SIZE + 16
+
+
+def _remove_runtime(payload: dict[str, object]) -> None:
+    del _model_records_in(payload)[0]["runtime"]
+
+
+def _remove_candidate(payload: dict[str, object]) -> None:
+    _model_records_in(payload).pop()
+
+
+def _duplicate_candidate(payload: dict[str, object]) -> None:
+    records = _model_records_in(payload)
+    records.append(dict(records[0]))
+
+
+_MODEL_POLICY_MUTATIONS: Final[tuple[object, ...]] = (
+    pytest.param(_drift_top_level_revision, id="top-level-revision-drift"),
+    pytest.param(_drift_runtime_model_revision, id="runtime-model-revision-drift"),
+    pytest.param(_drift_runtime_model_id, id="runtime-model-id-drift"),
+    pytest.param(_drift_runtime_batch_size, id="runtime-batch-size-drift"),
+    pytest.param(_remove_runtime, id="missing-runtime"),
+    pytest.param(_remove_candidate, id="missing-candidate"),
+    pytest.param(_duplicate_candidate, id="duplicate-candidate"),
+)
+
+
+@pytest.mark.parametrize("mutate", _MODEL_POLICY_MUTATIONS)
+def test_a_drifted_or_incomplete_model_policy_refuses_before_any_load(
+    tmp_path: Path, mutate: Callable[[dict[str, object]], None]
+) -> None:
+    """Each mutation rewrites the artifact, so the approval digest matches the lie."""
+    config, preflight, fingerprint, workloads = _approval(tmp_path)
+    approval_sha = _mutate_preflight(preflight, mutate)
+    mutated = replace(config, approved_preflight_sha256=approval_sha)
+    loads: list[str] = []
+
+    with pytest.raises(BenchmarkPreflightError):
+        execute_full_run(
+            config=mutated,
+            preflight_path=preflight,
+            runs_root=tmp_path / "runs",
+            scratch_root=tmp_path / "scratch",
+            fingerprint=fingerprint,
+            workloads=workloads,
+            source_digests=_SOURCE_DIGESTS,
+            encoder_factory=lambda candidate: loads.append(candidate.model_id),  # type: ignore[arg-type]
+            release=lambda: None,
+            clock=_Clock(),
+        )
+
     assert loads == []
 
 

@@ -184,11 +184,22 @@ def require_full_run_approval(
 
 
 def _require_preflight_batch_size(approved: ArtifactEnvelope, *, operation: str) -> None:
+    """Require the frozen candidates at the full-run batch size in the real preflight schema.
+
+    The artifact on disk is written by :func:`~dynamisrag.benchmark.res138.write_preflight_bundle`
+    from :func:`~dynamisrag.benchmark.res138.merge_model_provenance`, so every model record
+    holds the pinned repository half at the top level (``model_id``, ``revision``) and the
+    loaded-model half under ``runtime`` (``model_id``, ``model_revision``, ``batch_size``).
+    Both halves must name the same frozen candidate, because either one alone is a claim
+    the other can contradict: a flat read of fields that are not at that level would pass
+    a preflight whose runtime identity was never checked, and would refuse a real one.
+    """
     models = approved.payload.get("models")
     if not isinstance(models, list):
         raise BenchmarkPreflightError(
             "the preflight records no model loading policy.", operation=operation
         )
+    candidates = {candidate.model_id: candidate for candidate in RES138_MODEL_CANDIDATES}
     seen: set[str] = set()
     for raw in models:
         if not isinstance(raw, Mapping):
@@ -197,25 +208,76 @@ def _require_preflight_batch_size(approved: ArtifactEnvelope, *, operation: str)
             )
         item = cast("Mapping[str, object]", raw)
         model_id = item.get("model_id")
-        batch_size = item.get("batch_size")
-        if (
-            model_id not in {candidate.model_id for candidate in RES138_MODEL_CANDIDATES}
-            or item.get("model_revision")
-            != next(
-                candidate.revision
-                for candidate in RES138_MODEL_CANDIDATES
-                if candidate.model_id == model_id
-            )
-            or batch_size != _ENCODER_BATCH_SIZE
-        ):
+        if not isinstance(model_id, str) or model_id not in candidates:
             raise BenchmarkPreflightError(
-                "the preflight model identity or encoder batch size differs from "
-                "the full-run policy.",
+                "a preflight model record does not name one of the frozen candidates.",
                 operation=operation,
                 model_id=str(model_id),
             )
-        seen.add(cast("str", model_id))
-    if seen != {candidate.model_id for candidate in RES138_MODEL_CANDIDATES}:
+        if model_id in seen:
+            raise BenchmarkPreflightError(
+                f"the preflight records candidate {model_id!r} more than once; a duplicated "
+                "model record cannot stand in for a distinct candidate.",
+                operation=operation,
+                model_id=model_id,
+            )
+        seen.add(model_id)
+        candidate = candidates[model_id]
+        revision = item.get("revision")
+        if revision != candidate.revision:
+            raise BenchmarkPreflightError(
+                f"the preflight pins {model_id!r} at {revision!r}, not the frozen revision "
+                f"{candidate.revision!r}.",
+                operation=operation,
+                model_id=model_id,
+                expected=candidate.revision,
+                observed=str(revision),
+            )
+        runtime = item.get("runtime")
+        if not isinstance(runtime, Mapping):
+            raise BenchmarkPreflightError(
+                f"the preflight record for {model_id!r} has no runtime model provenance. "
+                "write_preflight_bundle records the loaded model under 'runtime'; a record "
+                "without it was never emitted by a preflight and describes no load.",
+                operation=operation,
+                model_id=model_id,
+            )
+        runtime_item = cast("Mapping[str, object]", runtime)
+        runtime_model_id = runtime_item.get("model_id")
+        if runtime_model_id != candidate.model_id:
+            raise BenchmarkPreflightError(
+                f"the loaded model reports model_id {runtime_model_id!r}, not the pinned "
+                f"{candidate.model_id!r}.",
+                operation=operation,
+                model_id=model_id,
+                expected=candidate.model_id,
+                observed=str(runtime_model_id),
+            )
+        runtime_revision = runtime_item.get("model_revision")
+        if runtime_revision != candidate.revision:
+            raise BenchmarkPreflightError(
+                f"the loaded model reports revision {runtime_revision!r}, not the pinned "
+                f"{candidate.revision!r}.",
+                operation=operation,
+                model_id=model_id,
+                expected=candidate.revision,
+                observed=str(runtime_revision),
+            )
+        runtime_batch_size = runtime_item.get("batch_size")
+        if (
+            not isinstance(runtime_batch_size, int)
+            or isinstance(runtime_batch_size, bool)
+            or runtime_batch_size != _ENCODER_BATCH_SIZE
+        ):
+            raise BenchmarkPreflightError(
+                f"the preflight was calibrated at encoder batch size {runtime_batch_size!r}, "
+                f"not the full-run batch size {_ENCODER_BATCH_SIZE}.",
+                operation=operation,
+                model_id=model_id,
+                expected=str(_ENCODER_BATCH_SIZE),
+                observed=str(runtime_batch_size),
+            )
+    if seen != set(candidates):
         raise BenchmarkPreflightError(
             "the preflight does not cover both frozen candidates.", operation=operation
         )
