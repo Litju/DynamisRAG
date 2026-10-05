@@ -27,7 +27,7 @@ the repository rather than by reading the diff.
   imported by anything. Otherwise "CI never loads a GPU" would be an intention
   rather than a fact.
 
-* **The nine declared artifact revisions** are the only ``res138-*`` revision
+* **The declared artifact revisions** are the only ``res138-*`` revision
   strings the benchmark declares, so a new artifact cannot appear without being
   added to the single place that says what the schema of each one is.
 """
@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import ast
 import inspect
+import re
 import tomllib
 from collections.abc import Iterator
 from pathlib import Path
@@ -392,7 +393,7 @@ def test_the_gpu_runner_never_names_a_candidate_or_branches_on_one() -> None:
         assert not read, f"runner.py:{node.lineno} branches on a candidate's model id"
 
 
-def test_the_nine_declared_artifact_revisions_are_the_only_ones_in_the_benchmark() -> None:
+def test_declared_artifact_revisions_are_the_only_ones_in_the_benchmark() -> None:
     declared = set(RES138_ARTIFACT_REVISIONS.values())
     found: set[str] = set()
     for path in _python_files(_DYNAMISRAG / "benchmark"):
@@ -402,7 +403,7 @@ def test_the_nine_declared_artifact_revisions_are_the_only_ones_in_the_benchmark
                 isinstance(node, ast.Constant)
                 and isinstance(node.value, str)
                 and node.value.startswith("res138-")
-                and node.value.endswith("-v1")
+                and re.fullmatch(r"res138-.+-v\d+", node.value) is not None
             ):
                 found.add(node.value)
     assert found <= declared | {"res138-run-manifest-v1", "res138-bundle-manifest-v1"}
@@ -410,7 +411,7 @@ def test_the_nine_declared_artifact_revisions_are_the_only_ones_in_the_benchmark
 
 
 def test_the_two_extra_revisions_are_deliberate_and_documented() -> None:
-    """The run manifest and the bundle manifest are not nine-listed schemas.
+    """The run manifest and the bundle manifest are not in the central revision table.
 
     One records a run's *identity* so a resume can be checked against it; the other
     records a bundle's *completeness*. Both are named, hashed and refused on a

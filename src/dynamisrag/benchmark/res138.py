@@ -128,6 +128,7 @@ __all__ = [
     "generation_semantics_sha256",
     "merge_model_provenance",
     "require_approved_preflight",
+    "require_within_sequence_limit",
     "run_mrl_calibration",
     "verify_and_cache_beir_sources",
     "verify_pinned_model_metadata",
@@ -754,7 +755,7 @@ def run_mrl_calibration(
                     expected=str(candidate.native_max_sequence_length),
                     observed=str(observed),
                 )
-            _require_within_sequence_limit(
+            require_within_sequence_limit(
                 encoder=encoder,
                 texts=texts,
                 item_ids=item_ids,
@@ -779,7 +780,7 @@ def run_mrl_calibration(
     return tuple(decisions)
 
 
-def _require_within_sequence_limit(
+def require_within_sequence_limit(
     *,
     encoder: CalibrationEncoder,
     texts: Sequence[str],
@@ -796,7 +797,7 @@ def _require_within_sequence_limit(
     for item_id, count in zip(item_ids, counts, strict=True):
         if count > candidate.native_max_sequence_length:
             raise BenchmarkExecutionError(
-                f"calibration item {item_id!r} is {count} tokens, over the frozen native boundary "
+                f"input {item_id!r} is {count} tokens, over the frozen native boundary "
                 f"of {candidate.native_max_sequence_length} for this model. The benchmark does not "
                 "truncate: an over-context input is a benchmark error, reported by id and token "
                 "count, never by content.",
@@ -909,11 +910,15 @@ def write_preflight_bundle(
     return write_artifact(path, name="preflight", payload=payload)
 
 
-def verify_preflight_bundle(
+def verify_preflight_bundle(  # noqa: PLR0912 - identity fields must all pass before approval
     path: Path,
     *,
     expect_code_sha: str | None = None,
     expect_run_id: str | None = None,
+    expect_runtime_sha256: str | None = None,
+    expect_plan_sha256: str | None = None,
+    expect_generation_semantics_sha256: str | None = None,
+    expect_dataset_digests: Sequence[tuple[str, str]] | None = None,
     operation: str = "verify_preflight_bundle",
 ) -> ArtifactEnvelope:
     """Re-read a preflight artifact and check the bindings that make it usable.
@@ -943,6 +948,10 @@ def verify_preflight_bundle(
             operation=operation,
             count=len(missing),
         )
+    if envelope.payload.get("run_mode") != RUN_MODE_PREFLIGHT:
+        raise BenchmarkPreflightError(
+            "only a preflight-mode artifact can authorize a full run.", operation=operation
+        )
     if expect_code_sha is not None:
         required_sha = require_code_sha(expect_code_sha, operation=operation)
         if envelope.payload["code_sha"] != required_sha:
@@ -962,6 +971,60 @@ def verify_preflight_bundle(
             expected=expect_run_id,
             observed=str(envelope.payload["run_id"])[:64],
         )
+    runtime = envelope.payload["runtime"]
+    if not isinstance(runtime, Mapping):
+        raise BenchmarkPreflightError(
+            "the preflight runtime fingerprint is not an object.", operation=operation
+        )
+    runtime_sha = hashlib.sha256(canonical_json(dict(runtime)).encode("utf-8")).hexdigest()
+    if runtime_sha != envelope.payload["runtime_sha256"]:
+        raise BenchmarkPreflightError(
+            "the preflight runtime payload does not hash to its recorded runtime SHA.",
+            operation=operation,
+            expected=str(envelope.payload["runtime_sha256"]),
+            observed=runtime_sha,
+        )
+    for label, field, expected in (
+        ("runtime fingerprint", "runtime_sha256", expect_runtime_sha256),
+        ("benchmark plan", "plan_sha256", expect_plan_sha256),
+        (
+            "generation semantics",
+            "generation_semantics_sha256",
+            expect_generation_semantics_sha256,
+        ),
+    ):
+        if expected is None:
+            continue
+        if envelope.payload[field] != expected:
+            raise BenchmarkPreflightError(
+                f"the preflight {label} {envelope.payload[field]!r} does not match the current "
+                f"{label} {expected!r}.",
+                operation=operation,
+                expected=expected,
+                observed=str(envelope.payload[field])[:64],
+            )
+    if expect_dataset_digests is not None:
+        raw_sources = envelope.payload["sources"]
+        observed_sources: dict[str, str] = {}
+        if isinstance(raw_sources, list):
+            for raw_source in cast("list[object]", raw_sources):
+                if isinstance(raw_source, Mapping):
+                    source = cast("Mapping[str, object]", raw_source)
+                    workload: object = source.get("workload")
+                    digest: object = source.get("sha256")
+                    if isinstance(workload, Mapping):
+                        summary = cast("Mapping[str, object]", workload)
+                        workload = summary.get("name")
+                    if isinstance(workload, str) and isinstance(digest, str):
+                        observed_sources[workload] = digest
+        expected_sources = dict(expect_dataset_digests)
+        if observed_sources != expected_sources:
+            raise BenchmarkPreflightError(
+                "the preflight source digests do not match the currently verified workloads.",
+                operation=operation,
+                expected=str(sorted(expected_sources.items())),
+                observed=str(sorted(observed_sources.items())),
+            )
     return envelope
 
 
@@ -969,6 +1032,11 @@ def require_approved_preflight(
     *,
     config: Res138ColabConfig,
     path: Path,
+    expect_run_id: str | None = None,
+    expect_runtime_sha256: str | None = None,
+    expect_plan_sha256: str | None = None,
+    expect_generation_semantics_sha256: str | None = None,
+    expect_dataset_digests: Sequence[tuple[str, str]] | None = None,
     operation: str = "require_approved_preflight",
 ) -> ArtifactEnvelope:
     """The only way into a full run: an artifact whose digest equals the approved one.
@@ -981,6 +1049,11 @@ def require_approved_preflight(
     envelope = verify_preflight_bundle(
         path,
         expect_code_sha=config.code_sha,
+        expect_run_id=expect_run_id,
+        expect_runtime_sha256=expect_runtime_sha256,
+        expect_plan_sha256=expect_plan_sha256,
+        expect_generation_semantics_sha256=expect_generation_semantics_sha256,
+        expect_dataset_digests=expect_dataset_digests,
         operation=operation,
     )
     observed = envelope.sha256

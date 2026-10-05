@@ -6,7 +6,7 @@ returns a report that binds every byte it found to a declared digest, or refuses
 
 **What "verified" means here, in full.** Every file the root manifest declares
 exists and hashes to the declared value; the tree contains no file the manifest
-does not declare; every shard sidecar declares the ``res138-shard-v1`` revision
+does not declare; every shard sidecar declares the ``res138-shard-v2`` revision
 and its matrix hashes to the declared digest with the declared dtype, dimension,
 row count and normalisation; the shard id lists are individually ascending and,
 concatenated in ordinal order, reproduce one strictly ascending canonical
@@ -35,10 +35,9 @@ from dynamisrag.benchmark.artifacts import (
     ArtifactEnvelope,
     Res138JsonValue,
     Res138RunManifest,
-    ShardKind,
     ShardSidecar,
     file_sha256,
-    require_artifact_revision,
+    read_shard_sidecar,
     verify_shard_matrix,
 )
 from dynamisrag.benchmark.contracts import (
@@ -86,9 +85,6 @@ presence is a fact about the copy, not about the evidence. A ``.tmp`` or
 ``.partial`` file is ignored by the walk and is never evidence of anything.
 """
 
-_SUFFIXES: Final[frozenset[str]] = frozenset({".npy", ".json"})
-
-
 _SKIP_SUFFIXES: Final[tuple[str, ...]] = (".partial", ".tmp")
 """Temporary-file suffixes that are ignored by the walk and never evidence.
 
@@ -105,12 +101,14 @@ def _relative_files(root: Path) -> tuple[str, ...]:
     for path in root.rglob("*"):
         if not path.is_file():
             continue
-        relative = path.relative_to(root).as_posix()
+        relative_path = path.relative_to(root)
+        if any(part.endswith(_SKIP_SUFFIXES) for part in relative_path.parts[:-1]):
+            continue
+        relative = relative_path.as_posix()
         name = path.name
         if name == _BUNDLE_MANIFEST_FILENAME or name.endswith(_SKIP_SUFFIXES):
             continue
-        if path.suffix in _SUFFIXES:
-            found.append(relative)
+        found.append(relative)
     return tuple(sorted(found))
 
 
@@ -241,81 +239,8 @@ def _require_entries(envelope: ArtifactEnvelope) -> tuple[tuple[str, str, int], 
 
 
 def _load_sidecar(path: Path) -> ShardSidecar:
-    """Read one shard sidecar, refusing an unknown revision or a broken shape."""
-    decoded = _load_json_object(path, name="shard sidecar", operation="verify_run_bundle")
-    revision = require_artifact_revision("shard", operation="verify_run_bundle")
-    if decoded.get("artifact_revision") != revision:
-        raise BenchmarkArtifactError(
-            f"shard sidecar {path.name} declares revision {decoded.get('artifact_revision')!r}, "
-            f"which is not {revision!r}.",
-            operation="verify_run_bundle",
-            expected=revision,
-            observed=str(decoded.get("artifact_revision")),
-        )
-    ids = decoded.get("ids")
-    if not isinstance(ids, list) or not all(
-        isinstance(item, str) for item in cast("list[object]", ids)
-    ):
-        raise BenchmarkArtifactError(
-            f"shard sidecar {path.name} carries no ordered id list. Without it the matrix cannot "
-            "be joined to the corpus, and a shard of the right shape could be swapped for another "
-            "without any check noticing.",
-            operation="verify_run_bundle",
-        )
-    return ShardSidecar(
-        artifact_revision=revision,
-        model_id=require_exact_str(decoded.get("model_id"), kind="model id", operation="verify"),
-        model_revision=require_exact_str(
-            decoded.get("model_revision"), kind="model revision", operation="verify"
-        ),
-        prompt_sha256=require_exact_str(
-            decoded.get("prompt_sha256"), kind="prompt digest", operation="verify"
-        ),
-        workload=require_exact_str(decoded.get("workload"), kind="workload", operation="verify"),
-        kind=_decode_kind(decoded.get("kind")),
-        dimension=_decode_int(decoded.get("dimension"), "dimension"),
-        dtype=require_exact_str(decoded.get("dtype"), kind="dtype", operation="verify"),
-        normalization=require_exact_str(
-            decoded.get("normalization"), kind="normalization", operation="verify"
-        ),
-        shard_index=_decode_int(decoded.get("shard_index"), "shard index"),
-        shard_size=_decode_int(decoded.get("shard_size"), "shard size"),
-        first_id=require_exact_str(decoded.get("first_id"), kind="first id", operation="verify"),
-        last_id=require_exact_str(decoded.get("last_id"), kind="last id", operation="verify"),
-        row_count=_decode_int(decoded.get("row_count"), "row count"),
-        ordered_ids_sha256=require_exact_str(
-            decoded.get("ordered_ids_sha256"), kind="ordered id digest", operation="verify"
-        ),
-        ids=tuple(cast("list[str]", ids)),
-        matrix_sha256=require_exact_str(
-            decoded.get("matrix_sha256"), kind="matrix digest", operation="verify"
-        ),
-        matrix_byte_size=_decode_int(decoded.get("matrix_byte_size"), "matrix byte size"),
-        code_sha=require_exact_str(decoded.get("code_sha"), kind="code sha", operation="verify"),
-        runtime_sha256=require_exact_str(
-            decoded.get("runtime_sha256"), kind="runtime digest", operation="verify"
-        ),
-    )
-
-
-def _decode_kind(value: object) -> ShardKind:
-    try:
-        return ShardKind(require_exact_str(value, kind="shard kind", operation="verify"))
-    except ValueError:
-        raise BenchmarkArtifactError(
-            f"shard sidecar declares kind {value!r}, which is neither 'documents' nor 'queries'.",
-            operation="verify_run_bundle",
-            observed=str(value)[:32],
-        ) from None
-
-
-def _decode_int(value: object, kind: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise BenchmarkArtifactError(
-            f"shard sidecar {kind} is {value!r}, which is not an integer.",
-            operation="verify_run_bundle",
-        )
-    return value
+    """Read one shard sidecar through the shared artifact contract."""
+    return read_shard_sidecar(path)
 
 
 def _frozen_pairs(candidates: Sequence[tuple[str, str]]) -> dict[str, str]:
@@ -403,6 +328,10 @@ def verify_run_bundle(
     _require_frozen_datasets(run_manifest, operation=operation)
     verified = _verify_declared_tree(root, envelope, operation=operation)
     shard_count, row_count = _verify_shards(root, operation=operation)
+    if (root / "full-run.json").exists() or (root / "results").exists():
+        from dynamisrag.benchmark.results import verify_full_run_bundle
+
+        verify_full_run_bundle(root, run_manifest=run_manifest, declared_files=verified)
     return BundleVerification(
         root=str(root),
         code_sha=run_manifest.code_sha,
@@ -582,17 +511,17 @@ def _require_ascending(sidecar: ShardSidecar, *, operation: str) -> None:
 
 def _group_by_set(
     sidecars: Sequence[ShardSidecar], *, operation: str
-) -> dict[tuple[str, str, int], list[tuple[int, str, str]]]:
-    """Group shards by ``(workload, kind, dimension)``, refusing a repeated ordinal."""
-    grouped: dict[tuple[str, str, int], list[tuple[int, str, str]]] = {}
-    seen: dict[tuple[str, str, int], set[int]] = {}
+) -> dict[tuple[str, str, str, int], list[tuple[int, str, str]]]:
+    """Group shards by candidate, workload, kind and dimension."""
+    grouped: dict[tuple[str, str, str, int], list[tuple[int, str, str]]] = {}
+    seen: dict[tuple[str, str, str, int], set[int]] = {}
     for sidecar in sidecars:
-        key = (sidecar.workload, sidecar.kind.value, sidecar.dimension)
+        key = (sidecar.model_id, sidecar.workload, sidecar.kind.value, sidecar.dimension)
         ordinals = seen.setdefault(key, set())
         if sidecar.shard_index in ordinals:
             raise BenchmarkArtifactError(
-                f"two sidecars declare shard {sidecar.shard_index} of {key[0]}/{key[1]}/"
-                f"{key[2]}. Two shards with one ordinal is a duplicated shard, and which of them a "
+                f"two sidecars declare shard {sidecar.shard_index} of {key[0]}/{key[1]}/{key[2]}/"
+                f"{key[3]}. Two shards with one ordinal is a duplicated shard, and which of them a "
                 "reader would use is an accident of directory order.",
                 operation=operation,
                 workload=sidecar.workload,
@@ -606,7 +535,7 @@ def _group_by_set(
 
 
 def _require_contiguous_and_ordered(
-    grouped: Mapping[tuple[str, str, int], Sequence[tuple[int, str, str]]], *, operation: str
+    grouped: Mapping[tuple[str, str, str, int], Sequence[tuple[int, str, str]]], *, operation: str
 ) -> None:
     """Require ordinals ``0..n-1`` and one strictly ascending id sequence per set.
 
@@ -614,12 +543,13 @@ def _require_contiguous_and_ordered(
     different runs: every shard's own id list is internally fine, and only the
     concatenation reveals a duplicate, a gap or a reordering.
     """
-    for (workload, kind, dimension), entries in sorted(grouped.items()):
+    for (model_id, workload, kind, dimension), entries in sorted(grouped.items()):
         _ = dimension
         for expected, (ordinal, _, _) in enumerate(entries):
             if ordinal != expected:
                 raise BenchmarkArtifactError(
-                    f"the {workload}/{kind} shard set skips shard {expected}: the ordinals "
+                    f"the {model_id}/{workload}/{kind} shard set skips shard {expected}: "
+                    "the ordinals "
                     f"present are {[entry[0] for entry in entries]}. A gap means a shard was never "
                     "written, and a bundle with a hole in its corpus is not a smaller benchmark.",
                     operation=operation,
@@ -631,7 +561,7 @@ def _require_contiguous_and_ordered(
             current_first = entries[position][1]
             if not previous_last < current_first:
                 raise BenchmarkArtifactError(
-                    f"shard {entries[position][0]} of {workload}/{kind} starts at "
+                    f"shard {entries[position][0]} of {model_id}/{workload}/{kind} starts at "
                     f"{current_first!r}, which does not follow shard "
                     f"{entries[position - 1][0]}'s last id {previous_last!r}. The concatenated "
                     "corpus order is not strictly ascending, so the rows are not in the canonical "

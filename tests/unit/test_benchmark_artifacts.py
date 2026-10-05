@@ -272,7 +272,7 @@ def test_a_sidecar_binds_every_value_needed_to_identify_its_matrix(tmp_path: Pat
     sidecar_path = matrix_path.with_name("shard-00000.json")
     sidecar = json.loads(sidecar_path.read_text(encoding="utf-8"))
 
-    assert sidecar["artifact_revision"] == "res138-shard-v1"
+    assert sidecar["artifact_revision"] == "res138-shard-v2"
     assert sidecar["model_id"] == RES138_MODEL_CANDIDATES[0].model_id
     assert sidecar["model_revision"] == RES138_MODEL_CANDIDATES[0].revision
     assert sidecar["prompt_sha256"] == RES138_MODEL_CANDIDATES[0].document_prompt.content_sha256
@@ -289,6 +289,28 @@ def test_a_sidecar_binds_every_value_needed_to_identify_its_matrix(tmp_path: Pat
     assert sidecar["matrix_sha256"] == file_sha256(matrix_path)
     assert sidecar["code_sha"] == _CODE_SHA
     assert sidecar["runtime_sha256"] == _RUNTIME_SHA
+
+
+def test_shard_verification_rejects_a_fortran_order_matrix(tmp_path: Path) -> None:
+    ids = ("d000", "d001")
+    matrix_path = tmp_path / "fortran.npy"
+    np.save(matrix_path, np.asfortranarray(_unit_matrix(len(ids), 512)), allow_pickle=False)
+    sidecar = build_shard_sidecar(
+        candidate=RES138_MODEL_CANDIDATES[0],
+        workload=_minimal_workload("scifact", ids),
+        kind=ShardKind.DOCUMENTS,
+        dimension=512,
+        ids=ids,
+        matrix_path=matrix_path,
+        shard_index=0,
+        code_sha=_CODE_SHA,
+        runtime_sha256=_RUNTIME_SHA,
+        inference_seconds=0.1,
+        operation="test",
+    )
+
+    with pytest.raises(BenchmarkArtifactError, match="C-contiguous"):
+        verify_shard_matrix(matrix_path, sidecar)
 
 
 def test_a_documents_shard_records_the_document_prompt_not_the_query_prompt(tmp_path: Path) -> None:
@@ -427,7 +449,7 @@ def test_a_run_manifest_identity_ignores_its_run_id_and_binds_everything_else() 
         ("runtime_sha256", "f" * 64),
         ("plan_sha256", "0" * 64),
         ("generation_semantics_sha256", "1" * 64),
-        ("shard_revision", "res138-shard-v2"),
+        ("shard_revision", "res138-shard-v3"),
     ):
         assert _manifest(**{field: value}).identity_sha256 != manifest.identity_sha256
 
@@ -478,7 +500,7 @@ def test_resume_is_refused_field_by_field() -> None:
         ({"runtime_sha256": "f" * 64}, "runtime fingerprint"),
         ({"plan_sha256": "0" * 64}, "benchmark plan"),
         ({"generation_semantics_sha256": "1" * 64}, "generation semantics"),
-        ({"shard_revision": "res138-shard-v2"}, "shard revision"),
+        ({"shard_revision": "res138-shard-v3"}, "shard revision"),
         ({"model_revisions": (("a/b", "c" * 40),)}, "candidate model revisions"),
         ({"dataset_digests": (("scifact", "0" * 64),)}, "dataset digests"),
     ):

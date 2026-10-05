@@ -34,6 +34,7 @@ queries, and pooling is not the only thing that differs between them.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Final, cast
@@ -60,6 +61,7 @@ from dynamisrag.benchmark.retrieval import QueryRanking, exact_top_k
 __all__ = [
     "MrlPathDecision",
     "build_mrl_calibration_payload",
+    "decode_mrl_calibration_decisions",
     "derive_mrl_prefix",
     "evaluate_mrl_equivalence",
 ]
@@ -402,3 +404,186 @@ def build_mrl_calibration_payload(
         "decisions": [decision.payload() for decision in decisions],
         "derived512_allowed_everywhere": all(decision.derived512_allowed for decision in decisions),
     }
+
+
+def decode_mrl_calibration_decisions(  # noqa: PLR0912, PLR0915 - validate a decision and its evidence together
+    value: object, *, workload_names: Sequence[str], operation: str
+) -> tuple[MrlPathDecision, ...]:
+    """Decode and re-check the MRL decisions embedded in an approved preflight."""
+    if not isinstance(value, Mapping):
+        raise BenchmarkContractError(
+            "the approved preflight has no MRL calibration object.", operation=operation
+        )
+    payload = cast("Mapping[str, object]", value)
+    if payload.get("artifact_revision") != RES138_ARTIFACT_REVISIONS["mrl_calibration"]:
+        raise BenchmarkContractError(
+            "the approved preflight's MRL calibration revision is unknown.", operation=operation
+        )
+    if payload.get("derivation_revision") != RES138_MRL_DERIVATION_REVISION:
+        raise BenchmarkContractError(
+            "the approved preflight uses a different MRL derivation revision.", operation=operation
+        )
+    if payload.get("calibration_selection_revision") != RES138_CALIBRATION_SELECTION_REVISION:
+        raise BenchmarkContractError(
+            "the approved preflight uses a different calibration selection revision.",
+            operation=operation,
+        )
+    expected_workloads = tuple(sorted(workload_names))
+    raw_workloads = payload.get("workloads")
+    raw_decisions = payload.get("decisions")
+    workload_values = cast("list[object]", raw_workloads) if isinstance(raw_workloads, list) else []
+    if (
+        not isinstance(raw_workloads, list)
+        or tuple(workload_values) != expected_workloads
+        or not isinstance(raw_decisions, list)
+    ):
+        raise BenchmarkContractError(
+            "the approved preflight does not cover the current workload set.", operation=operation
+        )
+    decision_values = cast("list[object]", raw_decisions)
+
+    candidates = {candidate.model_id: candidate for candidate in RES138_MODEL_CANDIDATES}
+    decisions: list[MrlPathDecision] = []
+    for raw in decision_values:
+        if not isinstance(raw, Mapping):
+            raise BenchmarkContractError("an MRL decision is not an object.", operation=operation)
+        item = cast("Mapping[str, object]", raw)
+        model_id = _payload_str(item, "model_id", operation)
+        candidate = candidates.get(model_id)
+        if candidate is None or item.get("model_revision") != candidate.revision:
+            raise BenchmarkContractError(
+                f"the MRL calibration names an unknown or changed candidate {model_id!r}.",
+                operation=operation,
+                model_id=model_id,
+            )
+        try:
+            kind = ShardKind(_payload_str(item, "kind", operation))
+        except ValueError:
+            raise BenchmarkContractError(
+                "the MRL decision has an unknown path kind.", operation=operation
+            ) from None
+        gate_value = item.get("gate")
+        if not isinstance(gate_value, Mapping):
+            raise BenchmarkContractError(
+                "the MRL decision has no recorded gate.", operation=operation
+            )
+        gate = cast("Mapping[str, object]", gate_value)
+        minimum = _payload_number(item, "minimum_cosine", operation)
+        maximum = _payload_number(item, "maximum_absolute_difference", operation)
+        identical = _payload_bool(item, "identical_top_k", operation)
+        allowed = _payload_bool(item, "derived512_allowed", operation)
+        gate_minimum = _payload_number(gate, "minimum_cosine", operation)
+        gate_maximum = _payload_number(gate, "maximum_absolute_difference", operation)
+        gate_identical = _payload_bool(gate, "require_identical_top_k", operation)
+        frozen = RES138_MRL_CALIBRATION_GATE
+        if (gate_minimum, gate_maximum, gate_identical) != (
+            frozen.minimum_cosine,
+            frozen.maximum_absolute_difference,
+            frozen.require_identical_top_k,
+        ):
+            raise BenchmarkContractError(
+                "the MRL decision records a changed calibration gate.", operation=operation
+            )
+        decision = MrlPathDecision(
+            model_id=model_id,
+            model_revision=candidate.revision,
+            kind=kind,
+            workload=_payload_str(item, "workload", operation),
+            derivation_revision=_payload_str(item, "derivation_revision", operation),
+            derived_dimension=_payload_int(item, "derived_dimension", operation),
+            vector_count=_payload_int(item, "vector_count", operation),
+            minimum_cosine=minimum,
+            maximum_absolute_difference=maximum,
+            identical_top_k=identical,
+            top_k=_payload_int(item, "top_k", operation),
+            gate_minimum_cosine=gate_minimum,
+            gate_maximum_absolute_difference=gate_maximum,
+            gate_require_identical_top_k=gate_identical,
+            derived512_allowed=allowed,
+        )
+        if (
+            decision.derivation_revision != RES138_MRL_DERIVATION_REVISION
+            or decision.derived_dimension != min(RES138_CANDIDATE_DIMENSIONS)
+            or decision.top_k != RES138_CALIBRATION_TOP_K
+            or not -1.0 <= decision.minimum_cosine <= 1.0
+            or decision.maximum_absolute_difference < 0.0
+        ):
+            raise BenchmarkContractError(
+                "the MRL decision records a non-frozen dimension, cutoff or numeric range.",
+                operation=operation,
+                model_id=model_id,
+                workload=decision.workload,
+            )
+        expected_allowed = (
+            minimum >= gate_minimum
+            and maximum <= gate_maximum
+            and (identical or not gate_identical)
+        )
+        failed = item.get("failed_conditions")
+        if (
+            allowed != expected_allowed
+            or not isinstance(failed, list)
+            or failed != list(decision.failures())
+        ):
+            raise BenchmarkContractError(
+                "the MRL pass flag or failed conditions disagree with the measurements.",
+                operation=operation,
+                model_id=model_id,
+                workload=decision.workload,
+            )
+        decisions.append(decision)
+
+    expected_pairs = {
+        (candidate.model_id, workload, kind)
+        for candidate in RES138_MODEL_CANDIDATES
+        for workload in expected_workloads
+        for kind in ShardKind
+    }
+    pairs = {(item.model_id, item.workload, item.kind) for item in decisions}
+    allowed_everywhere = all(item.derived512_allowed for item in decisions)
+    if (
+        len(pairs) != len(decisions)
+        or pairs != expected_pairs
+        or payload.get("derived512_allowed_everywhere") is not allowed_everywhere
+    ):
+        raise BenchmarkContractError(
+            "the approved preflight has incomplete or contradictory MRL path decisions.",
+            operation=operation,
+        )
+    return tuple(sorted(decisions, key=lambda item: (item.model_id, item.workload, item.kind)))
+
+
+def _payload_str(payload: Mapping[str, object], key: str, operation: str) -> str:
+    value = payload.get(key)
+    if not isinstance(value, str):
+        raise BenchmarkContractError(
+            f"the MRL decision field {key} is not a string.", operation=operation
+        )
+    return value
+
+
+def _payload_bool(payload: Mapping[str, object], key: str, operation: str) -> bool:
+    value = payload.get(key)
+    if not isinstance(value, bool):
+        raise BenchmarkContractError(
+            f"the MRL decision field {key} is not a boolean.", operation=operation
+        )
+    return value
+
+
+def _payload_int(payload: Mapping[str, object], key: str, operation: str) -> int:
+    value = payload.get(key)
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise BenchmarkContractError(
+            f"the MRL decision field {key} is not an integer.", operation=operation
+        )
+    return value
+
+
+def _payload_number(payload: Mapping[str, object], key: str, operation: str) -> float:
+    value = payload.get(key)
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        raise BenchmarkContractError(
+            f"the MRL decision field {key} is not finite numeric evidence.", operation=operation
+        )
+    return float(value)

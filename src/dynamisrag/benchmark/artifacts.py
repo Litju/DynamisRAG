@@ -4,12 +4,12 @@ Everything this benchmark writes is canonical JSON plus a SHA-256, and every
 semantic artifact declares the revision that defines its own schema. Two rules
 make the artifacts checkable rather than merely present:
 
-**No semantic timestamps.** A run directory's creation time, a session id, a
-hostname, a GPU serial and a wall-clock duration are all recorded — in a
-non-semantic run manifest — and none of them is in a hashed payload. An artifact
-whose digest changes when nothing semantic changed cannot be compared with itself,
-and a resumed run that recomputed a plan digest would produce a different plan
-SHA than the one a human reviewed.
+**Performance measurements are evidence, not run identity.** A run directory's
+creation time, session id, hostname and GPU serial stay out of the run manifest.
+Shard sidecars carry measured encode durations and per-query latency samples so a
+resumed run can recover the throughput and p95 evidence without re-encoding valid
+shards. Their digest may change when a shard is recomputed; the run identity and the
+matrix's own digest stay stable.
 
 **Canonical ordering is checked, not documented.** A shard sidecar carries the
 complete ordered id list of its shard plus the digest of that list, so a verifier
@@ -28,6 +28,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
+import shutil
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
@@ -39,6 +41,7 @@ from numpy.typing import NDArray
 
 from dynamisrag.benchmark.contracts import (
     RES138_ARTIFACT_REVISIONS,
+    RES138_BASE_DIMENSION,
     RES138_CANDIDATE_DIMENSIONS,
     RES138_MODEL_CANDIDATES,
     RES138_RUN_ID_PREFIX,
@@ -67,6 +70,7 @@ __all__ = [
     "copy_verified",
     "file_sha256",
     "read_artifact",
+    "read_shard_sidecar",
     "require_run_resumable",
     "write_artifact",
 ]
@@ -90,11 +94,22 @@ different set of vectors, and nothing else in the sidecar would say so.
 RES138_RUN_MANIFEST_REVISION: Final[str] = "res138-run-manifest-v1"
 """Revision of the per-run manifest written into a Drive run directory.
 
-Separate from the nine semantic artifacts because it is the one document whose
+Separate from semantic artifacts because it is the one document whose
 whole job is to be *compared* — against another attempt to resume the same run —
 and because it may carry non-semantic fields (a start time, a session label)
 that a hashed payload must not.
 """
+
+
+def _is_finite_nonnegative_number(value: object) -> bool:
+    """Runtime guard for JSON timing values, including bool-as-int rejection."""
+    return (
+        not isinstance(value, bool)
+        and isinstance(value, (int, float))
+        and math.isfinite(value)
+        and value >= 0.0
+    )
+
 
 type Res138JsonValue = (
     str | int | float | bool | Sequence["Res138JsonValue"] | Mapping[str, "Res138JsonValue"] | None
@@ -276,7 +291,7 @@ def copy_verified(source: Path, destination: Path) -> str:
     expected = file_sha256(source)
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = destination.with_name(f"{destination.name}.partial")
-    temporary.write_bytes(source.read_bytes())
+    shutil.copyfile(source, temporary)
     temporary.replace(destination)
     observed = file_sha256(destination)
     if observed != expected:
@@ -351,6 +366,9 @@ class ShardSidecar:
     matrix_byte_size: int
     code_sha: str
     runtime_sha256: str
+    inference_seconds: float = 0.0
+    query_latency_ms: tuple[float, ...] = ()
+    derived_from_matrix_sha256: str | None = None
 
     def payload(self) -> dict[str, Res138JsonValue]:
         """The hashed payload, including the id list."""
@@ -375,6 +393,9 @@ class ShardSidecar:
             "matrix_byte_size": self.matrix_byte_size,
             "code_sha": self.code_sha,
             "runtime_sha256": self.runtime_sha256,
+            "inference_seconds": self.inference_seconds,
+            "query_latency_ms": list(self.query_latency_ms),
+            "derived_from_matrix_sha256": self.derived_from_matrix_sha256,
         }
 
     @property
@@ -457,6 +478,47 @@ class ShardSidecar:
                 operation="shard_sidecar",
                 workload=self.workload,
             )
+        self._require_timing_measurements()
+
+    def _require_timing_measurements(self) -> None:
+        if not _is_finite_nonnegative_number(self.inference_seconds):
+            raise BenchmarkArtifactError(
+                "shard inference_seconds must be a finite, non-negative number.",
+                operation="shard_sidecar",
+                workload=self.workload,
+            )
+        if self.kind is ShardKind.DOCUMENTS and self.query_latency_ms:
+            raise BenchmarkArtifactError(
+                "a documents shard cannot carry query latency samples.",
+                operation="shard_sidecar",
+                workload=self.workload,
+            )
+        if self.query_latency_ms and len(self.query_latency_ms) != self.row_count:
+            raise BenchmarkArtifactError(
+                f"query shard {self.shard_index} carries {len(self.query_latency_ms)} latency "
+                f"samples for {self.row_count} rows.",
+                operation="shard_sidecar",
+                workload=self.workload,
+            )
+        for sample in self.query_latency_ms:
+            if not _is_finite_nonnegative_number(sample):
+                raise BenchmarkArtifactError(
+                    "query latency samples must be finite, non-negative numbers.",
+                    operation="shard_sidecar",
+                    workload=self.workload,
+                )
+        if self.derived_from_matrix_sha256 is not None and (
+            self.dimension != RES138_BASE_DIMENSION // 2
+            or len(self.derived_from_matrix_sha256) != 64
+            or any(
+                character not in "0123456789abcdef" for character in self.derived_from_matrix_sha256
+            )
+        ):
+            raise BenchmarkArtifactError(
+                "a derived shard must name a 64-character lowercase SHA-256 from its 1024 source.",
+                operation="shard_sidecar",
+                workload=self.workload,
+            )
 
 
 def build_shard_sidecar(
@@ -470,6 +532,9 @@ def build_shard_sidecar(
     shard_index: int,
     code_sha: str,
     runtime_sha256: str,
+    inference_seconds: float = 0.0,
+    query_latency_ms: Sequence[float] = (),
+    derived_from_matrix_sha256: str | None = None,
     operation: str,
 ) -> ShardSidecar:
     """Describe one finished shard from its matrix and its id range.
@@ -518,6 +583,106 @@ def build_shard_sidecar(
         matrix_byte_size=matrix_path.stat().st_size,
         code_sha=require_code_sha(code_sha, operation=operation),
         runtime_sha256=runtime_sha256,
+        inference_seconds=inference_seconds,
+        query_latency_ms=tuple(query_latency_ms),
+        derived_from_matrix_sha256=derived_from_matrix_sha256,
+    )
+
+
+def read_shard_sidecar(path: Path) -> ShardSidecar:
+    """Read one v2 sidecar and validate its declared fields."""
+    decoded = _load_json_object(path, name="shard sidecar", operation="read_shard_sidecar")
+    raw_ids = decoded.get("ids")
+    raw_latencies = decoded.get("query_latency_ms")
+    if not isinstance(raw_ids, list):
+        raise BenchmarkArtifactError(
+            f"shard sidecar {path.name} carries no ordered id list.",
+            operation="read_shard_sidecar",
+        )
+    id_values = cast("list[object]", raw_ids)
+    if not all(isinstance(item, str) for item in id_values):
+        raise BenchmarkArtifactError(
+            f"shard sidecar {path.name} carries no ordered id list.",
+            operation="read_shard_sidecar",
+        )
+    if not isinstance(raw_latencies, list):
+        raise BenchmarkArtifactError(
+            f"shard sidecar {path.name} carries invalid query latency samples.",
+            operation="read_shard_sidecar",
+        )
+    latency_values = cast("list[object]", raw_latencies)
+    if any(isinstance(item, bool) or not isinstance(item, (int, float)) for item in latency_values):
+        raise BenchmarkArtifactError(
+            f"shard sidecar {path.name} carries invalid query latency samples.",
+            operation="read_shard_sidecar",
+        )
+    kind_value = require_exact_str(decoded.get("kind"), kind="shard kind", operation="read")
+    try:
+        kind = ShardKind(kind_value)
+    except ValueError:
+        raise BenchmarkArtifactError(
+            f"shard sidecar declares unknown kind {kind_value!r}.",
+            operation="read_shard_sidecar",
+        ) from None
+    integer_fields = ("dimension", "shard_index", "shard_size", "row_count", "matrix_byte_size")
+    values: dict[str, int] = {}
+    for field in integer_fields:
+        value = decoded.get(field)
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise BenchmarkArtifactError(
+                f"shard sidecar {field} is {value!r}, which is not an integer.",
+                operation="read_shard_sidecar",
+            )
+        values[field] = value
+    seconds = decoded.get("inference_seconds")
+    if isinstance(seconds, bool) or not isinstance(seconds, (int, float)):
+        raise BenchmarkArtifactError(
+            "shard sidecar inference_seconds is not numeric.", operation="read_shard_sidecar"
+        )
+    derived_from = decoded.get("derived_from_matrix_sha256")
+    if derived_from is not None and not isinstance(derived_from, str):
+        raise BenchmarkArtifactError(
+            "shard sidecar derived_from_matrix_sha256 is not a string or null.",
+            operation="read_shard_sidecar",
+        )
+    return ShardSidecar(
+        artifact_revision=require_exact_str(
+            decoded.get("artifact_revision"), kind="artifact revision", operation="read"
+        ),
+        model_id=require_exact_str(decoded.get("model_id"), kind="model id", operation="read"),
+        model_revision=require_exact_str(
+            decoded.get("model_revision"), kind="model revision", operation="read"
+        ),
+        prompt_sha256=require_exact_str(
+            decoded.get("prompt_sha256"), kind="prompt digest", operation="read"
+        ),
+        workload=require_exact_str(decoded.get("workload"), kind="workload", operation="read"),
+        kind=kind,
+        dimension=values["dimension"],
+        dtype=require_exact_str(decoded.get("dtype"), kind="dtype", operation="read"),
+        normalization=require_exact_str(
+            decoded.get("normalization"), kind="normalization", operation="read"
+        ),
+        shard_index=values["shard_index"],
+        shard_size=values["shard_size"],
+        first_id=require_exact_str(decoded.get("first_id"), kind="first id", operation="read"),
+        last_id=require_exact_str(decoded.get("last_id"), kind="last id", operation="read"),
+        row_count=values["row_count"],
+        ordered_ids_sha256=require_exact_str(
+            decoded.get("ordered_ids_sha256"), kind="ordered id digest", operation="read"
+        ),
+        ids=tuple(cast("list[str]", id_values)),
+        matrix_sha256=require_exact_str(
+            decoded.get("matrix_sha256"), kind="matrix digest", operation="read"
+        ),
+        matrix_byte_size=values["matrix_byte_size"],
+        code_sha=require_exact_str(decoded.get("code_sha"), kind="code sha", operation="read"),
+        runtime_sha256=require_exact_str(
+            decoded.get("runtime_sha256"), kind="runtime digest", operation="read"
+        ),
+        inference_seconds=float(seconds),
+        query_latency_ms=tuple(float(item) for item in cast("list[int | float]", latency_values)),
+        derived_from_matrix_sha256=derived_from,
     )
 
 
@@ -547,6 +712,12 @@ def verify_shard_matrix(matrix_path: Path, sidecar: ShardSidecar) -> NDArray[np.
             workload=sidecar.workload,
         )
     matrix = np.load(matrix_path, allow_pickle=False)
+    if not matrix.flags.c_contiguous:
+        raise BenchmarkArtifactError(
+            f"shard matrix {matrix_path.name} is not C-contiguous.",
+            operation="verify_shard_matrix",
+            workload=sidecar.workload,
+        )
     if matrix.dtype != np.float32:
         raise BenchmarkArtifactError(
             f"shard matrix has dtype {matrix.dtype}, not float32.",
@@ -898,6 +1069,19 @@ def open_drive_run(runs_root: Path, manifest: Res138RunManifest, *, operation: s
     return directory
 
 
-def shard_paths(directory: Path, *, workload: str, kind: ShardKind, dimension: int) -> Path:
-    """The directory holding one (workload, kind, dimension) shard set."""
-    return directory / workload / kind.value / str(dimension)
+def shard_paths(
+    directory: Path,
+    *,
+    workload: str,
+    kind: ShardKind,
+    dimension: int,
+    candidate: ModelCandidateSpec | None = None,
+) -> Path:
+    """The directory holding one candidate/workload/kind/dimension shard set."""
+    candidate_key = candidate.model_id.replace("/", "__") if candidate is not None else None
+    parts = (
+        (candidate_key, workload, kind.value, str(dimension))
+        if candidate_key
+        else (workload, kind.value, str(dimension))
+    )
+    return directory.joinpath(*parts)

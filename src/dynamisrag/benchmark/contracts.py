@@ -802,7 +802,7 @@ shards resumes with two shards of work instead of restarting three hours of it.
 Small enough that the largest shard is a few seconds of GPU work, large enough
 that 42 shards do not become 42 round-trips of per-shard overhead.
 
-Changing it requires changing ``res138-shard-v1``, because the shard ordinal, the
+Changing it requires changing ``res138-shard-v2``, because the shard ordinal, the
 row range and the ordered-id digest are all derived from it.
 """
 
@@ -915,11 +915,17 @@ RES138_ARTIFACT_REVISIONS: Final[Mapping[str, str]] = {
     "runtime": "res138-runtime-v1",
     "source_manifest": "res138-source-manifest-v1",
     "model_manifest": "res138-model-manifest-v1",
-    "shard": "res138-shard-v1",
+    "shard": "res138-shard-v2",
     "calibration_selection": "res138-calibration-selection-v1",
     "mrl_calibration": "res138-mrl-calibration-v1",
     "preflight": "res138-preflight-v1",
     "results": "res138-results-v1",
+    "query_results": "res138-query-results-v1",
+    "workload_metrics": "res138-workload-metrics-v1",
+    "macro_metrics": "res138-macro-metrics-v1",
+    "bootstrap": "res138-bootstrap-v1",
+    "performance": "res138-performance-v1",
+    "full_run": "res138-full-run-v1",
     "selection": "res138-selection-v1",
 }
 """Every artifact this benchmark writes, and the revision each one declares.

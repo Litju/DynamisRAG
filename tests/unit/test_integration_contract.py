@@ -39,6 +39,7 @@ def _run_pytest(*args: str) -> subprocess.CompletedProcess[str]:
             sys.executable,
             "-m",
             "pytest",
+            f"--basetemp={REPO_ROOT / '.tmp' / 'pytest-integration-contract'}",
             # The guard excludes itself: without this the subprocess would run
             # the contract test too, which would spawn another subprocess, and
             # so on until the timeout.

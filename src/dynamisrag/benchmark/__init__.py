@@ -4,10 +4,10 @@
         -> RetrievalWorkload      (canonical order, every content digest bound)
         -> native model vectors   (float32, L2-normalised, pinned revisions)
         -> MRL derivation         (1024 -> 512, only where calibration proves it)
-        -> sharded .npy artifacts (res138-shard-v1, resumable)
+        -> sharded .npy artifacts (res138-shard-v2, resumable)
         -> exact cosine top-100   (chunked, deterministic tie order)
-        -> nDCG@10 / Recall@10 / Recall@100 + paired bootstrap
-        -> res138-results-v1 -> res138-selection-v1
+        -> per-query/workload/macro metrics, paired bootstrap and performance evidence
+        -> res138-full-run-v1 (selection remains a later evidence step)
 
 **What this package is.** The harness that makes a future default defensible: the
 frozen workloads, the frozen candidates, the frozen prompts, the frozen
