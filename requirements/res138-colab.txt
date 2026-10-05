@@ -33,7 +33,7 @@
 # The repository's local/CI benchmark group still owns its numeric dependency
 # (numpy>=2.3,<2.4). It is deliberately not installed into the live Colab kernel.
 # The actual Colab NumPy version is observed and recorded in the res138-runtime-v1
-# fingerprint rather than prescribed here.
+# fingerprint; it is not prescribed here.
 #
 # No pyarrow, no datasets and no parquet engine are installed here. The frozen BEIR
 # ZIP distributions are parsed directly by the benchmark harness.
