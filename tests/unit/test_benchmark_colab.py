@@ -106,6 +106,37 @@ def _dynamisrag_imports(tree: ast.AST) -> list[int]:
     return sorted(lines)
 
 
+def _pip_install_cells() -> list[tuple[int, str]]:
+    """Code cells running ``subprocess.run([..., "pip", ...])``, by cell position.
+
+    Read through ``ast`` so a pip invocation quoted in prose or a different
+    ``subprocess.run`` (there are none) cannot satisfy the dependency-before-import
+    proof.
+    """
+
+    def runs_pip(source: str) -> bool:
+        for node in ast.walk(ast.parse(source)):
+            if not isinstance(node, ast.Call):
+                continue
+            if not (
+                isinstance(node.func, ast.Attribute)
+                and node.func.attr == "run"
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "subprocess"
+            ):
+                continue
+            if not node.args or not isinstance(node.args[0], ast.List):
+                continue
+            if any(
+                isinstance(element, ast.Constant) and element.value == "pip"
+                for element in node.args[0].elts
+            ):
+                return True
+        return False
+
+    return [(position, source) for position, source in _indexed_code_cells() if runs_pip(source)]
+
+
 def _all_source() -> str:
     return "\n".join(_cells("code") + _cells("markdown"))
 
@@ -216,6 +247,150 @@ def test_the_notebook_imports_the_runner_only_after_the_repository_is_on_the_pat
     clone = source.index('sys.path.insert(0, str(REPO_DIR / "src"))')
     runner = source.index("from dynamisrag.benchmark.runner import")
     assert runner > clone
+
+
+# ---------------------------------------------------------------------------
+# Dependency establishment before code import
+#
+# The defect this guards against is not stylistic. A fresh Colab runtime has no
+# DynamisRAG installed, so an import placed before the checkout fails; and if it did not
+# fail it would be importing whatever happened to be installed rather than the commit the
+# run is bound to. The first live preflight proved the second half of the rule: the
+# notebook imported benchmark modules before installing its requirements, pip replaced
+# NumPy on disk under the already-loaded modules, and a later import died with a `_center`
+# symbol mismatch. Ordering is asserted by cell position and, inside the import cell, by
+# line number.
+# ---------------------------------------------------------------------------
+
+
+def test_the_checkout_cell_establishes_identity_and_imports_nothing() -> None:
+    """The commit is verified in the checkout cell and imported only after dependencies."""
+
+    checkout = _cell_containing('git("checkout", "--detach", CODE_SHA')
+    tree = ast.parse(checkout)
+
+    assert _dynamisrag_imports(tree) == []
+    assert 'git("rev-parse", "HEAD"' in checkout
+    assert 'git("status", "--porcelain"' in checkout
+    assert "sys.path.insert" not in checkout
+
+
+def test_every_dynamisrag_import_follows_both_dependency_installations() -> None:
+    """Dependency establishment precedes every benchmark import.
+
+    Exactly two pip installs are required and they are located through ``ast``: one
+    installs the checked-out repository path (the runtime dependencies), one installs
+    ``requirements/res138-colab.txt`` (the model stack). Every ``dynamisrag`` import must
+    be in a later cell than both, the ``sys.path`` insertion must follow both, and the
+    first import must follow the insertion that makes it importable at all.
+    """
+
+    indexed = _indexed_code_cells()
+    installs = _pip_install_cells()
+    assert len(installs) == 2, f"expected exactly two pip installs, found {installs}"
+
+    runtime_installs = [position for position, source in installs if "str(REPO_DIR)" in source]
+    model_installs = [position for position, source in installs if "res138-colab.txt" in source]
+    assert len(runtime_installs) == 1, "one install must use the checked-out repository path"
+    assert len(model_installs) == 1, "one install must use requirements/res138-colab.txt"
+    assert runtime_installs[0] < model_installs[0], "the runtime dependencies install first"
+    last_install = max(position for position, _ in installs)
+
+    checkout_cells = [
+        position for position, source in indexed if 'git("checkout", "--detach", CODE_SHA' in source
+    ]
+    assert len(checkout_cells) == 1
+    assert checkout_cells[0] < last_install, "the commit is fixed before anything is installed"
+
+    path_cells = [
+        position
+        for position, source in indexed
+        if 'sys.path.insert(0, str(REPO_DIR / "src"))' in source
+    ]
+    assert len(path_cells) == 1, "the checkout is put on sys.path exactly once"
+    path_cell = path_cells[0]
+    assert path_cell > last_install, "sys.path insertion must follow the dependency installs"
+
+    for position, source in indexed:
+        import_lines = _dynamisrag_imports(ast.parse(source))
+        if not import_lines:
+            continue
+        assert position > last_install, (
+            f"code cell {position} imports dynamisrag before both dependency installs "
+            f"(last install in code cell {last_install})"
+        )
+        assert position >= path_cell, (
+            f"code cell {position} imports dynamisrag before the sys.path insertion in "
+            f"code cell {path_cell}"
+        )
+
+    # Inside the import cell itself, the insertion must precede the first import.
+    path_tree = ast.parse(indexed[path_cell][1])
+    insert_lines = [
+        node.lineno
+        for node in ast.walk(path_tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "insert"
+    ]
+    assert insert_lines, "the sys.path insertion must be a real call"
+    import_lines = _dynamisrag_imports(path_tree)
+    assert import_lines and min(import_lines) > max(insert_lines)
+
+
+def test_the_capture_cell_reads_the_installed_versions_without_importing_numpy() -> None:
+    """The pre-install capture uses importlib.metadata, never ``import numpy``.
+
+    Importing NumPy before the installs would put the module in the process the bootstrap
+    exists to protect, so the version is read from installed distribution metadata instead.
+    """
+
+    source = _all_source()
+    assert "import numpy" not in source
+
+    capture = _cell_containing('NUMPY_BEFORE = installed_version("numpy")')
+    assert "from importlib.metadata import PackageNotFoundError, version" in capture
+    assert "TORCH_BEFORE = {" in capture
+    assert '"cuda_runtime": str(torch.version.cuda or "none")' in capture
+    assert '"torch_cuda_build": str(torch.version.cuda or "none")' in capture
+
+
+def test_the_verify_cell_compares_torch_cuda_and_numpy_and_refuses_any_drift() -> None:
+    """torch, CUDA and NumPy are compared before/after and any drift stops the run."""
+
+    cell = _cell_containing("runtime_drift = {")
+
+    for field in ("torch", "cuda_runtime", "torch_cuda_build", "numpy"):
+        assert f'("{field}",' in cell, f"{field} is not compared before/after"
+    assert "TORCH_AFTER = {" in cell
+    assert 'NUMPY_AFTER = LIBRARIES_AFTER["numpy"]' in cell
+    assert "if before_value != after_value" in cell
+    assert "if runtime_drift:" in cell
+    assert "raise RuntimeError(" in cell
+    assert "the dependency installs changed runtime-owned components" in cell
+
+
+def test_the_install_cells_cannot_pull_numpy_torch_or_the_benchmark_group() -> None:
+    """pip reads ``[project.dependencies]``; no group and no model library may be named.
+
+    The checked-out runtime install passes the repository path, and the model install passes
+    ``requirements/res138-colab.txt``. Neither command names NumPy, torch or a dependency
+    group, so the local ``numpy>=2.3,<2.4`` benchmark constraint cannot re-enter the Colab
+    kernel through either of them.
+    """
+
+    installs = _pip_install_cells()
+    assert len(installs) == 2
+
+    for position, source in installs:
+        assert "--group" not in source
+        assert "dependency-group" not in source
+        assert "benchmark" not in source
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                lowered = node.value.lower()
+                for forbidden in ("numpy", "torch", "triton", "nvidia"):
+                    assert forbidden not in lowered, (position, node.value, forbidden)
 
 
 def test_the_gpu_bootstrap_cell_uses_raw_torch_and_nothing_from_the_repository() -> None:
