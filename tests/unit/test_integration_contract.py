@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+from pathlib import Path
 from typing import Final
 
 from tests._support import REPO_ROOT
@@ -34,12 +35,15 @@ _SUBPROCESS_TIMEOUT_SECONDS: Final[int] = 120
 def _run_pytest(*args: str) -> subprocess.CompletedProcess[str]:
     environment = os.environ.copy()
     environment.update(_BROKEN_INTEGRATION_ENVIRONMENT)
+    temporary_root = REPO_ROOT / ".tmp"
+    temporary_root.mkdir(parents=True, exist_ok=True)
+    base_temp = temporary_root / "pytest-integration-contract"
     return subprocess.run(  # noqa: S603 - the command is fully static: no untrusted input reaches it
         [
             sys.executable,
             "-m",
             "pytest",
-            f"--basetemp={REPO_ROOT / '.tmp' / 'pytest-integration-contract'}",
+            f"--basetemp={base_temp}",
             # The guard excludes itself: without this the subprocess would run
             # the contract test too, which would spawn another subprocess, and
             # so on until the timeout.
