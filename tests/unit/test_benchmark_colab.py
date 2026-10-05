@@ -236,7 +236,8 @@ def test_the_notebook_does_not_reimplement_the_benchmark() -> None:
         "from dynamisrag.benchmark.calibration import",
         "from dynamisrag.benchmark.contracts import",
         "write_preflight_bundle",
-        "require_approved_preflight",
+        "require_full_run_approval",
+        "execute_full_run",
         "verify_and_cache_beir_sources",
         "verify_pinned_model_metadata",
         "calibrate_frozen_candidates",
@@ -522,7 +523,9 @@ def test_the_preflight_is_the_default_and_the_stop_is_reachable() -> None:
 def test_the_full_run_cell_is_unreachable_without_both_conditions() -> None:
     full_run = _code_cells()[-1]
     assert 'if RUN_MODE != "full":' in full_run
-    assert "require_approved_preflight" in full_run
+    assert "execute_full_run(" in full_run
+    approval = _cell_containing("require_full_run_approval(")
+    assert _code_cells().index(approval) < _code_cells().index(full_run)
     assert "raise SystemExit" in full_run
     assert ".encode(" not in full_run
     assert "encode(" not in full_run
@@ -530,6 +533,52 @@ def test_the_full_run_cell_is_unreachable_without_both_conditions() -> None:
     earlier = "\n".join(_code_cells()[:-1])
     assert "exact_top_k(" not in earlier
     assert "evaluate_workload(" not in earlier
+
+
+def test_preflight_and_full_modes_are_split_before_the_corpus_execution_call() -> None:
+    cells = _code_cells()
+    preflight_or_approval = _cell_containing("require_full_run_approval(")
+    full_run = cells[-1]
+    assert 'if RUN_MODE == "preflight":' in preflight_or_approval
+    assert "calibrate_frozen_candidates(" in preflight_or_approval
+    assert "require_full_run_approval(" in preflight_or_approval
+    assert "execute_full_run(" not in "\n".join(cells[:-1])
+    # Even when a user runs the last cell directly and skips the preceding hard stop,
+    # preflight mode exits before importing a model encoder or calling corpus execution.
+    tree = ast.parse(full_run)
+    first = tree.body[0]
+    assert isinstance(first, ast.If)
+    assert isinstance(first.test, ast.Compare)
+    assert isinstance(first.test.left, ast.Name) and first.test.left.id == "RUN_MODE"
+    assert isinstance(first.test.ops[0], ast.NotEq)
+    assert isinstance(first.test.comparators[0], ast.Constant)
+    assert first.test.comparators[0].value == "full"
+    assert any(isinstance(node, ast.Raise) for node in ast.walk(first))
+    assert "execute_full_run(" in full_run
+
+
+def test_approved_current_preflight_is_checked_before_the_only_full_corpus_call() -> None:
+    code = _code_cells()
+    approval_position = next(
+        position for position, source in enumerate(code) if "require_full_run_approval(" in source
+    )
+    full_run_position = next(
+        position for position, source in enumerate(code) if "execute_full_run(" in source
+    )
+    assert approval_position < full_run_position
+    approval_cell = code[approval_position]
+    for binding in (
+        "fingerprint=fingerprint",
+        "workloads=WORKLOADS",
+        "source_digests=SOURCE_DIGESTS",
+        "plan_sha256=PLAN_SHA",
+    ):
+        assert binding in approval_cell
+    assert "SentenceTransformersCalibrationEncoder(" not in approval_cell
+    # The only model encoder factory is passed to the guarded package entrypoint.
+    assert code[full_run_position].index('if RUN_MODE != "full":') < code[full_run_position].index(
+        "SentenceTransformersCalibrationEncoder("
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -545,12 +594,14 @@ def test_the_full_run_cell_is_unreachable_without_both_conditions() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_the_notebook_constructs_no_encoder_of_its_own() -> None:
-    """It must call the single-load orchestration, not build models in a cell."""
+def test_the_notebook_delegates_model_construction_to_the_benchmark_runner() -> None:
+    """The notebook injects the tested runner into full-run orchestration."""
 
     source = _all_source()
-    assert "SentenceTransformersCalibrationEncoder(" not in source
+    assert "SentenceTransformer(" not in source
+    assert "SentenceTransformersCalibrationEncoder(" in source
     assert "calibrate_frozen_candidates(" in source
+    assert "execute_full_run(" in source
 
 
 def _called(node: ast.Call) -> str | None:
