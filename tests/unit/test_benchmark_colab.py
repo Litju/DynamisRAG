@@ -17,10 +17,12 @@ reading the committed JSON rather than by trusting review:
   so an import placed earlier fails at runtime; and a dependency install that runs after an
   import can replace package files under already-loaded modules, which is exactly how the
   pinned NumPy replacement broke the live kernel with a ``_center`` symbol mismatch.
-* **code transport is GitHub and an exact detached SHA** — a clone, a fetch of
-  ``CODE_SHA``, ``checkout --detach``, a ``rev-parse HEAD`` comparison and a
-  ``status --porcelain`` cleanliness check. No bundle, no tarball, and nothing that
-  commits or pushes;
+* **code transport is GitHub and an exact detached SHA** — a clone on a fresh
+  runtime, a fetch of ``CODE_SHA``, ``checkout --detach``, a ``rev-parse HEAD``
+  comparison and a ``status --porcelain`` cleanliness check. A same-runtime rerun
+  reuses an existing checkout only after proving it is a Git worktree whose
+  configured origin is the frozen URL and that it is clean: nothing is deleted,
+  reset or cleaned. No bundle, no tarball, and nothing that commits or pushes;
 * **no NumPy and no torch or CUDA wheel in the requirements**, and the pinned model
   versions are the ones the pinned model repositories declare;
 * **the notebook does not implement the benchmark.** It parses no corpus, computes no
@@ -38,6 +40,7 @@ from __future__ import annotations
 import ast
 import importlib.metadata
 import json
+import subprocess
 import types
 from pathlib import Path
 from typing import Final, cast
@@ -208,6 +211,261 @@ def test_code_transport_is_github_and_an_exact_detached_checkout() -> None:
         "zipfile",
     ):
         assert forbidden not in source
+
+
+# ---------------------------------------------------------------------------
+# Idempotent checkout: the approved rerun re-enters the same runtime
+#
+# The approval is bound to a runtime fingerprint, so changing `RUN_MODE` and
+# re-running must reuse the checkout in the approved runtime rather than fail on
+# an existing directory or silently reclone it. The committed cell is executed
+# here against an in-memory git: every refusal path is exercised for real, with
+# no network, no object database and no repository on disk.
+# ---------------------------------------------------------------------------
+
+_FROZEN_REPO_URL: Final[str] = "https://github.com/Litju/DynamisRAG.git"
+
+
+class _FakeGit:
+    """An in-memory ``git`` answering exactly the commands the checkout cell runs.
+
+    The cell is orchestration over git, and the behaviours that matter — reusing an
+    existing clone, refusing a foreign origin, refusing a dirty worktree, refusing a
+    HEAD that is not ``CODE_SHA`` — are decisions about git's answers. Modelling
+    those answers here keeps the proof CPU-only and network-free.
+    """
+
+    def __init__(
+        self,
+        *,
+        origin: str = _FROZEN_REPO_URL,
+        head: str = "",
+        dirty: str = "",
+        checkout_head: str | None = None,
+    ) -> None:
+        self.origin = origin
+        self.head = head
+        self.dirty = dirty
+        self.checkout_head = checkout_head
+        self.clones = 0
+        self.fetched: set[str] = set()
+        self.commands: list[tuple[str, ...]] = []
+
+    def run(  # noqa: PLR0911 - one return per simulated git subcommand
+        self,
+        command: list[str],
+        *,
+        cwd: str | None = None,
+        capture_output: bool = True,
+        text: bool = True,
+        check: bool = False,
+    ) -> subprocess.CompletedProcess[str]:
+        _ = capture_output, text, check
+        arguments = [str(part) for part in command]
+        self.commands.append(tuple(arguments))
+        if arguments[1:3] == ["clone", "--no-checkout"]:
+            (Path(arguments[4]) / ".git").mkdir(parents=True)
+            self.clones += 1
+            return subprocess.CompletedProcess(arguments, 0, "", "")
+        if arguments[1:] == ["rev-parse", "--is-inside-work-tree"]:
+            if cwd is None or not (Path(cwd) / ".git").is_dir():
+                return subprocess.CompletedProcess(
+                    arguments, 128, "", "fatal: not a git repository"
+                )
+            return subprocess.CompletedProcess(arguments, 0, "true\n", "")
+        if arguments[1:] == ["remote", "get-url", "origin"]:
+            return subprocess.CompletedProcess(arguments, 0, f"{self.origin}\n", "")
+        if arguments[1:] == ["status", "--porcelain"]:
+            return subprocess.CompletedProcess(arguments, 0, self.dirty, "")
+        if arguments[1:2] == ["fetch"]:
+            self.fetched.add(arguments[-1])
+            return subprocess.CompletedProcess(arguments, 0, "", "")
+        if arguments[1:3] == ["checkout", "--detach"]:
+            self.head = self.checkout_head if self.checkout_head is not None else arguments[3]
+            return subprocess.CompletedProcess(arguments, 0, "", "")
+        if arguments[1:] == ["rev-parse", "HEAD"]:
+            return subprocess.CompletedProcess(arguments, 0, f"{self.head}\n", "")
+        raise AssertionError(f"unexpected git command: {arguments}")
+
+
+def _run_checkout_cell(
+    monkeypatch: pytest.MonkeyPatch,
+    fake: _FakeGit,
+    *,
+    repo: Path,
+    code_sha: str = _CODE_SHA,
+) -> None:
+    """Execute the committed checkout cell with ``fake`` standing in for git."""
+    monkeypatch.setattr(subprocess, "run", fake.run)
+    namespace: dict[str, object] = {
+        "REPO_DIR": repo,
+        "REPO_URL": _FROZEN_REPO_URL,
+        "CODE_SHA": code_sha,
+    }
+    exec(  # noqa: S102 - executing the committed cell is the point
+        compile(_cell_containing("require_reusable_checkout"), "<checkout>", "exec"),
+        namespace,
+    )
+
+
+def test_the_checkout_reuses_an_existing_repository_and_never_destroys_one() -> None:
+    """The clone is the else branch; the reuse branch proves rather than replaces."""
+
+    checkout = _cell_containing("require_reusable_checkout")
+
+    assert "if REPO_DIR.exists():" in checkout
+    assert "require_reusable_checkout(REPO_DIR)" in checkout
+    assert 'git("rev-parse", "--is-inside-work-tree", cwd=repo)' in checkout
+    assert 'git("remote", "get-url", "origin", cwd=repo)' in checkout
+    assert "origin != REPO_URL" in checkout
+    # Cleanliness is checked before the revision is changed...
+    assert checkout.index("Refusing to change revisions over local modifications") < checkout.index(
+        'git("fetch"'
+    )
+    # ...and after it, and never by cleaning or resetting.
+    assert checkout.index('git("checkout", "--detach"') < checkout.index(
+        "the checkout is not clean"
+    )
+    for forbidden in ("rmtree", "shutil", 'git("clean"', 'git("reset"', "unlink(", "os.remove"):
+        assert forbidden not in checkout, forbidden
+
+    tree = ast.parse(checkout)
+    guards = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.If)
+        and isinstance(node.test, ast.Call)
+        and isinstance(node.test.func, ast.Attribute)
+        and node.test.func.attr == "exists"
+    ]
+    assert len(guards) == 1, "the existence guard must be a top-level statement"
+
+    def clone_calls(statements: list[ast.stmt]) -> list[ast.Call]:
+        return [
+            node
+            for statement in statements
+            for node in ast.walk(statement)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "git"
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+            and node.args[0].value == "clone"
+        ]
+
+    assert clone_calls(guards[0].body) == [], "an existing path must never be re-cloned"
+    assert len(clone_calls(guards[0].orelse)) == 1, "the clone belongs in the else branch"
+
+
+def test_the_checkout_clones_once_when_the_repository_is_absent(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    fake = _FakeGit()
+    repo = tmp_path / "res138" / "repo"
+
+    _run_checkout_cell(monkeypatch, fake, repo=repo)
+
+    assert fake.clones == 1
+    assert repo.is_dir()
+    assert fake.head == _CODE_SHA
+    assert _CODE_SHA in fake.fetched
+
+
+def test_a_reused_checkout_is_fetched_and_detached_at_the_exact_code_sha(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    fake = _FakeGit()
+    repo = tmp_path / "repo"
+
+    _run_checkout_cell(monkeypatch, fake, repo=repo)
+    _run_checkout_cell(monkeypatch, fake, repo=repo)
+
+    assert fake.clones == 1, "the second execution must reuse the checkout"
+    assert fake.head == _CODE_SHA
+    assert ("git", "fetch", "--depth", "1", "origin", _CODE_SHA) in fake.commands
+    assert ("git", "checkout", "--detach", _CODE_SHA) in fake.commands
+
+
+def test_a_foreign_origin_is_refused(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    (repo / ".git").mkdir(parents=True)
+    fake = _FakeGit(origin="https://github.com/other/repository.git")
+
+    with pytest.raises(RuntimeError, match="Refusing a foreign repository"):
+        _run_checkout_cell(monkeypatch, fake, repo=repo)
+
+    assert not any(command[1] in {"fetch", "checkout"} for command in fake.commands)
+
+
+def test_a_non_git_directory_is_refused(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    fake = _FakeGit()
+
+    with pytest.raises(RuntimeError, match="not a git repository"):
+        _run_checkout_cell(monkeypatch, fake, repo=repo)
+
+
+def test_a_dirty_worktree_is_refused_before_any_revision_changes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    repo = tmp_path / "repo"
+    (repo / ".git").mkdir(parents=True)
+    fake = _FakeGit(dirty=" M notebooks/res138_colab.ipynb\n")
+
+    with pytest.raises(RuntimeError, match="not clean"):
+        _run_checkout_cell(monkeypatch, fake, repo=repo)
+
+    assert not any(command[1] in {"fetch", "checkout"} for command in fake.commands), (
+        "nothing may be fetched, checked out, reset or cleaned over local modifications"
+    )
+
+
+def test_a_wrong_head_cannot_survive_the_checkout(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    fake = _FakeGit(checkout_head="b" * 40)
+
+    with pytest.raises(RuntimeError, match="checked out"):
+        _run_checkout_cell(monkeypatch, fake, repo=tmp_path / "repo")
+
+
+def test_a_second_same_runtime_execution_reaches_the_approval_boundary(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """After a preflight, the same runtime can be rerun in full mode.
+
+    The checkout must not branch on ``RUN_MODE`` or raise on an existing valid
+    clone; the next mode-dependent gate is the approval cell, whose only corpus
+    entrypoint is in the ``else`` branch.
+    """
+
+    fake = _FakeGit()
+    repo = tmp_path / "repo"
+    _run_checkout_cell(monkeypatch, fake, repo=repo)
+    _run_checkout_cell(monkeypatch, fake, repo=repo)
+
+    assert fake.clones == 1
+    checkout = _cell_containing("require_reusable_checkout")
+    assert "RUN_MODE" not in checkout
+    assert "SystemExit" not in checkout
+
+    approval = _cell_containing("require_full_run_approval(")
+    assert 'if RUN_MODE == "preflight":' in approval
+    assert "else:" in approval
+    assert approval.index("require_full_run_approval(") > approval.index("else:")
+
+
+def test_preflight_cannot_reach_the_corpus_execution_cell() -> None:
+    """Running the last cell directly in preflight mode exits before any corpus call."""
+
+    full_run = _code_cells()[-1]
+    namespace: dict[str, object] = {"RUN_MODE": "preflight"}
+
+    with pytest.raises(SystemExit, match="RUN_MODE is not full"):
+        exec(compile(full_run, "<full-run>", "exec"), namespace)  # noqa: S102 - the guard is the test
+
+    assert "execute_full_run" not in namespace
 
 
 def test_the_notebook_does_not_reimplement_the_benchmark() -> None:
