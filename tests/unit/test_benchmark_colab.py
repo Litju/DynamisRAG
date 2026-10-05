@@ -576,7 +576,8 @@ def test_the_notebook_checks_the_environment_before_it_spends_anything() -> None
     ordered = (
         # Raw torch first, then Drive, then the code identity the rest of the notebook
         # depends on, then the capture, the two installs that must not move the
-        # runtime-owned components, their verification, and only then the first import.
+        # runtime-owned components, their verification, the model-stack compatibility
+        # gate, and only then the first repository import.
         "torch.cuda.is_available()",
         "drive.mount",
         'git("clone"',
@@ -585,6 +586,8 @@ def test_the_notebook_checks_the_environment_before_it_spends_anything() -> None
         "str(REPO_DIR)]",
         "res138-colab.txt",
         "runtime_drift = {",
+        "EXPECTED_MODEL_STACK = {",
+        "from transformers import PreTrainedModel, Qwen3Model",
         'sys.path.insert(0, str(REPO_DIR / "src"))',
         "import dynamisrag",
         "from dynamisrag.benchmark.contracts import",
@@ -609,6 +612,7 @@ def test_the_notebook_reports_a_gpu_the_drive_a_code_and_a_prompt_failure_clearl
         "installing the checked-out DynamisRAG runtime dependencies failed",
         "installing requirements/res138-colab.txt failed",
         "the dependency installs changed runtime-owned components",
+        "RES-138 model-stack compatibility failed before any Hugging Face model metadata",
         "nvidia-smi could not report the driver version",
     ):
         assert message in source
@@ -633,9 +637,9 @@ def test_the_requirements_file_contains_no_numpy() -> None:
     lines = _requirement_lines()
     assert lines == [
         "sentence-transformers==5.0.0",
-        "transformers==4.51.3",
+        "transformers==4.54.0",
         "tokenizers==0.21.1",
-        "huggingface-hub==0.30.2",
+        "huggingface-hub==0.34.0",
     ]
     assert all("==" in line for line in lines), "every pin is exact"
     assert not any("numpy" in line.lower() for line in lines)
@@ -658,17 +662,64 @@ def test_the_requirements_file_explains_what_it_deliberately_omits() -> None:
     assert "No pyarrow" in text
 
 
-def test_the_pinned_versions_are_the_ones_the_pinned_repositories_declare() -> None:
-    """Both candidates' own ``__version__`` blocks name these two libraries at 5.0.0 / 4.51.3.
+def test_the_requirements_preserve_upstream_declaration_and_execution_override() -> None:
+    """The stale Voyage declaration remains provenance; the executable stack is separate."""
 
-    Recorded here rather than fetched: a test that reached the Hub would make CI
-    network-dependent, and the freeze's whole point is that these values were read
-    from the pinned revisions and written down.
-    """
     text = _REQUIREMENTS.read_text(encoding="utf-8")
-    assert "5.0.0" in text
-    assert "4.51.3" in text
-    assert "config_sentence_transformers.json" in text
+    assert "declares Transformers 4.51.3" in text
+    assert "That observation remains provenance; it is not rewritten." in text
+    assert "Transformers 4.54.0 is therefore" in text
+    assert "minimum checked compatible runtime for the frozen Voyage revision" in text
+    assert "huggingface-hub>=0.34.0,<1.0" in text
+    assert "tokenizers>=0.21,<0.22" in text
+
+
+def test_the_model_stack_gate_follows_runtime_drift_and_precedes_hub_model_work() -> None:
+    """An incompatible stack fails before Hub metadata reads or candidate construction."""
+
+    source = "\n".join(_cells("code"))
+    ordered = (
+        "res138-colab.txt",
+        "runtime_drift = {",
+        "EXPECTED_MODEL_STACK = {",
+        "from transformers import PreTrainedModel, Qwen3Model",
+        'sys.path.insert(0, str(REPO_DIR / "src"))',
+        "verify_pinned_model_metadata(HubModelMetadataReader())",
+        "calibrate_frozen_candidates(",
+    )
+    positions = [source.index(fragment) for fragment in ordered]
+    assert positions == sorted(positions), list(zip(ordered, positions, strict=True))
+
+
+def test_the_model_stack_gate_checks_exact_versions_and_voyage_api_surfaces() -> None:
+    """The smoke gate is dependency validation only: exact versions and import surfaces."""
+
+    cell = _cell_containing("EXPECTED_MODEL_STACK = {")
+    expected_versions = {
+        "sentence-transformers": "5.0.0",
+        "transformers": "4.54.0",
+        "tokenizers": "0.21.1",
+        "huggingface-hub": "0.34.0",
+    }
+    for distribution, expected_version in expected_versions.items():
+        assert f'"{distribution}": "{expected_version}"' in cell
+
+    required_imports = (
+        "from transformers import PreTrainedModel, Qwen3Model",
+        "from transformers.cache_utils import Cache",
+        "from transformers.masking_utils import create_causal_mask",
+        "from transformers.modeling_outputs import BaseModelOutputWithPooling",
+        "from transformers.processing_utils import Unpack",
+        "from transformers.utils import TransformersKwargs",
+    )
+    for required_import in required_imports:
+        assert required_import in cell
+
+    assert "VOYAGE_REQUIRED_TRANSFORMERS_SURFACES = (" in cell
+    assert "voyageai/voyage-4-nano" not in cell
+    assert "Qwen/Qwen3-Embedding-0.6B" not in cell
+    for network_surface in ("hf_hub_download", "snapshot_download", "requests.", "httpx."):
+        assert network_surface not in cell
 
 
 @pytest.mark.parametrize("path", [_NOTEBOOK, _REQUIREMENTS], ids=["notebook", "requirements"])
