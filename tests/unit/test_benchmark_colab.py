@@ -36,7 +36,9 @@ reading the committed JSON rather than by trusting review:
 from __future__ import annotations
 
 import ast
+import importlib.metadata
 import json
+import types
 from pathlib import Path
 from typing import Final, cast
 
@@ -362,12 +364,63 @@ def test_the_verify_cell_compares_torch_cuda_and_numpy_and_refuses_any_drift() -
 
     for field in ("torch", "cuda_runtime", "torch_cuda_build", "numpy"):
         assert f'("{field}",' in cell, f"{field} is not compared before/after"
+    # torch must be compared through installed metadata, not `torch.__version__`: a pip
+    # replacement cannot change the already-imported module, so the live attribute compares
+    # equal to itself while the distribution has moved.
+    assert '("torch", LIBRARIES_BEFORE["torch"], LIBRARIES_AFTER["torch"])' in cell
     assert "TORCH_AFTER = {" in cell
     assert 'NUMPY_AFTER = LIBRARIES_AFTER["numpy"]' in cell
     assert "if before_value != after_value" in cell
     assert "if runtime_drift:" in cell
     assert "raise RuntimeError(" in cell
     assert "the dependency installs changed runtime-owned components" in cell
+
+
+def test_a_replaced_torch_distribution_is_detected_from_installed_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The drift check reads installed metadata, not the live ``torch.__version__``.
+
+    A pip install that replaces torch on disk cannot change the module the kernel already
+    imported, so a check whose before and after snapshots both read ``torch.__version__``
+    compares one value with itself and passes while the process executes one PyTorch build and
+    the runtime fingerprint records another. The committed capture and verify cells are
+    executed here against a fake environment where the distribution moves and the module
+    cannot; that is the only way the difference is observable.
+    """
+
+    capture = _cell_containing('NUMPY_BEFORE = installed_version("numpy")')
+    verify = _cell_containing("runtime_drift = {")
+
+    installed = {
+        "torch": "2.9.0+cu128",
+        "numpy": "2.0.2",
+        "sentence-transformers": "5.0.0",
+        "transformers": "4.54.0",
+        "huggingface-hub": "0.34.0",
+    }
+
+    def fake_version(name: str) -> str:
+        return installed.get(name, "not-installed")
+
+    monkeypatch.setattr(importlib.metadata, "version", fake_version)
+    fake_torch = types.SimpleNamespace(
+        __version__="2.9.0+cu128", version=types.SimpleNamespace(cuda="12.8")
+    )
+    namespace: dict[str, object] = {"torch": fake_torch}
+
+    exec(compile(capture, "<capture>", "exec"), namespace)  # noqa: S102 - executing the cell is the point
+
+    # The installs replaced the torch distribution; the already-imported module did not move.
+    installed["torch"] = "2.10.0+cu128"
+    assert fake_torch.__version__ == "2.9.0+cu128"
+
+    with pytest.raises(RuntimeError) as caught:
+        exec(compile(verify, "<verify>", "exec"), namespace)  # noqa: S102 - executing the cell is the point
+
+    assert "runtime-owned components" in str(caught.value)
+    assert "2.9.0+cu128" in str(caught.value)
+    assert "2.10.0+cu128" in str(caught.value)
 
 
 def test_the_install_cells_cannot_pull_numpy_torch_or_the_benchmark_group() -> None:
