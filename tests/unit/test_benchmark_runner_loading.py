@@ -32,6 +32,7 @@ object standing in for the resolved dtype and for the loaded model.
 from __future__ import annotations
 
 import ast
+import types
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, Final, cast
@@ -40,6 +41,7 @@ import numpy as np
 import pytest
 
 from dynamisrag.benchmark.contracts import (
+    RES138_ATTENTION_BACKEND,
     RES138_INPUT_MAX_TOKENS,
     RES138_MODEL_CANDIDATES,
     RES138_SUPPORTED_DTYPES,
@@ -51,6 +53,7 @@ from dynamisrag.benchmark.runner import (
     dtype_name,
     load_keyword_arguments,
     model_provenance,
+    observed_attention_backend,
     observed_parameter_dtype,
     require_frozen_prompts,
     require_loaded_truncation_policy,
@@ -103,16 +106,45 @@ def test_the_pinned_revision_is_passed_and_never_the_head_of_a_branch() -> None:
         assert len(revision) == 40
 
 
-def test_the_compute_dtype_is_passed_as_an_explicit_model_kwarg() -> None:
-    """Not inherited from the model config: Qwen's pinned config declares bfloat16."""
+def test_the_compute_dtype_and_attention_backend_are_explicit_model_kwargs() -> None:
+    """Neither is inherited: Qwen's pinned config declares bfloat16, and torch dispatch
+    is Colab-owned, so the backend must be requested rather than assumed."""
 
     model_kwargs = cast("dict[str, object]", _keyword_arguments(_QWEN)["model_kwargs"])
 
     # `torch_dtype` is the key sentence-transformers 5.0.0 documents under `model_kwargs`
     # and the key transformers 4.51.3 accepts. A renamed key would be silently ignored and
     # the model would load in whatever its own config declares.
-    assert model_kwargs == {"torch_dtype": _RESOLVED}
+    assert model_kwargs == {
+        "torch_dtype": _RESOLVED,
+        "attn_implementation": "sdpa",
+    }
     assert model_kwargs["torch_dtype"] is _RESOLVED
+    assert model_kwargs["attn_implementation"] == RES138_ATTENTION_BACKEND
+
+
+def test_both_candidates_explicitly_request_the_frozen_attention_backend() -> None:
+    """No candidate-specific branch: one policy, requested for both."""
+
+    for candidate in RES138_MODEL_CANDIDATES:
+        model_kwargs = cast("dict[str, object]", _keyword_arguments(candidate)["model_kwargs"])
+        assert model_kwargs["attn_implementation"] == RES138_ATTENTION_BACKEND
+
+    assert RES138_ATTENTION_BACKEND == "sdpa"
+
+
+def test_no_hidden_attention_backend_branch_exists_in_the_runner() -> None:
+    """The only backend literal is the frozen request, and it is never branched on."""
+
+    from tests._support import REPO_ROOT
+
+    source = (REPO_ROOT / "src" / "dynamisrag" / "benchmark" / "runner.py").read_text(
+        encoding="utf-8"
+    )
+    assert source.count('"attn_implementation"') == 1
+    assert "candidate.model_id ==" not in source
+    assert "candidate.model_id !=" not in source
+    assert ".model_id in {" not in source
 
 
 def test_nothing_else_is_decided_inside_the_runner() -> None:
@@ -330,6 +362,8 @@ def test_the_provenance_separates_the_requested_the_observed_and_the_output_dtyp
         candidate=_VOYAGE,
         requested_compute_dtype="float32",
         observed_compute_dtype="float32",
+        requested_attention_backend="sdpa",
+        observed_attention_backend="sdpa",
         loaded_max_sequence_length=32768,
         batch_size=16,
         device="cuda",
@@ -341,6 +375,25 @@ def test_the_provenance_separates_the_requested_the_observed_and_the_output_dtyp
     assert provenance["output_dtype"] == "float32"
 
 
+def test_the_provenance_keeps_the_requested_and_observed_backend_apart() -> None:
+    """Analogue of the dtype split: a request is not evidence that it was used."""
+
+    provenance = model_provenance(
+        candidate=_QWEN,
+        requested_compute_dtype="float32",
+        observed_compute_dtype="float32",
+        requested_attention_backend=RES138_ATTENTION_BACKEND,
+        observed_attention_backend=RES138_ATTENTION_BACKEND,
+        loaded_max_sequence_length=32768,
+        batch_size=16,
+        device="cuda",
+    )
+
+    assert "attention_backend" not in provenance
+    assert provenance["requested_attention_backend"] == "sdpa"
+    assert provenance["observed_attention_backend"] == "sdpa"
+
+
 def test_the_provenance_carries_exactly_the_declared_fields() -> None:
     """A reviewer must be able to see every field the run depends on, and no others."""
 
@@ -348,6 +401,8 @@ def test_the_provenance_carries_exactly_the_declared_fields() -> None:
         candidate=_QWEN,
         requested_compute_dtype="float32",
         observed_compute_dtype="float32",
+        requested_attention_backend="sdpa",
+        observed_attention_backend="sdpa",
         loaded_max_sequence_length=32768,
         batch_size=16,
         device="cuda",
@@ -361,6 +416,8 @@ def test_the_provenance_carries_exactly_the_declared_fields() -> None:
         "requested_compute_dtype",
         "observed_compute_dtype",
         "output_dtype",
+        "requested_attention_backend",
+        "observed_attention_backend",
         "pooling_mode",
         "native_max_sequence_length",
         "loaded_max_sequence_length",
@@ -385,6 +442,8 @@ def test_the_provenance_records_no_cuda_allocator_telemetry() -> None:
             candidate=_VOYAGE,
             requested_compute_dtype="float32",
             observed_compute_dtype="float32",
+            requested_attention_backend="sdpa",
+            observed_attention_backend="sdpa",
             loaded_max_sequence_length=32768,
             batch_size=16,
             device="cuda",
@@ -400,6 +459,121 @@ def test_the_output_dtype_is_the_persisted_matrix_dtype_for_every_candidate() ->
 
     assert {candidate.output_dtype for candidate in RES138_MODEL_CANDIDATES} == {"float32"}
     assert RES138_SCORE_DTYPE is np.float32
+
+
+# ---------------------------------------------------------------------------
+# The loaded model's attention backend is observed, not assumed
+#
+# Transformers 4.54.0 records the selected implementation in
+# ``auto_model.config._attn_implementation`` (a property over
+# ``_attn_implementation_internal``, assigned by ``from_pretrained`` and
+# re-settled by ``PreTrainedModel.__init__``). The stub below models exactly that
+# object graph — SentenceTransformer -> module 0 -> auto_model -> config — so the
+# observation and every refusal are proved without torch.
+# ---------------------------------------------------------------------------
+
+
+class _AutoModel:
+    def __init__(self, attention: object) -> None:
+        self.config = types.SimpleNamespace(_attn_implementation=attention)
+
+
+class _TransformerModule:
+    def __init__(self, attention: object) -> None:
+        self.auto_model = _AutoModel(attention)
+
+
+class _ObservedModel:
+    """A SentenceTransformer-shaped object whose module 0 owns the auto_model."""
+
+    def __init__(self, attention: object) -> None:
+        self._module = _TransformerModule(attention)
+
+    def __getitem__(self, index: int) -> object:
+        if index != 0:
+            raise IndexError(index)
+        return self._module
+
+
+def test_an_observed_sdpa_backend_is_accepted() -> None:
+    assert observed_attention_backend(_ObservedModel("sdpa"), operation="t") == "sdpa"
+
+
+@pytest.mark.parametrize(
+    "attention",
+    ["eager", "flash_attention_2", "flash_attention_3", "flex_attention", "repo:kernel"],
+)
+def test_a_different_observed_backend_is_refused(attention: str) -> None:
+    with pytest.raises(BenchmarkExecutionError) as caught:
+        observed_attention_backend(_ObservedModel(attention), operation="t")
+
+    assert caught.value.expected == "sdpa"
+    assert caught.value.observed == attention
+    assert "Nothing was encoded" in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    "attention",
+    [None, 5, 0, {"": "sdpa"}],
+)
+def test_a_null_or_non_string_backend_is_refused(attention: object) -> None:
+    with pytest.raises(BenchmarkExecutionError) as caught:
+        observed_attention_backend(_ObservedModel(attention), operation="t")
+
+    assert "not a string" in str(caught.value) or "reports" in str(caught.value)
+
+
+def test_a_config_without_the_attention_field_is_refused() -> None:
+    """A config object that carries no ``_attn_implementation`` is not evidence of SDPA."""
+
+    class _MissingField:
+        def __getitem__(self, index: int) -> object:
+            return types.SimpleNamespace(
+                auto_model=types.SimpleNamespace(config=types.SimpleNamespace())
+            )
+
+    with pytest.raises(BenchmarkExecutionError) as caught:
+        observed_attention_backend(_MissingField(), operation="t")
+    assert "not a string" in str(caught.value)
+
+
+def test_a_model_without_an_observable_auto_model_is_refused() -> None:
+    class _NoAutoModel:
+        def __getitem__(self, index: int) -> object:
+            return types.SimpleNamespace()
+
+    with pytest.raises(BenchmarkExecutionError) as caught:
+        observed_attention_backend(_NoAutoModel(), operation="t")
+    assert "auto_model" in str(caught.value)
+
+
+def test_a_model_whose_config_field_is_absent_is_refused() -> None:
+    class _NoConfig:
+        auto_model = types.SimpleNamespace()
+
+        def __getitem__(self, index: int) -> object:
+            return types.SimpleNamespace(auto_model=types.SimpleNamespace())
+
+    with pytest.raises(BenchmarkExecutionError) as caught:
+        observed_attention_backend(_NoConfig(), operation="t")
+    assert "config" in str(caught.value)
+
+
+def test_the_encoder_observes_the_attention_backend_before_it_encodes_anything() -> None:
+    """A requested backend that was never read back is exactly the gap being closed."""
+
+    call = next(
+        node
+        for node in ast.walk(_encoder_body())
+        if isinstance(node, ast.Call) and _called(node.func) == "observed_attention_backend"
+    )
+    settings = {keyword.arg for keyword in call.keywords if keyword.arg is not None}
+    assert settings == {"operation"}
+
+    body = _encoder_body()
+    assert not any(
+        isinstance(node, ast.Call) and _called(node.func) == "encode" for node in ast.walk(body)
+    ), "the load-time check must precede any encode, so it cannot live beside one"
 
 
 # ---------------------------------------------------------------------------

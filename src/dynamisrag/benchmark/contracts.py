@@ -416,13 +416,24 @@ claims.
 """
 
 RES138_ATTENTION_BACKEND: Final[str] = "sdpa"
-"""The attention backend the frozen Colab runtime executes the forward pass in.
+"""The attention backend both frozen candidates are explicitly loaded and executed in.
 
-Declared, not requested: neither candidate's load arguments set
-``attn_implementation``, and sentence-transformers 5.0.0 documents SDPA as the
-default for torch >= 2.1.1. Recording it here keeps the memory probe's declared
-execution conditions (native dimension, float32, SDPA) explicit without adding a
-load kwarg that would change the backend it is supposed to describe.
+**Requested first, then observed.** Every load passes
+``model_kwargs={"attn_implementation": RES138_ATTENTION_BACKEND, ...}`` to
+``SentenceTransformer`` — the whole policy lives in
+:func:`~dynamisrag.benchmark.runner.load_keyword_arguments`, with no
+candidate-specific branch — and the loaded Hugging Face model answers for
+itself: the runner reads ``auto_model.config._attn_implementation`` (the field
+Transformers 4.54.0 settles after ``from_pretrained``) and refuses any value
+other than this one before a single calibration, probe or corpus input is
+encoded. Both the requested and the observed half are recorded per candidate.
+
+PyTorch is Colab-owned and its implicit dispatch is not an observation, so
+recording only a declared value would make "SDPA ran" a claim about a default
+rather than a fact about the loaded model. The memory probe's declared
+execution conditions and the plan's execution policy carry this value, and a
+preflight whose runtime records do not carry both halves cannot authorise a
+full run.
 """
 
 _CODE_SHA: Final[re.Pattern[str]] = re.compile(r"^[0-9a-f]{40}$")
@@ -979,13 +990,13 @@ RES138_ARTIFACT_REVISIONS: Final[Mapping[str, str]] = {
     "shard": "res138-shard-v4",
     "calibration_selection": "res138-calibration-selection-v1",
     "mrl_calibration": "res138-mrl-calibration-v1",
-    "preflight": "res138-preflight-v3",
+    "preflight": "res138-preflight-v4",
     "results": "res138-results-v1",
     "query_results": "res138-query-results-v1",
     "workload_metrics": "res138-workload-metrics-v1",
     "macro_metrics": "res138-macro-metrics-v1",
     "bootstrap": "res138-bootstrap-v1",
-    "performance": "res138-performance-v2",
+    "performance": "res138-performance-v3",
     "full_run": "res138-full-run-v2",
     "selection": "res138-selection-v1",
 }

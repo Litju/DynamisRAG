@@ -461,7 +461,10 @@ def test_missing_failed_or_drifted_probe_refuses_before_model_load(
 
     sha = _mutate_preflight(preflight, mutate)
     loads: list[str] = []
-    with pytest.raises(BenchmarkPreflightError, match="memory probe"):
+    # An absent section is now refused by verify_preflight_bundle's required-field
+    # tuple, before require_memory_probes recomputes anything; a present but drifted
+    # probe is refused by the probe gate itself. Both refuse before a model load.
+    with pytest.raises(BenchmarkPreflightError, match="memory"):
         execute_full_run(
             config=replace(config, approved_preflight_sha256=sha),
             preflight_path=preflight,

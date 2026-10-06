@@ -8,7 +8,7 @@ This module is the *whole* notebook-facing API:
     verify_pinned_model_metadata    read the pinned repo configs and refuse a drift
     run_mrl_calibration          native-512 vs derived-512, per model and per path
     create_res138_run            open or refuse a Drive run directory
-    write_preflight_bundle       res138-preflight-v3, the gate the full run needs
+    write_preflight_bundle       res138-preflight-v4, the gate the full run needs
     verify_preflight_bundle      re-check one from disk
     require_approved_preflight   the only way into a full run
 
@@ -851,17 +851,18 @@ def write_preflight_bundle(
     artifact_digests: Mapping[str, str],
     memory_probes: Sequence[Mapping[str, Res138JsonValue]] = (),
 ) -> str:
-    """Write ``res138-preflight-v3`` and return its SHA-256.
+    """Write ``res138-preflight-v4`` and return its SHA-256.
 
     The artifact a human reads before approving a full run, so it states everything
     the full run would rely on: the code commit, the runtime payload and its
     digest, the Drive run id, each BEIR archive's verified digest and what loading
-    it declared, each candidate's revision and prompt digests, the generation
-    semantics, the frozen input/truncation policy, the per-candidate memory probes
-    (raw corpus counts, truncation evidence and the actually-encoded cases), the
-    exact calibration inputs, the native-512-versus-derived-512 numbers, the
-    per-model-per-path MRL decision, the TEI equivalence runtime the gate will be
-    evaluated under, and the digests of the artifacts already written.
+    it declared, each candidate's revision, prompt digests and loaded-model
+    provenance (including the requested and observed attention backend), the
+    generation semantics, the frozen input/truncation policy, the per-candidate
+    memory probes (raw corpus counts, truncation evidence and the actually-encoded
+    cases), the exact calibration inputs, the native-512-versus-derived-512 numbers,
+    the per-model-per-path MRL decision, the TEI equivalence runtime the gate will
+    be evaluated under, and the digests of the artifacts already written.
 
     It does **not** authorise itself: the authorisation is a human copying its
     digest into ``APPROVED_PREFLIGHT_SHA256``.
@@ -916,6 +917,53 @@ def write_preflight_bundle(
     return write_artifact(path, name="preflight", payload=payload)
 
 
+def _require_frozen_attention_provenance(models: object, *, operation: str) -> None:
+    """Require every preflight runtime model record to bind the frozen attention backend.
+
+    The attention backend is requested at load and observed off the loaded model,
+    and both halves are recorded per candidate by
+    :func:`~dynamisrag.benchmark.runner.model_provenance`. A preflight written by a
+    loader that only declared SDPA — or that recorded mid-flight but never
+    verified what ``from_pretrained`` settled — cannot authorise a full run, so
+    this check reads the two fields themselves rather than trusting a model id.
+    """
+    if not isinstance(models, list) or not models:
+        raise BenchmarkPreflightError(
+            "the preflight records no model runtime provenance, so the attention backend the "
+            "weights would execute under is unobserved.",
+            operation=operation,
+        )
+    for raw in cast("list[object]", models):
+        if not isinstance(raw, Mapping):
+            raise BenchmarkPreflightError(
+                "a preflight model record is not an object.", operation=operation
+            )
+        record = cast("Mapping[str, object]", raw)
+        runtime = record.get("runtime")
+        if not isinstance(runtime, Mapping):
+            raise BenchmarkPreflightError(
+                f"the preflight record for {record.get('model_id')!r} carries no loaded-model "
+                "runtime provenance, so its attention backend was never observed.",
+                operation=operation,
+                model_id=str(record.get("model_id")),
+            )
+        runtime_record = cast("Mapping[str, object]", runtime)
+        for field in ("requested_attention_backend", "observed_attention_backend"):
+            observed = runtime_record.get(field)
+            if observed != RES138_ATTENTION_BACKEND:
+                raise BenchmarkPreflightError(
+                    f"the preflight runtime record for {record.get('model_id')!r} declares "
+                    f"{field} {observed!r}, not the frozen {RES138_ATTENTION_BACKEND!r}. The "
+                    "backend must be requested at load and observed off the loaded model; a "
+                    "preflight that recorded only a declared default does not describe the "
+                    "dispatch a full run would execute.",
+                    operation=operation,
+                    model_id=str(record.get("model_id")),
+                    expected=RES138_ATTENTION_BACKEND,
+                    observed=repr(observed),
+                )
+
+
 def verify_preflight_bundle(  # noqa: PLR0912 - identity fields must all pass before approval
     path: Path,
     *,
@@ -944,6 +992,7 @@ def verify_preflight_bundle(  # noqa: PLR0912 - identity fields must all pass be
         "input_policy",
         "sources",
         "models",
+        "memory_probes",
         "mrl_calibration",
         "tei_equivalence",
         "artifact_digests",
@@ -978,6 +1027,7 @@ def verify_preflight_bundle(  # noqa: PLR0912 - identity fields must all pass be
             "contract's result.",
             operation=operation,
         )
+    _require_frozen_attention_provenance(envelope.payload["models"], operation=operation)
     if expect_code_sha is not None:
         required_sha = require_code_sha(expect_code_sha, operation=operation)
         if envelope.payload["code_sha"] != required_sha:

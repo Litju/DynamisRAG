@@ -13,6 +13,7 @@ import numpy as np
 import pytest
 
 from dynamisrag.benchmark.artifacts import (
+    ArtifactEnvelope,
     Res138JsonValue,
     Res138RunManifest,
     ShardKind,
@@ -30,9 +31,11 @@ from dynamisrag.benchmark.bundle import (
 )
 from dynamisrag.benchmark.calibration import CalibrationItem, CalibrationSet
 from dynamisrag.benchmark.contracts import (
+    RES138_ATTENTION_BACKEND,
     RES138_BASE_DIMENSION,
     RES138_BEIR_SOURCES,
     RES138_CALIBRATION_BANDS,
+    RES138_CANDIDATE_DIMENSIONS,
     RES138_MODEL_CANDIDATES,
     RES138_MRL_CALIBRATION_GATE,
     RES138_MRL_DERIVATION_REVISION,
@@ -76,7 +79,6 @@ from dynamisrag.benchmark.res138 import (
     write_preflight_bundle,
 )
 from dynamisrag.benchmark.retrieval import exact_top_k
-from dynamisrag.benchmark.runner import model_provenance
 from dynamisrag.benchmark.runtime import (
     RuntimeFingerprint,
     RuntimeProbe,
@@ -124,6 +126,8 @@ class _Encoder(FullRunEncoder):
             "requested_compute_dtype": self.candidate.compute_dtype,
             "observed_compute_dtype": self.candidate.compute_dtype,
             "output_dtype": self.candidate.output_dtype,
+            "requested_attention_backend": RES138_ATTENTION_BACKEND,
+            "observed_attention_backend": RES138_ATTENTION_BACKEND,
         }
 
     def encode(
@@ -290,25 +294,19 @@ def _loaded(workloads: Mapping[str, RetrievalWorkload]) -> tuple[LoadedWorkload,
 
 
 def _model_records() -> tuple[Mapping[str, Res138JsonValue], ...]:
-    """Model provenance through the real merge: pinned repository half plus runtime half."""
+    """Model provenance through the real merge: pinned repository half plus runtime half.
+
+    The runtime half is the fake encoder's own ``describe()``, so a full run's live
+    encoder can be compared to the approved preflight runtime record field for
+    field — the same equality the production path enforces between
+    ``SentenceTransformersCalibrationEncoder.describe()`` and the approved record.
+    """
     pinned = cast(
         "Sequence[Mapping[str, Res138JsonValue]]",
         verify_pinned_model_metadata(_PinnedMetadata()),
     )
     runners = tuple(
-        cast(
-            "Mapping[str, Res138JsonValue]",
-            dict(
-                model_provenance(
-                    candidate=candidate,
-                    requested_compute_dtype=candidate.compute_dtype,
-                    observed_compute_dtype=candidate.compute_dtype,
-                    loaded_max_sequence_length=candidate.native_max_sequence_length,
-                    batch_size=_BATCH_SIZE,
-                    device="cuda",
-                )
-            ),
-        )
+        cast("Mapping[str, Res138JsonValue]", dict(_Encoder(candidate).describe()))
         for candidate in RES138_MODEL_CANDIDATES
     )
     return cast(
@@ -718,6 +716,179 @@ def test_missing_valid_shards_resume_without_reencoding_and_keep_result_bytes(
     assert file_sha256(query_file) == original_query_sha
 
 
+# ---------------------------------------------------------------------------
+# The persisted model load must be the runtime policy the approved preflight
+# observed: exact canonical provenance equality, no hand-written subset.
+# ---------------------------------------------------------------------------
+
+
+def _candidate_key(candidate: ModelCandidateSpec) -> str:
+    return candidate.model_id.replace("/", "__")
+
+
+def _rewrite_load_provenance(
+    directory: Path,
+    candidate: ModelCandidateSpec,
+    mutate: Callable[[dict[str, object]], None],
+) -> list[Path]:
+    """Rewrite one candidate's load.json provenance and refresh its declared links.
+
+    The mutation is resealed mechanically — the artifact stays canonical, the
+    performance artifacts keep a truthful ``load_artifact.sha256`` — so the only
+    check that can refuse it is the new provenance binding.
+    """
+    key = _candidate_key(candidate)
+    load_path = directory / "results" / "performance" / key / "load.json"
+    envelope = read_artifact(load_path, name="performance")
+    payload = dict(envelope.payload)
+    provenance = dict(cast("Mapping[str, object]", payload["model_provenance"]))
+    mutate(provenance)
+    payload["model_provenance"] = cast("Res138JsonValue", provenance)
+    ArtifactEnvelope(
+        artifact_revision=envelope.artifact_revision,
+        payload=cast("Mapping[str, Res138JsonValue]", payload),
+    ).write(load_path)
+    changed = [load_path]
+    new_sha = file_sha256(load_path)
+    for dimension in RES138_CANDIDATE_DIMENSIONS:
+        path = directory / "results" / "performance" / key / f"{dimension}.json"
+        if not path.exists():
+            continue
+        performance = read_artifact(path, name="performance")
+        performance_payload = dict(performance.payload)
+        link = dict(cast("Mapping[str, Res138JsonValue]", performance_payload["load_artifact"]))
+        link["sha256"] = new_sha
+        performance_payload["load_artifact"] = cast("Res138JsonValue", link)
+        ArtifactEnvelope(
+            artifact_revision=performance.artifact_revision,
+            payload=cast("Mapping[str, Res138JsonValue]", performance_payload),
+        ).write(path)
+        changed.append(path)
+    return changed
+
+
+def _reseal_full_run_artifacts(directory: Path, changed: Sequence[Path]) -> None:
+    """Refresh the full-run result list and bundle manifest around rewritten files."""
+    full_path = directory / "full-run.json"
+    document = json.loads(full_path.read_text(encoding="utf-8"))
+    records = cast("list[dict[str, object]]", document["result_artifacts"])
+    by_path = {str(item["path"]): item for item in records}
+    for path in changed:
+        record = by_path[path.relative_to(directory).as_posix()]
+        record["sha256"] = file_sha256(path)
+        record["byte_size"] = path.stat().st_size
+    full_path.write_text(canonical_json(document), encoding="utf-8")
+    write_bundle_manifest(directory)
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("requested_attention_backend", "eager"),
+        ("observed_attention_backend", "flash_attention_2"),
+        ("batch_size", _BATCH_SIZE + 16),
+        ("provider", "another-runner"),
+    ],
+)
+def test_a_live_model_whose_provenance_differs_from_the_approved_preflight_refuses_before_encoding(
+    tmp_path: Path, field: str, value: object
+) -> None:
+    """The preflight is the exact loaded-model policy; a live describe() must equal it."""
+
+    config, preflight, fingerprint, workloads = _approval(tmp_path)
+    directory = preflight.parent
+
+    class _DriftedEncoder(_Encoder):
+        def describe(self) -> dict[str, object]:
+            record = super().describe()
+            record[field] = value
+            return record
+
+    encoders: list[_DriftedEncoder] = []
+
+    def factory(candidate: ModelCandidateSpec) -> _DriftedEncoder:
+        encoder = _DriftedEncoder(candidate)
+        encoders.append(encoder)
+        return encoder
+
+    with pytest.raises(BenchmarkArtifactError, match="provenance"):
+        execute_full_run(
+            config=config,
+            preflight_path=preflight,
+            runs_root=tmp_path / "runs",
+            scratch_root=tmp_path / "scratch",
+            fingerprint=fingerprint,
+            workloads=workloads,
+            source_digests=_SOURCE_DIGESTS,
+            token_count_factory=lambda candidate: _Encoder(candidate).token_counts,
+            encoder_factory=factory,
+            release=lambda: None,
+            clock=_Clock(),
+        )
+
+    assert encoders, "the model is loaded before the refusal, and refused before it encodes"
+    assert encoders[0].calls == []
+    assert not list(directory.rglob("load.json")), "no load evidence is written for a drift"
+
+
+def test_saved_load_provenance_differing_from_the_approved_preflight_refuses_before_corpus_work(
+    tmp_path: Path,
+) -> None:
+    """A resume must not execute against a load record the preflight did not approve."""
+
+    _, directory, config, fingerprint, workloads, _, _ = _execute(tmp_path)
+    _clear_result_files(directory)
+    candidate = RES138_MODEL_CANDIDATES[0]
+
+    def mutate(provenance: dict[str, object]) -> None:
+        provenance["observed_attention_backend"] = "eager"
+
+    _rewrite_load_provenance(directory, candidate, mutate)
+    loads: list[str] = []
+
+    with pytest.raises(BenchmarkArtifactError, match="provenance"):
+        execute_full_run(
+            config=config,
+            preflight_path=directory / "preflight.json",
+            runs_root=tmp_path / "runs",
+            scratch_root=tmp_path / "scratch-provenance",
+            fingerprint=fingerprint,
+            workloads=workloads,
+            source_digests=_SOURCE_DIGESTS,
+            token_count_factory=lambda entry: _Encoder(entry).token_counts,
+            encoder_factory=lambda entry: loads.append(entry.model_id),  # type: ignore[arg-type]
+            release=lambda: pytest.fail("no candidate may be loaded for a drifted load record"),
+            clock=_Clock(),
+        )
+
+    assert loads == []
+
+
+def test_the_offline_verifier_binds_persisted_load_provenance_to_the_approved_preflight(
+    tmp_path: Path,
+) -> None:
+    """Mutate load.json, reseal every surrounding digest, and the verifier must still refuse.
+
+    The full-run result list, the performance artifacts' load links and the bundle
+    manifest are all refreshed mechanically, so the outer graph is self-consistent
+    and the refusal can only come from the provenance equality against the
+    approved preflight.
+    """
+
+    _, directory, _, _, _, _, _ = _execute(tmp_path)
+    verify_run_bundle(directory, expect_code_sha=_CODE_SHA)
+    candidate = RES138_MODEL_CANDIDATES[0]
+
+    def mutate(provenance: dict[str, object]) -> None:
+        provenance["observed_attention_backend"] = "eager"
+
+    changed = _rewrite_load_provenance(directory, candidate, mutate)
+    _reseal_full_run_artifacts(directory, changed)
+
+    with pytest.raises(BenchmarkArtifactError, match="model_provenance"):
+        verify_run_bundle(directory, expect_code_sha=_CODE_SHA)
+
+
 def test_an_absent_shard_is_regenerated_and_only_its_inputs_are_encoded(tmp_path: Path) -> None:
     _, directory, config, fingerprint, workloads, _, _ = _execute(tmp_path)
     _clear_result_files(directory)
@@ -926,19 +1097,25 @@ def test_a_real_preflight_passes_the_repaired_validator_and_fails_the_legacy_fla
     assert len(decisions) == len(RES138_MODEL_CANDIDATES) * len(RES138_WORKLOAD_NAMES) * 2
 
 
-def test_the_bundle_verifier_reads_the_runtime_batch_size_from_the_real_preflight(
+def test_the_bundle_verifier_reads_the_runtime_provenance_from_the_real_preflight(
     tmp_path: Path,
 ) -> None:
     from dynamisrag.benchmark.artifacts import build_artifact
     from dynamisrag.benchmark.results import (
-        _preflight_batch_sizes,  # pyright: ignore[reportPrivateUsage]
+        _preflight_runtime_records,  # pyright: ignore[reportPrivateUsage]
     )
 
     _, preflight, _, _ = _approval(tmp_path)
 
-    assert _preflight_batch_sizes(read_artifact(preflight, name="preflight")) == {
+    records = _preflight_runtime_records(read_artifact(preflight, name="preflight"))
+    assert {model_id: runtime["batch_size"] for model_id, runtime in records.items()} == {
         candidate.model_id: _BATCH_SIZE for candidate in RES138_MODEL_CANDIDATES
     }
+    assert all(
+        runtime["requested_attention_backend"] == RES138_ATTENTION_BACKEND
+        and runtime["observed_attention_backend"] == RES138_ATTENTION_BACKEND
+        for runtime in records.values()
+    )
 
     flat = build_artifact(
         "preflight",
@@ -955,7 +1132,7 @@ def test_the_bundle_verifier_reads_the_runtime_batch_size_from_the_real_prefligh
         operation="test",
     )
     with pytest.raises(BenchmarkArtifactError, match="runtime"):
-        _preflight_batch_sizes(flat)
+        _preflight_runtime_records(flat)
 
 
 def _model_records_in(payload: dict[str, object]) -> list[dict[str, object]]:

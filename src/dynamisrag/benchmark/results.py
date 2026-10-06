@@ -512,7 +512,7 @@ def verify_full_run_bundle(  # noqa: PLR0912, PLR0915 - validates one cross-arti
         sources=sources,
         common=common,
         decisions=decisions,
-        load_batch_sizes=_preflight_batch_sizes(preflight),
+        preflight_runtime=_preflight_runtime_records(preflight),
     )
 
 
@@ -848,7 +848,7 @@ def _verify_performance(  # noqa: PLR0912, PLR0915 - reconcile recorded timings 
     sources: Mapping[str, tuple[Mapping[str, object], str]],
     common: Mapping[str, Res138JsonValue],
     decisions: Sequence[MrlPathDecision],
-    load_batch_sizes: Mapping[str, int],
+    preflight_runtime: Mapping[str, Mapping[str, object]],
 ) -> None:
     for candidate in RES138_MODEL_CANDIDATES:
         key = candidate.model_id.replace("/", "__")
@@ -860,8 +860,22 @@ def _verify_performance(  # noqa: PLR0912, PLR0915 - reconcile recorded timings 
             or load_payload.get("phase") != "model_load"
         ):
             _fail(f"{load_path} names the wrong load phase or candidate")
-        if load_payload.get("batch_size") != load_batch_sizes.get(candidate.model_id):
+        runtime = preflight_runtime.get(candidate.model_id)
+        if runtime is None:
+            _fail(f"{load_path} has no matching approved preflight runtime provenance")
+        if load_payload.get("batch_size") != _integer(
+            runtime.get("batch_size"), "preflight batch size"
+        ):
             _fail(f"{load_path} has a different encoder batch size from the preflight")
+        if _canonical(load_payload.get("model_provenance")) != _canonical(runtime):
+            _fail(
+                f"{load_path} model_provenance is not the approved preflight runtime provenance "
+                "field for field. The persisted model load must be exactly the model/runtime "
+                "policy the approved preflight observed — model and revision, "
+                "trust_remote_code, requested/observed compute dtype, output dtype, pooling, "
+                "sequence boundary, batch size, prompt digest and requested/observed attention "
+                "backend included"
+            )
         _require_fields(load_payload, common, load_path)
         load_seconds = _number(load_payload.get("model_load_seconds"), "model load seconds")
         if load_seconds < 0.0:
@@ -1054,26 +1068,30 @@ def _mapping(value: object, label: str) -> Mapping[str, object]:
     return cast("Mapping[str, object]", value)
 
 
-def _preflight_batch_sizes(preflight: ArtifactEnvelope) -> dict[str, int]:
-    """The loaded-model batch size per pinned model id, from the real preflight schema.
+def _preflight_runtime_records(preflight: ArtifactEnvelope) -> dict[str, Mapping[str, object]]:
+    """The loaded-model provenance per pinned model id, from the real preflight schema.
 
     ``write_preflight_bundle`` composes each record through ``merge_model_provenance``:
     the pinned repository half at the top level and the loaded-model half under
     ``runtime``. The flat ``batch_size`` this reader used to require at the top level
     is a shape no preflight ever emitted, so a bundle verified with it could only be
     one produced against a fabricated artifact.
+
+    The whole runtime record is returned, not just the batch size, because the
+    offline verifier binds ``load.json``'s ``model_provenance`` to exactly this
+    record — field for field — rather than to a hand-picked subset of it.
     """
-    sizes: dict[str, int] = {}
+    records: dict[str, Mapping[str, object]] = {}
     for item in _mapping_rows(preflight.payload.get("models"), "preflight models"):
         model_id = _string(item.get("model_id"), "preflight model id")
         revision = _string(item.get("revision"), "preflight model revision")
         runtime = _mapping(item.get("runtime"), "preflight runtime model record")
         if runtime.get("model_id") != model_id or runtime.get("model_revision") != revision:
             _fail(f"preflight runtime record for {model_id!r} names another model or revision")
-        if model_id in sizes:
+        if model_id in records:
             _fail(f"preflight models repeat candidate {model_id!r}")
-        sizes[model_id] = _integer(runtime.get("batch_size"), "preflight batch size")
-    return sizes
+        records[model_id] = runtime
+    return records
 
 
 def _string(value: object, label: str) -> str:

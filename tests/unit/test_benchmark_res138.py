@@ -33,7 +33,7 @@ from __future__ import annotations
 
 import json
 import sys
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from types import ModuleType
 from typing import Final, cast, get_type_hints
@@ -42,10 +42,13 @@ import numpy as np
 import pytest
 from numpy.typing import NDArray
 
-from dynamisrag.benchmark.artifacts import RES138_NORMALIZATION, ShardKind
+from dynamisrag.benchmark.artifacts import RES138_NORMALIZATION, Res138JsonValue, ShardKind
 from dynamisrag.benchmark.calibration import select_calibration_set
 from dynamisrag.benchmark.contracts import (
+    RES138_ATTENTION_BACKEND,
     RES138_BEIR_SOURCES,
+    RES138_INPUT_MAX_TOKENS,
+    RES138_INPUT_TRUNCATION_DIRECTION,
     RES138_MODEL_CANDIDATES,
     RES138_MRL_DERIVATION_REVISION,
     RES138_RETRIEVAL_TOP_K,
@@ -79,6 +82,7 @@ from dynamisrag.benchmark.res138 import (
 from dynamisrag.benchmark.retrieval import RES138_SCORE_DTYPE
 from dynamisrag.benchmark.runner import HubModelMetadataReader
 from dynamisrag.benchmark.runtime import RuntimeProbe, capture_runtime_fingerprint
+from dynamisrag.benchmark.scheduling import SCHEDULER_REVISION, TOKEN_SQUARE_BUDGET
 from dynamisrag.embedding.contracts import EmbeddingGenerationConfig, TruncationDirection
 
 _CODE_SHA: Final[str] = "a" * 40
@@ -189,6 +193,39 @@ def test_the_generation_semantics_are_res_137_configs_not_a_parallel_invention()
     assert {entry.config.prompt_name for entry in queries} == {"query"}
     assert generation_semantics_sha256() != ""
     assert generation_semantics_sha256() == generation_semantics_sha256()
+
+
+def test_the_attention_provenance_repair_did_not_move_any_science_constant() -> None:
+    """The SDPA observation closes a provenance gap; it must not have changed a vector.
+
+    The generation-semantics digest is pinned to the value it had before this
+    repair, and the truncation/scheduler/model/source constants are asserted
+    explicitly: an edit that altered any of them would be a different benchmark,
+    not a repaired one.
+    """
+
+    assert (
+        generation_semantics_sha256()
+        == "2eaf51d1c791dfa899f42f58e874ccda0cec4fc610fb5c7744b78f9ff500403a"
+    )
+    assert RES138_INPUT_MAX_TOKENS == 32768
+    assert RES138_INPUT_TRUNCATION_DIRECTION == "right"
+    assert SCHEDULER_REVISION == "res138-token-square-v1"
+    assert TOKEN_SQUARE_BUDGET == RES138_INPUT_MAX_TOKENS**2
+    assert RES138_ATTENTION_BACKEND == "sdpa"
+    assert {candidate.model_id for candidate in RES138_MODEL_CANDIDATES} == {
+        "voyageai/voyage-4-nano",
+        "Qwen/Qwen3-Embedding-0.6B",
+    }
+    assert [candidate.revision for candidate in RES138_MODEL_CANDIDATES] == [
+        "67fabc9bef010dabc5f6024aa1b1b6b93410426f",
+        "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
+    ]
+    assert {source.workload: source.sha256 for source in RES138_BEIR_SOURCES} == {
+        "scifact": "536e14446a0ba56ed1398ab1055f39fe852686ecad24a6306c80c490fa8e0165",
+        "nfcorpus": "efe5be03f8c5b86a5870102d0599d227c8c6e2484328e68c6522560385671b0b",
+        "trec-covid": "120f42a7864d2214234537733c0d2c6684e42fdfafff2c5eacf98afca6656aa0",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -732,6 +769,40 @@ def _loaded() -> tuple[LoadedWorkload, ...]:
     )
 
 
+def _runtime_model_records() -> list[dict[str, Res138JsonValue]]:
+    """Two pinned model records whose runtime halves bind the frozen attention policy."""
+    records: list[dict[str, Res138JsonValue]] = []
+    for candidate in RES138_MODEL_CANDIDATES:
+        records.append(
+            {
+                "model_id": candidate.model_id,
+                "revision": candidate.revision,
+                "runtime": cast(
+                    "dict[str, Res138JsonValue]",
+                    {
+                        "provider": "cpu-test-encoder",
+                        "model_id": candidate.model_id,
+                        "model_revision": candidate.revision,
+                        "trust_remote_code": candidate.trust_remote_code,
+                        "requested_compute_dtype": "float32",
+                        "observed_compute_dtype": "float32",
+                        "output_dtype": "float32",
+                        "requested_attention_backend": "sdpa",
+                        "observed_attention_backend": "sdpa",
+                        "pooling_mode": candidate.pooling_mode,
+                        "native_max_sequence_length": 32768,
+                        "loaded_max_sequence_length": 32768,
+                        "batch_size": 16,
+                        "device": "cuda",
+                        "normalized": True,
+                        "prompt_sha256": candidate.prompt_sha256,
+                    },
+                ),
+            }
+        )
+    return records
+
+
 def _write_preflight(tmp_path: Path, *, approved: str = "") -> tuple[Path, str]:
     config = Res138ColabConfig(code_sha=_CODE_SHA, approved_preflight_sha256=approved)
     calibration = select_calibration_set([_workload()])
@@ -749,12 +820,25 @@ def _write_preflight(tmp_path: Path, *, approved: str = "") -> tuple[Path, str]:
         fingerprint=_fingerprint(),  # pyright: ignore[reportArgumentType]
         run_id="colab-aaaaaaaaaaaa-tesla-t4-cccccccccccc",
         loaded=_loaded(),
-        model_provenance=[{"model_id": "voyageai/voyage-4-nano", "revision": _VOYAGE_REVISION}],
+        model_provenance=_runtime_model_records(),
         calibration=calibration,
         decisions=decisions,
         artifact_digests={"plan.json": "d" * 64},
+        memory_probes=[
+            {
+                "model_id": candidate.model_id,
+                "status": "pass",
+            }
+            for candidate in RES138_MODEL_CANDIDATES
+        ],
     )
     return path, digest
+
+
+def _mutate_preflight_payload(path: Path, mutate: Callable[[dict[str, object]], None]) -> None:
+    payload = cast("dict[str, object]", json.loads(path.read_text(encoding="utf-8")))
+    mutate(payload)
+    path.write_text(json.dumps(payload), encoding="utf-8")
 
 
 def test_the_preflight_bundle_states_everything_a_full_run_relies_on(tmp_path: Path) -> None:
@@ -890,10 +974,9 @@ def test_a_preflight_without_the_frozen_input_policy_is_refused(tmp_path: Path) 
 
 
 def test_a_preflight_written_under_the_old_input_contract_is_refused(tmp_path: Path) -> None:
-    """Revision v2 predates the truncation contract; it must not authorize a v3 run."""
+    """Revision v2 predates both the truncation and attention-provenance contracts."""
 
     path, _ = _write_preflight(tmp_path)
-    import json
 
     payload = json.loads(path.read_text(encoding="utf-8"))
     payload["artifact_revision"] = "res138-preflight-v2"
@@ -901,7 +984,70 @@ def test_a_preflight_written_under_the_old_input_contract_is_refused(tmp_path: P
 
     with pytest.raises(BenchmarkArtifactError) as caught:
         verify_preflight_bundle(path)
-    assert caught.value.expected == "res138-preflight-v3"
+    assert caught.value.expected == "res138-preflight-v4"
+
+
+def test_memory_probes_is_a_required_preflight_v4_field(tmp_path: Path) -> None:
+    """The probe section is what the full run's tokenizer-only gate reads."""
+
+    path, _ = _write_preflight(tmp_path)
+
+    def drop(payload: dict[str, object]) -> None:
+        del payload["memory_probes"]
+
+    _mutate_preflight_payload(path, drop)
+
+    with pytest.raises(BenchmarkPreflightError) as caught:
+        verify_preflight_bundle(path)
+    assert "memory_probes" in str(caught.value)
+
+
+def _first_runtime(payload: dict[str, object]) -> dict[str, object]:
+    records = cast("list[dict[str, object]]", payload["models"])
+    return cast("dict[str, object]", records[0]["runtime"])
+
+
+def _remove_requested_backend(payload: dict[str, object]) -> None:
+    del _first_runtime(payload)["requested_attention_backend"]
+
+
+def _remove_observed_backend(payload: dict[str, object]) -> None:
+    del _first_runtime(payload)["observed_attention_backend"]
+
+
+def _drift_requested_backend(payload: dict[str, object]) -> None:
+    _first_runtime(payload)["requested_attention_backend"] = "eager"
+
+
+def _drift_observed_backend(payload: dict[str, object]) -> None:
+    _first_runtime(payload)["observed_attention_backend"] = "flash_attention_2"
+
+
+def _set_backend_non_string(payload: dict[str, object]) -> None:
+    _first_runtime(payload)["observed_attention_backend"] = 1
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        pytest.param(_remove_requested_backend, id="requested-missing"),
+        pytest.param(_remove_observed_backend, id="observed-missing"),
+        pytest.param(_drift_requested_backend, id="requested-drifted"),
+        pytest.param(_drift_observed_backend, id="observed-drifted"),
+        pytest.param(_set_backend_non_string, id="observed-non-string"),
+    ],
+)
+def test_a_preflight_without_the_frozen_attention_provenance_is_refused(
+    tmp_path: Path, mutate: Callable[[dict[str, object]], None]
+) -> None:
+    """Both halves must be present and exactly ``sdpa``; a model id is not evidence."""
+
+    path, _ = _write_preflight(tmp_path)
+    _mutate_preflight_payload(path, mutate)
+
+    with pytest.raises(BenchmarkPreflightError) as caught:
+        verify_preflight_bundle(path)
+    assert "attention" in str(caught.value) or "runtime" in str(caught.value)
 
 
 def test_a_preflight_that_changed_its_tei_runtime_is_refused(tmp_path: Path) -> None:

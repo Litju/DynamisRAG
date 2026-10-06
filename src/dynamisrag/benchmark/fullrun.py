@@ -313,6 +313,93 @@ def _require_preflight_batch_size(approved: ArtifactEnvelope, *, operation: str)
         )
 
 
+def _approved_runtime_provenance(
+    approved: ArtifactEnvelope, candidate: ModelCandidateSpec, *, operation: str
+) -> Mapping[str, object]:
+    """The loaded-model half the approved preflight recorded for one candidate.
+
+    ``write_preflight_bundle`` composes each record through
+    ``merge_model_provenance``: the pinned repository half at the top level and the
+    runtime half under ``runtime``. This returns the runtime half verbatim, so the
+    full-run comparison is against exactly the bytes the artifact approved.
+    """
+    models = approved.payload.get("models")
+    if not isinstance(models, list):
+        raise BenchmarkPreflightError(
+            "the approved preflight records no model provenance.", operation=operation
+        )
+    for raw in cast("list[object]", models):
+        if not isinstance(raw, Mapping):
+            continue
+        record = cast("Mapping[str, object]", raw)
+        if record.get("model_id") != candidate.model_id:
+            continue
+        runtime = record.get("runtime")
+        if not isinstance(runtime, Mapping):
+            raise BenchmarkPreflightError(
+                f"the approved preflight records no loaded-model runtime provenance for "
+                f"{candidate.model_id!r}.",
+                operation=operation,
+                model_id=candidate.model_id,
+            )
+        return cast("Mapping[str, object]", runtime)
+    raise BenchmarkPreflightError(
+        f"the approved preflight does not cover {candidate.model_id!r}, so no runtime provenance "
+        "can be bound to its load.",
+        operation=operation,
+        model_id=candidate.model_id,
+    )
+
+
+def _provenance_differences(observed: object, approved: Mapping[str, object]) -> list[str]:
+    """The top-level provenance keys whose values differ, for a precise refusal."""
+    if not isinstance(observed, Mapping):
+        return ["<the whole record>"]
+    observed_record = cast("Mapping[str, object]", observed)
+    return [
+        key
+        for key in sorted(set(observed_record) | set(approved))
+        if canonical_json(cast("Res138JsonValue", observed_record.get(key)))
+        != canonical_json(cast("Res138JsonValue", approved.get(key)))
+    ]
+
+
+def _require_load_provenance_matches_preflight(
+    observed: object,
+    approved_runtime: Mapping[str, object],
+    *,
+    candidate: ModelCandidateSpec,
+    source: str,
+    operation: str,
+) -> None:
+    """Require the observed runtime provenance to equal the approved one exactly.
+
+    Whole-record canonical equality rather than a hand-written subset of fields:
+    the model id and revision, ``trust_remote_code``, the requested and observed
+    compute dtype, the output dtype, the pooling mode, the sequence boundary, the
+    batch size, the prompt digest and the requested and observed attention backend
+    are all identity-bearing, and a subset that happened to be complete today would
+    silently stop being complete the day a field is added. The preflight the human
+    approved is the one record this must equal.
+    """
+    differences = _provenance_differences(observed, approved_runtime)
+    if not differences:
+        return
+    raise BenchmarkArtifactError(
+        f"the runtime provenance of {source} for {candidate.model_id!r} differs from the approved "
+        f"preflight in {differences}. The approved preflight is the model/runtime policy a human "
+        "reviewed; a full run may only execute the exact provenance it authorises.",
+        operation=operation,
+        model_id=candidate.model_id,
+        expected=str(sorted(approved_runtime))[:64],
+        observed=str(
+            sorted(cast("Mapping[str, object]", observed))
+            if isinstance(observed, Mapping)
+            else observed
+        )[:64],
+    )
+
+
 def execute_full_run(  # noqa: PLR0912, PLR0915 - the phases are the authorized run's state machine
     *,
     config: Res138ColabConfig,
@@ -351,6 +438,12 @@ def execute_full_run(  # noqa: PLR0912, PLR0915 - the phases are the authorized 
             "the full run must execute both frozen candidates in their declared order.",
             operation="execute_full_run",
         )
+    approved_runtime = {
+        candidate.model_id: _approved_runtime_provenance(
+            approved, candidate, operation="execute_full_run"
+        )
+        for candidate in candidates
+    }
 
     run_directory, run_manifest = create_res138_run(
         runs_root=runs_root,
@@ -419,6 +512,13 @@ def execute_full_run(  # noqa: PLR0912, PLR0915 - the phases are the authorized 
                 raise BenchmarkArtifactError(
                     "saved model-load time is invalid.", operation="resume_model_load"
                 )
+            _require_load_provenance_matches_preflight(
+                load_envelope.payload.get("model_provenance"),
+                approved_runtime[candidate.model_id],
+                candidate=candidate,
+                source="the saved model-load evidence",
+                operation="resume_model_load",
+            )
             saved_load = float(load_seconds)
             existing_loads[candidate.model_id] = (load_path, load_envelope.sha256, saved_load)
 
@@ -434,13 +534,19 @@ def execute_full_run(  # noqa: PLR0912, PLR0915 - the phases are the authorized 
                         operation="execute_full_run",
                         model_id=candidate.model_id,
                     )
+                observed_provenance = dict(encoder.describe())
+                _require_load_provenance_matches_preflight(
+                    observed_provenance,
+                    approved_runtime[candidate.model_id],
+                    candidate=candidate,
+                    source="the loaded model",
+                    operation="execute_full_run",
+                )
                 if saved_load is None:
                     load_payload: dict[str, Res138JsonValue] = {
                         **load_identity,
                         "model_load_seconds": measured_load,
-                        "model_provenance": cast(
-                            "dict[str, Res138JsonValue]", dict(encoder.describe())
-                        ),
+                        "model_provenance": cast("dict[str, Res138JsonValue]", observed_provenance),
                     }
                     load_sha = _write_artifact(load_path, "performance", load_payload)
                     saved_load = measured_load

@@ -50,6 +50,7 @@ from numpy.typing import NDArray
 from dynamisrag.benchmark.artifacts import ShardKind
 from dynamisrag.benchmark.calibration import CalibrationSet
 from dynamisrag.benchmark.contracts import (
+    RES138_ATTENTION_BACKEND,
     RES138_INPUT_MAX_TOKENS,
     RES138_INPUT_TRUNCATION_DIRECTION,
     RES138_MODEL_CANDIDATES,
@@ -78,6 +79,7 @@ __all__ = [
     "dtype_name",
     "load_keyword_arguments",
     "model_provenance",
+    "observed_attention_backend",
     "observed_library_versions",
     "observed_parameter_dtype",
     "probe_colab_runtime",
@@ -118,17 +120,30 @@ def load_keyword_arguments(
     ``trust_remote_code`` and ``revision`` are passed verbatim and separately —
     ``trust_remote_code`` because it is what makes Voyage constructible at all,
     ``revision`` because loading anything other than the pinned commit would
-    invalidate the artifact that names it. ``model_kwargs={"torch_dtype": ...}`` is
-    the sentence-transformers 5.0.0 supported shape for "load the weights in this
-    precision", and it is what stops the model falling back to the dtype its own
-    config declares (Qwen's pinned config says ``bfloat16``).
+    invalidate the artifact that names it.
+
+    ``model_kwargs`` carries the two frozen loading requests, identically for both
+    candidates and with no branch on the model id:
+
+    * ``torch_dtype`` is the sentence-transformers 5.0.0 supported shape for "load
+      the weights in this precision", and it is what stops the model falling back
+      to the dtype its own config declares (Qwen's pinned config says
+      ``bfloat16``);
+    * ``attn_implementation`` is the frozen
+      :data:`~dynamisrag.benchmark.contracts.RES138_ATTENTION_BACKEND`, so the
+      backend is **requested** here and then **observed** off the loaded model by
+      :func:`observed_attention_backend`, rather than left to whatever PyTorch's
+      dispatch would silently pick.
     """
     return {
         "revision": candidate.revision,
         "trust_remote_code": candidate.trust_remote_code,
         "cache_folder": str(cache_folder) if cache_folder is not None else None,
         "device": device,
-        "model_kwargs": {"torch_dtype": compute_dtype},
+        "model_kwargs": {
+            "torch_dtype": compute_dtype,
+            "attn_implementation": RES138_ATTENTION_BACKEND,
+        },
     }
 
 
@@ -246,6 +261,82 @@ def require_observed_compute_dtype(
     return observed
 
 
+def observed_attention_backend(model: object, *, operation: str) -> str:
+    """The attention implementation the loaded Hugging Face model actually selected.
+
+    **The authority is the loaded model, not the request.** ``attn_implementation``
+    is now passed in ``model_kwargs`` for both candidates, but PyTorch is
+    Colab-owned and what a request settles to is decided by Transformers at load
+    time — including a possible fallback. So the value is read back from the object
+    that encodes: the ``Transformer`` module at index 0 owns the Hugging Face
+    ``auto_model``, and Transformers 4.54.0 records the selected implementation in
+    ``auto_model.config._attn_implementation`` (a property over
+    ``_attn_implementation_internal``, set by ``from_pretrained`` and re-settled by
+    ``PreTrainedModel.__init__`` through ``_check_and_adjust_attn_implementation``).
+    That is the exact field the model code consults when it dispatches.
+
+    Pure and strict: it imports nothing, reads attributes only, and refuses
+
+    * a model whose index 0 does not expose an ``auto_model``,
+    * an ``auto_model`` without a ``config``,
+    * a missing/``None``/non-string ``_attn_implementation``, which is the shape a
+      load that never settled a backend leaves behind,
+    * any observed value other than
+      :data:`~dynamisrag.benchmark.contracts.RES138_ATTENTION_BACKEND`.
+
+    The refusal happens at construction, immediately after the model is built and
+    before any calibration, memory-probe or corpus encode, because an implicit
+    dispatch is not an observation and recording one would make "SDPA ran" a claim
+    about a default rather than a fact about the loaded model.
+    """
+    try:
+        transformer = model[0]  # pyright: ignore[reportIndexIssue]
+    except (TypeError, KeyError, IndexError):
+        raise BenchmarkExecutionError(
+            "the loaded model does not expose a Transformer module at index 0, so the attention "
+            "implementation it selected cannot be observed. A model whose own dispatch is not "
+            "readable cannot be recorded as running in the frozen backend.",
+            operation=operation,
+        ) from None
+    auto_model = getattr(transformer, "auto_model", None)
+    if auto_model is None:
+        raise BenchmarkExecutionError(
+            "the Transformer module exposes no Hugging Face auto_model, so the attention "
+            "implementation it selected cannot be observed.",
+            operation=operation,
+        )
+    config = getattr(auto_model, "config", None)
+    if config is None:
+        raise BenchmarkExecutionError(
+            "the loaded auto_model exposes no config, so the attention implementation it selected "
+            "cannot be observed. The authoritative field lives on that config.",
+            operation=operation,
+        )
+    observed = getattr(config, "_attn_implementation", None)
+    if not isinstance(observed, str):
+        raise BenchmarkExecutionError(
+            f"the loaded model reports attention implementation {observed!r}, which is not a "
+            "string. A missing, null or non-string value means no backend was settled on the "
+            "loaded config, and an unobserved dispatch cannot be recorded as the frozen "
+            f"{RES138_ATTENTION_BACKEND!r}. Nothing was encoded.",
+            operation=operation,
+            expected=RES138_ATTENTION_BACKEND,
+            observed=repr(observed),
+        )
+    if observed != RES138_ATTENTION_BACKEND:
+        raise BenchmarkExecutionError(
+            f"the frozen attention backend is {RES138_ATTENTION_BACKEND!r} and the loaded model "
+            f"reports {observed!r}. The backend is requested at load and then observed off the "
+            "loaded auto_model config; a model that dispatched under another implementation would "
+            "produce vectors under an execution identity the plan does not declare. Nothing was "
+            "encoded.",
+            operation=operation,
+            expected=RES138_ATTENTION_BACKEND,
+            observed=observed,
+        )
+    return observed
+
+
 def require_loaded_truncation_policy(
     *,
     candidate: ModelCandidateSpec,
@@ -296,6 +387,8 @@ def model_provenance(
     candidate: ModelCandidateSpec,
     requested_compute_dtype: str,
     observed_compute_dtype: str,
+    requested_attention_backend: str,
+    observed_attention_backend: str,
     loaded_max_sequence_length: int,
     batch_size: int,
     device: str,
@@ -310,6 +403,12 @@ def model_provenance(
     first, which is a false statement about how the vectors were produced: a NumPy array
     cast to float32 says nothing about the precision the forward pass ran in.
 
+    **The attention backend is kept split for the same reason.** The request is passed
+    in ``load_keyword_arguments``; what ran is read back off the loaded model by
+    :func:`observed_attention_backend`, which refuses a mismatch before this function
+    is reached. Recording only ``requested`` would turn "SDPA ran" into a claim about
+    what was asked for rather than what the model reports.
+
     Nothing here is CUDA allocator telemetry. Free and reserved VRAM vary with the
     allocator's mood and with what else the session has done, so recording them would put
     a number that changes between two runs of identical code into the run identity.
@@ -322,6 +421,8 @@ def model_provenance(
         "requested_compute_dtype": requested_compute_dtype,
         "observed_compute_dtype": observed_compute_dtype,
         "output_dtype": candidate.output_dtype,
+        "requested_attention_backend": requested_attention_backend,
+        "observed_attention_backend": observed_attention_backend,
         "pooling_mode": candidate.pooling_mode,
         "native_max_sequence_length": candidate.native_max_sequence_length,
         "loaded_max_sequence_length": loaded_max_sequence_length,
@@ -462,10 +563,13 @@ class SentenceTransformersCalibrationEncoder:
     exactly the frozen common input boundary, or whose tokenizer truncates from the
     other side, would shorten inputs at a point or from an end nobody declared;
     :func:`require_loaded_truncation_policy` refuses both at construction, before
-    any encode. A loaded model's pooling and its normalisation stage have already
-    been checked against the pinned repository by
-    :func:`~dynamisrag.benchmark.res138.verify_pinned_model_metadata`, which reads
-    the same files this model was loaded from.
+    any encode. The attention backend is requested in the load keywords and then
+    observed off the loaded ``auto_model`` config by
+    :func:`observed_attention_backend`, which refuses any other implementation
+    before calibration, probing or corpus encoding. A loaded model's pooling and
+    its normalisation stage have already been checked against the pinned repository
+    by :func:`~dynamisrag.benchmark.res138.verify_pinned_model_metadata`, which
+    reads the same files this model was loaded from.
     """
 
     candidate: ModelCandidateSpec
@@ -512,6 +616,10 @@ class SentenceTransformersCalibrationEncoder:
                 compute_dtype=self.compute_dtype,
             ),
         )
+        self.requested_attention_backend = RES138_ATTENTION_BACKEND
+        self.observed_attention_backend = observed_attention_backend(
+            self.model, operation="load_candidate"
+        )
         self.observed_compute_dtype = require_observed_compute_dtype(
             candidate=self.candidate, model=self.model, operation="load_candidate"
         )
@@ -530,15 +638,19 @@ class SentenceTransformersCalibrationEncoder:
     def describe(self) -> dict[str, object]:
         """Model provenance for the preflight artifact.
 
-        ``observed_compute_dtype`` is what the loaded parameters are, not what was asked
-        for; ``__post_init__`` has already refused a model where the two differ, so the
-        two fields being equal here is a fact rather than a hope.
+        ``observed_compute_dtype`` is what the loaded parameters are and
+        ``observed_attention_backend`` is what the loaded ``auto_model`` config
+        reports, not what was asked for; ``__post_init__`` has already refused a
+        model where either differs from the frozen request, so the pairs being
+        equal here is a fact rather than a hope.
         """
         return dict(
             model_provenance(
                 candidate=self.candidate,
                 requested_compute_dtype=self.requested_compute_dtype,
                 observed_compute_dtype=self.observed_compute_dtype,
+                requested_attention_backend=self.requested_attention_backend,
+                observed_attention_backend=self.observed_attention_backend,
                 loaded_max_sequence_length=int(self.model.max_seq_length),
                 batch_size=self.batch_size,
                 device=self.device,
