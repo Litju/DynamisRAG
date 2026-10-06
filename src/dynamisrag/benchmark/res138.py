@@ -8,7 +8,7 @@ This module is the *whole* notebook-facing API:
     verify_pinned_model_metadata    read the pinned repo configs and refuse a drift
     run_mrl_calibration          native-512 vs derived-512, per model and per path
     create_res138_run            open or refuse a Drive run directory
-    write_preflight_bundle       res138-preflight-v1, the gate the full run needs
+    write_preflight_bundle       res138-preflight-v2, the gate the full run needs
     verify_preflight_bundle      re-check one from disk
     require_approved_preflight   the only way into a full run
 
@@ -107,6 +107,7 @@ from dynamisrag.benchmark.mrl import (
 )
 from dynamisrag.benchmark.retrieval import RES138_SCORE_DTYPE
 from dynamisrag.benchmark.runtime import RuntimeFingerprint
+from dynamisrag.benchmark.scheduling import BATCH_SIZES, SCHEDULER_REVISION, TOKEN_SQUARE_BUDGET
 from dynamisrag.benchmark.selection import RES138_RECALL_TIE_TOLERANCE
 from dynamisrag.embedding.contracts import (
     EmbeddingGenerationConfig,
@@ -322,6 +323,20 @@ def benchmark_plan(code_sha: str, *, operation: str = "benchmark_plan") -> Artif
     payload: dict[str, Res138JsonValue] = {
         "artifact_revision": RES138_ARTIFACT_REVISIONS["plan"],
         "code_sha": code_sha,
+        "execution_policy": {
+            "scheduler_revision": SCHEDULER_REVISION,
+            "token_square_budget": TOKEN_SQUARE_BUDGET,
+            "allowed_document_batch_sizes": list(BATCH_SIZES),
+            "cuda_required": True,
+            "minimum_compute_capability": "8.0",
+            "minimum_gpu_memory_bytes": 80_000_000_000,
+            "memory_probe_revision": "res138-corpus-memory-probe-v1",
+            "voyage_stop_rule": (
+                "A100 80GB longest legal document batch=1 float32 SDPA failure "
+                "operationally disqualifies Voyage; select Qwen, "
+                "no further backend optimization tranche"
+            ),
+        },
         "candidates": [
             cast("dict[str, Res138JsonValue]", dict(candidate.payload()))
             for candidate in candidates
@@ -761,6 +776,7 @@ def run_mrl_calibration(
                 item_ids=item_ids,
                 candidate=candidate,
                 operation=operation,
+                kind=kind,
             )
             native_1024 = encoder.encode(texts, kind=kind, dimension=RES138_BASE_DIMENSION)
             native_512 = encoder.encode(
@@ -787,13 +803,16 @@ def require_within_sequence_limit(
     item_ids: Sequence[str],
     candidate: ModelCandidateSpec,
     operation: str,
+    kind: ShardKind = ShardKind.DOCUMENTS,
 ) -> None:
     """Refuse an input longer than the frozen native boundary, naming its id.
 
     Reported by id and token count, never by text: the offending item is
     third-party scientific literature and an error message reaches a terminal.
     """
-    counts = encoder.token_counts(texts)
+    counts = encoder.token_counts(
+        tuple(candidate.prompt(kind=kind.prompt_name).content + text for text in texts)
+    )
     for item_id, count in zip(item_ids, counts, strict=True):
         if count > candidate.native_max_sequence_length:
             raise BenchmarkExecutionError(
@@ -851,8 +870,9 @@ def write_preflight_bundle(
     calibration: CalibrationSet,
     decisions: Sequence[MrlPathDecision],
     artifact_digests: Mapping[str, str],
+    memory_probes: Sequence[Mapping[str, Res138JsonValue]] = (),
 ) -> str:
-    """Write ``res138-preflight-v1`` and return its SHA-256.
+    """Write ``res138-preflight-v2`` and return its SHA-256.
 
     The artifact a human reads before approving a full run, so it states everything
     the full run would rely on: the code commit, the runtime payload and its
@@ -887,6 +907,7 @@ def write_preflight_bundle(
         "generation_semantics_sha256": generation_semantics_sha256(),
         "sources": [item.payload() for item in loaded],
         "models": list(model_provenance),
+        "memory_probes": list(memory_probes),
         "mrl_calibration": calibration_payload,
         "tei_equivalence": {
             "status": "not_run",

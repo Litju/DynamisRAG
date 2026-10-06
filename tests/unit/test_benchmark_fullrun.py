@@ -58,6 +58,7 @@ from dynamisrag.benchmark.fullrun import (
     execute_full_run,
     require_full_run_approval,
 )
+from dynamisrag.benchmark.memory_probe import run_memory_probe
 from dynamisrag.benchmark.mrl import (
     MrlPathDecision,
     derive_mrl_prefix,
@@ -81,6 +82,7 @@ from dynamisrag.benchmark.runtime import (
     RuntimeProbe,
     capture_runtime_fingerprint,
 )
+from dynamisrag.benchmark.scheduling import scheduling_evidence
 from dynamisrag.embedding.contracts import canonical_json
 
 _CODE_SHA: Final[str] = "a" * 40
@@ -378,6 +380,15 @@ def _approval(
         calibration=_calibration_set(),
         decisions=decisions,
         artifact_digests={},
+        memory_probes=[
+            cast(
+                "dict[str, Res138JsonValue]",
+                run_memory_probe(
+                    encoder=_Encoder(candidate), candidate=candidate, workloads=workloads
+                ),
+            )
+            for candidate in RES138_MODEL_CANDIDATES
+        ],
     )
     if omit_decision:
         approval_sha = _mutate_preflight(preflight_path, _drop_one_decision)
@@ -424,6 +435,7 @@ def _execute(
         fingerprint=fingerprint,
         workloads=workloads,
         source_digests=_SOURCE_DIGESTS,
+        token_count_factory=lambda candidate: _Encoder(candidate).token_counts,
         encoder_factory=factory,
         release=release,
         clock=_Clock(),
@@ -462,6 +474,7 @@ def test_full_mode_refuses_missing_and_wrong_approval_before_loading_a_candidate
             fingerprint=fingerprint,
             workloads=workloads,
             source_digests=_SOURCE_DIGESTS,
+            token_count_factory=lambda candidate: _Encoder(candidate).token_counts,
             encoder_factory=lambda candidate: loads.append(candidate.model_id),  # type: ignore[arg-type]
             release=lambda: None,
             clock=_Clock(),
@@ -486,6 +499,7 @@ def test_an_old_code_preflight_cannot_authorize_the_new_code(tmp_path: Path) -> 
             fingerprint=current,
             workloads=workloads,
             source_digests=_SOURCE_DIGESTS,
+            token_count_factory=lambda candidate: _Encoder(candidate).token_counts,
             plan_sha256=benchmark_plan(_CODE_SHA).sha256,
         )
 
@@ -501,6 +515,7 @@ def test_a_preflight_for_another_runtime_or_run_cannot_resume(tmp_path: Path, dr
             fingerprint=other_runtime,
             workloads=workloads,
             source_digests=_SOURCE_DIGESTS,
+            token_count_factory=lambda candidate: _Encoder(candidate).token_counts,
             plan_sha256=benchmark_plan(_CODE_SHA).sha256,
         )
 
@@ -520,6 +535,7 @@ def test_resume_refuses_a_run_manifest_with_another_identity(tmp_path: Path) -> 
             fingerprint=fingerprint,
             workloads=workloads,
             source_digests=_SOURCE_DIGESTS,
+            token_count_factory=lambda candidate: _Encoder(candidate).token_counts,
             encoder_factory=lambda candidate: loads.append(candidate.model_id),  # type: ignore[arg-type]
             release=lambda: None,
             clock=_Clock(),
@@ -588,6 +604,9 @@ def test_performance_grouping_keeps_every_shard_ordinal(tmp_path: Path) -> None:
         row_count=len(next_ids),
         ordered_ids_sha256=ordered_ids_sha256(next_ids),
         ids=next_ids,
+        document_scheduling=cast(
+            "dict[str, Res138JsonValue]", scheduling_evidence([1] * len(next_ids))
+        ),
     )
     sides = {
         (candidate.model_id, "scifact", "documents", 1024, ShardKind.DOCUMENTS, 0): first,
@@ -619,6 +638,7 @@ def test_candidate_is_released_when_encoding_fails(tmp_path: Path) -> None:
             fingerprint=fingerprint,
             workloads=workloads,
             source_digests=_SOURCE_DIGESTS,
+            token_count_factory=lambda candidate: _Encoder(candidate).token_counts,
             encoder_factory=factory,
             release=release,
             clock=_Clock(),
@@ -643,6 +663,7 @@ def test_missing_valid_shards_resume_without_reencoding_and_keep_result_bytes(
         fingerprint=fingerprint,
         workloads=workloads,
         source_digests=_SOURCE_DIGESTS,
+        token_count_factory=lambda candidate: _Encoder(candidate).token_counts,
         encoder_factory=lambda candidate: loads.append(candidate.model_id),  # type: ignore[arg-type]
         release=lambda: pytest.fail("no candidate needs to be loaded"),
         clock=_Clock(),
@@ -683,6 +704,7 @@ def test_an_absent_shard_is_regenerated_and_only_its_inputs_are_encoded(tmp_path
         fingerprint=fingerprint,
         workloads=workloads,
         source_digests=_SOURCE_DIGESTS,
+        token_count_factory=lambda candidate: _Encoder(candidate).token_counts,
         encoder_factory=factory,
         release=lambda: None,
         clock=_Clock(),
@@ -690,7 +712,9 @@ def test_an_absent_shard_is_regenerated_and_only_its_inputs_are_encoded(tmp_path
 
     assert len(encoders) == 1
     assert encoders[0].candidate.model_id == candidate.model_id
-    assert encoders[0].calls == [(ShardKind.DOCUMENTS, RES138_BASE_DIMENSION, 100)]
+    assert encoders[0].calls == [(ShardKind.DOCUMENTS, RES138_BASE_DIMENSION, 16)] * 6 + [
+        (ShardKind.DOCUMENTS, RES138_BASE_DIMENSION, 4)
+    ]
 
 
 def test_a_corrupt_shard_fails_before_any_candidate_load(tmp_path: Path) -> None:
@@ -713,6 +737,7 @@ def test_a_corrupt_shard_fails_before_any_candidate_load(tmp_path: Path) -> None
             fingerprint=fingerprint,
             workloads=workloads,
             source_digests=_SOURCE_DIGESTS,
+            token_count_factory=lambda candidate: _Encoder(candidate).token_counts,
             encoder_factory=lambda candidate: loads.append(candidate.model_id),  # type: ignore[arg-type]
             release=lambda: None,
             clock=_Clock(),
@@ -749,6 +774,7 @@ def test_a_derived512_shard_cannot_resume_against_another_1024_matrix(tmp_path: 
             fingerprint=fingerprint,
             workloads=workloads,
             source_digests=_SOURCE_DIGESTS,
+            token_count_factory=lambda candidate: _Encoder(candidate).token_counts,
             encoder_factory=lambda candidate: loads.append(candidate.model_id),  # type: ignore[arg-type]
             release=lambda: None,
             clock=_Clock(),
@@ -789,6 +815,7 @@ def test_missing_calibration_decision_refuses_before_model_construction(tmp_path
             fingerprint=fingerprint,
             workloads=workloads,
             source_digests=_SOURCE_DIGESTS,
+            token_count_factory=lambda candidate: _Encoder(candidate).token_counts,
             encoder_factory=lambda candidate: loads.append(candidate.model_id),  # type: ignore[arg-type]
             release=lambda: None,
             clock=_Clock(),
@@ -848,6 +875,7 @@ def test_a_real_preflight_passes_the_repaired_validator_and_fails_the_legacy_fla
         fingerprint=fingerprint,
         workloads=workloads,
         source_digests=_SOURCE_DIGESTS,
+        token_count_factory=lambda candidate: _Encoder(candidate).token_counts,
         plan_sha256=benchmark_plan(_CODE_SHA).sha256,
     )
     assert approved.sha256 == config.approved_preflight_sha256
@@ -953,6 +981,7 @@ def test_a_drifted_or_incomplete_model_policy_refuses_before_any_load(
             fingerprint=fingerprint,
             workloads=workloads,
             source_digests=_SOURCE_DIGESTS,
+            token_count_factory=lambda candidate: _Encoder(candidate).token_counts,
             encoder_factory=lambda candidate: loads.append(candidate.model_id),  # type: ignore[arg-type]
             release=lambda: None,
             clock=_Clock(),
@@ -1072,7 +1101,7 @@ def test_exact_rankings_metrics_unweighted_macro_bootstrap_and_performance_are_m
     )
     assert performance.payload["model_load_seconds"] == pytest.approx(0.01)
     assert performance.payload["corpus_document_count"] == 300
-    assert performance.payload["corpus_documents_per_second"] == pytest.approx(10_000)
+    assert performance.payload["corpus_documents_per_second"] == pytest.approx(100 / 0.07)
     latency_policy = cast("dict[str, object]", performance.payload["query_latency_policy"])
     assert latency_policy["p95_ms"] == pytest.approx(10.0)
     full = read_artifact(directory / "full-run.json", name="full_run")

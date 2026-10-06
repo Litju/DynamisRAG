@@ -275,6 +275,24 @@ def require_cuda_available(*, available: bool, device_count: int, operation: str
     )
 
 
+def require_execution_floor(
+    *,
+    available: bool,
+    device_count: int,
+    capability: tuple[int, int],
+    total_memory_bytes: int,
+    operation: str,
+) -> None:
+    """Accept A100 80GB and larger CUDA cards before any model work."""
+    require_cuda_available(available=available, device_count=device_count, operation=operation)
+    if capability < (8, 0) or total_memory_bytes < 80_000_000_000:
+        raise BenchmarkExecutionError(
+            "RES-138 requires CUDA compute capability >= 8.0 "
+            "and GPU memory >= 80_000_000_000 bytes.",
+            operation=operation,
+        )
+
+
 def require_torch_unchanged(
     *, before: Mapping[str, str], after: Mapping[str, str], operation: str
 ) -> None:

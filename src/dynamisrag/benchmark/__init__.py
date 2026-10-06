@@ -4,7 +4,7 @@
         -> RetrievalWorkload      (canonical order, every content digest bound)
         -> native model vectors   (float32, L2-normalised, pinned revisions)
         -> MRL derivation         (1024 -> 512, only where calibration proves it)
-        -> sharded .npy artifacts (res138-shard-v2, resumable)
+        -> sharded .npy artifacts (res138-shard-v3, resumable)
         -> exact cosine top-100   (chunked, deterministic tie order)
         -> per-query/workload/macro metrics, paired bootstrap and performance evidence
         -> res138-full-run-v1 (selection remains a later evidence step)

@@ -6,7 +6,7 @@ returns a report that binds every byte it found to a declared digest, or refuses
 
 **What "verified" means here, in full.** Every file the root manifest declares
 exists and hashes to the declared value; the tree contains no file the manifest
-does not declare; every shard sidecar declares the ``res138-shard-v2`` revision
+does not declare; every shard sidecar declares the ``res138-shard-v3`` revision
 and its matrix hashes to the declared digest with the declared dtype, dimension,
 row count and normalisation; the shard id lists are individually ascending and,
 concatenated in ordinal order, reproduce one strictly ascending canonical

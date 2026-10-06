@@ -56,6 +56,7 @@ from dynamisrag.benchmark.contracts import (
 )
 from dynamisrag.benchmark.errors import BenchmarkArtifactError, BenchmarkContractError
 from dynamisrag.benchmark.retrieval import RES138_SCORE_DTYPE, require_normalised_matrix
+from dynamisrag.benchmark.scheduling import validate_scheduling_evidence
 from dynamisrag.embedding.contracts import canonical_json
 
 __all__ = [
@@ -369,6 +370,7 @@ class ShardSidecar:
     inference_seconds: float = 0.0
     query_latency_ms: tuple[float, ...] = ()
     derived_from_matrix_sha256: str | None = None
+    document_scheduling: dict[str, Res138JsonValue] | None = None
 
     def payload(self) -> dict[str, Res138JsonValue]:
         """The hashed payload, including the id list."""
@@ -396,6 +398,7 @@ class ShardSidecar:
             "inference_seconds": self.inference_seconds,
             "query_latency_ms": list(self.query_latency_ms),
             "derived_from_matrix_sha256": self.derived_from_matrix_sha256,
+            "document_scheduling": self.document_scheduling,
         }
 
     @property
@@ -411,6 +414,12 @@ class ShardSidecar:
         return self.sha256
 
     def __post_init__(self) -> None:
+        if self.kind is ShardKind.DOCUMENTS:
+            validate_scheduling_evidence(self.document_scheduling, row_count=self.row_count)
+        elif self.document_scheduling is not None:
+            raise BenchmarkArtifactError(
+                "queries cannot carry document scheduling", operation="shard_sidecar"
+            )
         expected = RES138_ARTIFACT_REVISIONS["shard"]
         if self.artifact_revision != expected:
             raise BenchmarkArtifactError(
@@ -535,6 +544,7 @@ def build_shard_sidecar(
     inference_seconds: float = 0.0,
     query_latency_ms: Sequence[float] = (),
     derived_from_matrix_sha256: str | None = None,
+    document_scheduling: dict[str, Res138JsonValue] | None = None,
     operation: str,
 ) -> ShardSidecar:
     """Describe one finished shard from its matrix and its id range.
@@ -586,6 +596,7 @@ def build_shard_sidecar(
         inference_seconds=inference_seconds,
         query_latency_ms=tuple(query_latency_ms),
         derived_from_matrix_sha256=derived_from_matrix_sha256,
+        document_scheduling=document_scheduling,
     )
 
 
@@ -683,6 +694,9 @@ def read_shard_sidecar(path: Path) -> ShardSidecar:
         inference_seconds=float(seconds),
         query_latency_ms=tuple(float(item) for item in cast("list[int | float]", latency_values)),
         derived_from_matrix_sha256=derived_from,
+        document_scheduling=cast(
+            "dict[str, Res138JsonValue] | None", decoded.get("document_scheduling")
+        ),
     )
 
 

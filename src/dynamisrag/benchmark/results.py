@@ -58,6 +58,7 @@ from dynamisrag.benchmark.contracts import (
     ordered_ids_sha256,
 )
 from dynamisrag.benchmark.errors import BenchmarkArtifactError
+from dynamisrag.benchmark.memory_probe import memory_probe_policy
 from dynamisrag.benchmark.metrics import (
     QueryMetricRow,
     WorkloadMetrics,
@@ -72,6 +73,7 @@ from dynamisrag.benchmark.mrl import (
 )
 from dynamisrag.benchmark.res138 import verify_preflight_bundle
 from dynamisrag.benchmark.retrieval import QueryRanking, RankedDocument, exact_top_k
+from dynamisrag.benchmark.scheduling import scheduling_summary
 from dynamisrag.embedding.contracts import canonical_json
 
 
@@ -197,6 +199,28 @@ def verify_full_run_bundle(  # noqa: PLR0912, PLR0915 - validates one cross-arti
             )
 
     sidecars, ids_by_group = _shard_inventory(root, run_manifest, sources, decisions)
+    probes = _mapping_rows(preflight.payload.get("memory_probes"), "memory probes")
+    if len(probes) != len(RES138_MODEL_CANDIDATES):
+        _fail("the preflight does not cover both memory probes")
+    for candidate, probe in zip(RES138_MODEL_CANDIDATES, probes, strict=True):
+        counts = {
+            name: [
+                count
+                for side in sidecars[(candidate.model_id, 1024, name, ShardKind.DOCUMENTS)]
+                for count in cast(
+                    "list[int]",
+                    cast("dict[str, Res138JsonValue]", side.document_scheduling)["token_counts"],
+                )
+            ]
+            for name in RES138_WORKLOAD_NAMES
+        }
+        workload_ids = {
+            name: ids_by_group[(candidate.model_id, 1024, name, ShardKind.DOCUMENTS)]
+            for name in RES138_WORKLOAD_NAMES
+        }
+        expected_probe = memory_probe_policy(candidate, workload_ids, counts)
+        if _canonical(probe) != _canonical(expected_probe):
+            _fail("memory probe does not reconstruct from approved document shards")
     _require_expected_bundle_files(root, declared, set(records) | {"full-run.json"}, sidecars)
     _verify_summary_shards(root, full.payload.get("shards"), sidecars)
 
@@ -658,6 +682,8 @@ def _require_derived_binding(
     *,
     derived512_allowed: bool,
 ) -> None:
+    if output.document_scheduling != base.document_scheduling:
+        _fail("512 document scheduling differs from its 1024 corpus inputs")
     expected_source = base.matrix_sha256 if derived512_allowed else None
     if output.derived_from_matrix_sha256 != expected_source:
         _fail(
@@ -861,6 +887,7 @@ def _verify_performance(  # noqa: PLR0912, PLR0915 - reconcile recorded timings 
             latency_rows: list[Res138JsonValue] = []
             latency_values: list[float] = []
             workload_rows: list[Res138JsonValue] = []
+            schedules: list[Mapping[str, object]] = []
             for workload_name in RES138_WORKLOAD_NAMES:
                 workload_docs = sidecars[
                     (candidate.model_id, dimension, workload_name, ShardKind.DOCUMENTS)
@@ -869,6 +896,9 @@ def _verify_performance(  # noqa: PLR0912, PLR0915 - reconcile recorded timings 
                     (candidate.model_id, dimension, workload_name, ShardKind.QUERIES)
                 ]
                 seconds = sum(item.inference_seconds for item in workload_docs)
+                schedules.extend(
+                    cast("Mapping[str, object]", item.document_scheduling) for item in workload_docs
+                )
                 count = sum(item.row_count for item in workload_docs)
                 corpus_seconds += seconds
                 document_count += count
@@ -910,6 +940,10 @@ def _verify_performance(  # noqa: PLR0912, PLR0915 - reconcile recorded timings 
                 _fail(f"{relative} corpus timing does not match its shard sidecars")
             if payload.get("corpus_documents_per_second") != document_count / corpus_seconds:
                 _fail(f"{relative} throughput does not reconstruct")
+            if _canonical(payload.get("document_scheduling")) != _canonical(
+                scheduling_summary(schedules)
+            ):
+                _fail(f"{relative} document scheduling histogram does not reconstruct")
             if _canonical(payload.get("workloads")) != _canonical(workload_rows):
                 _fail(f"{relative} workload performance does not reconstruct")
             latency = payload.get("query_latency_policy")

@@ -406,7 +406,12 @@ def test_declared_artifact_revisions_are_the_only_ones_in_the_benchmark() -> Non
                 and re.fullmatch(r"res138-.+-v\d+", node.value) is not None
             ):
                 found.add(node.value)
-    assert found <= declared | {"res138-run-manifest-v1", "res138-bundle-manifest-v1"}
+    assert found <= declared | {
+        "res138-run-manifest-v1",
+        "res138-bundle-manifest-v1",
+        "res138-token-square-v1",
+        "res138-corpus-memory-probe-v1",
+    }
     assert declared <= found, "a declared artifact revision has no literal anywhere"
 
 

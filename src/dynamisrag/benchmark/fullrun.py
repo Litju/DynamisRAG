@@ -55,6 +55,7 @@ from dynamisrag.benchmark.errors import (
     BenchmarkExecutionError,
     BenchmarkPreflightError,
 )
+from dynamisrag.benchmark.memory_probe import require_memory_probes
 from dynamisrag.benchmark.metrics import (
     WorkloadMetrics,
     evaluate_workload,
@@ -81,7 +82,12 @@ from dynamisrag.benchmark.retrieval import (
     exact_top_k,
     require_normalised_matrix,
 )
-from dynamisrag.benchmark.runtime import RuntimeFingerprint, run_id_for
+from dynamisrag.benchmark.runtime import RuntimeFingerprint, require_execution_floor, run_id_for
+from dynamisrag.benchmark.scheduling import (
+    document_schedule,
+    scheduling_evidence,
+    scheduling_summary,
+)
 from dynamisrag.embedding.contracts import canonical_json
 
 __all__ = ["FullRunReport", "execute_full_run", "require_full_run_approval"]
@@ -125,6 +131,8 @@ def require_full_run_approval(
     workloads: Mapping[str, RetrievalWorkload],
     source_digests: Mapping[str, str],
     plan_sha256: str,
+    token_count_factory: Callable[[ModelCandidateSpec], Callable[[Sequence[str]], tuple[int, ...]]]
+    | None = None,
 ) -> tuple[ArtifactEnvelope, tuple[MrlPathDecision, ...]]:
     """Check the exact preflight identity before touching a corpus embedding path."""
     if config.run_mode != RUN_MODE_FULL:
@@ -180,6 +188,27 @@ def require_full_run_approval(
         operation="require_full_run_approval",
     )
     _require_preflight_batch_size(approved, operation="require_full_run_approval")
+    require_execution_floor(
+        available=True,
+        device_count=1,
+        capability=cast(
+            "tuple[int, int]",
+            tuple(
+                int(part) for part in str(fingerprint.payload["gpu_compute_capability"]).split(".")
+            ),
+        ),
+        total_memory_bytes=cast("int", fingerprint.payload["gpu_total_memory_bytes"]),
+        operation="require_full_run_approval",
+    )
+    if token_count_factory is None:
+        from dynamisrag.benchmark.runner import document_token_counter
+
+        token_count_factory = document_token_counter
+    require_memory_probes(
+        approved.payload.get("memory_probes"),
+        workloads=workloads,
+        count_factory=token_count_factory,
+    )
     return approved, decisions
 
 
@@ -297,6 +326,8 @@ def execute_full_run(  # noqa: PLR0912, PLR0915 - the phases are the authorized 
     candidates: Sequence[ModelCandidateSpec] = RES138_MODEL_CANDIDATES,
     batch_size: int = _ENCODER_BATCH_SIZE,
     clock: Callable[[], float] = time.perf_counter,
+    token_count_factory: Callable[[ModelCandidateSpec], Callable[[Sequence[str]], tuple[int, ...]]]
+    | None = None,
 ) -> FullRunReport:
     """Run the authorised corpus path, materialise all evidence and seal the bundle."""
     plan = benchmark_plan(config.code_sha)
@@ -307,6 +338,7 @@ def execute_full_run(  # noqa: PLR0912, PLR0915 - the phases are the authorized 
         workloads=workloads,
         source_digests=source_digests,
         plan_sha256=plan.sha256,
+        token_count_factory=token_count_factory,
     )
     if batch_size != _ENCODER_BATCH_SIZE:
         raise BenchmarkExecutionError(
@@ -344,6 +376,9 @@ def execute_full_run(  # noqa: PLR0912, PLR0915 - the phases are the authorized 
     existing_loads: dict[str, tuple[Path, str, float]] = {}
     shard_sides: dict[tuple[str, str, str, int, ShardKind, int], ShardSidecar] = {}
     for candidate in candidates:
+        probes = cast("list[dict[str, Res138JsonValue]]", approved.payload["memory_probes"])
+        probe = next(item for item in probes if item["model_id"] == candidate.model_id)
+        corpus_counts = cast("dict[str, list[int]]", probe["corpus_token_counts"])
         missing = _scan_candidate_shards(
             run_directory=run_directory,
             candidate=candidate,
@@ -351,6 +386,7 @@ def execute_full_run(  # noqa: PLR0912, PLR0915 - the phases are the authorized 
             decisions=decisions,
             code_sha=config.code_sha,
             runtime_sha256=fingerprint.sha256,
+            corpus_counts=corpus_counts,
         )
         load_path = _candidate_load_path(run_directory, candidate)
         load_identity = _identity(config, fingerprint, plan.sha256, approved.sha256)
@@ -421,6 +457,7 @@ def execute_full_run(  # noqa: PLR0912, PLR0915 - the phases are the authorized 
                     missing=missing,
                     clock=clock,
                     shard_sides=shard_sides,
+                    corpus_counts=corpus_counts,
                 )
             finally:
                 if encoder is not None:
@@ -747,6 +784,7 @@ def _performance_payload(
     latencies: list[float] = []
     latency_rows: list[Res138JsonValue] = []
     workloads_payload: list[Res138JsonValue] = []
+    schedules: list[Mapping[str, object]] = []
     for workload_name in RES138_WORKLOAD_NAMES:
         workload = workloads[workload_name]
         doc_sides = _get_group_sides(
@@ -756,6 +794,9 @@ def _performance_payload(
             shard_sides, candidate, workload_name, ShardKind.QUERIES, dimension
         )
         workload_seconds = sum(side.inference_seconds for side in doc_sides)
+        schedules.extend(
+            cast("Mapping[str, object]", side.document_scheduling) for side in doc_sides
+        )
         corpus_seconds += workload_seconds
         documents += len(workload.documents)
         for side in query_sides:
@@ -816,6 +857,7 @@ def _performance_payload(
             "dimension_512": "approved MRL derivation or native-512 fallback per path decision",
         },
         "corpus_document_count": documents,
+        "document_scheduling": cast("dict[str, Res138JsonValue]", scheduling_summary(schedules)),
         "corpus_inference_seconds": corpus_seconds,
         "corpus_documents_per_second": documents / corpus_seconds,
         "workloads": workloads_payload,
@@ -869,6 +911,7 @@ def _scan_candidate_shards(  # noqa: PLR0912 - validates shard bytes, identity a
     decisions: Sequence[MrlPathDecision],
     code_sha: str,
     runtime_sha256: str,
+    corpus_counts: Mapping[str, Sequence[int]],
 ) -> set[tuple[str, ShardKind, int, int]]:
     missing: set[tuple[str, ShardKind, int, int]] = set()
     present_sidecars: dict[tuple[str, ShardKind, int, int], ShardSidecar] = {}
@@ -932,6 +975,17 @@ def _scan_candidate_shards(  # noqa: PLR0912 - validates shard bytes, identity a
                         )
                     expected_ids = ids[index * RES138_SHARD_SIZE : (index + 1) * RES138_SHARD_SIZE]
                     sidecar = read_shard_sidecar(sidecar_path)
+                    if kind is ShardKind.DOCUMENTS:
+                        expected_schedule = scheduling_evidence(
+                            corpus_counts[workload_name][
+                                index * RES138_SHARD_SIZE : (index + 1) * RES138_SHARD_SIZE
+                            ]
+                        )
+                        if sidecar.document_scheduling != expected_schedule:
+                            raise BenchmarkArtifactError(
+                                "shard scheduling differs from approved corpus counts",
+                                operation="resume_shards",
+                            )
                     _validate_sidecar_identity(
                         sidecar,
                         candidate=candidate,
@@ -1048,6 +1102,7 @@ def _require_derived_binding(
     if derived512_allowed and (
         output.inference_seconds != base.inference_seconds
         or output.query_latency_ms != base.query_latency_ms
+        or output.document_scheduling != base.document_scheduling
     ):
         raise BenchmarkArtifactError(
             f"derived 512 shard {output.shard_index} of {output.workload}/{output.kind.value} "
@@ -1071,6 +1126,7 @@ def _ensure_candidate_shards(
     missing: set[tuple[str, ShardKind, int, int]],
     clock: Callable[[], float],
     shard_sides: dict[tuple[str, str, str, int, ShardKind, int], ShardSidecar],
+    corpus_counts: Mapping[str, Sequence[int]],
 ) -> None:
     _ = batch_size
     for workload_name in RES138_WORKLOAD_NAMES:
@@ -1097,7 +1153,7 @@ def _ensure_candidate_shards(
                 expected_texts = texts[start : start + RES138_SHARD_SIZE]
                 base_key = (workload_name, kind, RES138_BASE_DIMENSION, index)
                 if base_key in missing:
-                    matrix, seconds, latencies = _encode_input_shard(
+                    matrix, seconds, latencies, scheduling = _encode_input_shard(
                         encoder=encoder,
                         candidate=candidate,
                         kind=kind,
@@ -1106,11 +1162,17 @@ def _ensure_candidate_shards(
                         texts=expected_texts,
                         clock=clock,
                         operation="encode_corpus",
+                        expected_token_counts=corpus_counts[workload_name][
+                            start : start + RES138_SHARD_SIZE
+                        ]
+                        if kind is ShardKind.DOCUMENTS
+                        else None,
                     )
                     sidecar = _write_shard(
                         matrix=matrix,
                         inference_seconds=seconds,
                         query_latency_ms=latencies,
+                        document_scheduling=scheduling,
                         candidate=candidate,
                         workload=workload,
                         kind=kind,
@@ -1189,8 +1251,9 @@ def _ensure_candidate_shards(
                     seconds = sidecar.inference_seconds
                     latencies = sidecar.query_latency_ms
                     derived_from_matrix_sha256 = sidecar.matrix_sha256
+                    scheduling = sidecar.document_scheduling
                 else:
-                    matrix, seconds, latencies = _encode_input_shard(
+                    matrix, seconds, latencies, scheduling = _encode_input_shard(
                         encoder=encoder,
                         candidate=candidate,
                         kind=kind,
@@ -1199,11 +1262,17 @@ def _ensure_candidate_shards(
                         texts=expected_texts,
                         clock=clock,
                         operation="encode_native_512_fallback",
+                        expected_token_counts=corpus_counts[workload_name][
+                            start : start + RES138_SHARD_SIZE
+                        ]
+                        if kind is ShardKind.DOCUMENTS
+                        else None,
                     )
                 small = _write_shard(
                     matrix=matrix,
                     inference_seconds=seconds,
                     query_latency_ms=latencies,
+                    document_scheduling=scheduling,
                     derived_from_matrix_sha256=derived_from_matrix_sha256,
                     candidate=candidate,
                     workload=workload,
@@ -1231,7 +1300,8 @@ def _encode_input_shard(
     texts: Sequence[str],
     clock: Callable[[], float],
     operation: str,
-) -> tuple[NDArray[np.float32], float, tuple[float, ...]]:
+    expected_token_counts: Sequence[int] | None = None,
+) -> tuple[NDArray[np.float32], float, tuple[float, ...], dict[str, Res138JsonValue] | None]:
     observed = encoder.observed_max_sequence_length()
     if observed < candidate.native_max_sequence_length:
         raise BenchmarkExecutionError(
@@ -1242,14 +1312,15 @@ def _encode_input_shard(
             expected=str(candidate.native_max_sequence_length),
             observed=str(observed),
         )
-    require_within_sequence_limit(
-        encoder=encoder,
-        texts=texts,
-        item_ids=ids,
-        candidate=candidate,
-        operation=operation,
-    )
     if kind is ShardKind.QUERIES:
+        require_within_sequence_limit(
+            encoder=encoder,
+            texts=texts,
+            item_ids=ids,
+            candidate=candidate,
+            operation=operation,
+            kind=kind,
+        )
         rows: list[NDArray[np.float32]] = []
         timings: list[float] = []
         for text in texts:
@@ -1261,12 +1332,29 @@ def _encode_input_shard(
             timings.append(elapsed * 1000.0)
         matrix = np.ascontiguousarray(np.stack(rows), dtype=np.float32)
         seconds = sum(timings) / 1000.0
-        return matrix, seconds, tuple(timings)
-    started = clock()
-    matrix = encoder.encode(texts, kind=kind, dimension=dimension)
-    seconds = clock() - started
+        return matrix, seconds, tuple(timings), None
+    counts = encoder.token_counts(tuple(candidate.document_prompt.content + text for text in texts))
+    if len(counts) != len(texts) or len(ids) != len(texts):
+        raise BenchmarkExecutionError("document ids/texts/token counts differ", operation=operation)
+    if expected_token_counts is not None and tuple(counts) != tuple(expected_token_counts):
+        raise BenchmarkExecutionError(
+            "loaded tokenizer differs from approved corpus counts", operation=operation
+        )
+    evidence = scheduling_evidence(counts)
+    matrices: list[NDArray[np.float32]] = []
+    seconds = 0.0
+    for offset, size, _ in document_schedule(counts):
+        started = clock()
+        batch = encoder.encode(texts[offset : offset + size], kind=kind, dimension=dimension)
+        elapsed = clock() - started
+        if not math.isfinite(elapsed) or elapsed < 0:
+            raise BenchmarkExecutionError("invalid encode duration", operation=operation)
+        seconds += elapsed
+        _require_encoded_matrix(batch, row_count=size, dimension=dimension, candidate=candidate)
+        matrices.append(batch)
+    matrix = np.ascontiguousarray(np.concatenate(matrices, axis=0))
     _require_encoded_matrix(matrix, row_count=len(texts), dimension=dimension, candidate=candidate)
-    return matrix, seconds, ()
+    return matrix, seconds, (), cast("dict[str, Res138JsonValue]", evidence)
 
 
 def _require_encoded_matrix(
@@ -1298,6 +1386,7 @@ def _write_shard(
     inference_seconds: float,
     query_latency_ms: Sequence[float],
     derived_from_matrix_sha256: str | None = None,
+    document_scheduling: dict[str, Res138JsonValue] | None = None,
     candidate: ModelCandidateSpec,
     workload: RetrievalWorkload,
     kind: ShardKind,
@@ -1349,6 +1438,7 @@ def _write_shard(
         inference_seconds=inference_seconds,
         query_latency_ms=query_latency_ms,
         derived_from_matrix_sha256=derived_from_matrix_sha256,
+        document_scheduling=document_scheduling,
         operation="write_full_run_shard",
     )
     sidecar.write(local_sidecar)

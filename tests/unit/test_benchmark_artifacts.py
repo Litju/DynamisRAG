@@ -80,6 +80,7 @@ from dynamisrag.benchmark.runtime import (
     require_torch_unchanged,
     run_id_for,
 )
+from dynamisrag.benchmark.scheduling import scheduling_evidence
 from dynamisrag.embedding.contracts import canonical_json
 
 _CODE_SHA: Final[str] = "a" * 40
@@ -152,6 +153,9 @@ def _write_shard(
         code_sha=code_sha,
         runtime_sha256=_RUNTIME_SHA,
         operation="test",
+        document_scheduling=cast("dict[str, Res138JsonValue]", scheduling_evidence([1] * len(ids)))
+        if kind is ShardKind.DOCUMENTS
+        else None,
     )
     sidecar.write(target / f"shard-{ordinal:05d}.json")
     return matrix_path
@@ -272,7 +276,7 @@ def test_a_sidecar_binds_every_value_needed_to_identify_its_matrix(tmp_path: Pat
     sidecar_path = matrix_path.with_name("shard-00000.json")
     sidecar = json.loads(sidecar_path.read_text(encoding="utf-8"))
 
-    assert sidecar["artifact_revision"] == "res138-shard-v2"
+    assert sidecar["artifact_revision"] == "res138-shard-v3"
     assert sidecar["model_id"] == RES138_MODEL_CANDIDATES[0].model_id
     assert sidecar["model_revision"] == RES138_MODEL_CANDIDATES[0].revision
     assert sidecar["prompt_sha256"] == RES138_MODEL_CANDIDATES[0].document_prompt.content_sha256
@@ -307,6 +311,9 @@ def test_shard_verification_rejects_a_fortran_order_matrix(tmp_path: Path) -> No
         runtime_sha256=_RUNTIME_SHA,
         inference_seconds=0.1,
         operation="test",
+        document_scheduling=cast("dict[str, Res138JsonValue]", scheduling_evidence([1] * len(ids)))
+        if ShardKind.DOCUMENTS is ShardKind.DOCUMENTS
+        else None,
     )
 
     with pytest.raises(BenchmarkArtifactError, match="C-contiguous"):
@@ -346,6 +353,11 @@ def test_verifying_a_shard_returns_its_matrix_and_binds_the_ids(tmp_path: Path) 
         code_sha=_CODE_SHA,
         runtime_sha256=_RUNTIME_SHA,
         operation="test",
+        document_scheduling=cast(
+            "dict[str, Res138JsonValue]", scheduling_evidence([1] * len(("d000", "d001", "d002")))
+        )
+        if ShardKind.DOCUMENTS is ShardKind.DOCUMENTS
+        else None,
     )
     matrix = verify_shard_matrix(matrix_path, sidecar)
     assert matrix.shape == (3, 1024)
@@ -372,6 +384,11 @@ def test_a_matrix_whose_bytes_changed_is_refused(tmp_path: Path) -> None:
         code_sha=_CODE_SHA,
         runtime_sha256=_RUNTIME_SHA,
         operation="test",
+        document_scheduling=cast(
+            "dict[str, Res138JsonValue]", scheduling_evidence([1] * len(("d000",)))
+        )
+        if ShardKind.DOCUMENTS is ShardKind.DOCUMENTS
+        else None,
     )
     matrix_path.write_bytes(matrix_path.read_bytes() + b"\x00")
     with pytest.raises(BenchmarkArtifactError) as caught:
@@ -395,6 +412,11 @@ def test_a_matrix_that_lost_its_normalisation_is_refused(tmp_path: Path) -> None
         code_sha=_CODE_SHA,
         runtime_sha256=_RUNTIME_SHA,
         operation="test",
+        document_scheduling=cast(
+            "dict[str, Res138JsonValue]", scheduling_evidence([1] * len(("d000", "d001")))
+        )
+        if ShardKind.DOCUMENTS is ShardKind.DOCUMENTS
+        else None,
     )
     with pytest.raises(BenchmarkArtifactError) as caught:
         verify_shard_matrix(matrix_path, sidecar)
@@ -449,7 +471,7 @@ def test_a_run_manifest_identity_ignores_its_run_id_and_binds_everything_else() 
         ("runtime_sha256", "f" * 64),
         ("plan_sha256", "0" * 64),
         ("generation_semantics_sha256", "1" * 64),
-        ("shard_revision", "res138-shard-v3"),
+        ("shard_revision", "res138-shard-v4"),
     ):
         assert _manifest(**{field: value}).identity_sha256 != manifest.identity_sha256
 
@@ -500,7 +522,7 @@ def test_resume_is_refused_field_by_field() -> None:
         ({"runtime_sha256": "f" * 64}, "runtime fingerprint"),
         ({"plan_sha256": "0" * 64}, "benchmark plan"),
         ({"generation_semantics_sha256": "1" * 64}, "generation semantics"),
-        ({"shard_revision": "res138-shard-v3"}, "shard revision"),
+        ({"shard_revision": "res138-shard-v4"}, "shard revision"),
         ({"model_revisions": (("a/b", "c" * 40),)}, "candidate model revisions"),
         ({"dataset_digests": (("scifact", "0" * 64),)}, "dataset digests"),
     ):

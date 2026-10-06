@@ -52,11 +52,17 @@ from dynamisrag.benchmark.contracts import (
     RES138_PROMPT_NAMES,
     RES138_SUPPORTED_DTYPES,
     ModelCandidateSpec,
+    RetrievalWorkload,
 )
 from dynamisrag.benchmark.errors import BenchmarkExecutionError
+from dynamisrag.benchmark.memory_probe import run_memory_probe
 from dynamisrag.benchmark.mrl import MrlPathDecision
 from dynamisrag.benchmark.res138 import CalibrationEncoder, run_mrl_calibration
-from dynamisrag.benchmark.runtime import RuntimeProbe, require_cuda_available
+from dynamisrag.benchmark.runtime import (
+    RuntimeProbe,
+    require_cuda_available,
+    require_execution_floor,
+)
 
 __all__ = [
     "RES138_RUNNER_PROVIDER",
@@ -365,6 +371,13 @@ def probe_colab_runtime(*, code_sha: str, nvidia_driver_version: str) -> Runtime
         operation="probe_colab_runtime",
     )
     properties = torch.cuda.get_device_properties(0)
+    require_execution_floor(
+        available=True,
+        device_count=int(torch.cuda.device_count()),
+        capability=(properties.major, properties.minor),
+        total_memory_bytes=int(properties.total_memory),
+        operation="probe_colab_runtime",
+    )
     capability = f"{properties.major}.{properties.minor}"
     versions = observed_library_versions()
     return RuntimeProbe(
@@ -415,6 +428,14 @@ class SentenceTransformersCalibrationEncoder:
         require_cuda_available(
             available=bool(torch.cuda.is_available()),
             device_count=int(torch.cuda.device_count()),
+            operation="load_candidate",
+        )
+        properties = torch.cuda.get_device_properties(0)
+        require_execution_floor(
+            available=True,
+            device_count=int(torch.cuda.device_count()),
+            capability=(properties.major, properties.minor),
+            total_memory_bytes=int(properties.total_memory),
             operation="load_candidate",
         )
         if self.batch_size < 1:
@@ -483,14 +504,13 @@ class SentenceTransformersCalibrationEncoder:
     def token_counts(self, texts: Sequence[str]) -> tuple[int, ...]:
         """Token length of each input under the model's own tokenizer.
 
-        Counted without special tokens and without truncation, so a number larger
+        Counted with special tokens and without truncation, so a number larger
         than the boundary is a real over-context input rather than an artifact of
         how the length was measured.
         """
-        encoded = self.tokenizer(
-            list(texts), add_special_tokens=True, truncation=False, padding=False
+        return exact_token_counts(
+            self.tokenizer, texts, do_lower_case=bool(self.model[0].do_lower_case)
         )
-        return tuple(len(ids) for ids in encoded["input_ids"])
 
     def encode(
         self, texts: Sequence[str], *, kind: ShardKind, dimension: int
@@ -510,14 +530,20 @@ class SentenceTransformersCalibrationEncoder:
             )
         vectors = self.model.encode(
             list(texts),
-            batch_size=self.batch_size,
+            batch_size=min(self.batch_size, len(texts)),
             prompt_name=kind.prompt_name,
             normalize_embeddings=True,
             convert_to_numpy=True,
             truncate_dim=dimension,
             show_progress_bar=False,
         )
-        matrix = np.ascontiguousarray(np.asarray(vectors), dtype=np.float32)
+        matrix = np.ascontiguousarray(np.asarray(vectors))
+        if matrix.dtype != np.float32:
+            raise BenchmarkExecutionError(
+                "the model output dtype is not float32; conversion cannot authorize it.",
+                operation="encode_calibration",
+                model_id=self.candidate.model_id,
+            )
         if matrix.shape != (len(texts), dimension):
             raise BenchmarkExecutionError(
                 f"the model returned {matrix.shape} for {len(texts)} inputs at dimension "
@@ -645,6 +671,7 @@ class CandidateCalibrationRun:
     candidate: ModelCandidateSpec
     provenance: Mapping[str, object]
     decisions: tuple[MrlPathDecision, ...]
+    memory_probe: Mapping[str, object] | None = None
 
 
 def _gpu_encoder(
@@ -660,6 +687,7 @@ def calibrate_frozen_candidates(
     calibration: CalibrationSet,
     candidates: Sequence[ModelCandidateSpec],
     batch_size: int,
+    workloads: Mapping[str, RetrievalWorkload] | None = None,
     cache_folder: Path | None = None,
     device: str = "cuda",
     encoder_factory: Callable[[ModelCandidateSpec], CalibratedEncoder] | None = None,
@@ -707,11 +735,18 @@ def calibrate_frozen_candidates(
                 candidate=candidate,
                 operation=operation,
             )
+            probe = (
+                run_memory_probe(encoder=encoder, candidate=candidate, workloads=workloads)
+                if workloads is not None
+                else None
+            )
         finally:
             del encoder
             finish()
         runs.append(
-            CandidateCalibrationRun(candidate=candidate, provenance=provenance, decisions=decisions)
+            CandidateCalibrationRun(
+                candidate=candidate, provenance=provenance, decisions=decisions, memory_probe=probe
+            )
         )
     return tuple(runs)
 
@@ -719,3 +754,49 @@ def calibrate_frozen_candidates(
 def frozen_candidates() -> tuple[ModelCandidateSpec, ...]:
     """The two frozen candidates, re-exported so the notebook imports one module."""
     return RES138_MODEL_CANDIDATES
+
+
+def document_token_counter(
+    candidate: ModelCandidateSpec,
+) -> Callable[[Sequence[str]], tuple[int, ...]]:
+    """Pinned tokenizer only; authorization must precede corpus model construction."""
+    from sentence_transformers.models import Transformer
+    from transformers import AutoTokenizer
+
+    config = Transformer.load_config(candidate.model_id, revision=candidate.revision)
+
+    tokenizer = AutoTokenizer.from_pretrained(
+        candidate.model_id,
+        revision=candidate.revision,
+        trust_remote_code=candidate.trust_remote_code,
+        **{
+            key: value
+            for key, value in config.get("tokenizer_args", {}).items()
+            if key not in {"revision", "trust_remote_code"}
+        },
+    )
+
+    def count(texts: Sequence[str]) -> tuple[int, ...]:
+        return exact_token_counts(
+            tokenizer, texts, do_lower_case=bool(config.get("do_lower_case", False))
+        )
+
+    return count
+
+
+def exact_token_counts(
+    tokenizer: Callable[..., Mapping[str, Sequence[Sequence[int]]]],
+    texts: Sequence[str],
+    *,
+    do_lower_case: bool,
+) -> tuple[int, ...]:
+    """Mirror ST 5.0.0 Transformer.tokenize preprocessing, with no truncation/padding.
+
+    https://github.com/UKPLab/sentence-transformers/blob/v5.0.0/sentence_transformers/models/Transformer.py
+    Prompts are prepended by the caller before this existing encode preprocessing.
+    """
+    inputs = [text.strip() for text in texts]
+    if do_lower_case:
+        inputs = [text.lower() for text in inputs]
+    encoded = tokenizer(inputs, add_special_tokens=True, truncation=False, padding=False)
+    return tuple(len(ids) for ids in encoded["input_ids"])
