@@ -209,7 +209,7 @@ def verify_full_run_bundle(  # noqa: PLR0912, PLR0915 - validates one cross-arti
                 for side in sidecars[(candidate.model_id, 1024, name, ShardKind.DOCUMENTS)]
                 for count in cast(
                     "list[int]",
-                    cast("dict[str, Res138JsonValue]", side.document_scheduling)["token_counts"],
+                    cast("dict[str, Res138JsonValue]", side.input_truncation)["raw_token_counts"],
                 )
             ]
             for name in RES138_WORKLOAD_NAMES
@@ -682,6 +682,8 @@ def _require_derived_binding(
     *,
     derived512_allowed: bool,
 ) -> None:
+    if output.input_truncation != base.input_truncation:
+        _fail("512 input truncation evidence differs from its 1024 corpus inputs")
     if output.document_scheduling != base.document_scheduling:
         _fail("512 document scheduling differs from its 1024 corpus inputs")
     expected_source = base.matrix_sha256 if derived512_allowed else None

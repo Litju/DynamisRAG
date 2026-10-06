@@ -53,13 +53,14 @@ from math import isfinite
 from typing import Final, Self
 
 from dynamisrag.benchmark.errors import BenchmarkContractError
-from dynamisrag.embedding.contracts import canonical_json
+from dynamisrag.embedding.contracts import TruncationDirection, canonical_json
 from dynamisrag.embedding.errors import EmbeddingContractError
 from dynamisrag.embedding.identity import require_embedding_identifier, require_sha256_hex
 
 __all__ = [
     "BEIR_QREL_SPLIT",
     "RES138_ARTIFACT_REVISIONS",
+    "RES138_ATTENTION_BACKEND",
     "RES138_BASE_DIMENSION",
     "RES138_BEIR_SOURCES",
     "RES138_BOOTSTRAP_CONFIDENCE",
@@ -74,6 +75,8 @@ __all__ = [
     "RES138_DOCUMENT_TEXT_POLICY",
     "RES138_DRIVE_LOCATIONS",
     "RES138_DRIVE_ROOT",
+    "RES138_INPUT_MAX_TOKENS",
+    "RES138_INPUT_TRUNCATION_DIRECTION",
     "RES138_LOCAL_SCRATCH_ROOT",
     "RES138_MODEL_CANDIDATES",
     "RES138_MODEL_IDS",
@@ -89,6 +92,7 @@ __all__ = [
     "RES138_SHARD_SIZE",
     "RES138_SUPPORTED_DTYPES",
     "RES138_TEI_EQUIVALENCE_GATE",
+    "RES138_TEI_EQUIVALENCE_RUNTIME",
     "RES138_WORKLOAD_NAMES",
     "BeirSourceSpec",
     "DriveLocation",
@@ -381,6 +385,46 @@ truncation, keeping float64) produces different vectors, so "the 512-d vectors"
 is not an identity until the rule is named.
 """
 
+RES138_INPUT_MAX_TOKENS: Final[int] = 32768
+"""The one common input boundary every candidate, document and query shares.
+
+Frozen at the smallest native max sequence length among the two candidates, so
+the same boundary is legal for both models and a result is comparable across
+them. Every candidate must declare a native max sequence length **at least**
+this value, and the loaded model's own boundary must be **exactly** it: a model
+whose loaded boundary were longer would silently accept inputs this contract
+declares truncated, and one whose boundary were shorter would truncate at a
+point nobody declared.
+
+The boundary is not a capacity limit and not a refusal rule: inputs longer than
+it are truncated to it, explicitly and on the right, and the raw token count is
+still measured and persisted so the truncation is auditable. The scheduler's
+token-square budget is this value squared.
+"""
+
+RES138_INPUT_TRUNCATION_DIRECTION: Final[str] = TruncationDirection.RIGHT.value
+"""Which end of an over-long input the native encoding path keeps.
+
+``right`` means the beginning of the prompt-plus-text is kept and the tail is
+discarded. It is the value the frozen inference path actually applies: the
+sentence-transformers 5.0.0 ``Transformer.tokenize`` passes
+``truncation="longest_first"`` with ``max_length=model.max_seq_length`` to the
+tokenizer, and a tokenizer whose ``truncation_side`` is ``right`` keeps the head
+of a single sequence. The runner verifies ``tokenizer.truncation_side`` at load,
+so this constant and the loaded object are the same policy rather than two
+claims.
+"""
+
+RES138_ATTENTION_BACKEND: Final[str] = "sdpa"
+"""The attention backend the frozen Colab runtime executes the forward pass in.
+
+Declared, not requested: neither candidate's load arguments set
+``attn_implementation``, and sentence-transformers 5.0.0 documents SDPA as the
+default for torch >= 2.1.1. Recording it here keeps the memory probe's declared
+execution conditions (native dimension, float32, SDPA) explicit without adding a
+load kwarg that would change the backend it is supposed to describe.
+"""
+
 _CODE_SHA: Final[re.Pattern[str]] = re.compile(r"^[0-9a-f]{40}$")
 
 
@@ -516,13 +560,13 @@ class ModelCandidateSpec:
     and records what it actually observed, so a model that ignored the request is a
     failed preflight rather than a quietly mislabelled artifact.
 
-    ``native_max_sequence_length`` is the truncation boundary the benchmark
-    declares it will *not* exceed, read from the pinned repository:
-    ``sentence_bert_config.json`` for Voyage, ``config.json``'s
-    ``max_position_embeddings`` for Qwen (whose ``tokenizer_config.json`` declares
-    131072, four times the positions the model actually has). The runner refuses
-    to encode an input longer than this and refuses to accept a loaded model
-    whose own boundary is *shorter*, which would be truncation nobody declared.
+    ``native_max_sequence_length`` is the model's own truncation boundary, read
+    from the pinned repository: ``sentence_bert_config.json`` for Voyage,
+    ``config.json``'s ``max_position_embeddings`` for Qwen (whose
+    ``tokenizer_config.json`` declares 131072, four times the positions the model
+    actually has). It must be at least :data:`RES138_INPUT_MAX_TOKENS`, the one
+    common boundary every input is measured and truncated at, and the runner
+    requires the *loaded* model to report exactly that common boundary.
 
     ``sequence_length_source`` is recorded so a reviewer can see where the number
     came from instead of trusting it.
@@ -606,9 +650,9 @@ class ModelCandidateSpec:
             self.native_max_sequence_length,
             kind="candidate native_max_sequence_length",
             operation="model_candidate_spec",
-            minimum=1,
-            because="It is the boundary beyond which an input is refused rather than truncated, "
-            "and a boolean here would be a boundary of one token.",
+            minimum=RES138_INPUT_MAX_TOKENS,
+            because="Every candidate shares one common input boundary, and a model whose native "
+            "boundary is shorter than it cannot legally receive the frozen maximum input.",
         )
         object.__setattr__(self, "native_max_sequence_length", limit)
         if not self.sequence_length_source:
@@ -802,7 +846,7 @@ shards resumes with two shards of work instead of restarting three hours of it.
 Small enough that the largest shard is a few seconds of GPU work, large enough
 that 42 shards do not become 42 round-trips of per-shard overhead.
 
-Changing it requires changing ``res138-shard-v3``, because the shard ordinal, the
+Changing it requires changing ``res138-shard-v4``, because the shard ordinal, the
 row range and the ordered-id digest are all derived from it.
 """
 
@@ -910,22 +954,39 @@ It is evaluated locally, against TEI 1.9.4, on the same calibration set — not 
 the Colab notebook, which cannot run Docker.
 """
 
+RES138_TEI_EQUIVALENCE_RUNTIME: Final[Mapping[str, object]] = {
+    "tei_version": "1.9.4",
+    "max_batch_tokens": RES138_INPUT_MAX_TOKENS,
+    "auto_truncate": True,
+}
+"""The exact TEI serving flags the equivalence check must be run under.
+
+Frozen as data because both values change the vectors a request returns and
+neither may be left to the server's default. TEI 1.9.4's default
+``--max-batch-tokens`` is 16384, so a deployment left at the default would split
+or reject a 32768-token request the Colab path encoded whole; ``--auto-truncate``
+is the server-side switch the request-level ``truncate=true`` depends on. The
+plan, the preflight artifact and the preflight verifier all bind this mapping, so
+an equivalence result produced under any other pair is not this contract's
+result.
+"""
+
 RES138_ARTIFACT_REVISIONS: Final[Mapping[str, str]] = {
-    "plan": "res138-plan-v1",
+    "plan": "res138-plan-v2",
     "runtime": "res138-runtime-v1",
     "source_manifest": "res138-source-manifest-v1",
     "model_manifest": "res138-model-manifest-v1",
-    "shard": "res138-shard-v3",
+    "shard": "res138-shard-v4",
     "calibration_selection": "res138-calibration-selection-v1",
     "mrl_calibration": "res138-mrl-calibration-v1",
-    "preflight": "res138-preflight-v2",
+    "preflight": "res138-preflight-v3",
     "results": "res138-results-v1",
     "query_results": "res138-query-results-v1",
     "workload_metrics": "res138-workload-metrics-v1",
     "macro_metrics": "res138-macro-metrics-v1",
     "bootstrap": "res138-bootstrap-v1",
-    "performance": "res138-performance-v1",
-    "full_run": "res138-full-run-v1",
+    "performance": "res138-performance-v2",
+    "full_run": "res138-full-run-v2",
     "selection": "res138-selection-v1",
 }
 """Every artifact this benchmark writes, and the revision each one declares.

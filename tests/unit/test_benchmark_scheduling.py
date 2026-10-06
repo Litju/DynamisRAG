@@ -1,4 +1,4 @@
-"""CPU proofs of the frozen A100 execution policy and corpus-tail authorization."""
+"""CPU proofs of the frozen execution policy, input truncation and corpus-tail authorization."""
 
 import ast
 import copy
@@ -14,6 +14,7 @@ import pytest
 
 from dynamisrag.benchmark.artifacts import Res138JsonValue, ShardKind, read_shard_sidecar
 from dynamisrag.benchmark.contracts import (
+    RES138_INPUT_MAX_TOKENS,
     RES138_MODEL_CANDIDATES,
     ModelCandidateSpec,
     RetrievalDocument,
@@ -40,6 +41,11 @@ from dynamisrag.benchmark.scheduling import (
     scheduling_summary,
     validate_scheduling_evidence,
 )
+from dynamisrag.benchmark.truncation import (
+    effective_token_counts,
+    input_truncation_evidence,
+    truncated_ids_sha256,
+)
 from tests.unit.test_benchmark_fullrun import (
     _SOURCE_DIGESTS,  # pyright: ignore[reportPrivateUsage]
     _approval,  # pyright: ignore[reportPrivateUsage]
@@ -57,8 +63,8 @@ def test_exact_token_square_boundaries(size: int) -> None:
     boundary = math.isqrt(TOKEN_SQUARE_BUDGET // size)
     assert document_schedule([boundary] * 16)[0] == (0, size, boundary)
     if size == 1:
-        with pytest.raises(BenchmarkExecutionError, match="32768"):
-            document_schedule([boundary + 1])
+        # A raw count above the boundary is legal and schedules as the boundary.
+        assert document_schedule([boundary + 1])[0] == (0, 1, boundary)
     else:
         assert document_schedule([boundary + 1] * 16)[0][1] == size // 2
 
@@ -70,20 +76,52 @@ def test_deterministic_contiguous_scheduler_and_budget() -> None:
     indices: list[int] = []
     for offset, size, maximum in schedule:
         assert size in BATCH_SIZES
-        assert maximum == max(counts[offset : offset + size])
+        assert maximum == min(RES138_INPUT_MAX_TOKENS, max(counts[offset : offset + size]))
         assert size * maximum**2 <= TOKEN_SQUARE_BUDGET
         indices.extend(range(offset, offset + size))
         assert not any(
             larger > size
             and larger <= len(counts) - offset
-            and larger * max(counts[offset : offset + larger]) ** 2 <= TOKEN_SQUARE_BUDGET
+            and larger * min(RES138_INPUT_MAX_TOKENS, max(counts[offset : offset + larger])) ** 2
+            <= TOKEN_SQUARE_BUDGET
             for larger in BATCH_SIZES
         )
     assert indices == list(range(len(counts)))
     assert document_schedule([32768] * 17) == tuple((index, 1, 32768) for index in range(17))
 
 
-@pytest.mark.parametrize("count", [0, -1, 32769, True, 1.5])
+def test_raw_counts_above_the_boundary_schedule_as_effective_counts() -> None:
+    """33,296 and 36,572 must schedule exactly as 32,768 does, never as their raw value."""
+
+    assert effective_token_counts([100, 32767, 32768, 32769, 33296, 36572]) == (
+        100,
+        32767,
+        32768,
+        32768,
+        32768,
+        32768,
+    )
+    assert document_schedule([33296, 36572]) == document_schedule([32768, 32768])
+    assert document_schedule([36572]) == ((0, 1, RES138_INPUT_MAX_TOKENS),)
+    assert scheduling_evidence([36572])["effective_maximum_token_count"] == 32768
+
+
+def test_truncated_ids_digest_is_order_sensitive_and_empty_is_defined() -> None:
+    ids = ("a", "b", "c")
+    assert truncated_ids_sha256(ids, (1, 1, 1)) != truncated_ids_sha256(ids, (36572, 1, 1))
+    assert truncated_ids_sha256(ids, (36572, 1, 1)) == truncated_ids_sha256(ids, (36572, 1, 32768))
+    assert truncated_ids_sha256(ids, (36572, 1, 1)) != truncated_ids_sha256(ids, (36572, 32769, 1))
+    assert truncated_ids_sha256(ids, (36572, 1, 1)) != truncated_ids_sha256(
+        ("c", "b", "a"), (36572, 1, 1)
+    )
+    evidence = input_truncation_evidence(ids, (36572, 1, 1))
+    assert evidence["truncated_input_count"] == 1
+    assert evidence["truncated_ids_sha256"] == truncated_ids_sha256(ids, (36572, 1, 1))
+    assert evidence["raw_maximum_token_count"] == 36572
+    assert evidence["effective_maximum_token_count"] == 32768
+
+
+@pytest.mark.parametrize("count", [0, -1, True, 1.5])
 def test_invalid_token_counts_refuse(count: int) -> None:
     with pytest.raises(BenchmarkExecutionError):
         document_schedule([count])
@@ -108,7 +146,7 @@ def test_documents_keep_order_and_sum_only_encode_times(candidate: ModelCandidat
     counts = [8192] * 16 + [32768] + [100] * 18
     texts = tuple(f"doc-{index}/{count}" for index, count in enumerate(counts))
     encoder = _TailEncoder(candidate)
-    matrix, seconds, latencies, evidence = _encode_input_shard(
+    matrix, seconds, latencies, evidence, input_evidence = _encode_input_shard(
         encoder=encoder,
         candidate=candidate,
         kind=ShardKind.DOCUMENTS,
@@ -124,22 +162,62 @@ def test_documents_keep_order_and_sum_only_encode_times(candidate: ModelCandidat
     assert seconds == pytest.approx(len(schedule) * 0.01)
     assert latencies == ()
     assert evidence == scheduling_evidence(counts)
+    assert input_evidence["raw_token_counts"] == list(counts)
+    assert input_evidence["truncated_input_count"] == 0
+
+
+def test_an_over_long_document_is_encoded_through_the_native_path() -> None:
+    """Raw 36,572 stays the persisted authority; the encoder sees the effective batch."""
+
+    counts = [36572, 100]
+    texts = tuple(f"doc-{index}/{count}" for index, count in enumerate(counts))
+    candidate = RES138_MODEL_CANDIDATES[0]
+    encoder = _TailEncoder(candidate)
+    _, _, _, evidence, input_evidence = _encode_input_shard(
+        encoder=encoder,
+        candidate=candidate,
+        kind=ShardKind.DOCUMENTS,
+        dimension=1024,
+        ids=("d000", "d001"),
+        texts=texts,
+        clock=_Clock(),
+        operation="test",
+    )
+    assert input_evidence["raw_token_counts"] == [36572, 100]
+    assert input_evidence["truncated_input_count"] == 1
+    assert input_evidence["effective_maximum_token_count"] == 32768
+    assert evidence == scheduling_evidence(counts)
+    assert encoder.calls == [(ShardKind.DOCUMENTS, 1024, 1), (ShardKind.DOCUMENTS, 1024, 1)]
 
 
 def test_sidecar_schedule_roundtrip_and_histogram() -> None:
     counts = [8192] * 16 + [32768] + [100] * 7
+    ids = tuple(f"d{index:03d}" for index in range(len(counts)))
     evidence = scheduling_evidence(counts)
+    truncation = input_truncation_evidence(ids, counts)
     restored = json.loads(json.dumps(evidence))
-    assert validate_scheduling_evidence(restored, row_count=len(counts)) == evidence
+    assert (
+        validate_scheduling_evidence(restored, input_truncation=truncation, row_count=len(counts))
+        == evidence
+    )
     summary = scheduling_summary([evidence, evidence])
     assert summary["batch_size_histogram"] == {"16": 2, "8": 0, "4": 2, "2": 2, "1": 4}
     assert summary["maximum_batch_size_used"] == 16
-    assert summary["maximum_token_count"] == 32768
+    assert summary["effective_maximum_token_count"] == 32768
+    assert "maximum_token_count" not in summary
     for key in evidence:
         changed = copy.deepcopy(evidence)
         changed[key] = None
         with pytest.raises(BenchmarkArtifactError):
-            validate_scheduling_evidence(changed, row_count=len(counts))
+            validate_scheduling_evidence(
+                changed, input_truncation=truncation, row_count=len(counts)
+            )
+    changed_truncation = copy.deepcopy(truncation)
+    cast("list[int]", changed_truncation["raw_token_counts"])[0] += 1
+    with pytest.raises(BenchmarkArtifactError):
+        validate_scheduling_evidence(
+            evidence, input_truncation=changed_truncation, row_count=len(counts)
+        )
 
 
 @pytest.mark.parametrize(
@@ -177,16 +255,16 @@ def test_a100_execution_floor(
 
 
 def _tail_workloads(
-    *, overlap: bool = False, too_long: bool = False
+    *, overlap: bool = False, counts: Sequence[int] | None = None
 ) -> dict[str, RetrievalWorkload]:
     result: dict[str, RetrievalWorkload] = {}
     for name, workload in _workloads().items():
-        counts = [8192] * 16 + [32769 if too_long else 32768] + [100] * 83
+        resolved = list(counts) if counts is not None else [8192] * 16 + [32768] + [100] * 83
         if overlap:
-            counts[0], counts[16] = counts[16], counts[0]
+            resolved[0], resolved[16] = resolved[16], resolved[0]
         documents = tuple(
             RetrievalDocument.from_beir(
-                document_id=document.document_id, title="", body=f"doc-{index}/{counts[index]}"
+                document_id=document.document_id, title="", body=f"doc-{index}/{resolved[index]}"
             )
             for index, document in enumerate(workload.documents)
         )
@@ -206,6 +284,10 @@ def test_real_probe_encodes_corpus_tail_and_deduplicates(
     assert payload["status"] == "pass"
     assert payload["output_dtype"] == "float32"
     assert payload["output_dimension"] == 1024
+    assert payload["attention_backend"] == "sdpa"
+    assert payload["input_max_tokens"] == RES138_INPUT_MAX_TOKENS
+    assert payload["truncation_direction"] == "right"
+    assert payload["truncation_path_document"] is None
     assert payload["worst_work_value"] == TOKEN_SQUARE_BUDGET
     expected_calls = (
         [(ShardKind.DOCUMENTS, 1024, 1)]
@@ -217,12 +299,44 @@ def test_real_probe_encodes_corpus_tail_and_deduplicates(
     assert all(len(values) == 100 for values in counts.values())
 
 
-def test_probe_refuses_over_native_before_any_encode() -> None:
-    encoder = _TailEncoder(RES138_MODEL_CANDIDATES[0])
-    with pytest.raises(BenchmarkExecutionError):
-        run_memory_probe(
-            encoder=encoder, candidate=encoder.candidate, workloads=_tail_workloads(too_long=True)
-        )
+def test_probe_encodes_a_real_truncation_path_when_an_input_overflows() -> None:
+    """Two overflows: the longest effective and the largest raw are distinct cases."""
+
+    counts = [100] * 84 + [33296, 36572] + [100] * 14
+    workloads = _tail_workloads(counts=counts)
+    candidate = RES138_MODEL_CANDIDATES[0]
+    encoder = _TailEncoder(candidate)
+    payload = run_memory_probe(encoder=encoder, candidate=candidate, workloads=workloads)
+
+    truncation = cast("dict[str, object]", payload["truncation_path_document"])
+    assert truncation is not None
+    assert truncation["offset"] == 85
+    assert truncation["raw_token_counts"] == [36572]
+    assert truncation["batch_size"] == 1
+    longest = cast("dict[str, object]", payload["longest_effective_document"])
+    assert longest["offset"] == 84
+    assert longest["raw_token_counts"] == [33296]
+    cases = cast("list[dict[str, object]]", payload["encoded_cases"])
+    assert [(case["offset"], case["batch_size"]) for case in cases] == [(84, 1), (85, 1)]
+    assert encoder.calls == [
+        (ShardKind.DOCUMENTS, 1024, 1),
+        (ShardKind.DOCUMENTS, 1024, 1),
+    ]
+    per_workload = cast("dict[str, dict[str, object]]", payload["workload_truncation"])
+    for entry in per_workload.values():
+        assert entry["truncated_input_count"] == 2
+        assert entry["raw_maximum_token_count"] == 36572
+        assert entry["effective_maximum_token_count"] == 32768
+
+
+def test_probe_refuses_a_non_common_boundary_before_any_encode() -> None:
+    class ShortEncoder(_TailEncoder):
+        def observed_max_sequence_length(self) -> int:
+            return 512
+
+    encoder = ShortEncoder(RES138_MODEL_CANDIDATES[0])
+    with pytest.raises(BenchmarkExecutionError, match="common input boundary"):
+        run_memory_probe(encoder=encoder, candidate=encoder.candidate, workloads=_tail_workloads())
     assert encoder.calls == []
 
 
@@ -318,8 +432,13 @@ def test_memory_probes_share_the_two_preflight_model_loads() -> None:
         "scheduler_revision",
         "token_square_budget",
         "batch_cap",
-        "longest_document",
+        "input_max_tokens",
+        "truncation_direction",
+        "attention_backend",
+        "workload_truncation",
+        "longest_effective_document",
         "worst_microbatch",
+        "truncation_path_document",
         "corpus_token_counts",
         "worst_work_value",
         "output_dimension",
@@ -367,13 +486,15 @@ def test_resume_refuses_valid_but_changed_counts(tmp_path: Path) -> None:
         path for path in directory.rglob("shard-*.json") if "/documents/1024/" in path.as_posix()
     )
     sidecar = read_shard_sidecar(path)
-    original = cast("dict[str, Res138JsonValue]", sidecar.document_scheduling)
-    counts = cast("list[int]", original["token_counts"])
+    original = cast("dict[str, Res138JsonValue]", sidecar.input_truncation)
+    counts = cast("list[int]", original["raw_token_counts"])
+    changed = [count + 1 for count in counts]
     replace(
         sidecar,
-        document_scheduling=cast(
-            "dict[str, Res138JsonValue]", scheduling_evidence([count + 1 for count in counts])
+        input_truncation=cast(
+            "dict[str, Res138JsonValue]", input_truncation_evidence(sidecar.ids, changed)
         ),
+        document_scheduling=cast("dict[str, Res138JsonValue]", scheduling_evidence(changed)),
     ).write(path)
     (directory / "bundle-manifest.json").unlink()
     loads: list[str] = []

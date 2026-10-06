@@ -83,6 +83,7 @@ from dynamisrag.benchmark.runtime import (
     capture_runtime_fingerprint,
 )
 from dynamisrag.benchmark.scheduling import scheduling_evidence
+from dynamisrag.benchmark.truncation import input_truncation_evidence
 from dynamisrag.embedding.contracts import canonical_json
 
 _CODE_SHA: Final[str] = "a" * 40
@@ -581,6 +582,45 @@ def test_candidate_lifecycle_is_once_each_and_release_precedes_the_next_load(
     assert file_sha256(directory / "bundle-manifest.json") == report.bundle_sha256
 
 
+def test_every_document_and_query_is_present_once_in_canonical_order(tmp_path: Path) -> None:
+    """No exclusion, no chunking, no reordering: shard ids concatenate to the workload."""
+
+    _, directory, _, _, workloads, _, _ = _execute(tmp_path)
+    candidate = RES138_MODEL_CANDIDATES[0]
+    for name, workload in workloads.items():
+        for kind, expected in (
+            (ShardKind.DOCUMENTS, workload.document_ids),
+            (ShardKind.QUERIES, workload.query_ids),
+        ):
+            group = shard_paths(
+                directory,
+                candidate=candidate,
+                workload=name,
+                kind=kind,
+                dimension=RES138_BASE_DIMENSION,
+            )
+            observed = tuple(
+                item_id
+                for path in sorted(group.glob("shard-*/shard-*.json"))
+                for item_id in read_shard_sidecar(path).ids
+            )
+            assert observed == expected
+
+
+def test_document_and_query_shards_bind_the_same_input_policy(tmp_path: Path) -> None:
+    _, directory, _, _, _, _, _ = _execute(tmp_path)
+    seen_kinds: set[ShardKind] = set()
+    for path in directory.rglob("shard-*.json"):
+        sidecar = read_shard_sidecar(path)
+        seen_kinds.add(sidecar.kind)
+        evidence = cast("dict[str, object]", sidecar.input_truncation)
+        assert evidence["input_max_tokens"] == 32768
+        assert evidence["truncation_direction"] == "right"
+        assert evidence["truncate"] is True
+        assert len(cast("list[int]", evidence["raw_token_counts"])) == sidecar.row_count
+    assert seen_kinds == set(ShardKind)
+
+
 def test_performance_grouping_keeps_every_shard_ordinal(tmp_path: Path) -> None:
     _, directory, _, _, _, _, _ = _execute(tmp_path)
     candidate = RES138_MODEL_CANDIDATES[0]
@@ -604,6 +644,10 @@ def test_performance_grouping_keeps_every_shard_ordinal(tmp_path: Path) -> None:
         row_count=len(next_ids),
         ordered_ids_sha256=ordered_ids_sha256(next_ids),
         ids=next_ids,
+        input_truncation=cast(
+            "dict[str, Res138JsonValue]",
+            input_truncation_evidence(next_ids, [1] * len(next_ids)),
+        ),
         document_scheduling=cast(
             "dict[str, Res138JsonValue]", scheduling_evidence([1] * len(next_ids))
         ),

@@ -56,6 +56,7 @@ from dynamisrag.benchmark.contracts import (
     RetrievalWorkload,
 )
 from dynamisrag.benchmark.errors import (
+    BenchmarkArtifactError,
     BenchmarkContractError,
     BenchmarkExecutionError,
     BenchmarkPreflightError,
@@ -78,7 +79,7 @@ from dynamisrag.benchmark.res138 import (
 from dynamisrag.benchmark.retrieval import RES138_SCORE_DTYPE
 from dynamisrag.benchmark.runner import HubModelMetadataReader
 from dynamisrag.benchmark.runtime import RuntimeProbe, capture_runtime_fingerprint
-from dynamisrag.embedding.contracts import EmbeddingGenerationConfig
+from dynamisrag.embedding.contracts import EmbeddingGenerationConfig, TruncationDirection
 
 _CODE_SHA: Final[str] = "a" * 40
 _DIMENSION: Final[int] = 1024
@@ -94,7 +95,7 @@ def test_the_plan_is_a_pure_function_of_the_code_commit() -> None:
     second = benchmark_plan(_CODE_SHA)
 
     assert first.sha256 == second.sha256
-    assert first.artifact_revision == "res138-plan-v1"
+    assert first.artifact_revision == "res138-plan-v2"
     assert benchmark_plan("b" * 40).sha256 != first.sha256
 
 
@@ -137,6 +138,19 @@ def test_the_plan_declares_everything_a_reviewer_has_to_object_to() -> None:
         "maximum_absolute_difference": 1e-4,
         "require_identical_top_k": True,
     }
+    assert payload["input_policy"] == {
+        "policy_revision": "res138-input-truncation-v1",
+        "input_max_tokens": 32768,
+        "truncate": True,
+        "truncation_direction": "right",
+        "raw_counts_measured_without_truncation": True,
+        "effective_count_rule": "min(raw_count, input_max_tokens)",
+    }
+    assert payload["tei_equivalence_runtime"] == {
+        "tei_version": "1.9.4",
+        "max_batch_tokens": 32768,
+        "auto_truncate": True,
+    }
     assert cast("dict[str, object]", payload["bootstrap"])["seed"] == 138
 
 
@@ -165,7 +179,8 @@ def test_the_generation_semantics_are_res_137_configs_not_a_parallel_invention()
     for entry in semantics:
         assert isinstance(entry.config, EmbeddingGenerationConfig)
         assert entry.config.normalize is True
-        assert entry.config.truncate is False
+        assert entry.config.truncate is True
+        assert entry.config.truncation_direction is TruncationDirection.RIGHT
         assert entry.config.dimensions == entry.dimension
         assert entry.config.prompt_name == entry.kind.prompt_name
     documents = [entry for entry in semantics if entry.kind is ShardKind.DOCUMENTS]
@@ -631,29 +646,33 @@ def test_the_decisions_come_back_in_a_deterministic_order() -> None:
     ]
 
 
-def test_a_loaded_boundary_shorter_than_the_frozen_one_is_refused() -> None:
+@pytest.mark.parametrize("boundary", [512, 65536])
+def test_a_loaded_boundary_that_is_not_the_common_one_is_refused(boundary: int) -> None:
+    """Longer is refused as well as shorter: only the frozen boundary is the contract."""
+
     calibration = select_calibration_set([_workload()])
 
     with pytest.raises(BenchmarkExecutionError) as caught:
         run_mrl_calibration(
-            encoder=_Encoder(max_sequence_length=512),
+            encoder=_Encoder(max_sequence_length=boundary),
             calibration=calibration,
             candidate=RES138_MODEL_CANDIDATES[0],
         )
-    assert "would truncate inputs nobody declared" in str(caught.value)
+    assert "frozen common input boundary" in str(caught.value)
 
 
-def test_an_over_context_input_is_refused_before_encoding_and_by_id() -> None:
+def test_an_over_long_calibration_input_is_not_refused() -> None:
+    """The repaired contract truncates instead of refusing, so calibration still encodes."""
+
     calibration = select_calibration_set([_workload()])
     encoder = _Encoder(over_context=True)
 
-    with pytest.raises(BenchmarkExecutionError) as caught:
-        run_mrl_calibration(
-            encoder=encoder, calibration=calibration, candidate=RES138_MODEL_CANDIDATES[0]
-        )
-    assert caught.value.item_id is not None
-    assert "does not truncate" in str(caught.value)
-    assert encoder.calls == []
+    decisions = run_mrl_calibration(
+        encoder=encoder, calibration=calibration, candidate=RES138_MODEL_CANDIDATES[0]
+    )
+
+    assert len(decisions) == 2
+    assert encoder.calls
 
 
 # ---------------------------------------------------------------------------
@@ -751,7 +770,14 @@ def test_the_preflight_bundle_states_everything_a_full_run_relies_on(tmp_path: P
     assert payload["runtime_sha256"] == capture_runtime_fingerprint(_fingerprint_probe()).sha256
     assert payload["plan_sha256"] == benchmark_plan(_CODE_SHA).sha256
     assert payload["generation_semantics_sha256"] == generation_semantics_sha256()
-    assert cast("dict[str, object]", payload["tei_equivalence"])["status"] == "not_run"
+    assert cast("dict[str, object]", payload["input_policy"])["truncate"] is True
+    tei = cast("dict[str, object]", payload["tei_equivalence"])
+    assert tei["status"] == "not_run"
+    assert tei["runtime"] == {
+        "tei_version": "1.9.4",
+        "max_batch_tokens": 32768,
+        "auto_truncate": True,
+    }
     calibration = cast("dict[str, object]", payload["mrl_calibration"])
     assert len(cast("list[object]", calibration["decisions"])) == 4
     assert len(cast("list[object]", calibration["calibration_items"])) == 12
@@ -846,3 +872,49 @@ def test_a_preflight_missing_a_section_is_refused(tmp_path: Path) -> None:
     with pytest.raises(BenchmarkPreflightError) as caught:
         verify_preflight_bundle(path)
     assert "missing" in str(caught.value)
+
+
+def test_a_preflight_without_the_frozen_input_policy_is_refused(tmp_path: Path) -> None:
+    """A ``truncate=false`` preflight has no input_policy section and cannot authorize."""
+
+    path, _ = _write_preflight(tmp_path)
+    import json
+
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    del payload["input_policy"]
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(BenchmarkPreflightError) as caught:
+        verify_preflight_bundle(path)
+    assert "input_policy" in str(caught.value)
+
+
+def test_a_preflight_written_under_the_old_input_contract_is_refused(tmp_path: Path) -> None:
+    """Revision v2 predates the truncation contract; it must not authorize a v3 run."""
+
+    path, _ = _write_preflight(tmp_path)
+    import json
+
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["artifact_revision"] = "res138-preflight-v2"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(BenchmarkArtifactError) as caught:
+        verify_preflight_bundle(path)
+    assert caught.value.expected == "res138-preflight-v3"
+
+
+def test_a_preflight_that_changed_its_tei_runtime_is_refused(tmp_path: Path) -> None:
+    """TEI's default max_batch_tokens is 16384; that runtime is not this contract's."""
+
+    path, _ = _write_preflight(tmp_path)
+    import json
+
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    tei = cast("dict[str, object]", payload["tei_equivalence"])
+    tei["runtime"] = {"tei_version": "1.9.4", "max_batch_tokens": 16384, "auto_truncate": True}
+    path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(BenchmarkPreflightError) as caught:
+        verify_preflight_bundle(path)
+    assert "TEI equivalence runtime" in str(caught.value)

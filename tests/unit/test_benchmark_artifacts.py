@@ -50,6 +50,7 @@ from dynamisrag.benchmark.artifacts import (
     file_sha256,
     open_drive_run,
     read_artifact,
+    read_shard_sidecar,
     require_run_resumable,
     shard_paths,
     verify_shard_matrix,
@@ -81,6 +82,7 @@ from dynamisrag.benchmark.runtime import (
     run_id_for,
 )
 from dynamisrag.benchmark.scheduling import scheduling_evidence
+from dynamisrag.benchmark.truncation import input_truncation_evidence
 from dynamisrag.embedding.contracts import canonical_json
 
 _CODE_SHA: Final[str] = "a" * 40
@@ -127,6 +129,14 @@ def _minimal_workload(name: str, ids: tuple[str, ...]) -> RetrievalWorkload:
     )
 
 
+def _input_evidence(
+    ids: tuple[str, ...], counts: tuple[int, ...] | None = None
+) -> dict[str, Res138JsonValue]:
+    """The raw-count truncation evidence for a test shard, prompt already included."""
+    raw = counts if counts is not None else (1,) * len(ids)
+    return cast("dict[str, Res138JsonValue]", input_truncation_evidence(ids, raw))
+
+
 def _write_shard(
     root: Path,
     *,
@@ -153,6 +163,7 @@ def _write_shard(
         code_sha=code_sha,
         runtime_sha256=_RUNTIME_SHA,
         operation="test",
+        input_truncation=_input_evidence(ids),
         document_scheduling=cast("dict[str, Res138JsonValue]", scheduling_evidence([1] * len(ids)))
         if kind is ShardKind.DOCUMENTS
         else None,
@@ -199,9 +210,9 @@ def test_an_artifact_is_canonical_self_describing_and_reproducible(tmp_path: Pat
     second = write_artifact(tmp_path / "plan-copy.json", name="plan", payload=payload)
 
     assert first == second
-    assert first == ArtifactEnvelope(artifact_revision="res138-plan-v1", payload=payload).sha256
+    assert first == ArtifactEnvelope(artifact_revision="res138-plan-v2", payload=payload).sha256
     written = (tmp_path / "plan.json").read_text(encoding="utf-8")
-    assert written == '{"a":{"y":[1,2],"z":1},"artifact_revision":"res138-plan-v1","b":1}'
+    assert written == '{"a":{"y":[1,2],"z":1},"artifact_revision":"res138-plan-v2","b":1}'
     assert written == canonical_json(json.loads(written))
 
 
@@ -215,10 +226,10 @@ def test_a_rewritten_artifact_leaves_no_temporary_file(tmp_path: Path) -> None:
 
 def test_an_artifact_whose_revision_is_not_the_declared_one_is_refused(tmp_path: Path) -> None:
     path = tmp_path / "plan.json"
-    path.write_text('{"artifact_revision":"res138-plan-v2","a":1}', encoding="utf-8")
+    path.write_text('{"artifact_revision":"res138-plan-v3","a":1}', encoding="utf-8")
     with pytest.raises(BenchmarkArtifactError) as caught:
         read_artifact(path, name="plan")
-    assert caught.value.expected == "res138-plan-v1"
+    assert caught.value.expected == "res138-plan-v2"
 
 
 @pytest.mark.parametrize(
@@ -276,7 +287,7 @@ def test_a_sidecar_binds_every_value_needed_to_identify_its_matrix(tmp_path: Pat
     sidecar_path = matrix_path.with_name("shard-00000.json")
     sidecar = json.loads(sidecar_path.read_text(encoding="utf-8"))
 
-    assert sidecar["artifact_revision"] == "res138-shard-v3"
+    assert sidecar["artifact_revision"] == "res138-shard-v4"
     assert sidecar["model_id"] == RES138_MODEL_CANDIDATES[0].model_id
     assert sidecar["model_revision"] == RES138_MODEL_CANDIDATES[0].revision
     assert sidecar["prompt_sha256"] == RES138_MODEL_CANDIDATES[0].document_prompt.content_sha256
@@ -295,6 +306,46 @@ def test_a_sidecar_binds_every_value_needed_to_identify_its_matrix(tmp_path: Pat
     assert sidecar["runtime_sha256"] == _RUNTIME_SHA
 
 
+def test_a_sidecar_without_input_truncation_evidence_is_refused(tmp_path: Path) -> None:
+    """A truncate=false sidecar has no input_truncation section; it cannot be read."""
+
+    matrix_path = _write_shard(
+        tmp_path,
+        workload="scifact",
+        kind=ShardKind.DOCUMENTS,
+        dimension=1024,
+        ordinal=0,
+        ids=("d000", "d001"),
+    )
+    sidecar_path = matrix_path.with_name("shard-00000.json")
+    payload = json.loads(sidecar_path.read_text(encoding="utf-8"))
+    del payload["input_truncation"]
+    sidecar_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(BenchmarkArtifactError, match="truncation"):
+        read_shard_sidecar(sidecar_path)
+
+
+def test_a_sidecar_whose_raw_counts_were_edited_is_refused(tmp_path: Path) -> None:
+    """The derived fields are recomputed from the raw counts, so an edit cannot pass."""
+
+    matrix_path = _write_shard(
+        tmp_path,
+        workload="scifact",
+        kind=ShardKind.DOCUMENTS,
+        dimension=1024,
+        ordinal=0,
+        ids=("d000", "d001"),
+    )
+    sidecar_path = matrix_path.with_name("shard-00000.json")
+    payload = json.loads(sidecar_path.read_text(encoding="utf-8"))
+    payload["input_truncation"]["raw_token_counts"][0] = 40000
+    sidecar_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(BenchmarkArtifactError, match="truncation evidence"):
+        read_shard_sidecar(sidecar_path)
+
+
 def test_shard_verification_rejects_a_fortran_order_matrix(tmp_path: Path) -> None:
     ids = ("d000", "d001")
     matrix_path = tmp_path / "fortran.npy"
@@ -311,6 +362,7 @@ def test_shard_verification_rejects_a_fortran_order_matrix(tmp_path: Path) -> No
         runtime_sha256=_RUNTIME_SHA,
         inference_seconds=0.1,
         operation="test",
+        input_truncation=_input_evidence(ids),
         document_scheduling=cast("dict[str, Res138JsonValue]", scheduling_evidence([1] * len(ids)))
         if ShardKind.DOCUMENTS is ShardKind.DOCUMENTS
         else None,
@@ -353,6 +405,7 @@ def test_verifying_a_shard_returns_its_matrix_and_binds_the_ids(tmp_path: Path) 
         code_sha=_CODE_SHA,
         runtime_sha256=_RUNTIME_SHA,
         operation="test",
+        input_truncation=_input_evidence(("d000", "d001", "d002")),
         document_scheduling=cast(
             "dict[str, Res138JsonValue]", scheduling_evidence([1] * len(("d000", "d001", "d002")))
         )
@@ -384,6 +437,7 @@ def test_a_matrix_whose_bytes_changed_is_refused(tmp_path: Path) -> None:
         code_sha=_CODE_SHA,
         runtime_sha256=_RUNTIME_SHA,
         operation="test",
+        input_truncation=_input_evidence(("d000",)),
         document_scheduling=cast(
             "dict[str, Res138JsonValue]", scheduling_evidence([1] * len(("d000",)))
         )
@@ -412,6 +466,7 @@ def test_a_matrix_that_lost_its_normalisation_is_refused(tmp_path: Path) -> None
         code_sha=_CODE_SHA,
         runtime_sha256=_RUNTIME_SHA,
         operation="test",
+        input_truncation=_input_evidence(("d000", "d001")),
         document_scheduling=cast(
             "dict[str, Res138JsonValue]", scheduling_evidence([1] * len(("d000", "d001")))
         )
@@ -450,6 +505,7 @@ def test_a_shard_description_that_cannot_be_true_is_refused(
         "code_sha": _CODE_SHA,
         "runtime_sha256": _RUNTIME_SHA,
         "operation": "test",
+        "input_truncation": _input_evidence(("d000", "d001")),
     }
     fields.update(mutation)
     with pytest.raises((BenchmarkArtifactError, BenchmarkContractError)):
@@ -471,7 +527,7 @@ def test_a_run_manifest_identity_ignores_its_run_id_and_binds_everything_else() 
         ("runtime_sha256", "f" * 64),
         ("plan_sha256", "0" * 64),
         ("generation_semantics_sha256", "1" * 64),
-        ("shard_revision", "res138-shard-v4"),
+        ("shard_revision", "res138-shard-v5"),
     ):
         assert _manifest(**{field: value}).identity_sha256 != manifest.identity_sha256
 
@@ -522,7 +578,7 @@ def test_resume_is_refused_field_by_field() -> None:
         ({"runtime_sha256": "f" * 64}, "runtime fingerprint"),
         ({"plan_sha256": "0" * 64}, "benchmark plan"),
         ({"generation_semantics_sha256": "1" * 64}, "generation semantics"),
-        ({"shard_revision": "res138-shard-v4"}, "shard revision"),
+        ({"shard_revision": "res138-shard-v5"}, "shard revision"),
         ({"model_revisions": (("a/b", "c" * 40),)}, "candidate model revisions"),
         ({"dataset_digests": (("scifact", "0" * 64),)}, "dataset digests"),
     ):

@@ -474,21 +474,21 @@ def test_the_calibration_set_shape_is_frozen() -> None:
 
 def test_artifact_revisions_are_declared() -> None:
     assert RES138_ARTIFACT_REVISIONS == {
-        "plan": "res138-plan-v1",
+        "plan": "res138-plan-v2",
         "runtime": "res138-runtime-v1",
         "source_manifest": "res138-source-manifest-v1",
         "model_manifest": "res138-model-manifest-v1",
-        "shard": "res138-shard-v3",
+        "shard": "res138-shard-v4",
         "calibration_selection": "res138-calibration-selection-v1",
         "mrl_calibration": "res138-mrl-calibration-v1",
-        "preflight": "res138-preflight-v2",
+        "preflight": "res138-preflight-v3",
         "results": "res138-results-v1",
         "query_results": "res138-query-results-v1",
         "workload_metrics": "res138-workload-metrics-v1",
         "macro_metrics": "res138-macro-metrics-v1",
         "bootstrap": "res138-bootstrap-v1",
-        "performance": "res138-performance-v1",
-        "full_run": "res138-full-run-v1",
+        "performance": "res138-performance-v2",
+        "full_run": "res138-full-run-v2",
         "selection": "res138-selection-v1",
     }
     # The calibration selection record is an artifact, so its revision is bound to

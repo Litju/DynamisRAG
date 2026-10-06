@@ -43,6 +43,7 @@ from dynamisrag.benchmark.contracts import (
     RES138_BASE_DIMENSION,
     RES138_BEIR_SOURCES,
     RES138_CANDIDATE_DIMENSIONS,
+    RES138_INPUT_MAX_TOKENS,
     RES138_MODEL_CANDIDATES,
     RES138_SHARD_SIZE,
     RES138_WORKLOAD_NAMES,
@@ -75,7 +76,6 @@ from dynamisrag.benchmark.res138 import (
     create_res138_run,
     generation_semantics_sha256,
     require_approved_preflight,
-    require_within_sequence_limit,
 )
 from dynamisrag.benchmark.retrieval import (
     QueryRanking,
@@ -88,6 +88,7 @@ from dynamisrag.benchmark.scheduling import (
     scheduling_evidence,
     scheduling_summary,
 )
+from dynamisrag.benchmark.truncation import input_truncation_evidence
 from dynamisrag.embedding.contracts import canonical_json
 
 __all__ = ["FullRunReport", "execute_full_run", "require_full_run_approval"]
@@ -976,11 +977,18 @@ def _scan_candidate_shards(  # noqa: PLR0912 - validates shard bytes, identity a
                     expected_ids = ids[index * RES138_SHARD_SIZE : (index + 1) * RES138_SHARD_SIZE]
                     sidecar = read_shard_sidecar(sidecar_path)
                     if kind is ShardKind.DOCUMENTS:
-                        expected_schedule = scheduling_evidence(
-                            corpus_counts[workload_name][
-                                index * RES138_SHARD_SIZE : (index + 1) * RES138_SHARD_SIZE
-                            ]
-                        )
+                        expected_raw = corpus_counts[workload_name][
+                            index * RES138_SHARD_SIZE : (index + 1) * RES138_SHARD_SIZE
+                        ]
+                        if sidecar.input_truncation != input_truncation_evidence(
+                            expected_ids, expected_raw
+                        ):
+                            raise BenchmarkArtifactError(
+                                "shard input truncation evidence differs from approved corpus "
+                                "counts",
+                                operation="resume_shards",
+                            )
+                        expected_schedule = scheduling_evidence(expected_raw)
                         if sidecar.document_scheduling != expected_schedule:
                             raise BenchmarkArtifactError(
                                 "shard scheduling differs from approved corpus counts",
@@ -1099,6 +1107,15 @@ def _require_derived_binding(
             operation="resume_shards",
             workload=output.workload,
         )
+    if output.input_truncation != base.input_truncation:
+        raise BenchmarkArtifactError(
+            f"512 shard {output.shard_index} of {output.workload}/{output.kind.value} does not "
+            "bind the same input truncation evidence as its 1024 source. The two matrices are the "
+            "same inputs encoded two ways, so the raw counts and the truncation record must be "
+            "identical.",
+            operation="resume_shards",
+            workload=output.workload,
+        )
     if derived512_allowed and (
         output.inference_seconds != base.inference_seconds
         or output.query_latency_ms != base.query_latency_ms
@@ -1153,7 +1170,7 @@ def _ensure_candidate_shards(
                 expected_texts = texts[start : start + RES138_SHARD_SIZE]
                 base_key = (workload_name, kind, RES138_BASE_DIMENSION, index)
                 if base_key in missing:
-                    matrix, seconds, latencies, scheduling = _encode_input_shard(
+                    matrix, seconds, latencies, scheduling, input_evidence = _encode_input_shard(
                         encoder=encoder,
                         candidate=candidate,
                         kind=kind,
@@ -1172,6 +1189,7 @@ def _ensure_candidate_shards(
                         matrix=matrix,
                         inference_seconds=seconds,
                         query_latency_ms=latencies,
+                        input_truncation=input_evidence,
                         document_scheduling=scheduling,
                         candidate=candidate,
                         workload=workload,
@@ -1252,8 +1270,9 @@ def _ensure_candidate_shards(
                     latencies = sidecar.query_latency_ms
                     derived_from_matrix_sha256 = sidecar.matrix_sha256
                     scheduling = sidecar.document_scheduling
+                    input_evidence = sidecar.input_truncation
                 else:
-                    matrix, seconds, latencies, scheduling = _encode_input_shard(
+                    matrix, seconds, latencies, scheduling, input_evidence = _encode_input_shard(
                         encoder=encoder,
                         candidate=candidate,
                         kind=kind,
@@ -1272,6 +1291,7 @@ def _ensure_candidate_shards(
                     matrix=matrix,
                     inference_seconds=seconds,
                     query_latency_ms=latencies,
+                    input_truncation=input_evidence,
                     document_scheduling=scheduling,
                     derived_from_matrix_sha256=derived_from_matrix_sha256,
                     candidate=candidate,
@@ -1301,26 +1321,33 @@ def _encode_input_shard(
     clock: Callable[[], float],
     operation: str,
     expected_token_counts: Sequence[int] | None = None,
-) -> tuple[NDArray[np.float32], float, tuple[float, ...], dict[str, Res138JsonValue] | None]:
+) -> tuple[
+    NDArray[np.float32],
+    float,
+    tuple[float, ...],
+    dict[str, Res138JsonValue] | None,
+    dict[str, Res138JsonValue],
+]:
     observed = encoder.observed_max_sequence_length()
-    if observed < candidate.native_max_sequence_length:
+    if observed != RES138_INPUT_MAX_TOKENS:
         raise BenchmarkExecutionError(
-            f"the loaded model reports max_seq_length {observed}, shorter than the frozen native "
-            f"{candidate.native_max_sequence_length}; no input was encoded.",
+            f"the loaded model reports max_seq_length {observed}, not the frozen common input "
+            f"boundary {RES138_INPUT_MAX_TOKENS}; no input was encoded.",
             operation=operation,
             model_id=candidate.model_id,
-            expected=str(candidate.native_max_sequence_length),
+            expected=str(RES138_INPUT_MAX_TOKENS),
             observed=str(observed),
         )
-    if kind is ShardKind.QUERIES:
-        require_within_sequence_limit(
-            encoder=encoder,
-            texts=texts,
-            item_ids=ids,
-            candidate=candidate,
-            operation=operation,
-            kind=kind,
+    prompt = candidate.prompt(kind=kind.prompt_name).content
+    counts = encoder.token_counts(tuple(prompt + text for text in texts))
+    if len(counts) != len(texts) or len(ids) != len(texts):
+        raise BenchmarkExecutionError("document ids/texts/token counts differ", operation=operation)
+    if expected_token_counts is not None and tuple(counts) != tuple(expected_token_counts):
+        raise BenchmarkExecutionError(
+            "loaded tokenizer differs from approved corpus counts", operation=operation
         )
+    input_evidence = cast("dict[str, Res138JsonValue]", input_truncation_evidence(ids, counts))
+    if kind is ShardKind.QUERIES:
         rows: list[NDArray[np.float32]] = []
         timings: list[float] = []
         for text in texts:
@@ -1332,14 +1359,7 @@ def _encode_input_shard(
             timings.append(elapsed * 1000.0)
         matrix = np.ascontiguousarray(np.stack(rows), dtype=np.float32)
         seconds = sum(timings) / 1000.0
-        return matrix, seconds, tuple(timings), None
-    counts = encoder.token_counts(tuple(candidate.document_prompt.content + text for text in texts))
-    if len(counts) != len(texts) or len(ids) != len(texts):
-        raise BenchmarkExecutionError("document ids/texts/token counts differ", operation=operation)
-    if expected_token_counts is not None and tuple(counts) != tuple(expected_token_counts):
-        raise BenchmarkExecutionError(
-            "loaded tokenizer differs from approved corpus counts", operation=operation
-        )
+        return matrix, seconds, tuple(timings), None, input_evidence
     evidence = scheduling_evidence(counts)
     matrices: list[NDArray[np.float32]] = []
     seconds = 0.0
@@ -1354,7 +1374,13 @@ def _encode_input_shard(
         matrices.append(batch)
     matrix = np.ascontiguousarray(np.concatenate(matrices, axis=0))
     _require_encoded_matrix(matrix, row_count=len(texts), dimension=dimension, candidate=candidate)
-    return matrix, seconds, (), cast("dict[str, Res138JsonValue]", evidence)
+    return (
+        matrix,
+        seconds,
+        (),
+        cast("dict[str, Res138JsonValue]", evidence),
+        input_evidence,
+    )
 
 
 def _require_encoded_matrix(
@@ -1386,6 +1412,7 @@ def _write_shard(
     inference_seconds: float,
     query_latency_ms: Sequence[float],
     derived_from_matrix_sha256: str | None = None,
+    input_truncation: dict[str, Res138JsonValue] | None = None,
     document_scheduling: dict[str, Res138JsonValue] | None = None,
     candidate: ModelCandidateSpec,
     workload: RetrievalWorkload,
@@ -1438,6 +1465,7 @@ def _write_shard(
         inference_seconds=inference_seconds,
         query_latency_ms=query_latency_ms,
         derived_from_matrix_sha256=derived_from_matrix_sha256,
+        input_truncation=input_truncation,
         document_scheduling=document_scheduling,
         operation="write_full_run_shard",
     )

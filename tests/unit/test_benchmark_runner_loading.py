@@ -40,6 +40,7 @@ import numpy as np
 import pytest
 
 from dynamisrag.benchmark.contracts import (
+    RES138_INPUT_MAX_TOKENS,
     RES138_MODEL_CANDIDATES,
     RES138_SUPPORTED_DTYPES,
     ModelCandidateSpec,
@@ -52,6 +53,7 @@ from dynamisrag.benchmark.runner import (
     model_provenance,
     observed_parameter_dtype,
     require_frozen_prompts,
+    require_loaded_truncation_policy,
     require_observed_compute_dtype,
     resolve_compute_dtype,
 )
@@ -401,6 +403,47 @@ def test_the_output_dtype_is_the_persisted_matrix_dtype_for_every_candidate() ->
 
 
 # ---------------------------------------------------------------------------
+# The loaded model's own truncation must be the frozen input policy
+# ---------------------------------------------------------------------------
+
+
+def test_the_common_input_boundary_is_32768_and_both_candidates_reach_it() -> None:
+    assert RES138_INPUT_MAX_TOKENS == 32768
+    assert all(
+        candidate.native_max_sequence_length >= RES138_INPUT_MAX_TOKENS
+        for candidate in RES138_MODEL_CANDIDATES
+    )
+
+
+def test_a_loaded_model_at_the_frozen_boundary_and_right_side_is_accepted() -> None:
+    require_loaded_truncation_policy(
+        candidate=_VOYAGE,
+        max_seq_length=32768,
+        truncation_side="right",
+        operation="t",
+    )
+
+
+@pytest.mark.parametrize("boundary", [512, 16384, 131072, None, "32768"])
+def test_a_loaded_boundary_that_is_not_exactly_32768_is_refused(boundary: object) -> None:
+    with pytest.raises(BenchmarkExecutionError) as caught:
+        require_loaded_truncation_policy(
+            candidate=_QWEN, max_seq_length=boundary, truncation_side="right", operation="t"
+        )
+    assert "common input boundary" in str(caught.value)
+    assert caught.value.observed == str(boundary)
+
+
+@pytest.mark.parametrize("side", ["left", None, "RIGHT"])
+def test_a_left_truncating_tokenizer_is_refused(side: object) -> None:
+    with pytest.raises(BenchmarkExecutionError) as caught:
+        require_loaded_truncation_policy(
+            candidate=_VOYAGE, max_seq_length=32768, truncation_side=side, operation="t"
+        )
+    assert "truncates on the" in str(caught.value)
+
+
+# ---------------------------------------------------------------------------
 # The encoder is wired to the load semantics, not merely able to reach them
 # ---------------------------------------------------------------------------
 
@@ -486,6 +529,22 @@ def test_the_encoder_verifies_the_prompts_before_it_encodes_anything() -> None:
     settings = {keyword.arg for keyword in checked.keywords if keyword.arg is not None}
 
     assert {"candidate", "model", "operation"} <= settings
+
+
+def test_the_encoder_verifies_the_loaded_truncation_policy_before_it_encodes_anything() -> None:
+    """The boundary and the truncation side are read off the objects that encode."""
+
+    checked = next(
+        node
+        for node in ast.walk(_encoder_body())
+        if isinstance(node, ast.Call) and _called(node.func) == "require_loaded_truncation_policy"
+    )
+    settings = {keyword.arg for keyword in checked.keywords if keyword.arg is not None}
+
+    assert {"candidate", "max_seq_length", "truncation_side", "operation"} <= settings
+    rendered = ast.unparse(checked)
+    assert "max_seq_length" in rendered
+    assert "truncation_side" in rendered
 
 
 def test_the_runner_module_imports_no_gpu_package_at_module_scope() -> None:

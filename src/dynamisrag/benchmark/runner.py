@@ -12,9 +12,11 @@ Everything else about it is bounded by the frozen contracts:
   rather than a silent CPU fallback that would produce different numbers;
 * outputs are ``float32``, L2-normalised, and checked for finiteness before they
   reach an artifact;
-* **no hidden truncation**: the model's own boundary is compared against the frozen
-  native boundary, and every input is tokenised and checked *before* encoding, so an
-  over-context item is refused and reported by id;
+* **truncation is declared, not hidden**: the loaded model must report exactly the
+  frozen common input boundary and its tokenizer must truncate on the right, so the
+  native encoding path shortens an over-long input at the declared point and in the
+  declared direction. Raw token counts are still measured without truncation by
+  ``token_counts`` and persisted as the authority;
 * the model-native prompt is applied by name, from the pinned repository's own
   prompt table, and the prompts have already been verified against the frozen
   contents by :func:`~dynamisrag.benchmark.res138.verify_pinned_model_metadata`.
@@ -48,6 +50,8 @@ from numpy.typing import NDArray
 from dynamisrag.benchmark.artifacts import ShardKind
 from dynamisrag.benchmark.calibration import CalibrationSet
 from dynamisrag.benchmark.contracts import (
+    RES138_INPUT_MAX_TOKENS,
+    RES138_INPUT_TRUNCATION_DIRECTION,
     RES138_MODEL_CANDIDATES,
     RES138_PROMPT_NAMES,
     RES138_SUPPORTED_DTYPES,
@@ -79,6 +83,7 @@ __all__ = [
     "probe_colab_runtime",
     "release_cuda_cache",
     "require_frozen_prompts",
+    "require_loaded_truncation_policy",
     "require_observed_compute_dtype",
     "resolve_compute_dtype",
     "torch_dtype_for",
@@ -239,6 +244,51 @@ def require_observed_compute_dtype(
             observed=observed,
         )
     return observed
+
+
+def require_loaded_truncation_policy(
+    *,
+    candidate: ModelCandidateSpec,
+    max_seq_length: object,
+    truncation_side: object,
+    operation: str,
+) -> None:
+    """Require the loaded model's own truncation to be the frozen input policy.
+
+    Two observations, both from the objects that actually encode. ``max_seq_length``
+    is the boundary sentence-transformers 5.0.0 passes to the tokenizer as
+    ``max_length``; ``truncation_side`` is the side the tokenizer keeps when it
+    shortens a single over-long sequence. If either differs from the frozen
+    contract, the native path would truncate at a point or from an end nobody
+    declared — which is exactly the silent shortening the input policy exists to
+    make explicit.
+
+    Pure, so CI proves the refusal with stubs; the encoder calls it with the real
+    ``model.max_seq_length`` and ``tokenizer.truncation_side`` immediately after
+    loading, before any encode.
+    """
+    if max_seq_length != RES138_INPUT_MAX_TOKENS:
+        raise BenchmarkExecutionError(
+            f"the loaded model reports max_seq_length {max_seq_length!r}, not the frozen common "
+            f"input boundary {RES138_INPUT_MAX_TOKENS}. Encoding at a longer boundary would "
+            "accept inputs this contract declares truncated; a shorter one would truncate at a "
+            "point nobody declared. Nothing was encoded.",
+            operation=operation,
+            model_id=candidate.model_id,
+            expected=str(RES138_INPUT_MAX_TOKENS),
+            observed=str(max_seq_length),
+        )
+    if truncation_side != RES138_INPUT_TRUNCATION_DIRECTION:
+        raise BenchmarkExecutionError(
+            f"the loaded tokenizer truncates on the {truncation_side!r}, not the frozen "
+            f"{RES138_INPUT_TRUNCATION_DIRECTION!r}. The frozen input policy keeps the beginning "
+            "of an over-long prompt-plus-text; a left-truncating tokenizer would keep the tail. "
+            "Nothing was encoded.",
+            operation=operation,
+            model_id=candidate.model_id,
+            expected=RES138_INPUT_TRUNCATION_DIRECTION,
+            observed=str(truncation_side),
+        )
 
 
 def model_provenance(
@@ -408,10 +458,12 @@ class SentenceTransformersCalibrationEncoder:
     :class:`~dynamisrag.benchmark.res138.CalibrationEncoder` and, through
     :meth:`describe`, the model provenance a preflight records.
 
-    **Load-time refusals.** A model whose own ``max_seq_length`` is *shorter* than
-    the frozen native boundary would truncate inputs nobody declared; that is
-    refused at construction. A loaded model's pooling and its normalisation stage
-    have already been checked against the pinned repository by
+    **Load-time refusals.** A loaded model whose own ``max_seq_length`` is not
+    exactly the frozen common input boundary, or whose tokenizer truncates from the
+    other side, would shorten inputs at a point or from an end nobody declared;
+    :func:`require_loaded_truncation_policy` refuses both at construction, before
+    any encode. A loaded model's pooling and its normalisation stage have already
+    been checked against the pinned repository by
     :func:`~dynamisrag.benchmark.res138.verify_pinned_model_metadata`, which reads
     the same files this model was loaded from.
     """
@@ -464,16 +516,12 @@ class SentenceTransformersCalibrationEncoder:
             candidate=self.candidate, model=self.model, operation="load_candidate"
         )
         self.tokenizer = self.model.tokenizer
-        if self.model.max_seq_length < self.candidate.native_max_sequence_length:
-            raise BenchmarkExecutionError(
-                f"the loaded model reports max_seq_length {self.model.max_seq_length}, shorter "
-                f"than the frozen native {self.candidate.native_max_sequence_length}. Encoding at "
-                "that boundary would truncate inputs silently, which this benchmark does not do.",
-                operation="load_candidate",
-                model_id=self.candidate.model_id,
-                expected=str(self.candidate.native_max_sequence_length),
-                observed=str(self.model.max_seq_length),
-            )
+        require_loaded_truncation_policy(
+            candidate=self.candidate,
+            max_seq_length=self.model.max_seq_length,
+            truncation_side=getattr(self.tokenizer, "truncation_side", None),
+            operation="load_candidate",
+        )
         prompts = require_frozen_prompts(
             candidate=self.candidate, model=self.model, operation="load_candidate"
         )
@@ -502,11 +550,13 @@ class SentenceTransformersCalibrationEncoder:
         return int(self.model.max_seq_length)
 
     def token_counts(self, texts: Sequence[str]) -> tuple[int, ...]:
-        """Token length of each input under the model's own tokenizer.
+        """Raw token length of each input under the model's own tokenizer.
 
-        Counted with special tokens and without truncation, so a number larger
-        than the boundary is a real over-context input rather than an artifact of
-        how the length was measured.
+        Counted with special tokens and **without truncation**, so a number above
+        the frozen common boundary is a real over-long input and is recorded as
+        such rather than hidden by the encoder's own truncation. The encoder's
+        native path is the only thing that shortens an input, at
+        ``max_seq_length``, on the right.
         """
         return exact_token_counts(
             self.tokenizer, texts, do_lower_case=bool(self.model[0].do_lower_case)

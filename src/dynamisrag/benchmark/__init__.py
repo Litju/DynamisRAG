@@ -2,12 +2,13 @@
 
     frozen BEIR archives
         -> RetrievalWorkload      (canonical order, every content digest bound)
-        -> native model vectors   (float32, L2-normalised, pinned revisions)
+        -> native model vectors   (float32, L2-normalised, pinned revisions,
+                                   raw token counts persisted, right truncation at 32768)
         -> MRL derivation         (1024 -> 512, only where calibration proves it)
-        -> sharded .npy artifacts (res138-shard-v3, resumable)
+        -> sharded .npy artifacts (res138-shard-v4, resumable)
         -> exact cosine top-100   (chunked, deterministic tie order)
         -> per-query/workload/macro metrics, paired bootstrap and performance evidence
-        -> res138-full-run-v1 (selection remains a later evidence step)
+        -> res138-full-run-v2 (selection remains a later evidence step)
 
 **What this package is.** The harness that makes a future default defensible: the
 frozen workloads, the frozen candidates, the frozen prompts, the frozen
@@ -47,16 +48,20 @@ from __future__ import annotations
 
 from dynamisrag.benchmark.contracts import (
     RES138_ARTIFACT_REVISIONS,
+    RES138_ATTENTION_BACKEND,
     RES138_BEIR_SOURCES,
     RES138_BOOTSTRAP_CONFIDENCE,
     RES138_BOOTSTRAP_SAMPLES,
     RES138_BOOTSTRAP_SEED,
     RES138_CANDIDATE_DIMENSIONS,
+    RES138_INPUT_MAX_TOKENS,
+    RES138_INPUT_TRUNCATION_DIRECTION,
     RES138_MODEL_CANDIDATES,
     RES138_MRL_CALIBRATION_GATE,
     RES138_RETRIEVAL_TOP_K,
     RES138_SHARD_SIZE,
     RES138_TEI_EQUIVALENCE_GATE,
+    RES138_TEI_EQUIVALENCE_RUNTIME,
     BeirSourceSpec,
     ModelCandidateSpec,
     RetrievalDocument,
@@ -76,16 +81,20 @@ from dynamisrag.benchmark.errors import (
 
 __all__ = [
     "RES138_ARTIFACT_REVISIONS",
+    "RES138_ATTENTION_BACKEND",
     "RES138_BEIR_SOURCES",
     "RES138_BOOTSTRAP_CONFIDENCE",
     "RES138_BOOTSTRAP_SAMPLES",
     "RES138_BOOTSTRAP_SEED",
     "RES138_CANDIDATE_DIMENSIONS",
+    "RES138_INPUT_MAX_TOKENS",
+    "RES138_INPUT_TRUNCATION_DIRECTION",
     "RES138_MODEL_CANDIDATES",
     "RES138_MRL_CALIBRATION_GATE",
     "RES138_RETRIEVAL_TOP_K",
     "RES138_SHARD_SIZE",
     "RES138_TEI_EQUIVALENCE_GATE",
+    "RES138_TEI_EQUIVALENCE_RUNTIME",
     "BeirSourceSpec",
     "BenchmarkArtifactError",
     "BenchmarkContractError",

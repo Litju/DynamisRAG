@@ -3,12 +3,12 @@
 This module is the *whole* notebook-facing API:
 
     Res138ColabConfig            the parameter cell, validated
-    benchmark_plan               res138-plan-v1, written before anything is downloaded
+    benchmark_plan               res138-plan-v2, written before anything is downloaded
     verify_and_cache_beir_sources  fetch, verify, cache, extract, load, report
     verify_pinned_model_metadata    read the pinned repo configs and refuse a drift
     run_mrl_calibration          native-512 vs derived-512, per model and per path
     create_res138_run            open or refuse a Drive run directory
-    write_preflight_bundle       res138-preflight-v2, the gate the full run needs
+    write_preflight_bundle       res138-preflight-v3, the gate the full run needs
     verify_preflight_bundle      re-check one from disk
     require_approved_preflight   the only way into a full run
 
@@ -67,6 +67,7 @@ from dynamisrag.benchmark.beir import (
 from dynamisrag.benchmark.calibration import CalibrationSet
 from dynamisrag.benchmark.contracts import (
     BEIR_QREL_SPLIT,
+    RES138_ATTENTION_BACKEND,
     RES138_BASE_DIMENSION,
     RES138_BOOTSTRAP_CONFIDENCE,
     RES138_BOOTSTRAP_SAMPLES,
@@ -74,6 +75,7 @@ from dynamisrag.benchmark.contracts import (
     RES138_CANDIDATE_DIMENSIONS,
     RES138_CORPUS_CHUNK_SIZE,
     RES138_DRIVE_ROOT,
+    RES138_INPUT_MAX_TOKENS,
     RES138_MRL_CALIBRATION_GATE,
     RES138_MRL_DERIVATION_REVISION,
     RES138_NDCG_CUTOFF,
@@ -81,6 +83,7 @@ from dynamisrag.benchmark.contracts import (
     RES138_RETRIEVAL_TOP_K,
     RES138_SHARD_SIZE,
     RES138_TEI_EQUIVALENCE_GATE,
+    RES138_TEI_EQUIVALENCE_RUNTIME,
     BeirSourceSpec,
     ModelCandidateSpec,
     RetrievalWorkload,
@@ -99,6 +102,7 @@ from dynamisrag.benchmark.errors import (
     BenchmarkExecutionError,
     BenchmarkPreflightError,
 )
+from dynamisrag.benchmark.memory_probe import MEMORY_PROBE_REVISION
 from dynamisrag.benchmark.metrics import MacroMetrics, WorkloadMetrics, macro_across_workloads
 from dynamisrag.benchmark.mrl import (
     MrlPathDecision,
@@ -109,6 +113,7 @@ from dynamisrag.benchmark.retrieval import RES138_SCORE_DTYPE
 from dynamisrag.benchmark.runtime import RuntimeFingerprint
 from dynamisrag.benchmark.scheduling import BATCH_SIZES, SCHEDULER_REVISION, TOKEN_SQUARE_BUDGET
 from dynamisrag.benchmark.selection import RES138_RECALL_TIE_TOLERANCE
+from dynamisrag.benchmark.truncation import input_policy_payload
 from dynamisrag.embedding.contracts import (
     EmbeddingGenerationConfig,
     TruncationDirection,
@@ -129,7 +134,6 @@ __all__ = [
     "generation_semantics_sha256",
     "merge_model_provenance",
     "require_approved_preflight",
-    "require_within_sequence_limit",
     "run_mrl_calibration",
     "verify_and_cache_beir_sources",
     "verify_pinned_model_metadata",
@@ -241,10 +245,16 @@ def generation_semantics() -> tuple[Res138GenerationSemantics, ...]:
 
     Expressed with RES-137's own
     :class:`~dynamisrag.embedding.contracts.EmbeddingGenerationConfig` rather than a
-    parallel dataclass, so "normalize=true, truncate=false, this prompt name, this
-    dimension" means the same thing here as it will mean in production, and its
-    digest is the same digest. The benchmark does not weaken or fork that contract;
-    it states which values of it it uses.
+    parallel dataclass, so "normalize=true, truncate=true, right, this prompt name,
+    this dimension" means the same thing here as it will mean in production, and
+    its digest is the same digest. The benchmark does not weaken or fork that
+    contract; it states which values of it it uses.
+
+    ``truncate=true`` and ``right`` are the declared input policy, shared by
+    documents and queries: the native encoding path truncates an over-long input
+    at :data:`~dynamisrag.benchmark.contracts.RES138_INPUT_MAX_TOKENS` from the
+    right, exactly as the runner verifies at load. The raw token counts remain
+    measured and persisted without truncation, so the policy is auditable.
     """
     semantics: list[Res138GenerationSemantics] = []
     for candidate in _FROZEN_MODEL_CANDIDATES:
@@ -258,7 +268,7 @@ def generation_semantics() -> tuple[Res138GenerationSemantics, ...]:
                         dimension=dimension,
                         config=EmbeddingGenerationConfig(
                             normalize=True,
-                            truncate=False,
+                            truncate=True,
                             truncation_direction=TruncationDirection.RIGHT,
                             prompt_name=candidate.prompt(kind=kind.prompt_name).name,
                             dimensions=dimension,
@@ -323,18 +333,21 @@ def benchmark_plan(code_sha: str, *, operation: str = "benchmark_plan") -> Artif
     payload: dict[str, Res138JsonValue] = {
         "artifact_revision": RES138_ARTIFACT_REVISIONS["plan"],
         "code_sha": code_sha,
+        "input_policy": cast("dict[str, Res138JsonValue]", input_policy_payload()),
         "execution_policy": {
             "scheduler_revision": SCHEDULER_REVISION,
             "token_square_budget": TOKEN_SQUARE_BUDGET,
             "allowed_document_batch_sizes": list(BATCH_SIZES),
+            "scheduler_uses": "effective token counts: min(raw, input_max_tokens)",
+            "attention_backend": RES138_ATTENTION_BACKEND,
             "cuda_required": True,
             "minimum_compute_capability": "8.0",
             "minimum_gpu_memory_bytes": 80_000_000_000,
-            "memory_probe_revision": "res138-corpus-memory-probe-v1",
+            "memory_probe_revision": MEMORY_PROBE_REVISION,
             "voyage_stop_rule": (
-                "A100 80GB longest legal document batch=1 float32 SDPA failure "
-                "operationally disqualifies Voyage; select Qwen, "
-                "no further backend optimization tranche"
+                "A100 80GB longest legal input (raw 36572 -> effective 32768, batch=1, "
+                "native 1024, float32 SDPA) failure operationally disqualifies Voyage; "
+                "select Qwen, no further backend optimization tranche"
             ),
         },
         "candidates": [
@@ -386,6 +399,9 @@ def benchmark_plan(code_sha: str, *, operation: str = "benchmark_plan") -> Artif
         },
         "tei_equivalence_gate": cast(
             "dict[str, Res138JsonValue]", dict(RES138_TEI_EQUIVALENCE_GATE.payload())
+        ),
+        "tei_equivalence_runtime": cast(
+            "dict[str, Res138JsonValue]", dict(RES138_TEI_EQUIVALENCE_RUNTIME)
         ),
         "bootstrap": {
             "seed": RES138_BOOTSTRAP_SEED,
@@ -706,8 +722,10 @@ class CalibrationEncoder(Protocol):
     def token_counts(self, texts: Sequence[str]) -> tuple[int, ...]:
         """Token length of each input under the model's own tokenizer.
 
-        Checked before encoding so an input longer than the frozen native boundary
-        is **refused and reported** rather than truncated silently.
+        Counted **without truncation** and with the frozen prompt included, so an
+        input over the common boundary yields a raw count that records the
+        overflow. The count is the persisted authority; the effective count the
+        scheduler uses is derived from it.
         """
         ...
 
@@ -760,24 +778,17 @@ def run_mrl_calibration(
                 )
             texts = calibration.texts(workload=workload, kind=kind.value)
             observed = encoder.observed_max_sequence_length()
-            if observed < candidate.native_max_sequence_length:
+            if observed != RES138_INPUT_MAX_TOKENS:
                 raise BenchmarkExecutionError(
-                    f"the loaded model reports a truncation boundary of {observed} tokens, shorter "
-                    f"than the frozen native {candidate.native_max_sequence_length}. Encoding at "
-                    "that boundary would truncate inputs nobody declared, so the run stops.",
+                    f"the loaded model reports a truncation boundary of {observed} tokens, not "
+                    f"the frozen common input boundary {RES138_INPUT_MAX_TOKENS}. Encoding at any "
+                    "other boundary would truncate at a point the input policy does not declare, "
+                    "so the run stops.",
                     operation=operation,
                     model_id=candidate.model_id,
-                    expected=str(candidate.native_max_sequence_length),
+                    expected=str(RES138_INPUT_MAX_TOKENS),
                     observed=str(observed),
                 )
-            require_within_sequence_limit(
-                encoder=encoder,
-                texts=texts,
-                item_ids=item_ids,
-                candidate=candidate,
-                operation=operation,
-                kind=kind,
-            )
             native_1024 = encoder.encode(texts, kind=kind, dimension=RES138_BASE_DIMENSION)
             native_512 = encoder.encode(
                 texts, kind=kind, dimension=min(RES138_CANDIDATE_DIMENSIONS)
@@ -794,38 +805,6 @@ def run_mrl_calibration(
                 )
             )
     return tuple(decisions)
-
-
-def require_within_sequence_limit(
-    *,
-    encoder: CalibrationEncoder,
-    texts: Sequence[str],
-    item_ids: Sequence[str],
-    candidate: ModelCandidateSpec,
-    operation: str,
-    kind: ShardKind = ShardKind.DOCUMENTS,
-) -> None:
-    """Refuse an input longer than the frozen native boundary, naming its id.
-
-    Reported by id and token count, never by text: the offending item is
-    third-party scientific literature and an error message reaches a terminal.
-    """
-    counts = encoder.token_counts(
-        tuple(candidate.prompt(kind=kind.prompt_name).content + text for text in texts)
-    )
-    for item_id, count in zip(item_ids, counts, strict=True):
-        if count > candidate.native_max_sequence_length:
-            raise BenchmarkExecutionError(
-                f"input {item_id!r} is {count} tokens, over the frozen native boundary "
-                f"of {candidate.native_max_sequence_length} for this model. The benchmark does not "
-                "truncate: an over-context input is a benchmark error, reported by id and token "
-                "count, never by content.",
-                operation=operation,
-                model_id=candidate.model_id,
-                item_id=item_id,
-                expected=str(candidate.native_max_sequence_length),
-                observed=str(count),
-            )
 
 
 # ---------------------------------------------------------------------------
@@ -872,15 +851,17 @@ def write_preflight_bundle(
     artifact_digests: Mapping[str, str],
     memory_probes: Sequence[Mapping[str, Res138JsonValue]] = (),
 ) -> str:
-    """Write ``res138-preflight-v2`` and return its SHA-256.
+    """Write ``res138-preflight-v3`` and return its SHA-256.
 
     The artifact a human reads before approving a full run, so it states everything
     the full run would rely on: the code commit, the runtime payload and its
     digest, the Drive run id, each BEIR archive's verified digest and what loading
     it declared, each candidate's revision and prompt digests, the generation
-    semantics, the exact calibration inputs, the native-512-versus-derived-512
-    numbers, the per-model-per-path MRL decision, and the digests of the artifacts
-    already written.
+    semantics, the frozen input/truncation policy, the per-candidate memory probes
+    (raw corpus counts, truncation evidence and the actually-encoded cases), the
+    exact calibration inputs, the native-512-versus-derived-512 numbers, the
+    per-model-per-path MRL decision, the TEI equivalence runtime the gate will be
+    evaluated under, and the digests of the artifacts already written.
 
     It does **not** authorise itself: the authorisation is a human copying its
     digest into ``APPROVED_PREFLIGHT_SHA256``.
@@ -905,6 +886,7 @@ def write_preflight_bundle(
         "runtime_sha256": fingerprint.sha256,
         "plan_sha256": benchmark_plan(config.code_sha).sha256,
         "generation_semantics_sha256": generation_semantics_sha256(),
+        "input_policy": cast("dict[str, Res138JsonValue]", input_policy_payload()),
         "sources": [item.payload() for item in loaded],
         "models": list(model_provenance),
         "memory_probes": list(memory_probes),
@@ -912,9 +894,12 @@ def write_preflight_bundle(
         "tei_equivalence": {
             "status": "not_run",
             "gate": cast("dict[str, Res138JsonValue]", dict(RES138_TEI_EQUIVALENCE_GATE.payload())),
+            "runtime": cast("dict[str, Res138JsonValue]", dict(RES138_TEI_EQUIVALENCE_RUNTIME)),
             "note": (
-                "the TEI equivalence gate is evaluated locally against TEI 1.9.4, not in Colab; "
-                "Colab cannot run Docker. A candidate whose native vectors are not TEI-equivalent "
+                "the TEI equivalence gate is evaluated locally against TEI 1.9.4 under "
+                "--max-batch-tokens 32768 and --auto-truncate true, not in Colab; Colab cannot "
+                "run Docker, and TEI's own default max_batch_tokens of 16384 is not this "
+                "contract's runtime. A candidate whose native vectors are not TEI-equivalent "
                 "cannot be used for selection."
             ),
         },
@@ -956,9 +941,11 @@ def verify_preflight_bundle(  # noqa: PLR0912 - identity fields must all pass be
         "runtime_sha256",
         "plan_sha256",
         "generation_semantics_sha256",
+        "input_policy",
         "sources",
         "models",
         "mrl_calibration",
+        "tei_equivalence",
         "artifact_digests",
     )
     missing = [key for key in required if key not in envelope.payload]
@@ -972,6 +959,24 @@ def verify_preflight_bundle(  # noqa: PLR0912 - identity fields must all pass be
     if envelope.payload.get("run_mode") != RUN_MODE_PREFLIGHT:
         raise BenchmarkPreflightError(
             "only a preflight-mode artifact can authorize a full run.", operation=operation
+        )
+    if canonical_json(envelope.payload["input_policy"]) != canonical_json(input_policy_payload()):
+        raise BenchmarkPreflightError(
+            "the preflight input policy is not the frozen one. A preflight produced under a "
+            "different truncation contract — a refusal, a left truncation, or no declared "
+            "boundary — does not describe the inputs this harness encodes.",
+            operation=operation,
+        )
+    tei_equivalence = envelope.payload["tei_equivalence"]
+    if not isinstance(tei_equivalence, Mapping) or canonical_json(
+        cast("Mapping[str, object]", tei_equivalence).get("runtime")
+    ) != canonical_json(dict(RES138_TEI_EQUIVALENCE_RUNTIME)):
+        raise BenchmarkPreflightError(
+            "the preflight does not bind the frozen TEI equivalence runtime "
+            "(--max-batch-tokens 32768, --auto-truncate true). TEI's default max_batch_tokens is "
+            "16384, so an equivalence result produced without this binding would not be this "
+            "contract's result.",
+            operation=operation,
         )
     if expect_code_sha is not None:
         required_sha = require_code_sha(expect_code_sha, operation=operation)
