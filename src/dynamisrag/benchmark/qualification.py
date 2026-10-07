@@ -44,6 +44,7 @@ from dynamisrag.benchmark.contracts import (
 )
 from dynamisrag.benchmark.errors import BenchmarkArtifactError, BenchmarkContractError
 from dynamisrag.benchmark.gpu_evidence import GpuEvidenceVerdict, gpu_production_metrics
+from dynamisrag.benchmark.gpu_preflight import GpuPreflightManifest
 from dynamisrag.benchmark.opensearch_lane import OpenSearchLaneResult
 from dynamisrag.benchmark.production import (
     PRODUCTION_QUALIFICATION_REVISION,
@@ -129,15 +130,22 @@ def assemble_production_qualification(
     plan: StageBPlan,
     lanes: Sequence[OpenSearchLaneResult],
     verdicts: Sequence[GpuEvidenceVerdict],
+    preflight: GpuPreflightManifest,
     operation: str = "assemble_production_qualification",
 ) -> ProductionQualification:
     """Build, verify and return the Stage B qualification for the whole shortlist.
 
     Complete or nothing. Each shortlisted configuration must contribute a local lane
-    measurement, a re-verified GPU verdict, and production metrics on that verdict; a
-    configuration missing any of them is named in the refusal rather than left out,
-    because a qualification over a subset is a comparison over one candidate, and the
-    frozen selection rule compares two.
+    measurement, a re-verified **full production** GPU verdict authorized by the
+    approved preflight, and production metrics on that verdict; a configuration
+    missing any of them is named in the refusal rather than left out, because a
+    qualification over a subset is a comparison over one candidate, and the frozen
+    selection rule compares two.
+
+    The approved preflight manifest is a required input, re-read by the caller, and
+    every full artifact's ``approved_preflight_sha256`` must equal its canonical
+    digest. Duplicate verdicts are refused before any mapping, so two artifacts for
+    one configuration can never resolve to whichever was last.
     """
     if plan.reference.payload() != sealed.reference.payload():
         raise BenchmarkContractError(
@@ -146,6 +154,33 @@ def assemble_production_qualification(
             "qualification may only be assembled over the reference the plan identifies.",
             operation=operation,
         )
+    if preflight.stage_b_plan_sha256 != plan.sha256:
+        raise BenchmarkContractError(
+            f"the approved GPU preflight was produced under Stage B plan "
+            f"{preflight.stage_b_plan_sha256}, not this plan {plan.sha256}.",
+            operation=operation,
+            expected=plan.sha256,
+            observed=preflight.stage_b_plan_sha256,
+        )
+    covered = tuple(record.dimension for record in preflight.dimensions)
+    if covered != plan.dimensions:
+        raise BenchmarkContractError(
+            f"the approved GPU preflight covers dimensions {list(covered)}, not the plan's "
+            f"{list(plan.dimensions)}.",
+            operation=operation,
+        )
+    seen_verdicts: set[tuple[str, int]] = set()
+    for verdict in verdicts:
+        key = (verdict.model_id, verdict.dimension)
+        if key in seen_verdicts:
+            raise BenchmarkContractError(
+                f"Stage B GPU evidence repeats {verdict.label}. Two verdicts for one "
+                "configuration are ambiguous evidence, and a qualification never resolves an "
+                "ambiguity by taking whichever artifact was last.",
+                operation=operation,
+                model_id=verdict.model_id,
+            )
+        seen_verdicts.add(key)
     expected = set(sealed.reference.candidates)
     lane_map = {(lane.identity.model_id, lane.identity.dimension): lane for lane in lanes}
     verdict_map = {(verdict.model_id, verdict.dimension): verdict for verdict in verdicts}
@@ -170,6 +205,20 @@ def assemble_production_qualification(
                 f"{lane.plan_sha256}, not this plan {plan.sha256}.",
                 operation=operation,
                 model_id=model_id,
+            )
+        # A preflight verdict has no production metrics and is refused here by name;
+        # only then is its authorization compared against the approved manifest.
+        gpu_production_metrics(verdict)
+        if verdict.approved_preflight_sha256 != preflight.sha256:
+            raise BenchmarkContractError(
+                f"the full GPU evidence for {verdict.label} is authorized by preflight "
+                f"{verdict.approved_preflight_sha256!r}, not the approved manifest "
+                f"{preflight.sha256}. Full evidence is admissible only under the preflight an "
+                "operator approved.",
+                operation=operation,
+                model_id=model_id,
+                expected=preflight.sha256,
+                observed=str(verdict.approved_preflight_sha256),
             )
         inference.append(verdict.inference)
         equivalence.append(verdict.equivalence)

@@ -66,6 +66,10 @@ from dynamisrag.benchmark.contracts import (
     require_exact_str,
 )
 from dynamisrag.benchmark.errors import BenchmarkArtifactError, BenchmarkContractError
+from dynamisrag.benchmark.gpu_preflight import (
+    RES138_GPU_PREFLIGHT_FILENAME,
+    read_gpu_preflight,
+)
 from dynamisrag.benchmark.production import (
     RES138_PRODUCTION_EQUIVALENCE_GATE,
     EquivalenceEvidence,
@@ -79,13 +83,19 @@ from dynamisrag.benchmark.tei_server import parse_tei_server_info, require_local
 from dynamisrag.embedding.contracts import canonical_json
 
 __all__ = [
+    "RES138_GPU_EVIDENCE_DIRECTORY",
     "RES138_GPU_EVIDENCE_REVISION",
     "RES138_GPU_METRIC_NAMES",
     "GpuEvidenceVerdict",
+    "full_evidence_filename",
+    "full_evidence_path",
     "gpu_production_metrics",
+    "materialize_verified_evidence",
     "stage_a_calibration_items",
     "stage_b_calibration_reference",
     "vector_digest",
+    "verify_and_materialize",
+    "verify_full_evidence",
     "verify_gpu_evidence",
 ]
 
@@ -102,9 +112,24 @@ pre-A100 execution hardening repaired this revision rather than bumping it: the
 request contract became the TEI 1.9.4 ``/embed`` schema, the serving identity
 became the canonical ``/info`` record's digest, the GPU record became
 nvidia-smi-observed identity, and the ranking half of the gate became the
-query-to-document relation per workload. The revision is a version of the schema
-this module reads and writes; nothing released under it was invalidated, because
-nothing was released.
+query-to-document relation per workload.
+
+**Amended in place a second time, for the same reason.** No artifact has still ever
+been persisted, so the pre-merge hardening added
+``approved_preflight_sha256`` to this revision rather than bumping it: the field is
+``null`` on preflight evidence and the exact approved GPU-preflight manifest digest
+on full production evidence, which is what stops a full artifact from being imported
+without the authorization an operator approved. The revision remains the version of
+the schema this module reads and writes; nothing released under it was invalidated,
+because nothing was released.
+"""
+
+RES138_GPU_EVIDENCE_DIRECTORY: Final[str] = "gpu-evidence"
+"""The canonical work-directory subdirectory imported evidence lives in.
+
+Qualification assembly derives exactly one full artifact path per planned dimension
+inside this directory; it never globs, so directory ordering can never choose which
+artifact is measured.
 """
 
 RES138_GPU_METRIC_NAMES: Final[tuple[str, ...]] = (
@@ -162,6 +187,22 @@ def vector_digest(matrix: NDArray[np.float32], *, label: str, operation: str) ->
     )
     digest.update(contiguous.tobytes(order="C"))
     return digest.hexdigest()
+
+
+def full_evidence_filename(dimension: int) -> str:
+    """The canonical file name of one dimension's full production evidence."""
+    require_candidate_dimension(dimension, operation="full_evidence_filename")
+    return f"gpu-evidence-{dimension}-full.json"
+
+
+def full_evidence_path(work_dir: Path, dimension: int) -> Path:
+    """Where qualification assembly expects one dimension's full evidence.
+
+    A pure function of the plan dimension and the canonical evidence directory, so
+    the input set is derived rather than discovered: no glob, no directory ordering
+    and no naming convention can choose which artifact is measured.
+    """
+    return work_dir / RES138_GPU_EVIDENCE_DIRECTORY / full_evidence_filename(dimension)
 
 
 # ---------------------------------------------------------------------------
@@ -511,7 +552,9 @@ class GpuEvidenceVerdict:
     imported vectors and the sealed reference. ``metrics`` is ``None`` when the
     artifact carried none, and is never populated at all unless the recomputed
     evidence passes the frozen gate — a disqualified configuration has no admissible
-    operational metrics, so the field cannot hold them.
+    operational metrics, so the field cannot hold them. ``approved_preflight_sha256``
+    is ``None`` on preflight evidence and the approved manifest digest on full
+    production evidence; the two are one state, never independently editable.
     """
 
     artifact_revision: str
@@ -523,6 +566,8 @@ class GpuEvidenceVerdict:
     tei_server_sha256: str
     equivalence: EquivalenceEvidence
     metrics: Mapping[str, object] | None
+    approved_preflight_sha256: str | None
+    vector_file: str
     reference_vector_sha256: str
     tei_vector_sha256: str
 
@@ -565,6 +610,8 @@ class GpuEvidenceVerdict:
                 if self.metrics is not None
                 else None
             ),
+            "approved_preflight_sha256": self.approved_preflight_sha256,
+            "vector_file": self.vector_file,
             "reference_vector_sha256": self.reference_vector_sha256,
             "tei_vector_sha256": self.tei_vector_sha256,
         }
@@ -1022,6 +1069,9 @@ def verify_gpu_evidence(  # noqa: PLR0912, PLR0915 - the seven ordered gates are
             model_id=model_id,
         )
     metrics = _require_metrics(payload.get("metrics"), operation=operation)
+    approved_preflight_sha256 = _require_approved_preflight_binding(
+        payload.get("approved_preflight_sha256"), has_metrics=bool(metrics), operation=operation
+    )
     return GpuEvidenceVerdict(
         artifact_revision=RES138_GPU_EVIDENCE_REVISION,
         stage_b_plan_sha256=declared_plan_digest,
@@ -1032,9 +1082,41 @@ def verify_gpu_evidence(  # noqa: PLR0912, PLR0915 - the seven ordered gates are
         tei_server_sha256=declared_server_digest,
         equivalence=evidence,
         metrics=metrics or None,
+        approved_preflight_sha256=approved_preflight_sha256,
+        vector_file=relative,
         reference_vector_sha256=declared_reference_digest,
         tei_vector_sha256=declared_tei_digest,
     )
+
+
+def _require_approved_preflight_binding(
+    value: object, *, has_metrics: bool, operation: str
+) -> str | None:
+    """Require the metrics/preflight-authorization state to be exactly one of two.
+
+    Preflight evidence carries no production metrics and no authorization; full
+    production evidence carries both. A full artifact without an approved digest is
+    an artifact nobody authorized, and a preflight artifact that claims one is
+    claiming authority it cannot have. The two fields are one state, so they are
+    validated together rather than independently.
+    """
+    if has_metrics:
+        if not isinstance(value, str) or not value:
+            raise BenchmarkArtifactError(
+                "full production evidence must declare the approved preflight digest it was run "
+                "under, and this artifact declares none. A full artifact nobody authorized is not "
+                "admissible evidence.",
+                operation=operation,
+            )
+        return _require_sha256(value, label="approved preflight digest", operation=operation)
+    if value is not None:
+        raise BenchmarkArtifactError(
+            "the GPU evidence artifact carries no production metrics but declares an approved "
+            "preflight digest. Preflight evidence is a verification input: it is authorized by "
+            "nothing and its approved_preflight_sha256 must be null.",
+            operation=operation,
+        )
+    return None
 
 
 def _side_equivalence(
@@ -1077,3 +1159,151 @@ def _load_matrix(path: Path, *, operation: str) -> NDArray[np.float32]:
             operation=operation,
         )
     return np.ascontiguousarray(matrix)
+
+
+# ---------------------------------------------------------------------------
+# The qualification input set: exactly one full artifact per planned dimension
+# ---------------------------------------------------------------------------
+
+
+def verify_full_evidence(
+    work_dir: Path,
+    *,
+    sealed: SealedStageA,
+    plan: StageBPlan,
+    operation: str = "verify_full_evidence",
+) -> tuple[GpuEvidenceVerdict, ...]:
+    """Verify exactly the full production artifact of every planned dimension.
+
+    The paths are derived from ``plan.dimensions`` and the canonical evidence
+    directory, never discovered: preflight artifacts, decoys and directory ordering
+    cannot contribute. A missing full artifact fails closed rather than assembling a
+    qualification over the evidence that happens to exist.
+    """
+    verdicts: list[GpuEvidenceVerdict] = []
+    for dimension in plan.dimensions:
+        path = full_evidence_path(work_dir, dimension)
+        if not path.is_file():
+            raise BenchmarkArtifactError(
+                f"full production evidence for dimension {dimension} is missing at "
+                f"{RES138_GPU_EVIDENCE_DIRECTORY}/{full_evidence_filename(dimension)}. Preflight "
+                "evidence is a verification input and never a qualification input; assembly "
+                "requires the verified full artifact of every planned dimension.",
+                operation=operation,
+            )
+        verdicts.append(
+            verify_gpu_evidence(path, sealed=sealed, plan=plan, vectors_directory=path.parent)
+        )
+    return tuple(verdicts)
+
+
+def materialize_verified_evidence(
+    *,
+    verdict: GpuEvidenceVerdict,
+    evidence_path: Path,
+    work_dir: Path,
+    vectors_directory: Path | None = None,
+    operation: str = "materialize_verified_evidence",
+) -> tuple[str, ...]:
+    """Copy one verified full artifact, its vectors and its manifest into the work directory.
+
+    Only full production evidence is materialized: preflight evidence is a verification
+    input. The artifact's authorized preflight digest must equal the digest of the
+    ``gpu-preflight.json`` beside it, so an import can never carry an authorization the
+    manifest does not grant. Each file is written atomically, and a target that already
+    holds different bytes is refused rather than overwritten silently; importing the
+    same bytes twice is idempotent.
+    """
+    if verdict.metrics is None:
+        raise BenchmarkArtifactError(
+            "preflight evidence is a verification input, not a qualification input, and is never "
+            "materialized into the qualification work directory.",
+            operation=operation,
+        )
+    approved = verdict.approved_preflight_sha256
+    if approved is None:  # pragma: no cover - the verifier enforces the metrics/authorization pair
+        raise BenchmarkArtifactError(
+            "a full production artifact must carry its approved preflight digest before it can be "
+            "materialized.",
+            operation=operation,
+        )
+    manifest_path = evidence_path.parent / RES138_GPU_PREFLIGHT_FILENAME
+    manifest = read_gpu_preflight(manifest_path, operation=operation)
+    if manifest.sha256 != approved:
+        raise BenchmarkArtifactError(
+            f"the full evidence artifact is authorized by GPU preflight {approved}, but the "
+            f"{RES138_GPU_PREFLIGHT_FILENAME} beside it hashes to {manifest.sha256}. Importing it "
+            "would carry an authorization that manifest does not grant.",
+            operation=operation,
+        )
+    base = vectors_directory if vectors_directory is not None else evidence_path.parent
+    sources = (
+        (evidence_path, evidence_path.name),
+        (base / verdict.vector_file, verdict.vector_file),
+        (manifest_path, RES138_GPU_PREFLIGHT_FILENAME),
+    )
+    imported: list[str] = []
+    for source, name in sources:
+        if not source.is_file():
+            raise BenchmarkArtifactError(
+                f"the verified full evidence needs {name} beside it, but it is missing at "
+                f"{source.parent.as_posix()}.",
+                operation=operation,
+            )
+        _copy_verified(source, work_dir / RES138_GPU_EVIDENCE_DIRECTORY / name, operation=operation)
+        imported.append(name)
+    return tuple(imported)
+
+
+def verify_and_materialize(
+    path: Path,
+    *,
+    sealed: SealedStageA,
+    plan: StageBPlan,
+    work_dir: Path | None = None,
+    vectors_directory: Path | None = None,
+    operation: str = "verify_and_materialize",
+) -> tuple[GpuEvidenceVerdict, tuple[str, ...]]:
+    """Verify one artifact completely, then materialize it if it is full evidence.
+
+    Verification always runs first and raises on any failure, so an artifact that did
+    not pass the gate, the identity checks or the digest checks is never imported.
+    Preflight artifacts verify and return an empty import set: they are inputs to the
+    verification decision, not to qualification.
+    """
+    verdict = verify_gpu_evidence(
+        path, sealed=sealed, plan=plan, vectors_directory=vectors_directory, operation=operation
+    )
+    if work_dir is None or verdict.metrics is None:
+        return verdict, ()
+    imported = materialize_verified_evidence(
+        verdict=verdict,
+        evidence_path=path,
+        work_dir=work_dir,
+        vectors_directory=vectors_directory,
+        operation=operation,
+    )
+    return verdict, imported
+
+
+def _copy_verified(source: Path, target: Path, *, operation: str) -> None:
+    """Write ``source`` to ``target`` atomically, refusing to replace different bytes."""
+    try:
+        data = source.read_bytes()
+    except OSError as error:
+        raise BenchmarkArtifactError(
+            f"the verified evidence file {source.name} could not be read ({type(error).__name__}).",
+            operation=operation,
+        ) from None
+    if target.exists():
+        if target.read_bytes() == data:
+            return
+        raise BenchmarkArtifactError(
+            f"refusing to overwrite {target.name} in the work directory with different bytes. An "
+            "import never replaces a different artifact silently.",
+            operation=operation,
+        )
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary = target.with_name(f"{target.name}.tmp")
+    temporary.write_bytes(data)
+    temporary.replace(target)

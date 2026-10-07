@@ -79,6 +79,7 @@ from dynamisrag.benchmark.errors import BenchmarkExecutionError
 from dynamisrag.benchmark.gpu_evidence import (
     RES138_GPU_EVIDENCE_REVISION,
     RES138_GPU_METRIC_NAMES,
+    full_evidence_filename,
     stage_b_calibration_reference,
     vector_digest,
 )
@@ -427,19 +428,25 @@ def write_evidence(
     gpu,
     server_info,
     metrics,
-    suffix,
+    approved_preflight_sha256,
+    full,
 ):
     """Write one dimension's calibration vectors and one evidence artifact.
 
     The artifact carries the Stage A reference digests, the Stage B plan digest, the
     canonical TEI server-info record and its digest, the nvidia-smi-observed GPU
     record, the declared precision, the endpoint as an operator location, the
-    calibration item identities, both vector digests, and the production metrics
-    (``None`` in preflight). It carries no verdict and no tolerance: the local
-    verifier recomputes the gate from these bytes.
+    calibration item identities, both vector digests, the production metrics and the
+    approved preflight authorization (``None`` in preflight; the approved manifest
+    digest in full). It carries no verdict and no tolerance: the local verifier
+    recomputes the gate from these bytes. Full evidence is written under the
+    canonical name qualification assembly derives, so the import workflow and the
+    assembly input set cannot drift apart.
     """
     name = f"{candidate.model_id.replace('/', '__')}-{dimension}-calibration.npy"
-    artifact_name = f"gpu-evidence-{dimension}{suffix}.json"
+    artifact_name = (
+        full_evidence_filename(dimension) if full else f"gpu-evidence-{dimension}.json"
+    )
     out = Path(arguments.out)
     np.save(out / name, matrix)
     payload = {
@@ -477,6 +484,7 @@ def write_evidence(
             "dtype": "float32",
         },
         "metrics": dict(metrics) if metrics is not None else None,
+        "approved_preflight_sha256": approved_preflight_sha256,
     }
     (out / artifact_name).write_text(json.dumps(payload, indent=2), encoding="utf-8")
     return artifact_name, file_sha256(out / artifact_name), name
@@ -576,6 +584,7 @@ def require_preflight_artifact(*, path, plan, server_info, precision, dimension)
         inference.get("precision") if isinstance(inference, Mapping) else None,
         inference.get("backend") if isinstance(inference, Mapping) else None,
         payload.get("metrics"),
+        payload.get("approved_preflight_sha256"),
     )
     expected = (
         RES138_GPU_EVIDENCE_REVISION,
@@ -587,12 +596,13 @@ def require_preflight_artifact(*, path, plan, server_info, precision, dimension)
         precision,
         BACKEND,
         None,
+        None,
     )
     if observed != expected:
         raise BenchmarkExecutionError(
             f"the preflight evidence for dimension {dimension} no longer binds the approved plan, "
-            "server, revision, precision and backend with no metrics. Full mode measures only "
-            "what the approved preflight proved.",
+            "server, revision, precision and backend with no metrics and no preflight "
+            "authorization. Full mode measures only what the approved preflight proved.",
             operation="stage_b_gpu_full",
         )
 
@@ -622,7 +632,8 @@ def run_preflight(*, arguments, plan, candidate, server_info, gpu, sealed, items
             gpu=gpu,
             server_info=server_info,
             metrics=None,
-            suffix="",
+            approved_preflight_sha256=None,
+            full=False,
         )
         records.append(
             GpuPreflightDimension(
@@ -733,7 +744,8 @@ def run_full(*, arguments, plan, candidate, server_info, gpu, sealed, items, wor
             gpu=gpu,
             server_info=server_info,
             metrics=metrics,
-            suffix="-full",
+            approved_preflight_sha256=approved,
+            full=True,
         )
     return 0
 

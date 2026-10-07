@@ -1108,10 +1108,12 @@ schema, the serving identity became the canonical ``/info`` record digest rather
 than a URL digest, the GPU record became nvidia-smi-observed identity, the ranking
 half of the equivalence gate became the per-workload query-to-document relation, the
 production metrics became per-dimension, the client measurement policy became part
-of the plan digest, and the GPU lane gained an explicit preflight/full split. Bumping
-a revision for a schema no artifact ever declared would create two names for one
-never-observed contract and imply a compatibility boundary that does not exist. A
-future change *after* artifacts exist must bump the relevant revision here.
+of the plan digest, the GPU lane gained an explicit preflight/full split, and
+``res138-gpu-equivalence-v1`` gained ``approved_preflight_sha256`` — null on
+preflight evidence and the approved manifest digest on full production evidence.
+Bumping a revision for a schema no artifact ever declared would create two names for
+one never-observed contract and imply a compatibility boundary that does not exist.
+A future change *after* artifacts exist must bump the relevant revision here.
 """
 
 RES138_CALIBRATION_SELECTION_REVISION: Final[str] = RES138_ARTIFACT_REVISIONS[
