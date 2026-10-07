@@ -165,6 +165,16 @@ def test_the_gpu_script_has_an_explicit_preflight_full_split() -> None:
     assert "measure_production(" in source
 
 
+def test_the_gpu_script_binds_full_evidence_to_the_approved_preflight() -> None:
+    """Preflight artifacts carry null; full artifacts carry the approved digest and the
+    canonical file name qualification assembly derives."""
+    source = _SCRIPT.read_text(encoding="utf-8")
+    assert '"approved_preflight_sha256": approved_preflight_sha256' in source
+    assert "approved_preflight_sha256=approved" in source
+    assert "approved_preflight_sha256=None" in source
+    assert "full_evidence_filename(" in source
+
+
 def test_the_gpu_script_cannot_report_the_client_allocator_as_vram() -> None:
     """No torch on this host at all: identity and VRAM come from nvidia-smi."""
     source = _SCRIPT.read_text(encoding="utf-8")

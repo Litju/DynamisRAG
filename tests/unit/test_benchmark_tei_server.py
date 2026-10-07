@@ -23,6 +23,7 @@ from dynamisrag.benchmark.tei_server import (
     require_local_tei_endpoint,
     tei_embed_request_body,
 )
+from tests._support import REPO_ROOT
 
 _MODEL_ID: Final[str] = "Qwen/Qwen3-Embedding-0.6B"
 _MODEL_SHA: Final[str] = "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3"
@@ -95,6 +96,16 @@ def test_the_frozen_server_info_parses_and_records_every_field() -> None:
     assert info.max_concurrent_requests == 512
     assert info.max_batch_requests == 4
     assert info.tokenization_workers == 8
+
+
+def test_the_operator_documentation_does_not_invent_a_router_flag() -> None:
+    """TEI 1.9.4 has no --max-input-length router option; the invariant is reached
+    through --max-batch-tokens 8192 with --auto-truncate."""
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    assert "--max-input-length" not in readme
+    assert "--max-batch-tokens 8192" in readme
+    assert "--auto-truncate" in readme
+    assert "max_input_length" in readme
 
 
 def test_the_server_info_digest_is_stable_and_is_not_the_url_digest() -> None:

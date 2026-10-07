@@ -68,13 +68,23 @@ from dynamisrag.benchmark.errors import (
 )
 from dynamisrag.benchmark.fullrun import FullRunEncoder, execute_full_run
 from dynamisrag.benchmark.gpu_evidence import (
+    RES138_GPU_EVIDENCE_DIRECTORY,
     RES138_GPU_EVIDENCE_REVISION,
     RES138_GPU_METRIC_NAMES,
     GpuEvidenceVerdict,
+    full_evidence_path,
     gpu_production_metrics,
+    materialize_verified_evidence,
     stage_b_calibration_reference,
     vector_digest,
+    verify_and_materialize,
+    verify_full_evidence,
     verify_gpu_evidence,
+)
+from dynamisrag.benchmark.gpu_preflight import (
+    RES138_GPU_PREFLIGHT_FILENAME,
+    GpuPreflightDimension,
+    GpuPreflightManifest,
 )
 from dynamisrag.benchmark.mrl import MrlPathDecision
 from dynamisrag.benchmark.opensearch_lane import (
@@ -166,6 +176,7 @@ _SOURCE_DIGESTS: Final[dict[str, str]] = {
 _SOURCE_PAIRS: Final[tuple[tuple[str, str], ...]] = tuple(sorted(_SOURCE_DIGESTS.items()))
 _DIGEST_A: Final[str] = "a" * 64
 _DIGEST_B: Final[str] = "b" * 64
+_DIGEST_C: Final[str] = "c" * 64
 _DOCUMENTS_PER_WORKLOAD: Final[int] = 120
 
 
@@ -862,6 +873,13 @@ def _combined_reference_digest(queries: NDArray[np.float32], documents: NDArray[
     ).hexdigest()
 
 
+class _AutoApproved:
+    """Sentinel: derive the approved preflight digest from the metrics state."""
+
+
+_AUTO_APPROVED: Final[_AutoApproved] = _AutoApproved()
+
+
 def _write_gpu_artifact(
     directory: Path,
     sealed: SealedStageA,
@@ -876,11 +894,18 @@ def _write_gpu_artifact(
     model_revision: str | None = None,
     precision: str = "bfloat16",
     plan_sha256: str | None = None,
+    approved_preflight_sha256: str | _AutoApproved | None = _AUTO_APPROVED,
     reference_digest: str | None = None,
     items: Sequence[Mapping[str, object]] | None = None,
     tei_digest: str | None = None,
+    artifact_name: str = "gpu-evidence.json",
 ) -> Path:
-    """Write a GPU evidence artifact and its vector file, exactly as the remote run would."""
+    """Write a GPU evidence artifact and its vector file, exactly as the remote run would.
+
+    ``approved_preflight_sha256`` defaults to the metrics state: a full artifact gets a
+    valid digest, a metrics-free artifact gets ``null``. Passing it explicitly is how a
+    test builds the inconsistent states the verifier must refuse.
+    """
     directory.mkdir(parents=True, exist_ok=True)
     identifiers, queries, documents = stage_b_calibration_reference(sealed, dimension=dimension)
     matrix = (
@@ -928,8 +953,13 @@ def _write_gpu_artifact(
             "dtype": "float32",
         },
         "metrics": _metrics_block(metrics),
+        "approved_preflight_sha256": (
+            (None if _metrics_block(metrics) is None else _DIGEST_C)
+            if isinstance(approved_preflight_sha256, _AutoApproved)
+            else approved_preflight_sha256
+        ),
     }
-    path = directory / "gpu-evidence.json"
+    path = directory / artifact_name
     path.write_text(json.dumps(payload), encoding="utf-8")
     return path
 
@@ -1253,8 +1283,42 @@ def test_gpu_evidence_accepts_equivalence_without_metrics(
     path = _write_gpu_artifact(tmp_path, sealed, metrics=_NO_METRICS)
     verdict = _verify(path, sealed=sealed)
     assert verdict.metrics is None
+    assert verdict.approved_preflight_sha256 is None
     with pytest.raises(BenchmarkContractError, match="carries no production metrics"):
         gpu_production_metrics(verdict)
+
+
+def test_full_evidence_without_an_approved_preflight_digest_is_refused(
+    tmp_path: Path, sealed: SealedStageA
+) -> None:
+    """A full artifact nobody authorized is not admissible evidence."""
+    path = _write_gpu_artifact(
+        tmp_path, sealed, metrics=_gpu_metrics(), approved_preflight_sha256=None
+    )
+    with pytest.raises(BenchmarkArtifactError, match="approved preflight digest"):
+        _verify(path, sealed=sealed)
+
+
+def test_preflight_evidence_that_claims_an_authorization_is_refused(
+    tmp_path: Path, sealed: SealedStageA
+) -> None:
+    path = _write_gpu_artifact(
+        tmp_path, sealed, metrics=_NO_METRICS, approved_preflight_sha256=_DIGEST_C
+    )
+    with pytest.raises(BenchmarkArtifactError, match="must be null"):
+        _verify(path, sealed=sealed)
+
+
+def test_full_evidence_records_its_approved_preflight_digest(
+    tmp_path: Path, sealed: SealedStageA
+) -> None:
+    path = _write_gpu_artifact(
+        tmp_path, sealed, metrics=_gpu_metrics(), approved_preflight_sha256=_DIGEST_C
+    )
+    verdict = _verify(path, sealed=sealed)
+    assert verdict.metrics is not None
+    assert verdict.approved_preflight_sha256 == _DIGEST_C
+    assert verdict.vector_file == "qwen-512-calibration.npy"
 
 
 def test_gpu_evidence_refuses_a_vector_file_that_is_not_the_declared_bytes(
@@ -1363,6 +1427,207 @@ def test_the_ranking_gate_compares_queries_to_documents_per_workload(
     path = _write_gpu_artifact(tmp_path, sealed, vectors=np.concatenate([queries, swapped], axis=0))
     with pytest.raises(BenchmarkContractError, match="disqualified"):
         _verify(path, sealed=sealed)
+
+
+# ---------------------------------------------------------------------------
+# 4b. The qualification input set and the import workflow
+# ---------------------------------------------------------------------------
+
+
+def _write_full_evidence_dir(
+    directory: Path,
+    sealed: SealedStageA,
+    plan: StageBPlan,
+    *,
+    dimensions: Sequence[int] | None = None,
+    manifest: GpuPreflightManifest | None = None,
+    write_manifest: bool = True,
+) -> GpuPreflightManifest:
+    """Write canonical full evidence (and the authorizing manifest) for a plan."""
+    approved = _preflight_for(plan) if manifest is None else manifest
+    directory.mkdir(parents=True, exist_ok=True)
+    if write_manifest:
+        approved.write(directory / RES138_GPU_PREFLIGHT_FILENAME)
+    for dimension in plan.dimensions if dimensions is None else dimensions:
+        _write_gpu_artifact(
+            directory,
+            sealed,
+            dimension=dimension,
+            metrics=_gpu_metrics(),
+            approved_preflight_sha256=approved.sha256,
+            artifact_name=f"gpu-evidence-{dimension}-full.json",
+        )
+    return approved
+
+
+def test_full_evidence_is_derived_per_planned_dimension(
+    tmp_path: Path, sealed: SealedStageA, plan: StageBPlan
+) -> None:
+    _write_full_evidence_dir(tmp_path / RES138_GPU_EVIDENCE_DIRECTORY, sealed, plan)
+    verdicts = verify_full_evidence(tmp_path, sealed=sealed, plan=plan)
+    assert [verdict.dimension for verdict in verdicts] == list(plan.dimensions)
+    assert all(verdict.metrics is not None for verdict in verdicts)
+
+
+def test_missing_full_evidence_fails_closed(
+    tmp_path: Path, sealed: SealedStageA, plan: StageBPlan
+) -> None:
+    _write_full_evidence_dir(
+        tmp_path / RES138_GPU_EVIDENCE_DIRECTORY, sealed, plan, dimensions=(512,)
+    )
+    with pytest.raises(BenchmarkArtifactError, match="missing at"):
+        verify_full_evidence(tmp_path, sealed=sealed, plan=plan)
+
+
+def test_preflight_evidence_cannot_supply_the_qualification_input_set(
+    tmp_path: Path, sealed: SealedStageA, plan: StageBPlan
+) -> None:
+    """Preflight artifacts are verification inputs; the full input set stays missing."""
+    evidence_dir = tmp_path / RES138_GPU_EVIDENCE_DIRECTORY
+    _preflight_for(plan).write(evidence_dir / RES138_GPU_PREFLIGHT_FILENAME)
+    for dimension in plan.dimensions:
+        _write_gpu_artifact(
+            evidence_dir,
+            sealed,
+            dimension=dimension,
+            metrics=_NO_METRICS,
+            artifact_name=f"gpu-evidence-{dimension}.json",
+        )
+    with pytest.raises(BenchmarkArtifactError, match="missing at"):
+        verify_full_evidence(tmp_path, sealed=sealed, plan=plan)
+
+
+def test_directory_order_and_decoys_cannot_choose_evidence(
+    tmp_path: Path, sealed: SealedStageA, plan: StageBPlan
+) -> None:
+    """The input set is derived from the plan, so glob ordering has nothing to choose."""
+    evidence_dir = tmp_path / RES138_GPU_EVIDENCE_DIRECTORY
+    _write_full_evidence_dir(evidence_dir, sealed, plan)
+    for decoy in ("aaa-gpu-evidence.json", "zzz-gpu-evidence.json", "gpu-evidence-999.json"):
+        _write_gpu_artifact(
+            evidence_dir,
+            sealed,
+            dimension=512,
+            metrics=_NO_METRICS,
+            artifact_name=decoy,
+        )
+    verdicts = verify_full_evidence(tmp_path, sealed=sealed, plan=plan)
+    assert [verdict.dimension for verdict in verdicts] == list(plan.dimensions)
+    assert all(verdict.metrics is not None for verdict in verdicts)
+
+
+def test_verified_full_evidence_imports_atomically(
+    tmp_path: Path, sealed: SealedStageA, plan: StageBPlan
+) -> None:
+    evidence_dir = tmp_path / "a100"
+    _write_full_evidence_dir(evidence_dir, sealed, plan)
+    work_dir = tmp_path / "work"
+    verdict, imported = verify_and_materialize(
+        evidence_dir / "gpu-evidence-512-full.json",
+        sealed=sealed,
+        plan=plan,
+        work_dir=work_dir,
+    )
+    assert verdict.metrics is not None
+    assert set(imported) == {
+        "gpu-evidence-512-full.json",
+        "qwen-512-calibration.npy",
+        RES138_GPU_PREFLIGHT_FILENAME,
+    }
+    target = work_dir / RES138_GPU_EVIDENCE_DIRECTORY
+    for name in imported:
+        assert (target / name).is_file()
+    assert full_evidence_path(work_dir, 512).is_file()
+    _again, imported_again = verify_and_materialize(
+        evidence_dir / "gpu-evidence-512-full.json",
+        sealed=sealed,
+        plan=plan,
+        work_dir=work_dir,
+    )
+    assert set(imported_again) == set(imported)
+
+
+def test_import_refuses_to_overwrite_a_different_artifact(
+    tmp_path: Path, sealed: SealedStageA, plan: StageBPlan
+) -> None:
+    evidence_dir = tmp_path / "a100"
+    _write_full_evidence_dir(evidence_dir, sealed, plan)
+    work_dir = tmp_path / "work"
+    verify_and_materialize(
+        evidence_dir / "gpu-evidence-512-full.json",
+        sealed=sealed,
+        plan=plan,
+        work_dir=work_dir,
+    )
+    target = full_evidence_path(work_dir, 512)
+    target.write_text("{}", encoding="utf-8")
+    with pytest.raises(BenchmarkArtifactError, match="refusing to overwrite"):
+        verify_and_materialize(
+            evidence_dir / "gpu-evidence-512-full.json",
+            sealed=sealed,
+            plan=plan,
+            work_dir=work_dir,
+        )
+
+
+def test_failed_evidence_is_never_imported(
+    tmp_path: Path, sealed: SealedStageA, plan: StageBPlan
+) -> None:
+    evidence_dir = tmp_path / "a100"
+    manifest = _write_full_evidence_dir(evidence_dir, sealed, plan)
+    drifted = _drifted(sealed, dimension=512)
+    _write_gpu_artifact(
+        evidence_dir,
+        sealed,
+        dimension=512,
+        vectors=drifted,
+        tei_digest=vector_digest(drifted, label="drifted", operation="test"),
+        metrics=_gpu_metrics(),
+        approved_preflight_sha256=manifest.sha256,
+        artifact_name="gpu-evidence-512-full.json",
+    )
+    work_dir = tmp_path / "work"
+    with pytest.raises(BenchmarkContractError, match="disqualified"):
+        verify_and_materialize(
+            evidence_dir / "gpu-evidence-512-full.json",
+            sealed=sealed,
+            plan=plan,
+            work_dir=work_dir,
+        )
+    assert not (work_dir / RES138_GPU_EVIDENCE_DIRECTORY).exists()
+
+
+def test_preflight_evidence_is_never_materialized(
+    tmp_path: Path, sealed: SealedStageA, plan: StageBPlan
+) -> None:
+    path = _write_gpu_artifact(tmp_path, sealed, metrics=_NO_METRICS)
+    work_dir = tmp_path / "work"
+    verdict, imported = verify_and_materialize(path, sealed=sealed, plan=plan, work_dir=work_dir)
+    assert verdict.metrics is None
+    assert imported == ()
+    assert not (work_dir / RES138_GPU_EVIDENCE_DIRECTORY).exists()
+    with pytest.raises(BenchmarkArtifactError, match="verification input"):
+        materialize_verified_evidence(verdict=verdict, evidence_path=path, work_dir=work_dir)
+
+
+def test_materialize_refuses_a_manifest_that_does_not_authorize(
+    tmp_path: Path, sealed: SealedStageA, plan: StageBPlan
+) -> None:
+    evidence_dir = tmp_path / "a100"
+    _preflight_for(plan).write(evidence_dir / RES138_GPU_PREFLIGHT_FILENAME)
+    path = _write_gpu_artifact(
+        evidence_dir,
+        sealed,
+        dimension=512,
+        metrics=_gpu_metrics(),
+        approved_preflight_sha256=_DIGEST_C,
+        artifact_name="gpu-evidence-512-full.json",
+    )
+    verdict = verify_gpu_evidence(path, sealed=sealed, plan=plan)
+    with pytest.raises(BenchmarkArtifactError, match="does not grant"):
+        materialize_verified_evidence(
+            verdict=verdict, evidence_path=path, work_dir=tmp_path / "work"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1766,8 +2031,35 @@ def test_the_lane_reads_its_vectors_from_the_sealed_shards(
 # ---------------------------------------------------------------------------
 
 
+def _preflight_for(plan: StageBPlan) -> GpuPreflightManifest:
+    """The approved preflight manifest a complete-evidence test assembly requires."""
+    return GpuPreflightManifest(
+        stage_b_plan_sha256=plan.sha256,
+        tei_server_sha256=_tei_server().sha256,
+        model_id=_QWEN.model_id,
+        model_revision=_QWEN.revision,
+        precision="bfloat16",
+        backend="tei",
+        dimensions=tuple(
+            GpuPreflightDimension(
+                dimension=dimension,
+                evidence_file=f"gpu-evidence-{dimension}.json",
+                evidence_sha256=_DIGEST_A,
+                vector_file=f"qwen-{dimension}-calibration.npy",
+                vector_sha256=_DIGEST_B,
+                rows=18,
+            )
+            for dimension in plan.dimensions
+        ),
+    )
+
+
 def _verdict(
-    *, dimension: int, plan: StageBPlan, metrics: Mapping[str, object] | None = None
+    *,
+    dimension: int,
+    plan: StageBPlan,
+    metrics: Mapping[str, object] | None = None,
+    approved_preflight_sha256: str | None = None,
 ) -> GpuEvidenceVerdict:
     gate = RES138_PRODUCTION_EQUIVALENCE_GATE
     return GpuEvidenceVerdict(
@@ -1793,6 +2085,8 @@ def _verdict(
             identical_ranking=True,
         ),
         metrics=dict(metrics) if metrics is not None else None,
+        approved_preflight_sha256=approved_preflight_sha256,
+        vector_file=f"qwen-{dimension}-calibration.npy",
         reference_vector_sha256=_DIGEST_A,
         tei_vector_sha256=_DIGEST_B,
     )
@@ -1811,34 +2105,57 @@ def _lane(
 
 def _complete_evidence(
     sealed: SealedStageA, plan: StageBPlan
-) -> tuple[list[OpenSearchLaneResult], list[GpuEvidenceVerdict]]:
+) -> tuple[list[OpenSearchLaneResult], list[GpuEvidenceVerdict], GpuPreflightManifest]:
+    preflight = _preflight_for(plan)
     return (
         [
             _lane(sealed, plan, dimension=512, store_bytes=1_024),
             _lane(sealed, plan, dimension=1024, store_bytes=2_048),
         ],
         [
-            _verdict(dimension=512, plan=plan, metrics=_gpu_metrics()),
-            _verdict(dimension=1024, plan=plan, metrics=_gpu_metrics()),
+            _verdict(
+                dimension=512,
+                plan=plan,
+                metrics=_gpu_metrics(),
+                approved_preflight_sha256=preflight.sha256,
+            ),
+            _verdict(
+                dimension=1024,
+                plan=plan,
+                metrics=_gpu_metrics(),
+                approved_preflight_sha256=preflight.sha256,
+            ),
         ],
+        preflight,
     )
 
 
 def test_incomplete_stage_b_evidence_cannot_be_assembled(
     sealed: SealedStageA, plan: StageBPlan
 ) -> None:
+    preflight = _preflight_for(plan)
     with pytest.raises(BenchmarkContractError, match="incomplete"):
         assemble_production_qualification(
             sealed=sealed,
             plan=plan,
             lanes=[_lane(sealed, plan, dimension=512, store_bytes=1_024)],
-            verdicts=[_verdict(dimension=512, plan=plan, metrics=_gpu_metrics())],
+            verdicts=[
+                _verdict(
+                    dimension=512,
+                    plan=plan,
+                    metrics=_gpu_metrics(),
+                    approved_preflight_sha256=preflight.sha256,
+                )
+            ],
+            preflight=preflight,
         )
 
 
 def test_a_verdict_without_production_metrics_cannot_be_assembled(
     sealed: SealedStageA, plan: StageBPlan
 ) -> None:
+    """Preflight evidence is a verification input and can never supply production metrics."""
+    preflight = _preflight_for(plan)
     with pytest.raises(BenchmarkContractError, match="no production metrics"):
         assemble_production_qualification(
             sealed=sealed,
@@ -1848,9 +2165,82 @@ def test_a_verdict_without_production_metrics_cannot_be_assembled(
                 _lane(sealed, plan, dimension=1024, store_bytes=1_024),
             ],
             verdicts=[
-                _verdict(dimension=512, plan=plan, metrics=_gpu_metrics()),
+                _verdict(
+                    dimension=512,
+                    plan=plan,
+                    metrics=_gpu_metrics(),
+                    approved_preflight_sha256=preflight.sha256,
+                ),
                 _verdict(dimension=1024, plan=plan),
             ],
+            preflight=preflight,
+        )
+
+
+def test_duplicate_gpu_verdicts_are_refused_before_any_mapping(
+    sealed: SealedStageA, plan: StageBPlan
+) -> None:
+    """Two artifacts for one configuration are ambiguous; nothing resolves them by order."""
+    lanes, verdicts, preflight = _complete_evidence(sealed, plan)
+    with pytest.raises(BenchmarkContractError, match="repeats"):
+        assemble_production_qualification(
+            sealed=sealed,
+            plan=plan,
+            lanes=lanes,
+            verdicts=[verdicts[0], verdicts[0], verdicts[1]],
+            preflight=preflight,
+        )
+
+
+def test_full_evidence_under_a_different_preflight_is_refused(
+    sealed: SealedStageA, plan: StageBPlan
+) -> None:
+    preflight = _preflight_for(plan)
+    lanes = [
+        _lane(sealed, plan, dimension=512, store_bytes=1_024),
+        _lane(sealed, plan, dimension=1024, store_bytes=1_024),
+    ]
+    verdicts = [
+        _verdict(
+            dimension=512,
+            plan=plan,
+            metrics=_gpu_metrics(),
+            approved_preflight_sha256=_DIGEST_A,
+        ),
+        _verdict(
+            dimension=1024,
+            plan=plan,
+            metrics=_gpu_metrics(),
+            approved_preflight_sha256=preflight.sha256,
+        ),
+    ]
+    with pytest.raises(BenchmarkContractError, match="not the approved manifest"):
+        assemble_production_qualification(
+            sealed=sealed, plan=plan, lanes=lanes, verdicts=verdicts, preflight=preflight
+        )
+
+
+def test_assembly_requires_the_preflight_of_this_plan(
+    sealed: SealedStageA, plan: StageBPlan
+) -> None:
+    foreign = build_stage_b_plan(reference=plan.reference, code_sha=_FOREIGN_CODE_SHA)
+    preflight = _preflight_for(foreign)
+    lanes = [
+        _lane(sealed, plan, dimension=512, store_bytes=1_024),
+        _lane(sealed, plan, dimension=1024, store_bytes=1_024),
+    ]
+    verdicts = [
+        _verdict(
+            dimension=dimension,
+            plan=plan,
+            metrics=_gpu_metrics(),
+            approved_preflight_sha256=preflight.sha256,
+        )
+        for dimension in plan.dimensions
+    ]
+    with pytest.raises(BenchmarkContractError, match="produced under Stage B plan"):
+        assemble_production_qualification(
+            sealed=sealed, plan=plan, lanes=lanes, verdicts=verdicts, preflight=preflight
         )
 
 
@@ -1887,6 +2277,8 @@ def test_a_lane_measurement_and_its_gpu_verdict_must_describe_one_configuration(
             identical_ranking=True,
         ),
         metrics=_gpu_metrics(),
+        approved_preflight_sha256=_DIGEST_C,
+        vector_file="qwen-1024-calibration.npy",
         reference_vector_sha256=_DIGEST_A,
         tei_vector_sha256=_DIGEST_B,
     )
@@ -1897,9 +2289,9 @@ def test_a_lane_measurement_and_its_gpu_verdict_must_describe_one_configuration(
 def test_complete_evidence_assembles_and_reverifies_the_qualification(
     sealed: SealedStageA, plan: StageBPlan
 ) -> None:
-    lanes, verdicts = _complete_evidence(sealed, plan)
+    lanes, verdicts, preflight = _complete_evidence(sealed, plan)
     qualification = assemble_production_qualification(
-        sealed=sealed, plan=plan, lanes=lanes, verdicts=verdicts
+        sealed=sealed, plan=plan, lanes=lanes, verdicts=verdicts, preflight=preflight
     )
     payload = qualification.payload()
     assert payload["artifact_revision"] == "res138-production-qualification-v1"
@@ -1919,7 +2311,7 @@ def test_a_lane_measurement_from_another_plan_is_refused(
     sealed: SealedStageA, plan: StageBPlan
 ) -> None:
     foreign = build_stage_b_plan(reference=plan.reference, code_sha=_FOREIGN_CODE_SHA)
-    lanes, verdicts = _complete_evidence(sealed, plan)
+    lanes, verdicts, preflight = _complete_evidence(sealed, plan)
     swapped = OpenSearchLaneResult(
         identity_by_workload=lanes[0].identity_by_workload,
         index_store_bytes=lanes[0].index_store_bytes,
@@ -1933,7 +2325,11 @@ def test_a_lane_measurement_from_another_plan_is_refused(
     )
     with pytest.raises(BenchmarkContractError, match="was produced under plan"):
         assemble_production_qualification(
-            sealed=sealed, plan=plan, lanes=[swapped, lanes[1]], verdicts=verdicts
+            sealed=sealed,
+            plan=plan,
+            lanes=[swapped, lanes[1]],
+            verdicts=verdicts,
+            preflight=preflight,
         )
 
 
@@ -1979,9 +2375,9 @@ def test_a_qualification_cannot_be_built_from_a_failed_equivalence(
 def test_a_written_qualification_is_rebuilt_from_its_own_records(
     tmp_path: Path, sealed: SealedStageA, plan: StageBPlan
 ) -> None:
-    lanes, verdicts = _complete_evidence(sealed, plan)
+    lanes, verdicts, preflight = _complete_evidence(sealed, plan)
     qualification = assemble_production_qualification(
-        sealed=sealed, plan=plan, lanes=lanes, verdicts=verdicts
+        sealed=sealed, plan=plan, lanes=lanes, verdicts=verdicts, preflight=preflight
     )
     path = qualification_path(tmp_path)
     write_qualification(qualification, path)
@@ -2106,9 +2502,9 @@ def test_the_sealed_bootstrap_interval_is_read_from_the_sealed_artifact(
     sealed: SealedStageA, plan: StageBPlan
 ) -> None:
     """The interval step 2 consumes is the sealed run's own, with its seed and sample count."""
-    lanes, verdicts = _complete_evidence(sealed, plan)
+    lanes, verdicts, preflight = _complete_evidence(sealed, plan)
     qualification = assemble_production_qualification(
-        sealed=sealed, plan=plan, lanes=lanes, verdicts=verdicts
+        sealed=sealed, plan=plan, lanes=lanes, verdicts=verdicts, preflight=preflight
     )
     table = stage_b_candidate_evidence(sealed=sealed, qualification=qualification)
     estimate = leader_bootstrap(sealed=sealed, table=table, operation="test")
@@ -2125,9 +2521,9 @@ def test_both_shortlisted_configurations_reach_the_table(
     sealed: SealedStageA, plan: StageBPlan
 ) -> None:
     """The table has exactly the two Stage B admissions, in shortlist order, and nothing else."""
-    lanes, verdicts = _complete_evidence(sealed, plan)
+    lanes, verdicts, preflight = _complete_evidence(sealed, plan)
     qualification = assemble_production_qualification(
-        sealed=sealed, plan=plan, lanes=lanes, verdicts=verdicts
+        sealed=sealed, plan=plan, lanes=lanes, verdicts=verdicts, preflight=preflight
     )
     table = stage_b_candidate_evidence(sealed=sealed, qualification=qualification)
     assert len(table) == 2
@@ -2136,9 +2532,9 @@ def test_both_shortlisted_configurations_reach_the_table(
 
 
 def test_complete_evidence_reaches_the_frozen_rule(sealed: SealedStageA, plan: StageBPlan) -> None:
-    lanes, verdicts = _complete_evidence(sealed, plan)
+    lanes, verdicts, preflight = _complete_evidence(sealed, plan)
     qualification = assemble_production_qualification(
-        sealed=sealed, plan=plan, lanes=lanes, verdicts=verdicts
+        sealed=sealed, plan=plan, lanes=lanes, verdicts=verdicts, preflight=preflight
     )
     table = stage_b_candidate_evidence(sealed=sealed, qualification=qualification)
     assert all(row.correctness_gates_passed for row in table)
@@ -2157,9 +2553,9 @@ def test_complete_evidence_reaches_the_frozen_rule(sealed: SealedStageA, plan: S
 def test_the_winner_comes_only_from_the_existing_selection_function(
     sealed: SealedStageA, plan: StageBPlan
 ) -> None:
-    lanes, verdicts = _complete_evidence(sealed, plan)
+    lanes, verdicts, preflight = _complete_evidence(sealed, plan)
     qualification = assemble_production_qualification(
-        sealed=sealed, plan=plan, lanes=lanes, verdicts=verdicts
+        sealed=sealed, plan=plan, lanes=lanes, verdicts=verdicts, preflight=preflight
     )
     table = stage_b_candidate_evidence(sealed=sealed, qualification=qualification)
     estimate = leader_bootstrap(sealed=sealed, table=table, operation="test")
@@ -2170,16 +2566,27 @@ def test_the_winner_comes_only_from_the_existing_selection_function(
 
 def test_the_selection_module_encodes_no_winner(sealed: SealedStageA, plan: StageBPlan) -> None:
     """The winner is a property of the evidence, so swapping the footprints swaps it."""
+    preflight = _preflight_for(plan)
     lanes = [
         _lane(sealed, plan, dimension=512, store_bytes=4_096),
         _lane(sealed, plan, dimension=1024, store_bytes=1_024),
     ]
     verdicts = [
-        _verdict(dimension=512, plan=plan, metrics=_gpu_metrics()),
-        _verdict(dimension=1024, plan=plan, metrics=_gpu_metrics()),
+        _verdict(
+            dimension=512,
+            plan=plan,
+            metrics=_gpu_metrics(),
+            approved_preflight_sha256=preflight.sha256,
+        ),
+        _verdict(
+            dimension=1024,
+            plan=plan,
+            metrics=_gpu_metrics(),
+            approved_preflight_sha256=preflight.sha256,
+        ),
     ]
     qualification = assemble_production_qualification(
-        sealed=sealed, plan=plan, lanes=lanes, verdicts=verdicts
+        sealed=sealed, plan=plan, lanes=lanes, verdicts=verdicts, preflight=preflight
     )
     table = stage_b_candidate_evidence(sealed=sealed, qualification=qualification)
     estimate = leader_bootstrap(sealed=sealed, table=table, operation="test")
