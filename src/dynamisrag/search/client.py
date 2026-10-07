@@ -380,6 +380,82 @@ class OpenSearchClient:
         )
 
     # ------------------------------------------------------------------
+    # Index-level measurement
+    #
+    # The RES-138 Stage B lane has to report the *actual* bytes an index occupies on
+    # the node and has to do so after a reproducible refresh and merge, so that two
+    # runs of the same corpus under the same identity are compared at the same point
+    # in the segment lifecycle. These three operations are that measurement
+    # procedure; they are read-mostly and never mutate a document.
+    # ------------------------------------------------------------------
+
+    def index_store_bytes(self, index: str) -> int:
+        """``GET /{index}/_stats`` — the primaries' on-disk store size in bytes.
+
+        ``primaries`` rather than ``total`` so the number does not depend on how many
+        replicas the node happens to hold, and ``store.size_in_bytes`` rather than an
+        estimate so the footprint a production decision compares is the footprint the
+        index actually occupies. Zero is refused by the caller, not here: this method
+        reports what the node said.
+        """
+        validate_resource_name(index, kind="index")
+        payload = self._json(
+            "GET", f"/{index}/_stats/store", operation="index_store_bytes", target=index
+        )
+        total = payload.get("_all")
+        if not isinstance(total, Mapping):
+            raise OpenSearchUnexpectedResponse(
+                f"UnexpectedPayload: index_store_bytes for {index} returned no _all block",
+                operation="index_store_bytes",
+            )
+        primaries = cast("Mapping[str, JsonValue]", total).get("primaries")
+        if not isinstance(primaries, Mapping):
+            raise OpenSearchUnexpectedResponse(
+                f"UnexpectedPayload: index_store_bytes for {index} returned no primaries block; a "
+                "footprint that counted replicas would depend on the node's replica count",
+                operation="index_store_bytes",
+            )
+        store = cast("Mapping[str, JsonValue]", primaries).get("store")
+        if not isinstance(store, Mapping):
+            raise OpenSearchUnexpectedResponse(
+                f"UnexpectedPayload: index_store_bytes for {index} returned no primaries store "
+                "block",
+                operation="index_store_bytes",
+            )
+        return _require_int(store, "size_in_bytes", "index_store_bytes")
+
+    def flush(self, index: str) -> None:
+        """``POST /{index}/_flush`` — make every indexed segment visible to search."""
+        validate_resource_name(index, kind="index")
+        self._require_ok(
+            self._request("POST", f"/{index}/_flush", operation="flush"),
+            "flush",
+            index,
+        )
+
+    def force_merge(self, index: str, *, max_num_segments: int = 1) -> None:
+        """``POST /{index}/_forcemerge`` — collapse the index to a fixed segment count.
+
+        The measured footprint of an HNSW index depends on how many segments its
+        vectors are spread across, so a run that reports bytes without saying how many
+        segments it merged to has reported a number nobody else can reproduce. The
+        benchmark lane therefore always merges to one segment before measuring.
+        """
+        validate_resource_name(index, kind="index")
+        if max_num_segments < 1:
+            raise ValueError(f"max_num_segments must be >= 1, got {max_num_segments}")
+        self._require_ok(
+            self._request(
+                "POST",
+                f"/{index}/_forcemerge",
+                operation="force_merge",
+                params={"max_num_segments": str(max_num_segments), "wait_for_completion": "true"},
+            ),
+            "force_merge",
+            index,
+        )
+
+    # ------------------------------------------------------------------
     # Request plumbing
     # ------------------------------------------------------------------
 
