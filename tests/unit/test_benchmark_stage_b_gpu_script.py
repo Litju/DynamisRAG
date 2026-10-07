@@ -35,10 +35,13 @@ _ALLOWED_REPOSITORY_MODULES: Final[frozenset[str]] = frozenset(
         "dynamisrag.benchmark.contracts",
         "dynamisrag.benchmark.errors",
         "dynamisrag.benchmark.gpu_evidence",
+        "dynamisrag.benchmark.gpu_preflight",
+        "dynamisrag.benchmark.gpu_runtime",
         "dynamisrag.benchmark.production",
         "dynamisrag.benchmark.res138",
         "dynamisrag.benchmark.stage_a",
         "dynamisrag.benchmark.stage_b",
+        "dynamisrag.benchmark.tei_server",
     }
 )
 """The benchmark modules the GPU half may import, and nothing else.
@@ -58,13 +61,18 @@ _FORBIDDEN_LITERALS: Final[tuple[str, ...]] = (
     "1e-4",
     "1e-5",
     "corpus_documents_per_second",
+    "bfloat16",
+    "max_memory_allocated",
+    "torch.version.cuda",
 )
-"""Values the script must read from the package rather than restate.
+"""Values the script must read from the package rather than restate or fabricate.
 
 A restated model id or tolerance is a second definition of a frozen value, and the
-second definition is the one that silently drifts. The metric names are included even
-though they are just keys: a key written twice is a key that can be written
-differently twice.
+second definition is the one that silently drifts. ``bfloat16`` is forbidden because
+the production precision is an operator argument observed from ``/info``, never a
+literal the script asserts; ``max_memory_allocated`` and ``torch.version.cuda`` are
+forbidden because the Python client's allocator is not TEI's VRAM and a CUDA toolkit
+version is not the NVIDIA driver.
 """
 
 
@@ -137,9 +145,28 @@ def test_the_gpu_script_requires_the_deployment_floor_before_measuring() -> None
 
 
 def test_the_gpu_script_sends_the_frozen_tei_flags_explicitly() -> None:
-    """TEI's own defaults are not this contract's defaults, so the boundary and the prompt
-    name travel in the request rather than being inherited from the server."""
+    """TEI's own defaults are not this contract's defaults, so the request builder is the
+    package's and the script never sends a server-side field such as max_batch_tokens."""
     source = _SCRIPT.read_text(encoding="utf-8")
-    assert "RES138_PRODUCTION_TEI_RUNTIME" in source
-    assert '"prompt_name": prompt_name' in source
-    assert 'RES138_PRODUCTION_TEI_RUNTIME["max_batch_tokens"]' in source
+    assert "tei_embed_request_body(" in source
+    assert "RES138_TEI_REQUEST_SEMANTICS" in source
+    assert '"max_batch_tokens"' not in source
+    assert "parse_tei_server_info(" in source
+    assert "require_local_tei_endpoint(" in source
+    assert "read_gpu_identity(" in source
+    assert "GpuMemorySampler(" in source
+
+
+def test_the_gpu_script_has_an_explicit_preflight_full_split() -> None:
+    source = _SCRIPT.read_text(encoding="utf-8")
+    assert '"preflight"' in source
+    assert '"full"' in source
+    assert "require_approved_preflight_digest(" in source
+    assert "measure_production(" in source
+
+
+def test_the_gpu_script_cannot_report_the_client_allocator_as_vram() -> None:
+    """No torch on this host at all: identity and VRAM come from nvidia-smi."""
+    source = _SCRIPT.read_text(encoding="utf-8")
+    assert "import torch" not in source
+    assert "torch." not in source

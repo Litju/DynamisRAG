@@ -220,10 +220,6 @@ def build_parser() -> argparse.ArgumentParser:
         "--vectors-dir",
         help="where the artifact's calibration .npy lives; defaults to the artifact's directory",
     )
-    gpu.add_argument(
-        "--endpoint-sha256",
-        help="require the artifact to have been produced against this TEI endpoint digest",
-    )
 
     assemble = benchmark_commands.add_parser(
         _ASSEMBLE_QUALIFICATION,
@@ -541,13 +537,13 @@ def _verify_gpu_evidence(arguments: argparse.Namespace) -> int:
     from dynamisrag.benchmark.gpu_evidence import verify_gpu_evidence
 
     try:
-        sealed, _plan = _sealed_and_plan(arguments)
+        sealed, plan = _sealed_and_plan(arguments)
         vectors = Path(arguments.vectors_dir) if arguments.vectors_dir else None
         verdict = verify_gpu_evidence(
             Path(arguments.evidence),
             sealed=sealed,
+            plan=plan,
             vectors_directory=vectors,
-            expect_endpoint_sha256=arguments.endpoint_sha256,
         )
     except BenchmarkError as error:
         return _fail(
@@ -579,7 +575,7 @@ def _load_evidence(
     sealed, plan = _sealed_and_plan(arguments)
     work_dir = Path(arguments.work_dir)
     verdicts = [
-        verify_gpu_evidence(path, sealed=sealed, vectors_directory=path.parent)
+        verify_gpu_evidence(path, sealed=sealed, plan=plan, vectors_directory=path.parent)
         for path in sorted(work_dir.glob("gpu-evidence/*.json"))
     ]
     lanes: list[OpenSearchLaneResult] = []
