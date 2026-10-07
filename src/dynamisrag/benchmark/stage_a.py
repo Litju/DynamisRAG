@@ -455,6 +455,17 @@ class SealedStageA:
         )
 
     @property
+    def calibration_items(self) -> tuple[dict[str, object], ...]:
+        """The Stage A calibration set's item identities, read from the sealed preflight.
+
+        Read on demand rather than stored, so there is one reader for one artifact and a
+        second copy cannot drift from the file the sealed bundle actually holds.
+        """
+        from dynamisrag.benchmark.gpu_evidence import stage_a_calibration_items
+
+        return stage_a_calibration_items(self.root, operation="sealed_stage_a")
+
+    @property
     def labels(self) -> tuple[str, ...]:
         """``model@dimension`` for each shortlisted configuration, in shortlist order."""
         return tuple(f"{model_id}@{dimension}" for model_id, dimension in self.reference.candidates)

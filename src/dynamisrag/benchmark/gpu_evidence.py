@@ -75,6 +75,7 @@ __all__ = [
     "RES138_GPU_METRIC_NAMES",
     "GpuEvidenceVerdict",
     "gpu_production_metrics",
+    "stage_a_calibration_items",
     "stage_b_calibration_reference",
     "vector_digest",
     "verify_gpu_evidence",
@@ -194,8 +195,16 @@ def _group_ids_and_rows(
     return index, np.concatenate(rows, axis=0) if len(rows) > 1 else rows[0]
 
 
-def _calibration_items(root: Path, *, operation: str) -> tuple[dict[str, object], ...]:
-    """The Stage A calibration items, read from the sealed preflight, in row order."""
+def stage_a_calibration_items(
+    root: Path, *, operation: str = "stage_a_calibration_items"
+) -> tuple[dict[str, object], ...]:
+    """The Stage A calibration items, read from the sealed preflight, in recorded row order.
+
+    Public because the GPU operator script has to re-embed exactly these inputs: the sealed
+    bundle holds their identities and content digests, and the archives the script verifies
+    hold their text. Reading the set from anywhere else would let a production run be
+    qualified against a calibration set Stage A never measured.
+    """
     path = root / "preflight.json"
     if not path.is_file():
         raise BenchmarkArtifactError(
@@ -242,7 +251,7 @@ def stage_b_calibration_reference(
     item-id ascending, which is the order every retrieval matrix is held in.
     """
     require_candidate_dimension(dimension, operation=operation)
-    items = _calibration_items(sealed.root, operation=operation)
+    items = stage_a_calibration_items(sealed.root, operation=operation)
     grouped: dict[tuple[str, str], list[dict[str, object]]] = {}
     for item in items:
         workload = require_exact_str(
