@@ -654,9 +654,8 @@ def _index_workload(
     create instead of silently measuring over it.
     """
     if client.index_exists(identity.index_name):
-        require_lane_identity(
-            client.index_meta(identity.index_name), expected=identity, operation=operation
-        )
+        meta = client.index_meta(identity.index_name)
+        require_lane_identity(meta.get("stage_b_identity"), expected=identity, operation=operation)
         if client.count(identity.index_name) != len(corpus.document_ids):
             raise BenchmarkArtifactError(
                 f"index {identity.index_name} holds "
@@ -968,7 +967,9 @@ def _rebuild_identities(
             f"workload ({len(RES138_WORKLOAD_NAMES)}).",
             operation=operation,
         )
-    expected_workloads = sorted(RES138_WORKLOAD_NAMES)
+    # The frozen order, not sorted: the lane emits one identity per workload in
+    # RES138_WORKLOAD_NAMES order, and re-reading it must compare row for row.
+    expected_workloads = RES138_WORKLOAD_NAMES
     rebuilt: list[StageBIndexIdentity] = []
     for entry, workload in zip(recorded, expected_workloads, strict=True):
         if not isinstance(entry, Mapping):
@@ -989,6 +990,25 @@ def _rebuild_identities(
                 f"{workload!r} was expected.",
                 operation=operation,
                 workload=workload,
+            )
+        # The name is a pure function of the plan, the dimension and the workload, so
+        # recomputing it is what catches a row whose dimension was edited and its name was
+        # not: an index cannot have been created at 1024 and named for 512.
+        recomputed_name = stage_b_index_name(
+            plan_sha256=plan.sha256, dimension=dimension, workload=workload
+        )
+        recorded_name = require_exact_str(
+            record.get("index_name"), kind="index name", operation=operation
+        )
+        if recorded_name != recomputed_name:
+            raise BenchmarkArtifactError(
+                f"a lane result index identity records index name {recorded_name!r}, but this "
+                f"plan, dimension and workload derive {recomputed_name!r}. The name is part of "
+                "the identity, so a row whose name does not follow from the plan is not this "
+                "plan's measurement.",
+                operation=operation,
+                expected=recomputed_name,
+                observed=recorded_name,
             )
         rebuilt.append(
             StageBIndexIdentity(
@@ -1012,9 +1032,7 @@ def _rebuild_identities(
                     label="corpus matrix digest",
                     operation=operation,
                 ),
-                index_name=require_exact_str(
-                    record.get("index_name"), kind="index name", operation=operation
-                ),
+                index_name=recorded_name,
             )
         )
     return tuple(rebuilt)

@@ -412,10 +412,10 @@ def _require_rows(
                 ),
             )
         )
-    if tuple(names) != RES138_WORKLOAD_NAMES:
+    if tuple(names) != tuple(sorted(RES138_WORKLOAD_NAMES)):
         raise BenchmarkArtifactError(
-            f"{label} covers workloads {names}, not the frozen {list(RES138_WORKLOAD_NAMES)} in "
-            "canonical order.",
+            f"{label} covers workloads {names}, not every frozen workload exactly once in the "
+            "sorted order macro_across_workloads writes them.",
             operation=operation,
         )
     return tuple(rows)
@@ -634,43 +634,52 @@ def _load_quality(
             or payload.get("dimension") != dimension
         ):
             raise BenchmarkArtifactError(
-                f"{relative.as_posix()} names a different candidate-configuration than the path it "
-                "occupies.",
+                f"{relative.as_posix()} names a different candidate-configuration than the path "
+                "it occupies.",
                 operation=operation,
                 model_id=model_id,
             )
+        metrics = payload.get("metrics")
+        if not isinstance(metrics, Mapping):
+            raise BenchmarkArtifactError(
+                f"{relative.as_posix()} carries no metrics object, so the macro quality evidence "
+                "this configuration contributes cannot be read.",
+                operation=operation,
+                model_id=model_id,
+            )
+        macro = cast("Mapping[str, object]", metrics)
         quality.append(
             StageAQuality(
                 model_id=candidate.model_id,
                 model_revision=candidate.revision,
                 dimension=dimension,
                 workload_count=_require_count(
-                    payload.get("workload_count"),
+                    macro.get("workload_count"),
                     label=f"{relative.as_posix()} workload_count",
                     operation=operation,
                 ),
                 queries_scored=_require_count(
-                    payload.get("queries_scored"),
+                    macro.get("queries_scored"),
                     label=f"{relative.as_posix()} queries_scored",
                     operation=operation,
                 ),
                 ndcg_at_10=_require_number(
-                    payload.get("ndcg_at_10"),
+                    macro.get("ndcg_at_10"),
                     label=f"{relative.as_posix()} ndcg_at_10",
                     operation=operation,
                 ),
                 recall_at_10=_require_number(
-                    payload.get("recall_at_10"),
+                    macro.get("recall_at_10"),
                     label=f"{relative.as_posix()} recall_at_10",
                     operation=operation,
                 ),
                 recall_at_100=_require_number(
-                    payload.get("recall_at_100"),
+                    macro.get("recall_at_100"),
                     label=f"{relative.as_posix()} recall_at_100",
                     operation=operation,
                 ),
                 workloads=_require_rows(
-                    payload.get("workloads"),
+                    macro.get("workloads"),
                     label=f"{relative.as_posix()} workloads",
                     operation=operation,
                 ),
