@@ -13,7 +13,8 @@
 
     Stage B: production qualification
         a Stage A result
-        -> TEI with candidate-supported precision/backend
+        -> TEI reproducing the Stage A input policy (8192, right truncation)
+           with candidate-selected optimized precision/backend
         -> numerical + ranking equivalence gate against the Stage A reference
         -> OpenSearch index bytes, ANN recall, production throughput, query p95, VRAM
         -> res138-production-qualification-v1

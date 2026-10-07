@@ -25,6 +25,7 @@ import pytest
 
 from dynamisrag.benchmark.contracts import (
     RES138_INPUT_MAX_TOKENS,
+    RES138_INPUT_TRUNCATION_DIRECTION,
     RES138_MODEL_CANDIDATES,
 )
 from dynamisrag.benchmark.errors import BenchmarkContractError, BenchmarkExecutionError
@@ -44,10 +45,14 @@ from dynamisrag.benchmark.production import (
     StageAReference,
     build_production_qualification,
     require_deployment_floor,
+    require_stage_b_input_policy,
     verify_production_qualification,
 )
+from dynamisrag.benchmark.res138 import benchmark_plan, generation_semantics
+from dynamisrag.benchmark.scheduling import SCHEDULER_REVISION, TOKEN_SQUARE_BUDGET
 
 _DIGEST: str = "a" * 64
+_CODE_SHA: str = "a" * 40
 _REFERENCE: tuple[tuple[str, int], ...] = (
     (RES138_MODEL_CANDIDATES[0].model_id, 1024),
     (RES138_MODEL_CANDIDATES[1].model_id, 1024),
@@ -214,6 +219,94 @@ def test_a_production_configuration_may_optimize_precision_but_not_identity() ->
             backend="tei",
             tei_runtime={"tei_version": "1.9.4", "max_batch_tokens": 16384},
         )
+
+
+# ---------------------------------------------------------------------------
+# Stage B reproduces the Stage A semantic input policy exactly
+# ---------------------------------------------------------------------------
+
+
+def test_stage_b_tei_runtime_binds_the_stage_a_reference_boundary() -> None:
+    """Stage B changes execution, never the function being evaluated."""
+    assert RES138_INPUT_MAX_TOKENS == 8192
+    assert RES138_PRODUCTION_TEI_RUNTIME["max_batch_tokens"] == 8192
+    assert RES138_PRODUCTION_TEI_RUNTIME["max_batch_tokens"] == RES138_INPUT_MAX_TOKENS
+    assert (
+        RES138_PRODUCTION_TEI_RUNTIME["truncation_direction"]
+        == RES138_INPUT_TRUNCATION_DIRECTION
+        == "right"
+    )
+    require_stage_b_input_policy(RES138_PRODUCTION_TEI_RUNTIME)
+
+
+def test_stage_b_tei_runtime_keeps_the_rest_of_its_frozen_contract() -> None:
+    """Only the boundary fields are pinned to Stage A; the rest did not drift."""
+    assert set(RES138_PRODUCTION_TEI_RUNTIME) == {
+        "tei_version",
+        "max_batch_tokens",
+        "auto_truncate",
+        "truncation_direction",
+    }
+    assert RES138_PRODUCTION_TEI_RUNTIME["tei_version"] == "1.9.4"
+    assert RES138_PRODUCTION_TEI_RUNTIME["auto_truncate"] is True
+
+
+@pytest.mark.parametrize("boundary", [16384, 32768])
+def test_production_inference_refuses_a_longer_semantic_boundary(boundary: int) -> None:
+    """TEI's 16384 default and the candidates' 32768 native context are not Stage B."""
+    runtime = {
+        "tei_version": "1.9.4",
+        "max_batch_tokens": boundary,
+        "auto_truncate": True,
+        "truncation_direction": "right",
+    }
+    with pytest.raises(BenchmarkContractError, match="Stage B TEI runtime"):
+        require_stage_b_input_policy(runtime)
+    with pytest.raises(BenchmarkContractError, match="Stage B TEI runtime"):
+        ProductionInferenceSpec(
+            model_id=RES138_MODEL_CANDIDATES[0].model_id,
+            model_revision=RES138_MODEL_CANDIDATES[0].revision,
+            precision="bfloat16",
+            backend="tei",
+            tei_runtime=runtime,
+        )
+
+
+def test_production_inference_refuses_a_left_truncation() -> None:
+    runtime = {
+        "tei_version": "1.9.4",
+        "max_batch_tokens": RES138_INPUT_MAX_TOKENS,
+        "auto_truncate": True,
+        "truncation_direction": "left",
+    }
+    with pytest.raises(BenchmarkContractError, match="truncation_direction"):
+        require_stage_b_input_policy(runtime)
+
+
+def test_production_inference_accepts_the_exact_frozen_stage_b_runtime() -> None:
+    spec = _inference()
+    require_stage_b_input_policy(spec.tei_runtime)
+    assert spec.tei_runtime["max_batch_tokens"] == RES138_INPUT_MAX_TOKENS
+    assert spec.payload()["tei_runtime"] == dict(RES138_PRODUCTION_TEI_RUNTIME)
+
+
+def test_the_stage_b_correction_did_not_move_stage_a_semantics_or_the_scheduler() -> None:
+    """The correction is Stage B only: Stage A's policy, schedule and floor are unchanged."""
+    plan = benchmark_plan(_CODE_SHA).payload
+    assert plan["stage"] == "reference-quality"
+    input_policy = cast("dict[str, object]", plan["input_policy"])
+    assert input_policy["input_max_tokens"] == RES138_INPUT_MAX_TOKENS
+    assert input_policy["truncation_direction"] == RES138_INPUT_TRUNCATION_DIRECTION
+    execution_policy = cast("dict[str, object]", plan["execution_policy"])
+    assert execution_policy["stage"] == "reference-quality"
+    assert execution_policy["token_square_budget"] == RES138_INPUT_MAX_TOKENS**2
+    assert "minimum_gpu_memory_bytes" not in execution_policy
+    assert "minimum_compute_capability" not in execution_policy
+    assert SCHEDULER_REVISION == "res138-token-square-v1"
+    assert TOKEN_SQUARE_BUDGET == RES138_INPUT_MAX_TOKENS**2
+    for entry in generation_semantics():
+        assert entry.input_max_tokens == RES138_INPUT_MAX_TOKENS
+        assert entry.payload()["input_max_tokens"] == RES138_INPUT_MAX_TOKENS
 
 
 def test_the_equivalence_gate_is_applied_by_the_evidence() -> None:

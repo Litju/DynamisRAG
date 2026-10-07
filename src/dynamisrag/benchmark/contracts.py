@@ -236,10 +236,13 @@ RES138_PRODUCTION_STAGE: Final[str] = "production-qualification"
 """Stage B: production inference qualification against the Stage A reference.
 
 Consumes a Stage A result, runs the candidate under the actual production
-inference configuration (TEI with the candidate-supported precision and
-backend), and requires an explicit numerical and ranking equivalence gate
-against the Stage A reference before any operational metric may be used. The
-A100-80GB deployment floor belongs to this stage, not to Stage A.
+inference configuration (TEI with a candidate-selected optimized precision and
+backend, subject to the equivalence gate) and reproduces the Stage A semantic
+input policy exactly — the 8192 boundary with right truncation — changing only
+execution. The gate must show numerical and ranking equivalence against the
+Stage A reference before any operational metric may be used. The A100-80GB
+deployment floor belongs to this stage, not to Stage A. A 16k/32k boundary is
+not a Stage B capability; that is the optional Stage C benchmark.
 """
 
 RES138_LONG_CONTEXT_STAGE: Final[str] = "long-context"
@@ -1064,6 +1067,14 @@ calibration constants because it *is* an artifact: the provenance record of whic
 items were drawn and why. Its revision is an input to the item digest, so letting
 it drift away from the table would let two builds draw different items while
 agreeing on every revision they published.
+
+The Stage-B semantic-boundary correction (the TEI runtime binds the Stage A 8192
+reference boundary rather than a 32768 native context) is a pre-artifact
+amendment: no Stage-B artifact was ever released or persisted under
+``production_qualification`` and the staged amendment had not merged when it was
+made, so v1 is kept rather than bumped. The correction changes what the Stage-B
+runtime binds, not the schema of any artifact, and no Stage A revision changes
+with it.
 """
 
 RES138_CALIBRATION_SELECTION_REVISION: Final[str] = RES138_ARTIFACT_REVISIONS[

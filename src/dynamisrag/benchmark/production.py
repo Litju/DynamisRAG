@@ -10,9 +10,14 @@ throughput.
 Stage B consumes a completed Stage A result and answers the deployment question:
 
 * **Production inference.** The candidate is run through the actual production
-  configuration — TEI — with the candidate-supported optimized precision and
-  backend. Optimizing is allowed here precisely because the next point makes it
-  safe.
+  configuration — TEI — with a candidate-selected optimized precision/backend,
+  subject to the equivalence gate below. Stage B reproduces Stage A's semantic
+  input policy exactly: the 8192-token boundary with right truncation. It
+  changes only *execution* — TEI, the optimized precision/backend and the
+  production index/runtime — and never the function being evaluated. A longer
+  boundary would retain inputs Stage A truncates and would confound both the
+  equivalence gate and ANN recall for those inputs; 16k/32k behavior belongs to
+  the optional Stage C benchmark and is not promoted here.
 * **An explicit equivalence gate.** Before any operational metric may be used,
   the production vectors and rankings must be shown numerically and rank
   equivalent to the Stage A reference over the frozen calibration set. A
@@ -42,6 +47,7 @@ from dynamisrag.benchmark.contracts import (
     RES138_ARTIFACT_REVISIONS,
     RES138_CANDIDATE_DIMENSIONS,
     RES138_INPUT_MAX_TOKENS,
+    RES138_INPUT_TRUNCATION_DIRECTION,
     RES138_MODEL_CANDIDATES,
     RES138_PRODUCTION_STAGE,
     RES138_REFERENCE_STAGE,
@@ -70,6 +76,7 @@ __all__ = [
     "StageAReference",
     "build_production_qualification",
     "require_deployment_floor",
+    "require_stage_b_input_policy",
     "verify_production_qualification",
 ]
 
@@ -81,7 +88,7 @@ RES138_PRODUCTION_PRECISIONS: Final[tuple[str, ...]] = ("float32", "float16", "b
 """Precisions a production configuration may declare, per candidate.
 
 Stage A is float32-only because the reference must be one precision. Stage B is
-allowed to use a candidate-supported optimized precision, but only behind the
+allowed a candidate-selected optimized precision/backend, but only behind the
 equivalence gate below: the gate, not the dtype name, is what decides whether the
 optimized configuration reproduces the reference.
 """
@@ -95,20 +102,62 @@ backend describes an experiment, not a deployment.
 
 RES138_PRODUCTION_TEI_RUNTIME: Final[Mapping[str, object]] = {
     "tei_version": "1.9.4",
-    "max_batch_tokens": 32768,
+    "max_batch_tokens": RES138_INPUT_MAX_TOKENS,
     "auto_truncate": True,
-    "truncation_direction": "right",
+    "truncation_direction": RES138_INPUT_TRUNCATION_DIRECTION,
 }
 """The TEI serving flags a production qualification must bind.
 
 Frozen as data because each value changes the vectors a request returns and none
-may be left to the server's default. ``max_batch_tokens`` is 32768 because the
-production path serves the candidates' full native context — long context is a
-production capability even though Stage A's reference boundary is 8192, and the
-equivalence gate compares both paths on the same frozen calibration inputs.
-TEI 1.9.4's default ``--max-batch-tokens`` is 16384, so a deployment left at the
-default would split or reject a request the configuration declares whole.
+may be left to the server's default. The semantic boundary is the Stage A
+reference boundary itself — :data:`RES138_INPUT_MAX_TOKENS` (8192) with
+:data:`RES138_INPUT_TRUNCATION_DIRECTION` (right) — because Stage B qualifies an
+optimized *execution* of the function Stage A measured, not a different function.
+A 16k/32k boundary would retain inputs Stage A truncates and would confound both
+the equivalence gate and ANN recall for those inputs; 16k/32k behavior belongs
+exclusively to the optional Stage C benchmark and is not promoted here.
+
+TEI 1.9.4's default ``--max-batch-tokens`` is 16384, which is not the reference
+boundary either: a deployment left at that default would serve inputs the Stage A
+reference declares truncated. :func:`require_stage_b_input_policy` enforces the
+invariant on this mapping at import and on every
+:class:`ProductionInferenceSpec` runtime, so a qualification cannot represent a
+semantic boundary different from the Stage A reference.
 """
+
+
+def require_stage_b_input_policy(runtime: Mapping[str, object]) -> None:
+    """Require a Stage-B TEI runtime to carry the Stage A semantic boundary.
+
+    Stage B proves that an optimized production execution reproduces the Stage A
+    reference and then measures operational behavior; it does not change the
+    function being evaluated. The only boundary a Stage-B runtime may declare is
+    therefore the reference: :data:`RES138_INPUT_MAX_TOKENS` (8192) with
+    :data:`RES138_INPUT_TRUNCATION_DIRECTION` (right). Any other value — notably
+    TEI's 16384 default or a 32768 native context — describes a different input
+    policy and would confound equivalence and ANN recall above the reference
+    boundary. Longer-context capability is Stage C only.
+    """
+    boundary = runtime.get("max_batch_tokens")
+    if boundary != RES138_INPUT_MAX_TOKENS:
+        raise BenchmarkContractError(
+            f"Stage B TEI runtime max_batch_tokens is {boundary!r}, not the Stage A reference "
+            f"boundary {RES138_INPUT_MAX_TOKENS}. Stage B reproduces Stage A's semantic input "
+            "policy; a different boundary evaluates a different function above the reference and "
+            "confounds production equivalence. Longer context is the optional Stage C benchmark.",
+            operation="require_stage_b_input_policy",
+        )
+    direction = runtime.get("truncation_direction")
+    if direction != RES138_INPUT_TRUNCATION_DIRECTION:
+        raise BenchmarkContractError(
+            f"Stage B TEI runtime truncation_direction is {direction!r}, not the Stage A "
+            f"reference direction {RES138_INPUT_TRUNCATION_DIRECTION!r}. Truncating the other end "
+            "keeps a different part of an over-long input and is not the reference policy.",
+            operation="require_stage_b_input_policy",
+        )
+
+
+require_stage_b_input_policy(RES138_PRODUCTION_TEI_RUNTIME)
 
 
 @dataclass(frozen=True)
@@ -313,10 +362,12 @@ class StageAReference:
 class ProductionInferenceSpec:
     """One candidate's production inference configuration.
 
-    ``precision`` and ``backend`` are the candidate-supported optimized values
-    Stage B is allowed to choose; the equivalence gate is what decides whether the
-    choice qualifies. ``tei_runtime`` must bind the frozen TEI flags, so a result
-    produced under a server default is not this contract's result.
+    ``precision`` and ``backend`` are the candidate-selected optimized values
+    Stage B may choose, subject to the equivalence gate; the gate, not the choice,
+    is what decides whether the configuration qualifies. ``tei_runtime`` must bind
+    the frozen TEI flags — including the Stage A reference boundary — so a result
+    produced under a server default, or at another input boundary, is not this
+    contract's result.
     """
 
     model_id: str
@@ -357,6 +408,7 @@ class ProductionInferenceSpec:
                 operation="production_inference_spec",
                 model_id=self.model_id,
             )
+        require_stage_b_input_policy(self.tei_runtime)
         if canonical_json(dict(self.tei_runtime)) != canonical_json(
             dict(RES138_PRODUCTION_TEI_RUNTIME)
         ):

@@ -639,7 +639,7 @@ The harness is staged, and each stage's identity says which stage it is:
 | Stage | Question | Execution | Evidence |
 | --- | --- | --- | --- |
 | **A — reference quality** | which candidate-configuration retrieves better at the frozen reference boundary | native sentence-transformers, float32, one common runtime, 8,192-token boundary, exact retrieval | macro nDCG@10, paired bootstrap, macro Recall@100 |
-| **B — production qualification** | does a production configuration reproduce that reference, and at what operational cost | TEI with the candidate-supported optimized precision/backend | numerical + ranking equivalence gate, OpenSearch index bytes, ANN recall, production throughput, query p95, VRAM |
+| **B — production qualification** | does a production configuration reproduce that reference, and at what operational cost | TEI at the Stage A reference boundary (8,192, right truncation) with candidate-selected optimized precision/backend, subject to the equivalence gate | numerical + ranking equivalence gate, OpenSearch index bytes, ANN recall, production throughput, query p95, VRAM |
 | **C — long context** (optional) | how do the candidates behave at 8k/16k/32k | LongEmbed/LoCo-style workload | separate benchmark, not a blocker |
 
 Stage A has **no fixed GPU model, compute-capability or memory floor**: the
@@ -650,6 +650,13 @@ TEI equivalence gate and the operational metrics. Stage A throughput is referenc
 execution timing and is **never** reported as production throughput; the final
 selection rule reads operational metrics only from a Stage B qualification, after
 the quality evidence exists.
+
+Stage B reproduces Stage A's semantic input policy **exactly** — 8,192 tokens,
+right truncation — and changes only execution: TEI, a candidate-selected
+optimized precision/backend, and the production index/runtime. A 16k/32k boundary
+would evaluate a different function above the reference boundary and confound
+both equivalence and ANN recall; the 8k/16k/32k windows are Stage C only and are
+never promoted into Stage B.
 
 ### Two commands run locally, with no GPU and no model
 
@@ -826,11 +833,12 @@ runtime executes the frozen schedule's worst microbatch at the 8,192 reference
 boundary.
 
 It proves nothing about retrieval quality, which needs the corpus pass. It records
-no production inference and no equivalence result: Stage B evaluates TEI under the
-declared production runtime and must reproduce the Stage A reference numerically
-and by rank, which is a local step because Colab cannot run Docker. It also says
-nothing about deployment eligibility: A100 80GB qualification is Stage B, and the
-optional 8k/16k/32k long-context benchmark is Stage C.
+no production inference and no equivalence result: Stage B evaluates TEI at the
+same 8,192-token reference boundary under the declared production runtime and must
+reproduce the Stage A reference numerically and by rank, which is a local step
+because Colab cannot run Docker. It also says nothing about deployment
+eligibility: A100 80GB qualification is Stage B, and the optional 8k/16k/32k
+long-context benchmark is Stage C.
 
 ### Interrupting and resuming
 

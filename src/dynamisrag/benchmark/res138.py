@@ -372,8 +372,8 @@ def benchmark_plan(code_sha: str, *, operation: str = "benchmark_plan") -> Artif
                     "and at what operational cost"
                 ),
                 "execution": (
-                    "TEI and production-compatible configuration; precision and backend may be "
-                    "optimized per candidate"
+                    "TEI at the Stage A reference boundary (8192, right truncation); precision "
+                    "and backend may be optimized per candidate, subject to the equivalence gate"
                 ),
                 "prerequisite": (
                     "an explicit numerical and ranking equivalence gate against the Stage A "
@@ -971,10 +971,12 @@ def write_preflight_bundle(
             "stage": RES138_PRODUCTION_STAGE,
             "status": "not_in_stage_a",
             "note": (
-                "Stage A authorises reference-quality execution only. Production inference (TEI, "
-                "candidate-supported precision/backend), the numerical and ranking equivalence "
+                "Stage A authorises reference-quality execution only. Production inference (TEI at "
+                "the Stage A reference boundary with candidate-selected optimized precision and "
+                "backend, subject to the equivalence gate), the numerical and ranking equivalence "
                 "gate against these reference vectors, the A100-80GB deployment floor and the "
-                "operational metrics are Stage B and are not declared or decided here."
+                "operational metrics are Stage B and are not declared or decided here. Longer "
+                "context (16k/32k) is the optional Stage C benchmark."
             ),
         },
         "artifact_digests": dict(artifact_digests),
