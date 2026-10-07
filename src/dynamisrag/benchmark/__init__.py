@@ -10,14 +10,22 @@
         -> exact cosine top-100   (chunked, deterministic tie order)
         -> per-query/workload/macro metrics, paired bootstrap
         -> res138-full-run-v3 (quality evidence complete; selection remains a later step)
+        -> sealed: load_sealed_stage_a verifies the bundle, the commit, the revisions,
+           the input policy and the shortlist against StageASeal, or refuses
 
     Stage B: production qualification
         a Stage A result
+        -> StageBPlan             (deterministic semantic identity; no machine facts)
         -> TEI reproducing the Stage A input policy (8192, right truncation)
            with candidate-selected optimized precision/backend
-        -> numerical + ranking equivalence gate against the Stage A reference
-        -> OpenSearch index bytes, ANN recall, production throughput, query p95, VRAM
+        -> GPU evidence imported from the remote A100 (verify_gpu_evidence recomputes the
+           equivalence gate from the vectors; it never reads a "passed" field)
+        -> OpenSearch Lucene HNSW lane on the workstation's own node
+           (measure_opensearch_lane: actual index store bytes, ANN recall@10/@100
+            against the Stage A exact rankings, identity-checked resume, scoped cleanup)
         -> res138-production-qualification-v1
+           (assemble_production_qualification, then verify_production_qualification)
+        -> res138-selection-v2    (run_stage_b_selection, the frozen rule, or HALTED)
 
     Stage C: long context (optional, non-blocking)
         LongEmbed/LoCo-style windows at 8k/16k/32k
@@ -92,8 +100,51 @@ from dynamisrag.benchmark.errors import (
     BenchmarkPreflightError,
     BenchmarkSourceError,
 )
+from dynamisrag.benchmark.gpu_evidence import (
+    RES138_GPU_EVIDENCE_REVISION,
+    RES138_GPU_METRIC_NAMES,
+    GpuEvidenceVerdict,
+    verify_gpu_evidence,
+)
+from dynamisrag.benchmark.opensearch_lane import (
+    RES138_STAGE_B_INDEX_REVISION,
+    OpenSearchLaneResult,
+    StageBIndexIdentity,
+    measure_opensearch_lane,
+)
+from dynamisrag.benchmark.production import (
+    PRODUCTION_QUALIFICATION_REVISION,
+    RES138_PRODUCTION_DEPLOYMENT_FLOOR,
+    RES138_PRODUCTION_EQUIVALENCE_GATE,
+    RES138_PRODUCTION_TEI_RUNTIME,
+    ProductionQualification,
+    build_production_qualification,
+    verify_production_qualification,
+)
+from dynamisrag.benchmark.qualification import (
+    assemble_production_qualification,
+    run_stage_b_selection,
+)
+from dynamisrag.benchmark.stage_a import (
+    RES138_STAGE_A_SEAL,
+    RES138_STAGE_B_MODEL_IDS,
+    RES138_STAGE_B_SHORTLIST,
+    SealedStageA,
+    StageASeal,
+    load_sealed_stage_a,
+    require_stage_b_shortlist,
+)
+from dynamisrag.benchmark.stage_b import (
+    RES138_STAGE_B_MEASUREMENT_PROTOCOL,
+    RES138_STAGE_B_OPENSEARCH_CONTRACT,
+    RES138_STAGE_B_PLAN_REVISION,
+    StageBPlan,
+    StageBRuntimeFingerprint,
+    build_stage_b_plan,
+)
 
 __all__ = [
+    "PRODUCTION_QUALIFICATION_REVISION",
     "RES138_ARTIFACT_REVISIONS",
     "RES138_ATTENTION_BACKEND",
     "RES138_BEIR_SOURCES",
@@ -101,15 +152,27 @@ __all__ = [
     "RES138_BOOTSTRAP_SAMPLES",
     "RES138_BOOTSTRAP_SEED",
     "RES138_CANDIDATE_DIMENSIONS",
+    "RES138_GPU_EVIDENCE_REVISION",
+    "RES138_GPU_METRIC_NAMES",
     "RES138_INPUT_MAX_TOKENS",
     "RES138_INPUT_TRUNCATION_DIRECTION",
     "RES138_LONG_CONTEXT_STAGE",
     "RES138_MODEL_CANDIDATES",
     "RES138_MRL_CALIBRATION_GATE",
+    "RES138_PRODUCTION_DEPLOYMENT_FLOOR",
+    "RES138_PRODUCTION_EQUIVALENCE_GATE",
     "RES138_PRODUCTION_STAGE",
+    "RES138_PRODUCTION_TEI_RUNTIME",
     "RES138_REFERENCE_STAGE",
     "RES138_RETRIEVAL_TOP_K",
     "RES138_SHARD_SIZE",
+    "RES138_STAGE_A_SEAL",
+    "RES138_STAGE_B_INDEX_REVISION",
+    "RES138_STAGE_B_MEASUREMENT_PROTOCOL",
+    "RES138_STAGE_B_MODEL_IDS",
+    "RES138_STAGE_B_OPENSEARCH_CONTRACT",
+    "RES138_STAGE_B_PLAN_REVISION",
+    "RES138_STAGE_B_SHORTLIST",
     "BeirSourceSpec",
     "BenchmarkArtifactError",
     "BenchmarkContractError",
@@ -117,10 +180,27 @@ __all__ = [
     "BenchmarkExecutionError",
     "BenchmarkPreflightError",
     "BenchmarkSourceError",
+    "GpuEvidenceVerdict",
     "ModelCandidateSpec",
+    "OpenSearchLaneResult",
+    "ProductionQualification",
     "RetrievalDocument",
     "RetrievalPromptSpec",
     "RetrievalQrel",
     "RetrievalQuery",
     "RetrievalWorkload",
+    "SealedStageA",
+    "StageASeal",
+    "StageBIndexIdentity",
+    "StageBPlan",
+    "StageBRuntimeFingerprint",
+    "assemble_production_qualification",
+    "build_production_qualification",
+    "build_stage_b_plan",
+    "load_sealed_stage_a",
+    "measure_opensearch_lane",
+    "require_stage_b_shortlist",
+    "run_stage_b_selection",
+    "verify_gpu_evidence",
+    "verify_production_qualification",
 ]
