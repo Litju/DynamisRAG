@@ -637,6 +637,29 @@ def _recall(
     return total / len(retrieved)
 
 
+def _require_visible_count(
+    client: OpenSearchClient,
+    *,
+    identity: StageBIndexIdentity,
+    expected: int,
+    stage: str,
+    operation: str,
+) -> None:
+    """Require the index to report every sealed document visible at ``stage``."""
+    visible = client.count(identity.index_name)
+    if visible != expected:
+        raise BenchmarkArtifactError(
+            f"index {identity.index_name} reports {visible} visible documents {stage}, not the "
+            f"{expected} the sealed corpus holds. The measurement sequence verifies visibility "
+            "before reading the footprint, so a count short of the corpus means the measurement "
+            "would describe a partial index.",
+            operation=operation,
+            workload=identity.workload,
+            expected=str(expected),
+            observed=str(visible),
+        )
+
+
 def _index_workload(
     *,
     client: OpenSearchClient,
@@ -649,22 +672,22 @@ def _index_workload(
     """Create and populate one workload index, or resume it after an identity check.
 
     Returns whether the index was built here. An index that already exists is adopted only
-    when its recorded ``_meta`` identity is byte-identical to this run's; anything else is
-    refused, so an operator finds out that their node holds an index this run did not
-    create instead of silently measuring over it.
+    when its recorded ``_meta`` identity is byte-identical to this run's *and* its visible
+    count equals the sealed corpus; anything else is refused, so an operator finds out
+    that their node holds an index this run did not create instead of silently measuring
+    over it. Both checks run before adoption, and the count is checked again after the
+    explicit refresh in the measurement sequence.
     """
     if client.index_exists(identity.index_name):
         meta = client.index_meta(identity.index_name)
         require_lane_identity(meta.get("stage_b_identity"), expected=identity, operation=operation)
-        if client.count(identity.index_name) != len(corpus.document_ids):
-            raise BenchmarkArtifactError(
-                f"index {identity.index_name} holds "
-                f"{client.count(identity.index_name)} documents but the sealed corpus holds "
-                f"{len(corpus.document_ids)}. Its recorded identity matches while its contents do "
-                "not, so it is not the index this run would have built.",
-                operation=operation,
-                workload=identity.workload,
-            )
+        _require_visible_count(
+            client,
+            identity=identity,
+            expected=len(corpus.document_ids),
+            stage="on adoption",
+            operation=operation,
+        )
         return False
     client.create_index(
         identity.index_name,
@@ -684,7 +707,6 @@ def _index_workload(
         },
     )
     client.bulk_index(identity.index_name, documents, batch_size=batch_size)
-    client.flush(identity.index_name)
     return True
 
 
@@ -701,9 +723,13 @@ def measure_configuration(
     """Build, measure and record the OpenSearch lane for one configuration.
 
     The sequence is the frozen measurement protocol, and it is in this order on purpose:
-    build (or identity-check a resume), flush, force-merge to one segment, refresh by
-    reading, then measure. Bytes are read after the merge because an HNSW index's
-    footprint depends on how many segments its vectors are spread across.
+    create or resume, bulk index, flush, explicit refresh, verify the visible document
+    count, force-merge to ``max_num_segments=1``, explicit refresh again, verify the
+    visible count again, read ``primaries.store.size_in_bytes``, then run the ANN
+    queries. Bytes are read after the merge because an HNSW index's footprint depends on
+    how many segments its vectors are spread across, and the counts are verified before
+    the footprint is read so the number describes an index whose contents are complete
+    and visible.
 
     One configuration per call, so a 512 index and a 1024 index are never built, resumed or
     compared under a single identity.
@@ -740,7 +766,7 @@ def measure_configuration(
                 plan_sha256=plan.sha256, dimension=dimension, workload=workload
             ),
         )
-        _index_workload(
+        built = _index_workload(
             client=client,
             corpus=corpus,
             identity=identity,
@@ -748,8 +774,25 @@ def measure_configuration(
             batch_size=batch_size,
             operation=operation,
         )
+        if built:
+            client.flush(identity.index_name)
+        client.refresh(identity.index_name)
+        _require_visible_count(
+            client,
+            identity=identity,
+            expected=len(corpus.document_ids),
+            stage="after indexing and refresh",
+            operation=operation,
+        )
         client.force_merge(identity.index_name, max_num_segments=_MAX_SEGMENTS)
-        client.flush(identity.index_name)
+        client.refresh(identity.index_name)
+        _require_visible_count(
+            client,
+            identity=identity,
+            expected=len(corpus.document_ids),
+            stage="after the force merge and refresh",
+            operation=operation,
+        )
         measured = client.index_store_bytes(identity.index_name)
         if measured <= 0:
             raise BenchmarkArtifactError(

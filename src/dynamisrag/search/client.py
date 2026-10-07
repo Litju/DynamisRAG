@@ -433,6 +433,24 @@ class OpenSearchClient:
             index,
         )
 
+    def refresh(self, index: str) -> None:
+        """``POST /{index}/_refresh`` — make every indexed document searchable now.
+
+        A bulk request with ``refresh=wait_for`` returns only once the indexing
+        request that made the documents searchable has completed, but it does not
+        force a refresh: without this call a segment may still be unrefreshed when
+        the visible count is read. The Stage B measurement sequence therefore
+        refreshes explicitly, and verifies the visible count before and after the
+        force merge, so the footprint and the ANN queries describe an index whose
+        contents are fully visible.
+        """
+        validate_resource_name(index, kind="index")
+        self._require_ok(
+            self._request("POST", f"/{index}/_refresh", operation="refresh"),
+            "refresh",
+            index,
+        )
+
     def force_merge(self, index: str, *, max_num_segments: int = 1) -> None:
         """``POST /{index}/_forcemerge`` — collapse the index to a fixed segment count.
 
