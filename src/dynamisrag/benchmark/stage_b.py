@@ -84,6 +84,7 @@ from dynamisrag.search.vector import (
 )
 
 __all__ = [
+    "RES138_STAGE_B_CLIENT_POLICY",
     "RES138_STAGE_B_MEASUREMENT_PROTOCOL",
     "RES138_STAGE_B_OPENSEARCH_CONTRACT",
     "RES138_STAGE_B_PLAN_REVISION",
@@ -122,8 +123,10 @@ RES138_STAGE_B_OPENSEARCH_CONTRACT: Final[Mapping[str, object]] = {
     "number_of_replicas": INDEX_NUMBER_OF_REPLICAS,
     "one_index_per_dimension": True,
     "measurement": (
-        "index documents in canonical document_id ascending order, flush, refresh, force merge to "
-        "max_num_segments=1, refresh, then read primaries store.size_in_bytes"
+        "create or resume, index documents in canonical document_id ascending order, bulk index, "
+        "flush, explicit refresh, verify the visible document count, force merge to "
+        "max_num_segments=1, explicit refresh, verify the visible document count again, then read "
+        "primaries store.size_in_bytes, then run ANN queries"
     ),
     "recall": (
         "overlap between the k nearest neighbours the index returns and the sealed Stage A exact "
@@ -147,24 +150,39 @@ RES138_STAGE_B_MEASUREMENT_PROTOCOL: Final[Mapping[str, object]] = {
     "revision": "res138-stage-b-measurement-v1",
     "corpus_throughput": {
         "unit": "documents per second",
-        "boundary": "TEI /embed request over the frozen workload corpora",
-        "source": "remote A100 TEI run under the declared production inference configuration",
+        "boundary": (
+            "wall-clock from the first document TEI /embed request dispatch to the last response, "
+            "over the frozen workload corpora at the frozen client batch size"
+        ),
+        "source": "the remote TEI server run under the declared production inference configuration",
     },
     "query_latency": {
         "unit": "milliseconds",
         "percentile": "p95",
         "method": "linear interpolation between order statistics (type 7) over every query sample",
-        "boundary": "one TEI /embed request per query, plus the OpenSearch k-NN query",
+        "boundary": (
+            "production TEI query-embedding wall-clock: one TEI /embed request per query, batch "
+            "size 1, sequential client"
+        ),
+        "excluded": (
+            "local OpenSearch ANN latency is a diagnostic only; it is measured on a different "
+            "machine and is never added to, or substituted for, the TEI embedding measurement"
+        ),
     },
     "peak_vram": {
         "unit": "bytes",
-        "method": "torch.cuda.max_memory_allocated plus the reserved segment high-water mark",
-        "source": "the same remote A100 run that produced the vectors",
+        "method": (
+            "nvidia-smi memory.used sampled on the GPU operator host at the frozen interval; the "
+            "high-water mark of the device, never the Python client's PyTorch allocator state"
+        ),
+        "source": "the local TEI server host, during the same dimension's timed run",
     },
     "prohibited": [
         "substituting a Stage A sentence-transformers timing for a production measurement",
         "substituting a hosted-GPU Stage A observation for an A100 deployment qualification",
         "recording an operational metric for a configuration that failed the equivalence gate",
+        "reporting the Python client's PyTorch allocator state as TEI server VRAM",
+        "adding a separately measured OpenSearch ANN p95 to the TEI embedding p95",
     ],
 }
 """How each production metric is measured, frozen before any of them is.
@@ -172,6 +190,50 @@ RES138_STAGE_B_MEASUREMENT_PROTOCOL: Final[Mapping[str, object]] = {
 The ``prohibited`` list is not decoration: each entry is a substitution this
 harness has a structural reason to refuse, and stating the substitution by name is
 what makes an artifact that *did* make it recognisable.
+"""
+
+RES138_STAGE_B_CLIENT_POLICY: Final[Mapping[str, object]] = {
+    "revision": "res138-stage-b-client-measurement-v1",
+    "document_client_batch_size": 8,
+    "query_client_batch_size": 1,
+    "client_concurrency": 1,
+    "corpus_order": (
+        "RES138_WORKLOAD_NAMES order; within a workload, documents in canonical document_id "
+        "ascending order"
+    ),
+    "query_order": (
+        "RES138_WORKLOAD_NAMES order; within a workload, queries in canonical query_id ascending "
+        "order"
+    ),
+    "warmup": {
+        "documents": 8,
+        "queries": 1,
+        "excluded_from_metrics": True,
+        "boundary": (
+            "one untimed document request and one untimed query request per dimension before the "
+            "timed pass; no warmup text enters throughput or p95"
+        ),
+    },
+    "throughput_timing_boundary": (
+        "wall-clock from the first document /embed request dispatch to the last document response"
+    ),
+    "query_p95_timing_boundary": (
+        "per-request wall-clock of one TEI /embed request carrying one query; batch size 1 and a "
+        "sequential client; local OpenSearch ANN latency excluded"
+    ),
+    "vram_sampling": {
+        "method": "nvidia-smi --query-gpu=memory.used sampled on the GPU operator host",
+        "interval_seconds": 0.25,
+    },
+}
+"""The frozen Stage-B client measurement policy, included in the plan digest.
+
+Throughput is a property of the client protocol as much as of the server: a
+different batch size, a different concurrency or a warmup folded into the timed
+pass changes the number without changing the plan. Freezing the policy in the
+plan, and having the operator read it from there instead of accepting arbitrary
+CLI values, is what makes two operators measure the same quantity. The warmup is
+declared, minimal and excluded from every timed boundary.
 """
 
 
@@ -249,6 +311,27 @@ class StageBPlan:
         """Every precision a Stage B configuration may declare, none of them chosen."""
         return RES138_PRODUCTION_PRECISIONS
 
+    @property
+    def client_policy(self) -> Mapping[str, object]:
+        """The frozen client measurement policy this plan's evidence must use."""
+        return RES138_STAGE_B_CLIENT_POLICY
+
+    @property
+    def document_client_batch_size(self) -> int:
+        """The frozen document batch size, read from the policy rather than a CLI value."""
+        return cast("int", RES138_STAGE_B_CLIENT_POLICY["document_client_batch_size"])
+
+    @property
+    def query_client_batch_size(self) -> int:
+        """The frozen query batch size, which is one."""
+        return cast("int", RES138_STAGE_B_CLIENT_POLICY["query_client_batch_size"])
+
+    @property
+    def vram_sampling_interval_seconds(self) -> float:
+        """The frozen VRAM sampling interval, read from the policy."""
+        sampling = cast("Mapping[str, object]", RES138_STAGE_B_CLIENT_POLICY["vram_sampling"])
+        return float(cast("float", sampling["interval_seconds"]))
+
     def payload(self) -> dict[str, Res138JsonValue]:
         """The semantic identity of this Stage B run."""
         return {
@@ -267,6 +350,7 @@ class StageBPlan:
             "opensearch": _artifact_value(dict(RES138_STAGE_B_OPENSEARCH_CONTRACT)),
             "deployment_floor": _artifact_value(dict(RES138_PRODUCTION_DEPLOYMENT_FLOOR)),
             "measurement": _artifact_value(dict(RES138_STAGE_B_MEASUREMENT_PROTOCOL)),
+            "client_measurement": _artifact_value(dict(RES138_STAGE_B_CLIENT_POLICY)),
             "recall_cutoffs": list(RES138_RECALL_CUTOFFS),
             "ndcg_cutoff": RES138_NDCG_CUTOFF,
             "retrieval_top_k": RES138_RETRIEVAL_TOP_K,
