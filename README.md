@@ -706,14 +706,21 @@ uv run dynamisrag benchmark stage-b-plan --bundle <bundle> --code-sha <40-hex>
 # 3. The local OpenSearch lane: index bytes and ANN recall, per dimension.
 uv run dynamisrag benchmark run-opensearch --bundle <bundle> --code-sha <40-hex> --work-dir <dir>
 
-# 4. The A100 has meanwhile produced its preflight evidence (see below); import and
-#    re-verify both dimensions. Only if both pass is the full pass authorized.
+# 4. The A100 has meanwhile produced its preflight evidence (see below); verify both
+#    dimensions. Preflight artifacts are verification inputs only and are never
+#    imported into the work directory. Only if both pass is the full pass authorized.
 uv run dynamisrag benchmark verify-gpu-evidence --bundle <bundle> --code-sha <40-hex> `
-    --evidence <dir>/gpu-evidence-512.json
+    --evidence <evidence-dir>/gpu-evidence-512.json
 uv run dynamisrag benchmark verify-gpu-evidence --bundle <bundle> --code-sha <40-hex> `
-    --evidence <dir>/gpu-evidence-1024.json
-#    ... then the A100 runs `--mode full` and writes gpu-evidence-<dimension>-full.json;
-#    re-verify those before assembling the qualification.
+    --evidence <evidence-dir>/gpu-evidence-1024.json
+#    ... then the A100 runs `--mode full` and writes gpu-evidence-<dimension>-full.json
+#    beside the approved gpu-preflight.json. Verify and materialize each full artifact;
+#    verification runs first, and only verified full evidence is copied into the work
+#    directory under its canonical name.
+uv run dynamisrag benchmark verify-gpu-evidence --bundle <bundle> --code-sha <40-hex> `
+    --evidence <evidence-dir>/gpu-evidence-512-full.json --work-dir <dir>
+uv run dynamisrag benchmark verify-gpu-evidence --bundle <bundle> --code-sha <40-hex> `
+    --evidence <evidence-dir>/gpu-evidence-1024-full.json --work-dir <dir>
 
 # 5. Complete evidence: assemble the qualification and run the frozen rule.
 uv run dynamisrag benchmark assemble-qualification --bundle <bundle> --code-sha <40-hex> --work-dir <dir>
@@ -762,9 +769,32 @@ evidence is not evidence. A configuration that fails the gate is **disqualified*
 its operational metrics never reach the caller; the tolerances are frozen before any
 production vector exists and are not adjusted to admit one.
 
-`assemble-qualification` is complete or nothing: every shortlisted configuration must
-contribute a lane measurement and a passed verdict carrying its production metrics, or
-the command refuses naming the missing evidence. The assembled
+The metrics/preflight-authorization pair is one state: preflight evidence carries
+`metrics = null` and `approved_preflight_sha256 = null`, and full production evidence
+carries both its metrics and the exact approved GPU-preflight manifest digest. A full
+artifact without that digest is an artifact nobody authorized and is refused.
+
+With `--work-dir`, `verify-gpu-evidence` closes the import: verification runs first and
+raises on any failure, and only a verified **full** artifact is materialized — its
+JSON, its referenced `.npy` and the `gpu-preflight.json` that authorizes it — into
+`<work-dir>/gpu-evidence/` under the canonical `gpu-evidence-<dimension>-full.json`
+name. The manifest's canonical digest must equal the artifact's
+`approved_preflight_sha256`, so an import can never carry an authorization the manifest
+does not grant. Files are written atomically, importing the same bytes twice is
+idempotent, and a target that already holds different bytes is refused rather than
+overwritten silently. Preflight artifacts verify and import nothing: they are inputs to
+the verification decision, not to qualification.
+
+`assemble-qualification` is complete or nothing, and its GPU input set is derived, not
+discovered: exactly `<work-dir>/gpu-evidence/gpu-evidence-512-full.json` and
+`gpu-evidence-1024-full.json`, one per planned dimension. It never globs, so preflight
+artifacts and directory ordering cannot contribute, and a missing full artifact fails
+closed. It re-reads `gpu-preflight.json` and requires each full artifact's
+`approved_preflight_sha256` to equal its canonical digest, refuses duplicate
+`(model_id, dimension)` verdicts before any mapping, and refuses a verdict without
+production metrics by name. Every shortlisted configuration must contribute a lane
+measurement and a passed full verdict carrying its production metrics, or the command
+refuses naming the missing evidence. The assembled
 `res138-production-qualification-v1` is passed to the existing
 `build_production_qualification` and re-read through
 `verify_production_qualification`, so nothing is written that cannot be rebuilt from
@@ -850,15 +880,18 @@ text-embeddings-router \
     --model-id Qwen/Qwen3-Embedding-0.6B \
     --revision 97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3 \
     --dtype <declared production dtype> \
-    --max-input-length 8192 \
     --max-batch-tokens 8192 \
     --auto-truncate \
     --max-client-batch-size 32 \
     --hostname 127.0.0.1 --port 8080
 ```
 
-A container image digest is pinned in the operator runbook only once it has actually
-been resolved; until then this document states the flags, not a fabricated digest.
+TEI 1.9.4 exposes no router CLI option for the input length. `max_input_length = 8192`
+remains a required `/info` invariant, and the server reaches it through the frozen
+token boundary and auto-truncation: `--max-batch-tokens 8192` with `--auto-truncate`
+is the startup that satisfies it. A container image digest is pinned in the operator
+runbook only once it has actually been resolved; until then this document states the
+flags, not a fabricated digest.
 
 **The GPU identity and VRAM are observed on the server host.** The Python client's
 `torch.cuda.max_memory_allocated()` describes the client process, not the TEI server, so
