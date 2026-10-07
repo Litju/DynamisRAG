@@ -425,7 +425,12 @@ class OpenSearchClient:
         return _require_int(store, "size_in_bytes", "index_store_bytes")
 
     def flush(self, index: str) -> None:
-        """``POST /{index}/_flush`` — make every indexed segment visible to search."""
+        """``POST /{index}/_flush`` — persist every in-memory segment to disk.
+
+        A flush does not by itself make recent documents searchable: it commits
+        segments so they survive a restart. Making documents visible to search is
+        :meth:`refresh`'s job, and the Stage B measurement sequence calls both.
+        """
         validate_resource_name(index, kind="index")
         self._require_ok(
             self._request("POST", f"/{index}/_flush", operation="flush"),
