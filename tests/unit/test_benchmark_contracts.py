@@ -513,8 +513,11 @@ def test_artifact_revisions_are_declared() -> None:
         "stage_b_plan": "res138-stage-b-plan-v1",
         "stage_b_runtime": "res138-stage-b-runtime-v1",
         "gpu_evidence": "res138-gpu-equivalence-v1",
+        "gpu_preflight": "res138-gpu-preflight-v1",
+        "tei_server_info": "res138-tei-server-info-v1",
         "stage_b_index": "res138-stage-b-opensearch-v1",
         "stage_b_measurement": "res138-stage-b-measurement-v1",
+        "stage_b_client_measurement": "res138-stage-b-client-measurement-v1",
         "stage_b_corpus": "res138-stage-b-corpus-v1",
         "long_context": "res138-long-context-benchmark-v1",
     }

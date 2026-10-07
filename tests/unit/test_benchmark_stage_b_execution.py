@@ -120,6 +120,7 @@ from dynamisrag.benchmark.res138 import (
     verify_pinned_model_metadata,
     write_preflight_bundle,
 )
+from dynamisrag.benchmark.retrieval import exact_top_k
 from dynamisrag.benchmark.runtime import (
     RuntimeFingerprint,
     RuntimeProbe,
@@ -137,10 +138,12 @@ from dynamisrag.benchmark.stage_a import (
     require_stage_b_shortlist,
 )
 from dynamisrag.benchmark.stage_b import (
+    RES138_STAGE_B_CLIENT_POLICY,
     StageBPlan,
     StageBRuntimeFingerprint,
     build_stage_b_plan,
 )
+from dynamisrag.benchmark.tei_server import TeiServerInfo
 from dynamisrag.benchmark.truncation import INPUT_POLICY_REVISION
 from dynamisrag.search.client import OpenSearchClient
 from dynamisrag.search.vector import HNSW_EF_CONSTRUCTION, HNSW_M
@@ -719,6 +722,20 @@ def test_the_plan_binds_the_index_contract_and_the_measurement_protocol(
     assert measurement["revision"] == "res138-stage-b-measurement-v1"
     prohibited = cast("Sequence[str]", measurement["prohibited"])
     assert any("Stage A" in entry for entry in prohibited)
+    query_latency = cast("Mapping[str, object]", measurement["query_latency"])
+    assert query_latency["boundary"] == (
+        "production TEI query-embedding wall-clock: one TEI /embed request per query, batch "
+        "size 1, sequential client"
+    )
+    assert "never added" in str(query_latency["excluded"])
+    peak_vram = cast("Mapping[str, object]", measurement["peak_vram"])
+    assert "nvidia-smi" in str(peak_vram["method"])
+    client = cast("Mapping[str, object]", payload["client_measurement"])
+    assert client == RES138_STAGE_B_CLIENT_POLICY
+    assert client["document_client_batch_size"] == 8
+    assert client["query_client_batch_size"] == 1
+    assert client["client_concurrency"] == 1
+    assert cast("Mapping[str, object]", client["warmup"])["excluded_from_metrics"] is True
     assert payload["qualification_artifact_revision"] == "res138-production-qualification-v1"
     boundary = cast("Mapping[str, object]", payload["semantic_boundary"])
     assert boundary["input_max_tokens"] == 8192
@@ -782,15 +799,48 @@ def test_a_runtime_fingerprint_requires_a_version_and_unique_index_names(
 def _gpu_record(**overrides: object) -> dict[str, object]:
     record: dict[str, object] = {
         "name": "NVIDIA A100-SXM4-80GB",
+        "uuid": "GPU-12345678-1234-1234-1234-123456789abc",
         "compute_capability": [8, 0],
         "total_memory_bytes": 85_899_345_920,
         "driver_version": "580.95.05",
-        "torch_version": "2.9.0+cu128",
-        "tei_version": "1.9.4",
-        "endpoint_sha256": _DIGEST_A,
     }
     record.update(overrides)
     return record
+
+
+def _tei_server(**overrides: object) -> TeiServerInfo:
+    """A canonical server-info record matching the frozen Stage-B contract."""
+    fields: dict[str, object] = {
+        "version": "1.9.4",
+        "model_id": _QWEN.model_id,
+        "model_sha": _QWEN.revision,
+        "model_dtype": "bfloat16",
+        "max_input_length": 8192,
+        "max_batch_tokens": 8192,
+        "auto_truncate": True,
+        "max_client_batch_size": 32,
+        "sha": "c" * 40,
+        "docker_label": "ghcr.io/huggingface/text-embeddings-inference:1.9.4",
+        "max_concurrent_requests": 512,
+        "max_batch_requests": 4,
+        "tokenization_workers": 8,
+    }
+    fields.update(overrides)
+    return TeiServerInfo(**fields)  # pyright: ignore[reportArgumentType]
+
+
+def _plan_for(sealed: SealedStageA) -> StageBPlan:
+    return build_stage_b_plan(reference=sealed.reference, code_sha=_CODE_SHA)
+
+
+def _verify(path: Path, *, sealed: SealedStageA, **overrides: object) -> GpuEvidenceVerdict:
+    """Verifier call through the deterministic plan, for tests not pinning one."""
+    return verify_gpu_evidence(
+        path,
+        sealed=sealed,
+        plan=_plan_for(sealed),
+        **overrides,  # type: ignore[arg-type]
+    )
 
 
 def _gpu_metrics(**overrides: object) -> dict[str, object]:
@@ -819,8 +869,13 @@ def _write_gpu_artifact(
     dimension: int = 512,
     vectors: NDArray[np.float32] | None = None,
     gpu: Mapping[str, object] | None = None,
+    server: TeiServerInfo | None = None,
+    server_digest: str | None = None,
+    endpoint: str = "http://127.0.0.1:8080",
     metrics: Mapping[str, object] | _NoMetrics | None = None,
     model_revision: str | None = None,
+    precision: str = "bfloat16",
+    plan_sha256: str | None = None,
     reference_digest: str | None = None,
     items: Sequence[Mapping[str, object]] | None = None,
     tei_digest: str | None = None,
@@ -835,9 +890,11 @@ def _write_gpu_artifact(
     )
     name = f"qwen-{dimension}-calibration.npy"
     np.save(directory / name, matrix)
+    frozen_server = _tei_server() if server is None else server
     payload: dict[str, object] = {
         "artifact_revision": RES138_GPU_EVIDENCE_REVISION,
         "stage": "production-qualification",
+        "stage_b_plan_sha256": plan_sha256 or _plan_for(sealed).sha256,
         "reference": {
             "bundle_sha256": sealed.reference.bundle_sha256,
             "full_run_sha256": sealed.reference.full_run_sha256,
@@ -850,10 +907,13 @@ def _write_gpu_artifact(
         "inference": {
             "model_id": _QWEN.model_id,
             "model_revision": model_revision or _QWEN.revision,
-            "precision": "bfloat16",
+            "precision": precision,
             "backend": "tei",
             "tei_runtime": dict(RES138_PRODUCTION_TEI_RUNTIME),
         },
+        "tei_endpoint": endpoint,
+        "tei_server": dict(frozen_server.payload()),
+        "tei_server_sha256": server_digest or frozen_server.sha256,
         "gpu": dict(gpu) if gpu is not None else _gpu_record(),
         "calibration_items": [dict(item) for item in (identifiers if items is None else items)],
         "reference_vector_sha256": reference_digest
@@ -905,7 +965,7 @@ def test_an_identical_production_configuration_passes_the_recomputed_gate(
     tmp_path: Path, sealed: SealedStageA
 ) -> None:
     path = _write_gpu_artifact(tmp_path, sealed)
-    verdict = verify_gpu_evidence(path, sealed=sealed)
+    verdict = _verify(path, sealed=sealed)
     assert verdict.label == f"{_QWEN.model_id}@512"
     assert verdict.equivalence.minimum_cosine == pytest.approx(1.0)
     assert verdict.equivalence.maximum_absolute_difference == pytest.approx(0.0)
@@ -924,7 +984,7 @@ def test_a_fake_pass_with_drifted_vectors_is_refused(tmp_path: Path, sealed: Sea
         tei_digest=vector_digest(drifted, label="drifted", operation="test"),
     )
     with pytest.raises(BenchmarkContractError, match="disqualified"):
-        verify_gpu_evidence(path, sealed=sealed)
+        _verify(path, sealed=sealed)
 
 
 def test_a_passed_flag_cannot_substitute_for_vectors(tmp_path: Path, sealed: SealedStageA) -> None:
@@ -950,7 +1010,7 @@ def test_a_passed_flag_cannot_substitute_for_vectors(tmp_path: Path, sealed: Sea
         ),
     )
     with pytest.raises(BenchmarkContractError, match="disqualified"):
-        verify_gpu_evidence(path, sealed=sealed)
+        _verify(path, sealed=sealed)
 
 
 def test_a_failed_gate_admits_no_metrics(tmp_path: Path, sealed: SealedStageA) -> None:
@@ -963,7 +1023,7 @@ def test_a_failed_gate_admits_no_metrics(tmp_path: Path, sealed: SealedStageA) -
         metrics=_gpu_metrics(),
     )
     with pytest.raises(BenchmarkContractError, match="operational metrics are inadmissible"):
-        verify_gpu_evidence(path, sealed=sealed)
+        _verify(path, sealed=sealed)
 
 
 def test_the_gate_thresholds_are_the_frozen_ones_and_are_not_relaxed() -> None:
@@ -989,13 +1049,13 @@ def test_gpu_evidence_binds_the_sealed_stage_a_digests(
         ),
     )
     with pytest.raises(BenchmarkArtifactError, match="reproduces Stage A bundle_sha256"):
-        verify_gpu_evidence(path, sealed=sealed)
+        _verify(path, sealed=sealed)
 
 
 def test_gpu_evidence_refuses_a_wrong_model_revision(tmp_path: Path, sealed: SealedStageA) -> None:
     path = _write_gpu_artifact(tmp_path, sealed, model_revision="0" * 40)
-    with pytest.raises(BenchmarkContractError, match="not the frozen"):
-        verify_gpu_evidence(path, sealed=sealed)
+    with pytest.raises(BenchmarkArtifactError, match="not the plan's"):
+        _verify(path, sealed=sealed)
 
 
 @pytest.mark.parametrize("boundary", [16384, 32768])
@@ -1010,7 +1070,7 @@ def test_gpu_evidence_refuses_a_longer_semantic_boundary(
 
     _rewrite(path, _longer_boundary)
     with pytest.raises(BenchmarkContractError, match="Stage B TEI runtime"):
-        verify_gpu_evidence(path, sealed=sealed)
+        _verify(path, sealed=sealed)
 
 
 def test_gpu_evidence_refuses_left_truncation(tmp_path: Path, sealed: SealedStageA) -> None:
@@ -1022,7 +1082,7 @@ def test_gpu_evidence_refuses_left_truncation(tmp_path: Path, sealed: SealedStag
 
     _rewrite(path, _left_truncation)
     with pytest.raises(BenchmarkContractError, match="truncation_direction"):
-        verify_gpu_evidence(path, sealed=sealed)
+        _verify(path, sealed=sealed)
 
 
 @pytest.mark.parametrize(
@@ -1045,13 +1105,87 @@ def test_gpu_evidence_refuses_below_floor_hardware(
 ) -> None:
     path = _write_gpu_artifact(tmp_path, sealed, gpu=_gpu_record(**overrides))
     with pytest.raises(BenchmarkExecutionError, match=match):
-        verify_gpu_evidence(path, sealed=sealed)
+        _verify(path, sealed=sealed)
 
 
 def test_gpu_evidence_refuses_a_wrong_serving_build(tmp_path: Path, sealed: SealedStageA) -> None:
-    path = _write_gpu_artifact(tmp_path, sealed, gpu=_gpu_record(tei_version="1.8.0"))
-    with pytest.raises(BenchmarkArtifactError, match="not the frozen"):
-        verify_gpu_evidence(path, sealed=sealed)
+    path = _write_gpu_artifact(tmp_path, sealed, server=_tei_server(version="1.8.0"))
+    with pytest.raises(BenchmarkContractError, match="not the frozen"):
+        _verify(path, sealed=sealed)
+
+
+def test_gpu_evidence_refuses_a_wrong_served_model(tmp_path: Path, sealed: SealedStageA) -> None:
+    path = _write_gpu_artifact(tmp_path, sealed, server=_tei_server(model_id="someone/else"))
+    with pytest.raises(BenchmarkContractError, match="not the plan's"):
+        _verify(path, sealed=sealed)
+
+
+def test_gpu_evidence_refuses_a_wrong_model_sha(tmp_path: Path, sealed: SealedStageA) -> None:
+    path = _write_gpu_artifact(tmp_path, sealed, server=_tei_server(model_sha="0" * 40))
+    with pytest.raises(BenchmarkContractError, match="not the pinned"):
+        _verify(path, sealed=sealed)
+
+
+def test_gpu_evidence_refuses_a_wrong_dtype(tmp_path: Path, sealed: SealedStageA) -> None:
+    path = _write_gpu_artifact(tmp_path, sealed, server=_tei_server(model_dtype="float32"))
+    with pytest.raises(BenchmarkContractError, match="declared production precision"):
+        _verify(path, sealed=sealed)
+
+
+def test_gpu_evidence_refuses_a_wrong_server_boundary(tmp_path: Path, sealed: SealedStageA) -> None:
+    path = _write_gpu_artifact(tmp_path, sealed, server=_tei_server(max_batch_tokens=16384))
+    with pytest.raises(BenchmarkContractError, match="max_batch_tokens is 16384"):
+        _verify(path, sealed=sealed)
+    path = _write_gpu_artifact(tmp_path, sealed, server=_tei_server(max_input_length=4096))
+    with pytest.raises(BenchmarkContractError, match="max_input_length"):
+        _verify(path, sealed=sealed)
+
+
+def test_gpu_evidence_refuses_a_server_without_auto_truncation(
+    tmp_path: Path, sealed: SealedStageA
+) -> None:
+    path = _write_gpu_artifact(tmp_path, sealed, server=_tei_server(auto_truncate=False))
+    with pytest.raises(BenchmarkContractError, match="auto_truncate"):
+        _verify(path, sealed=sealed)
+
+
+def test_gpu_evidence_refuses_a_too_small_client_batch_ceiling(
+    tmp_path: Path, sealed: SealedStageA
+) -> None:
+    path = _write_gpu_artifact(tmp_path, sealed, server=_tei_server(max_client_batch_size=4))
+    with pytest.raises(BenchmarkContractError, match="below the frozen client batch size"):
+        _verify(path, sealed=sealed)
+
+
+def test_gpu_evidence_refuses_a_server_digest_that_is_not_its_record(
+    tmp_path: Path, sealed: SealedStageA
+) -> None:
+    path = _write_gpu_artifact(tmp_path, sealed, server_digest=_DIGEST_B)
+    with pytest.raises(BenchmarkArtifactError, match="served identity digest"):
+        _verify(path, sealed=sealed)
+
+
+def test_gpu_evidence_refuses_a_non_local_endpoint(tmp_path: Path, sealed: SealedStageA) -> None:
+    path = _write_gpu_artifact(tmp_path, sealed, endpoint="https://tei.example.com:8080")
+    with pytest.raises(BenchmarkContractError, match="not local"):
+        _verify(path, sealed=sealed)
+
+
+def test_gpu_evidence_binds_the_stage_b_plan(tmp_path: Path, sealed: SealedStageA) -> None:
+    """Evidence from another Stage-B plan — and therefore another code commit — is refused."""
+    path = _write_gpu_artifact(tmp_path, sealed)
+    foreign = build_stage_b_plan(reference=sealed.reference, code_sha=_FOREIGN_CODE_SHA)
+    with pytest.raises(BenchmarkArtifactError, match="produced under Stage B plan"):
+        verify_gpu_evidence(path, sealed=sealed, plan=foreign)
+    assert foreign.sha256 != _plan_for(sealed).sha256
+
+
+def test_gpu_evidence_refuses_a_hand_edited_plan_digest(
+    tmp_path: Path, sealed: SealedStageA
+) -> None:
+    path = _write_gpu_artifact(tmp_path, sealed, plan_sha256=_DIGEST_A)
+    with pytest.raises(BenchmarkArtifactError, match="produced under Stage B plan"):
+        _verify(path, sealed=sealed)
 
 
 def test_gpu_evidence_refuses_an_undeclared_runtime_field(
@@ -1062,16 +1196,22 @@ def test_gpu_evidence_refuses_an_undeclared_runtime_field(
         tmp_path, sealed, gpu=_gpu_record(stage_a_corpus_documents_per_second=0.08)
     )
     with pytest.raises(BenchmarkArtifactError, match="undeclared"):
-        verify_gpu_evidence(path, sealed=sealed)
+        _verify(path, sealed=sealed)
 
 
-def test_gpu_evidence_refuses_a_foreign_endpoint_when_one_is_expected(
+def test_gpu_evidence_refuses_an_undeclared_server_field(
     tmp_path: Path, sealed: SealedStageA
 ) -> None:
+    """The server record is rebuilt from its own fields, so an edited one does not reconstruct."""
     path = _write_gpu_artifact(tmp_path, sealed)
-    verify_gpu_evidence(path, sealed=sealed, expect_endpoint_sha256=_DIGEST_A)
-    with pytest.raises(BenchmarkArtifactError, match="different TEI endpoint"):
-        verify_gpu_evidence(path, sealed=sealed, expect_endpoint_sha256=_DIGEST_B)
+    _rewrite(
+        path,
+        lambda payload: cast("dict[str, object]", payload["tei_server"]).__setitem__(
+            "max_batch_requests", 99
+        ),
+    )
+    with pytest.raises(BenchmarkArtifactError, match="served identity digest"):
+        _verify(path, sealed=sealed)
 
 
 def test_gpu_evidence_refuses_a_calibration_set_that_is_not_stage_as(
@@ -1082,7 +1222,7 @@ def test_gpu_evidence_refuses_a_calibration_set_that_is_not_stage_as(
         tmp_path, sealed, items=[dict(item) for item in reversed(identifiers)]
     )
     with pytest.raises(BenchmarkArtifactError, match="not Stage A's calibration items"):
-        verify_gpu_evidence(path, sealed=sealed)
+        _verify(path, sealed=sealed)
 
 
 def test_gpu_evidence_refuses_a_reference_digest_that_is_not_the_sealed_vectors(
@@ -1090,7 +1230,7 @@ def test_gpu_evidence_refuses_a_reference_digest_that_is_not_the_sealed_vectors(
 ) -> None:
     path = _write_gpu_artifact(tmp_path, sealed, reference_digest=_DIGEST_B)
     with pytest.raises(BenchmarkArtifactError, match="do not hash to the digest"):
-        verify_gpu_evidence(path, sealed=sealed)
+        _verify(path, sealed=sealed)
 
 
 def test_gpu_evidence_refuses_partial_or_foreign_production_metrics(
@@ -1098,12 +1238,12 @@ def test_gpu_evidence_refuses_partial_or_foreign_production_metrics(
 ) -> None:
     partial = _write_gpu_artifact(tmp_path, sealed, metrics={"corpus_documents_per_second": 137.5})
     with pytest.raises(BenchmarkArtifactError, match="not exactly"):
-        verify_gpu_evidence(partial, sealed=sealed)
+        _verify(partial, sealed=sealed)
     foreign = _write_gpu_artifact(
         tmp_path, sealed, metrics={**_gpu_metrics(), "stage_a_reference_seconds": 0.08}
     )
     with pytest.raises(BenchmarkArtifactError, match="not exactly"):
-        verify_gpu_evidence(foreign, sealed=sealed)
+        _verify(foreign, sealed=sealed)
 
 
 def test_gpu_evidence_accepts_equivalence_without_metrics(
@@ -1111,7 +1251,7 @@ def test_gpu_evidence_accepts_equivalence_without_metrics(
 ) -> None:
     """Equivalence alone qualifies the configuration; the metrics are a later requirement."""
     path = _write_gpu_artifact(tmp_path, sealed, metrics=_NO_METRICS)
-    verdict = verify_gpu_evidence(path, sealed=sealed)
+    verdict = _verify(path, sealed=sealed)
     assert verdict.metrics is None
     with pytest.raises(BenchmarkContractError, match="carries no production metrics"):
         gpu_production_metrics(verdict)
@@ -1123,14 +1263,106 @@ def test_gpu_evidence_refuses_a_vector_file_that_is_not_the_declared_bytes(
     path = _write_gpu_artifact(tmp_path, sealed)
     np.save(tmp_path / "qwen-512-calibration.npy", np.ones((18, 512), dtype=np.float32))
     with pytest.raises(BenchmarkArtifactError, match="do not hash to the digest"):
-        verify_gpu_evidence(path, sealed=sealed)
+        _verify(path, sealed=sealed)
 
 
 def test_gpu_evidence_refuses_a_foreign_dimension(tmp_path: Path, sealed: SealedStageA) -> None:
     path = _write_gpu_artifact(tmp_path, sealed, dimension=512)
     _rewrite(path, lambda payload: payload.__setitem__("dimension", 256))
     with pytest.raises(BenchmarkContractError, match="not one of the frozen"):
-        verify_gpu_evidence(path, sealed=sealed)
+        _verify(path, sealed=sealed)
+
+
+def _calibration_ranking_inputs(
+    sealed: SealedStageA,
+) -> tuple[
+    tuple[Mapping[str, object], ...],
+    NDArray[np.float32],
+    NDArray[np.float32],
+    tuple[str, ...],
+    tuple[str, ...],
+]:
+    identifiers, queries, documents = stage_b_calibration_reference(sealed, dimension=512)
+    query_ids = tuple(str(item["item_id"]) for item in identifiers if item["kind"] == "queries")
+    document_ids = tuple(
+        str(item["item_id"]) for item in identifiers if item["kind"] == "documents"
+    )
+    return tuple(identifiers), queries, documents, query_ids, document_ids
+
+
+def test_the_ranking_gate_compares_queries_to_documents_per_workload(
+    tmp_path: Path, sealed: SealedStageA
+) -> None:
+    """Self-ranking can stay intact while retrieval ordering changes; the gate must see it.
+
+    Swapping two document rows of one workload leaves every query-query and
+    document-document self ranking unchanged — each row is still its own nearest
+    neighbour — but changes which document a query retrieves first. The old
+    self-ranking half of the gate would have admitted that evidence; the
+    query-to-document half, and the verifier, refuse it.
+    """
+    from dynamisrag.benchmark.gpu_evidence import (
+        _ranking_groups,  # pyright: ignore[reportPrivateUsage]
+        _retrieval_rankings_identical,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    identifiers, queries, documents, query_ids, document_ids = _calibration_ranking_inputs(sealed)
+    query_groups, document_groups = _ranking_groups(identifiers, operation="test")
+    assert set(query_groups) == set(RES138_WORKLOAD_NAMES)
+    assert set(document_groups) == set(RES138_WORKLOAD_NAMES)
+    assert sorted(row for rows in document_groups.values() for row in rows) == list(
+        range(len(document_ids))
+    )
+    workload = sorted(document_groups)[0]
+    rows = document_groups[workload]
+    swapped = np.ascontiguousarray(documents.copy())
+    swapped[rows[0]], swapped[rows[1]] = documents[rows[1]], documents[rows[0]]
+
+    def _within_workload_self_rankings(
+        matrix: NDArray[np.float32], ids: tuple[str, ...], groups: Mapping[str, list[int]]
+    ) -> dict[str, tuple[tuple[str, ...], ...]]:
+        rankings: dict[str, tuple[tuple[str, ...], ...]] = {}
+        for name, group_rows in groups.items():
+            result = exact_top_k(
+                query_matrix=np.ascontiguousarray(matrix[group_rows]),
+                document_matrix=np.ascontiguousarray(matrix[group_rows]),
+                query_ids=[ids[row] for row in group_rows],
+                document_ids=[ids[row] for row in group_rows],
+            )
+            rankings[name] = tuple(tuple(hit.document_id for hit in row.hits) for row in result)
+        return rankings
+
+    assert _within_workload_self_rankings(
+        queries, query_ids, query_groups
+    ) == _within_workload_self_rankings(queries, query_ids, query_groups)
+    assert _within_workload_self_rankings(
+        documents, document_ids, document_groups
+    ) == _within_workload_self_rankings(swapped, document_ids, document_groups)
+    assert (
+        _retrieval_rankings_identical(
+            reference_queries=queries,
+            candidate_queries=queries,
+            reference_documents=documents,
+            candidate_documents=documents,
+            items=identifiers,
+            operation="test",
+        )
+        is True
+    )
+    assert (
+        _retrieval_rankings_identical(
+            reference_queries=queries,
+            candidate_queries=queries,
+            reference_documents=documents,
+            candidate_documents=swapped,
+            items=identifiers,
+            operation="test",
+        )
+        is False
+    )
+    path = _write_gpu_artifact(tmp_path, sealed, vectors=np.concatenate([queries, swapped], axis=0))
+    with pytest.raises(BenchmarkContractError, match="disqualified"):
+        _verify(path, sealed=sealed)
 
 
 # ---------------------------------------------------------------------------
@@ -1191,7 +1423,7 @@ class _FakeNode:
                     target = cast("Mapping[str, object]", json.loads(line)["index"])
                     self.documents[str(target["_index"])].append(str(target["_id"]))
                 return _json({"errors": False}, request=request)
-            if path.endswith(("/_flush", "/_forcemerge")):
+            if path.endswith(("/_flush", "/_forcemerge", "/_refresh")):
                 return _json({"_shards": {"successful": 1}}, request=request)
             if path.endswith("/_stats/store"):
                 return _json(
@@ -1256,6 +1488,45 @@ def test_the_lane_measures_the_nodes_bytes_and_recall_against_stage_a(
     assert any(call.endswith("/_forcemerge") for call in node.calls)
     assert any(call.endswith("/_stats/store") for call in node.calls)
     assert any(call.endswith("/_flush") for call in node.calls)
+    assert any(call.endswith("/_refresh") for call in node.calls)
+
+
+def test_the_lane_refreshes_and_verifies_visible_counts_around_the_merge(
+    sealed: SealedStageA, plan: StageBPlan
+) -> None:
+    """The measured sequence is the frozen one, in the frozen order."""
+    node = _FakeNode()
+    measure_configuration(client=_client(node), sealed=sealed, plan=plan, dimension=512)
+    index = stage_b_index_name(
+        plan_sha256=plan.sha256, dimension=512, workload=RES138_WORKLOAD_NAMES[0]
+    )
+    interesting = tuple(
+        call
+        for call in node.calls
+        if call.split(" ", 1)[1].startswith(f"/{index}/")
+        and any(
+            token in call
+            for token in (
+                "/_flush",
+                "/_refresh",
+                "/_count",
+                "/_forcemerge",
+                "/_stats/store",
+                "/_search",
+            )
+        )
+    )
+    expected_prefix = [
+        f"POST /{index}/_flush",
+        f"POST /{index}/_refresh",
+        f"GET /{index}/_count",
+        f"POST /{index}/_forcemerge",
+        f"POST /{index}/_refresh",
+        f"GET /{index}/_count",
+        f"GET /{index}/_stats/store",
+    ]
+    assert list(interesting[: len(expected_prefix)]) == expected_prefix
+    assert all(call == f"POST /{index}/_search" for call in interesting[len(expected_prefix) :])
 
 
 def test_the_lane_never_mixes_dimensions_in_one_index(
@@ -1495,10 +1766,13 @@ def test_the_lane_reads_its_vectors_from_the_sealed_shards(
 # ---------------------------------------------------------------------------
 
 
-def _verdict(*, dimension: int, metrics: Mapping[str, object] | None = None) -> GpuEvidenceVerdict:
+def _verdict(
+    *, dimension: int, plan: StageBPlan, metrics: Mapping[str, object] | None = None
+) -> GpuEvidenceVerdict:
     gate = RES138_PRODUCTION_EQUIVALENCE_GATE
     return GpuEvidenceVerdict(
         artifact_revision=RES138_GPU_EVIDENCE_REVISION,
+        stage_b_plan_sha256=plan.sha256,
         inference=ProductionInferenceSpec(
             model_id=_QWEN.model_id,
             model_revision=_QWEN.revision,
@@ -1508,6 +1782,8 @@ def _verdict(*, dimension: int, metrics: Mapping[str, object] | None = None) -> 
         ),
         dimension=dimension,
         gpu=dict(_gpu_record()),
+        tei_server=dict(_tei_server().payload()),
+        tei_server_sha256=_tei_server().sha256,
         equivalence=EquivalenceEvidence(
             model_id=_QWEN.model_id,
             dimension=dimension,
@@ -1542,8 +1818,8 @@ def _complete_evidence(
             _lane(sealed, plan, dimension=1024, store_bytes=2_048),
         ],
         [
-            _verdict(dimension=512, metrics=_gpu_metrics()),
-            _verdict(dimension=1024, metrics=_gpu_metrics()),
+            _verdict(dimension=512, plan=plan, metrics=_gpu_metrics()),
+            _verdict(dimension=1024, plan=plan, metrics=_gpu_metrics()),
         ],
     )
 
@@ -1556,7 +1832,7 @@ def test_incomplete_stage_b_evidence_cannot_be_assembled(
             sealed=sealed,
             plan=plan,
             lanes=[_lane(sealed, plan, dimension=512, store_bytes=1_024)],
-            verdicts=[_verdict(dimension=512, metrics=_gpu_metrics())],
+            verdicts=[_verdict(dimension=512, plan=plan, metrics=_gpu_metrics())],
         )
 
 
@@ -1572,8 +1848,8 @@ def test_a_verdict_without_production_metrics_cannot_be_assembled(
                 _lane(sealed, plan, dimension=1024, store_bytes=1_024),
             ],
             verdicts=[
-                _verdict(dimension=512, metrics=_gpu_metrics()),
-                _verdict(dimension=1024),
+                _verdict(dimension=512, plan=plan, metrics=_gpu_metrics()),
+                _verdict(dimension=1024, plan=plan),
             ],
         )
 
@@ -1590,6 +1866,7 @@ def test_a_lane_measurement_and_its_gpu_verdict_must_describe_one_configuration(
     lane = _lane(sealed, plan, dimension=512, store_bytes=1_024)
     mismatched = GpuEvidenceVerdict(
         artifact_revision=RES138_GPU_EVIDENCE_REVISION,
+        stage_b_plan_sha256=plan.sha256,
         inference=ProductionInferenceSpec(
             model_id=_QWEN.model_id,
             model_revision=_QWEN.revision,
@@ -1599,6 +1876,8 @@ def test_a_lane_measurement_and_its_gpu_verdict_must_describe_one_configuration(
         ),
         dimension=1024,
         gpu=dict(_gpu_record()),
+        tei_server=dict(_tei_server().payload()),
+        tei_server_sha256=_tei_server().sha256,
         equivalence=EquivalenceEvidence(
             model_id=_QWEN.model_id,
             dimension=1024,
@@ -1797,6 +2076,32 @@ def test_incomplete_stage_b_evidence_halts_the_selection(sealed: SealedStageA) -
     )
 
 
+def test_a_failed_qwen_production_qualification_halts_and_never_admits_voyage(
+    sealed: SealedStageA,
+) -> None:
+    """The rule halts on a failed Qwen gate; it never falls through to Voyage.
+
+    Voyage 4 Nano remains Stage A evidence and was not advanced, so a Qwen
+    production-equivalence failure is a stop-for-review outcome, not an invitation
+    to qualify the next model. The table names the failed gate and the payload
+    contains no Voyage row and no winner.
+    """
+    table = stage_b_candidate_evidence(sealed=sealed, qualification=None)
+    assert {row.model_id for row in table} == {_QWEN.model_id}
+    assert all(row.failed_gates == ("production_equivalence_gate",) for row in table)
+    for row in table:
+        assert row.correctness_gates_passed is False
+        assert row.operational_stage is None
+        assert row.operational_gate_passed is None
+    outcome = run_stage_b_selection(sealed=sealed, qualification=None)
+    assert outcome.status.value == "halted"
+    assert outcome.winner is None
+    assert outcome.ranked == ()
+    body = json.dumps(outcome.payload())
+    assert _VOYAGE.model_id not in body
+    assert "production_equivalence_gate" in body
+
+
 def test_the_sealed_bootstrap_interval_is_read_from_the_sealed_artifact(
     sealed: SealedStageA, plan: StageBPlan
 ) -> None:
@@ -1870,8 +2175,8 @@ def test_the_selection_module_encodes_no_winner(sealed: SealedStageA, plan: Stag
         _lane(sealed, plan, dimension=1024, store_bytes=1_024),
     ]
     verdicts = [
-        _verdict(dimension=512, metrics=_gpu_metrics()),
-        _verdict(dimension=1024, metrics=_gpu_metrics()),
+        _verdict(dimension=512, plan=plan, metrics=_gpu_metrics()),
+        _verdict(dimension=1024, plan=plan, metrics=_gpu_metrics()),
     ]
     qualification = assemble_production_qualification(
         sealed=sealed, plan=plan, lanes=lanes, verdicts=verdicts

@@ -1044,8 +1044,11 @@ RES138_ARTIFACT_REVISIONS: Final[Mapping[str, str]] = {
     "stage_b_plan": "res138-stage-b-plan-v1",
     "stage_b_runtime": "res138-stage-b-runtime-v1",
     "gpu_evidence": "res138-gpu-equivalence-v1",
+    "gpu_preflight": "res138-gpu-preflight-v1",
+    "tei_server_info": "res138-tei-server-info-v1",
     "stage_b_index": "res138-stage-b-opensearch-v1",
     "stage_b_measurement": "res138-stage-b-measurement-v1",
+    "stage_b_client_measurement": "res138-stage-b-client-measurement-v1",
     "stage_b_corpus": "res138-stage-b-corpus-v1",
     "long_context": "res138-long-context-benchmark-v1",
 }
@@ -1092,6 +1095,23 @@ local OpenSearch lane result, ``stage_b_measurement`` the frozen measurement
 protocol and ``stage_b_corpus`` the frozen corpus a Stage B index holds. Adding a
 key here is digest-neutral for every existing artifact: nothing hashes this map,
 it is looked up one name at a time.
+
+**The Stage-B execution-hardening amendment is also a pre-artifact amendment, and
+the same rule applies.** No ``res138-gpu-equivalence-v1``, ``res138-stage-b-plan-v1``,
+``res138-stage-b-opensearch-v1`` or artifact of the new revisions
+``res138-gpu-preflight-v1``, ``res138-tei-server-info-v1`` and
+``res138-stage-b-client-measurement-v1`` has ever been persisted: no A100 session
+has launched, so nothing outside a test has been written under those revisions. The
+hardening repaired in place what the existing revisions mean and added the three
+records the repaired workflow needs — the TEI ``/embed`` request became the 1.9.4
+schema, the serving identity became the canonical ``/info`` record digest rather
+than a URL digest, the GPU record became nvidia-smi-observed identity, the ranking
+half of the equivalence gate became the per-workload query-to-document relation, the
+production metrics became per-dimension, the client measurement policy became part
+of the plan digest, and the GPU lane gained an explicit preflight/full split. Bumping
+a revision for a schema no artifact ever declared would create two names for one
+never-observed contract and imply a compatibility boundary that does not exist. A
+future change *after* artifacts exist must bump the relevant revision here.
 """
 
 RES138_CALIBRATION_SELECTION_REVISION: Final[str] = RES138_ARTIFACT_REVISIONS[
