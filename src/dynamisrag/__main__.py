@@ -63,6 +63,7 @@ from dynamisrag.search.projection import PassageProjector
 
 if TYPE_CHECKING:
     from dynamisrag.benchmark.gpu_evidence import GpuEvidenceVerdict
+    from dynamisrag.benchmark.gpu_preflight import GpuPreflightManifest
     from dynamisrag.benchmark.opensearch_lane import OpenSearchLaneResult
     from dynamisrag.benchmark.stage_a import SealedStageA
     from dynamisrag.benchmark.stage_b import StageBPlan
@@ -212,13 +213,23 @@ def build_parser() -> argparse.ArgumentParser:
 
     gpu = benchmark_commands.add_parser(
         _VERIFY_GPU_EVIDENCE,
-        help="re-verify an imported A100 TEI artifact against the sealed Stage A reference",
+        help=(
+            "re-verify an imported A100 TEI artifact against the sealed reference; with "
+            "--work-dir, materialize verified full production evidence"
+        ),
     )
     _add_stage_b_arguments(gpu)
     gpu.add_argument("--evidence", required=True, help="the GPU evidence artifact to import")
     gpu.add_argument(
         "--vectors-dir",
         help="where the artifact's calibration .npy lives; defaults to the artifact's directory",
+    )
+    gpu.add_argument(
+        "--work-dir",
+        help=(
+            "materialize verified full production evidence into <work-dir>/gpu-evidence/; "
+            "preflight evidence is verified but never materialized"
+        ),
     )
 
     assemble = benchmark_commands.add_parser(
@@ -532,17 +543,24 @@ def _cleanup_stage_b_indexes(arguments: argparse.Namespace) -> int:
 
 
 def _verify_gpu_evidence(arguments: argparse.Namespace) -> int:
-    """Re-verify an imported GPU artifact, or exit non-zero naming the gate that refused it."""
+    """Re-verify an imported GPU artifact and, for full evidence, materialize it.
+
+    Verification always runs first and raises on any failure, so an artifact that did
+    not pass the gate, the identity checks or the digest checks is never copied into a
+    work directory. Preflight artifacts verify and import nothing: they are inputs to
+    the verification decision, not to qualification.
+    """
     from dynamisrag.benchmark.errors import BenchmarkError
-    from dynamisrag.benchmark.gpu_evidence import verify_gpu_evidence
+    from dynamisrag.benchmark.gpu_evidence import verify_and_materialize
 
     try:
         sealed, plan = _sealed_and_plan(arguments)
         vectors = Path(arguments.vectors_dir) if arguments.vectors_dir else None
-        verdict = verify_gpu_evidence(
+        verdict, imported = verify_and_materialize(
             Path(arguments.evidence),
             sealed=sealed,
             plan=plan,
+            work_dir=Path(arguments.work_dir) if arguments.work_dir else None,
             vectors_directory=vectors,
         )
     except BenchmarkError as error:
@@ -551,21 +569,41 @@ def _verify_gpu_evidence(arguments: argparse.Namespace) -> int:
                 f"{_BENCHMARK} {_VERIFY_GPU_EVIDENCE}", error, allow_application_detail=True
             )
         )
-    _emit(dict(verdict.payload()))
+    payload = dict(verdict.payload())
+    payload["imported"] = list(imported)
+    _emit(payload)
     return _EXIT_SUCCESS
 
 
 def _load_evidence(
     arguments: argparse.Namespace,
-) -> tuple[SealedStageA, StageBPlan, list[OpenSearchLaneResult], list[GpuEvidenceVerdict]]:
-    """Re-verify every recorded GPU artifact and re-read every lane result from disk.
+) -> tuple[
+    SealedStageA,
+    StageBPlan,
+    list[OpenSearchLaneResult],
+    list[GpuEvidenceVerdict],
+    GpuPreflightManifest,
+]:
+    """Re-verify the full GPU evidence of every planned dimension and re-read the lane.
 
-    Assembly and selection both start here, so neither can consume an artifact this process
-    has not just re-verified. Lane results come back through
-    :func:`~dynamisrag.benchmark.opensearch_lane.load_lane_result`, which refuses a result
-    produced under another plan.
+    Assembly and selection both start here, so neither can consume an artifact this
+    process has not just re-verified. The GPU input set is derived from
+    ``plan.dimensions`` and the canonical evidence directory — never globbed — so
+    preflight artifacts and directory ordering cannot contribute, and a missing full
+    artifact fails closed. The approved preflight manifest is re-read from the same
+    directory and travels with the verdicts, so assembly can require each full
+    artifact's authorization to equal its canonical digest. Lane results come back
+    through :func:`~dynamisrag.benchmark.opensearch_lane.load_lane_result`, which
+    refuses a result produced under another plan.
     """
-    from dynamisrag.benchmark.gpu_evidence import verify_gpu_evidence
+    from dynamisrag.benchmark.gpu_evidence import (
+        RES138_GPU_EVIDENCE_DIRECTORY,
+        verify_full_evidence,
+    )
+    from dynamisrag.benchmark.gpu_preflight import (
+        RES138_GPU_PREFLIGHT_FILENAME,
+        read_gpu_preflight,
+    )
     from dynamisrag.benchmark.opensearch_lane import (
         lane_result_from_payload,
         lane_result_path,
@@ -574,17 +612,18 @@ def _load_evidence(
 
     sealed, plan = _sealed_and_plan(arguments)
     work_dir = Path(arguments.work_dir)
-    verdicts = [
-        verify_gpu_evidence(path, sealed=sealed, plan=plan, vectors_directory=path.parent)
-        for path in sorted(work_dir.glob("gpu-evidence/*.json"))
-    ]
+    verdicts = list(verify_full_evidence(work_dir, sealed=sealed, plan=plan))
+    preflight = read_gpu_preflight(
+        work_dir / RES138_GPU_EVIDENCE_DIRECTORY / RES138_GPU_PREFLIGHT_FILENAME,
+        operation="load_stage_b_evidence",
+    )
     lanes: list[OpenSearchLaneResult] = []
     for dimension in plan.dimensions:
         result_path = lane_result_path(work_dir, model_id=plan.model_ids[0], dimension=dimension)
         if not result_path.is_file():
             continue
         lanes.append(lane_result_from_payload(load_lane_result(result_path, plan=plan), plan=plan))
-    return sealed, plan, lanes, verdicts
+    return sealed, plan, lanes, verdicts, preflight
 
 
 def _assemble_qualification(arguments: argparse.Namespace) -> int:
@@ -597,9 +636,9 @@ def _assemble_qualification(arguments: argparse.Namespace) -> int:
     )
 
     try:
-        sealed, plan, lanes, verdicts = _load_evidence(arguments)
+        sealed, plan, lanes, verdicts, preflight = _load_evidence(arguments)
         qualification = assemble_production_qualification(
-            sealed=sealed, plan=plan, lanes=lanes, verdicts=verdicts
+            sealed=sealed, plan=plan, lanes=lanes, verdicts=verdicts, preflight=preflight
         )
         digest = write_qualification(qualification, qualification_path(Path(arguments.work_dir)))
     except BenchmarkError as error:
@@ -635,7 +674,7 @@ def _select(arguments: argparse.Namespace) -> int:
     from dynamisrag.benchmark.selection import SelectionStatus
 
     try:
-        sealed, _plan, _lanes, _verdicts = _load_evidence(arguments)
+        sealed, _plan, _lanes, _verdicts, _preflight = _load_evidence(arguments)
         work_dir = Path(arguments.work_dir)
         qualification = read_qualification(qualification_path(work_dir))
         outcome = run_stage_b_selection(sealed=sealed, qualification=qualification)
