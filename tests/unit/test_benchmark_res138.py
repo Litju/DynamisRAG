@@ -99,7 +99,7 @@ def test_the_plan_is_a_pure_function_of_the_code_commit() -> None:
     second = benchmark_plan(_CODE_SHA)
 
     assert first.sha256 == second.sha256
-    assert first.artifact_revision == "res138-plan-v2"
+    assert first.artifact_revision == "res138-plan-v3"
     assert benchmark_plan("b" * 40).sha256 != first.sha256
 
 
@@ -132,29 +132,39 @@ def test_the_plan_declares_everything_a_reviewer_has_to_object_to() -> None:
     mrl = cast("dict[str, object]", payload["mrl"])
     assert mrl["derivation_revision"] == RES138_MRL_DERIVATION_REVISION
     execution = cast("dict[str, object]", payload["execution"])
+    assert execution["stage"] == "reference-quality"
     assert execution["docker_in_colab"] is False
     assert execution["production_tei_unchanged"] is True
     assert "OpenSearch Lucene HNSW footprint and ANN diagnostics" in cast(
         "list[str]", execution["local_authority"]
     )
-    assert payload["tei_equivalence_gate"] == {
-        "minimum_cosine": 0.99999,
-        "maximum_absolute_difference": 1e-4,
-        "require_identical_top_k": True,
-    }
+    assert payload["stage"] == "reference-quality"
+    architecture = cast("dict[str, object]", payload["architecture"])
+    assert set(architecture) == {"stage_a", "stage_b", "stage_c"}
+    assert cast("dict[str, object]", architecture["stage_b"])["deployment_floor"] == (
+        "A100 80GB qualification belongs to this stage"
+    )
+    assert "tei_equivalence_gate" not in payload
+    assert "tei_equivalence_runtime" not in payload
     assert payload["input_policy"] == {
-        "policy_revision": "res138-input-truncation-v1",
-        "input_max_tokens": 32768,
+        "stage": "reference-quality",
+        "policy_revision": "res138-input-truncation-v2",
+        "input_max_tokens": RES138_INPUT_MAX_TOKENS,
         "truncate": True,
         "truncation_direction": "right",
         "raw_counts_measured_without_truncation": True,
         "effective_count_rule": "min(raw_count, input_max_tokens)",
     }
-    assert payload["tei_equivalence_runtime"] == {
-        "tei_version": "1.9.4",
-        "max_batch_tokens": 32768,
-        "auto_truncate": True,
-    }
+    execution_policy = cast("dict[str, object]", payload["execution_policy"])
+    assert execution_policy["stage"] == "reference-quality"
+    assert execution_policy["compute_dtype"] == "float32"
+    assert execution_policy["same_runtime_for_both_candidates"] is True
+    assert "minimum_gpu_memory_bytes" not in execution_policy
+    assert "minimum_compute_capability" not in execution_policy
+    selection = cast("dict[str, object]", payload["selection"])
+    assert cast("dict[str, object]", selection["operational_tie_break"])["stage"] == (
+        "production-qualification"
+    )
     assert cast("dict[str, object]", payload["bootstrap"])["seed"] == 138
 
 
@@ -195,24 +205,26 @@ def test_the_generation_semantics_are_res_137_configs_not_a_parallel_invention()
     assert generation_semantics_sha256() == generation_semantics_sha256()
 
 
-def test_the_attention_provenance_repair_did_not_move_any_science_constant() -> None:
-    """The SDPA observation closes a provenance gap; it must not have changed a vector.
+def test_the_staged_amendment_binds_the_boundary_and_preserves_science_constants() -> None:
+    """The boundary moved to 8,192; the candidates, prompts, sources and gates did not.
 
-    The generation-semantics digest is pinned to the value it had before this
-    repair, and the truncation/scheduler/model/source constants are asserted
-    explicitly: an edit that altered any of them would be a different benchmark,
-    not a repaired one.
+    ``input_max_tokens`` is carried inside every generation-semantics payload, so
+    the digest changes with the boundary rather than describing a run that could
+    silently encode at another one. The model revisions, prompts, BEIR digests and
+    the MRL/bootstrap constants below are asserted explicitly: an edit that altered
+    any of them would be a different benchmark, not a staged amendment.
     """
 
-    assert (
-        generation_semantics_sha256()
-        == "2eaf51d1c791dfa899f42f58e874ccda0cec4fc610fb5c7744b78f9ff500403a"
-    )
-    assert RES138_INPUT_MAX_TOKENS == 32768
+    assert RES138_INPUT_MAX_TOKENS == 8192
     assert RES138_INPUT_TRUNCATION_DIRECTION == "right"
     assert SCHEDULER_REVISION == "res138-token-square-v1"
     assert TOKEN_SQUARE_BUDGET == RES138_INPUT_MAX_TOKENS**2
     assert RES138_ATTENTION_BACKEND == "sdpa"
+    for entry in generation_semantics():
+        assert entry.input_max_tokens == RES138_INPUT_MAX_TOKENS
+        assert entry.payload()["input_max_tokens"] == RES138_INPUT_MAX_TOKENS
+    assert generation_semantics_sha256() == generation_semantics_sha256()
+    assert generation_semantics_sha256() != ""
     assert {candidate.model_id for candidate in RES138_MODEL_CANDIDATES} == {
         "voyageai/voyage-4-nano",
         "Qwen/Qwen3-Embedding-0.6B",
@@ -578,7 +590,9 @@ def test_the_concrete_hub_reader_matches_the_metadata_reader_protocol() -> None:
 class _Encoder:
     """A deterministic encoder: the frozen rule holds exactly, or not at all."""
 
-    def __init__(self, *, max_sequence_length: int = 32768, over_context: bool = False) -> None:
+    def __init__(
+        self, *, max_sequence_length: int = RES138_INPUT_MAX_TOKENS, over_context: bool = False
+    ) -> None:
         self.max_sequence_length = max_sequence_length
         self.over_context = over_context
         self.calls: list[tuple[int, str]] = []
@@ -791,7 +805,7 @@ def _runtime_model_records() -> list[dict[str, Res138JsonValue]]:
                         "observed_attention_backend": "sdpa",
                         "pooling_mode": candidate.pooling_mode,
                         "native_max_sequence_length": 32768,
-                        "loaded_max_sequence_length": 32768,
+                        "loaded_max_sequence_length": RES138_INPUT_MAX_TOKENS,
                         "batch_size": 16,
                         "device": "cuda",
                         "normalized": True,
@@ -824,7 +838,7 @@ def _write_preflight(tmp_path: Path, *, approved: str = "") -> tuple[Path, str]:
         calibration=calibration,
         decisions=decisions,
         artifact_digests={"plan.json": "d" * 64},
-        memory_probes=[
+        schedule_probes=[
             {
                 "model_id": candidate.model_id,
                 "status": "pass",
@@ -854,14 +868,15 @@ def test_the_preflight_bundle_states_everything_a_full_run_relies_on(tmp_path: P
     assert payload["runtime_sha256"] == capture_runtime_fingerprint(_fingerprint_probe()).sha256
     assert payload["plan_sha256"] == benchmark_plan(_CODE_SHA).sha256
     assert payload["generation_semantics_sha256"] == generation_semantics_sha256()
+    assert payload["stage"] == "reference-quality"
     assert cast("dict[str, object]", payload["input_policy"])["truncate"] is True
-    tei = cast("dict[str, object]", payload["tei_equivalence"])
-    assert tei["status"] == "not_run"
-    assert tei["runtime"] == {
-        "tei_version": "1.9.4",
-        "max_batch_tokens": 32768,
-        "auto_truncate": True,
-    }
+    assert cast("dict[str, object]", payload["input_policy"])["input_max_tokens"] == (
+        RES138_INPUT_MAX_TOKENS
+    )
+    production = cast("dict[str, object]", payload["production_qualification"])
+    assert production["stage"] == "production-qualification"
+    assert production["status"] == "not_in_stage_a"
+    assert "tei_equivalence" not in payload
     calibration = cast("dict[str, object]", payload["mrl_calibration"])
     assert len(cast("list[object]", calibration["decisions"])) == 4
     assert len(cast("list[object]", calibration["calibration_items"])) == 12
@@ -974,32 +989,32 @@ def test_a_preflight_without_the_frozen_input_policy_is_refused(tmp_path: Path) 
 
 
 def test_a_preflight_written_under_the_old_input_contract_is_refused(tmp_path: Path) -> None:
-    """Revision v2 predates both the truncation and attention-provenance contracts."""
+    """Revision v4 predates the staged amendment and the 8,192 reference boundary."""
 
     path, _ = _write_preflight(tmp_path)
 
     payload = json.loads(path.read_text(encoding="utf-8"))
-    payload["artifact_revision"] = "res138-preflight-v2"
+    payload["artifact_revision"] = "res138-preflight-v4"
     path.write_text(json.dumps(payload), encoding="utf-8")
 
     with pytest.raises(BenchmarkArtifactError) as caught:
         verify_preflight_bundle(path)
-    assert caught.value.expected == "res138-preflight-v4"
+    assert caught.value.expected == "res138-preflight-v5"
 
 
-def test_memory_probes_is_a_required_preflight_v4_field(tmp_path: Path) -> None:
+def test_schedule_probes_is_a_required_preflight_v5_field(tmp_path: Path) -> None:
     """The probe section is what the full run's tokenizer-only gate reads."""
 
     path, _ = _write_preflight(tmp_path)
 
     def drop(payload: dict[str, object]) -> None:
-        del payload["memory_probes"]
+        del payload["schedule_probes"]
 
     _mutate_preflight_payload(path, drop)
 
     with pytest.raises(BenchmarkPreflightError) as caught:
         verify_preflight_bundle(path)
-    assert "memory_probes" in str(caught.value)
+    assert "schedule_probes" in str(caught.value)
 
 
 def _first_runtime(payload: dict[str, object]) -> dict[str, object]:
@@ -1050,17 +1065,17 @@ def test_a_preflight_without_the_frozen_attention_provenance_is_refused(
     assert "attention" in str(caught.value) or "runtime" in str(caught.value)
 
 
-def test_a_preflight_that_changed_its_tei_runtime_is_refused(tmp_path: Path) -> None:
-    """TEI's default max_batch_tokens is 16384; that runtime is not this contract's."""
+def test_a_preflight_that_claims_production_qualification_is_refused(tmp_path: Path) -> None:
+    """Stage A may not import Stage B's gate: production qualification is not in this run."""
 
     path, _ = _write_preflight(tmp_path)
-    import json
 
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    tei = cast("dict[str, object]", payload["tei_equivalence"])
-    tei["runtime"] = {"tei_version": "1.9.4", "max_batch_tokens": 16384, "auto_truncate": True}
-    path.write_text(json.dumps(payload), encoding="utf-8")
+    def claim(payload: dict[str, object]) -> None:
+        production = cast("dict[str, object]", payload["production_qualification"])
+        production["status"] = "complete"
+
+    _mutate_preflight_payload(path, claim)
 
     with pytest.raises(BenchmarkPreflightError) as caught:
         verify_preflight_bundle(path)
-    assert "TEI equivalence runtime" in str(caught.value)
+    assert "production-qualification" in str(caught.value)

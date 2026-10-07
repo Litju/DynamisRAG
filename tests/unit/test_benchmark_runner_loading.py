@@ -364,7 +364,7 @@ def test_the_provenance_separates_the_requested_the_observed_and_the_output_dtyp
         observed_compute_dtype="float32",
         requested_attention_backend="sdpa",
         observed_attention_backend="sdpa",
-        loaded_max_sequence_length=32768,
+        loaded_max_sequence_length=RES138_INPUT_MAX_TOKENS,
         batch_size=16,
         device="cuda",
     )
@@ -384,7 +384,7 @@ def test_the_provenance_keeps_the_requested_and_observed_backend_apart() -> None
         observed_compute_dtype="float32",
         requested_attention_backend=RES138_ATTENTION_BACKEND,
         observed_attention_backend=RES138_ATTENTION_BACKEND,
-        loaded_max_sequence_length=32768,
+        loaded_max_sequence_length=RES138_INPUT_MAX_TOKENS,
         batch_size=16,
         device="cuda",
     )
@@ -403,7 +403,7 @@ def test_the_provenance_carries_exactly_the_declared_fields() -> None:
         observed_compute_dtype="float32",
         requested_attention_backend="sdpa",
         observed_attention_backend="sdpa",
-        loaded_max_sequence_length=32768,
+        loaded_max_sequence_length=RES138_INPUT_MAX_TOKENS,
         batch_size=16,
         device="cuda",
     )
@@ -444,7 +444,7 @@ def test_the_provenance_records_no_cuda_allocator_telemetry() -> None:
             observed_compute_dtype="float32",
             requested_attention_backend="sdpa",
             observed_attention_backend="sdpa",
-            loaded_max_sequence_length=32768,
+            loaded_max_sequence_length=RES138_INPUT_MAX_TOKENS,
             batch_size=16,
             device="cuda",
         )
@@ -581,8 +581,8 @@ def test_the_encoder_observes_the_attention_backend_before_it_encodes_anything()
 # ---------------------------------------------------------------------------
 
 
-def test_the_common_input_boundary_is_32768_and_both_candidates_reach_it() -> None:
-    assert RES138_INPUT_MAX_TOKENS == 32768
+def test_the_common_input_boundary_is_8192_and_both_candidates_reach_it() -> None:
+    assert RES138_INPUT_MAX_TOKENS == 8192
     assert all(
         candidate.native_max_sequence_length >= RES138_INPUT_MAX_TOKENS
         for candidate in RES138_MODEL_CANDIDATES
@@ -592,14 +592,14 @@ def test_the_common_input_boundary_is_32768_and_both_candidates_reach_it() -> No
 def test_a_loaded_model_at_the_frozen_boundary_and_right_side_is_accepted() -> None:
     require_loaded_truncation_policy(
         candidate=_VOYAGE,
-        max_seq_length=32768,
+        max_seq_length=RES138_INPUT_MAX_TOKENS,
         truncation_side="right",
         operation="t",
     )
 
 
-@pytest.mark.parametrize("boundary", [512, 16384, 131072, None, "32768"])
-def test_a_loaded_boundary_that_is_not_exactly_32768_is_refused(boundary: object) -> None:
+@pytest.mark.parametrize("boundary", [512, 16384, 131072, None, "8192"])
+def test_a_loaded_boundary_that_is_not_the_reference_boundary_is_refused(boundary: object) -> None:
     with pytest.raises(BenchmarkExecutionError) as caught:
         require_loaded_truncation_policy(
             candidate=_QWEN, max_seq_length=boundary, truncation_side="right", operation="t"
@@ -612,7 +612,10 @@ def test_a_loaded_boundary_that_is_not_exactly_32768_is_refused(boundary: object
 def test_a_left_truncating_tokenizer_is_refused(side: object) -> None:
     with pytest.raises(BenchmarkExecutionError) as caught:
         require_loaded_truncation_policy(
-            candidate=_VOYAGE, max_seq_length=32768, truncation_side=side, operation="t"
+            candidate=_VOYAGE,
+            max_seq_length=RES138_INPUT_MAX_TOKENS,
+            truncation_side=side,
+            operation="t",
         )
     assert "truncates on the" in str(caught.value)
 

@@ -9,13 +9,15 @@ Everything else about it is bounded by the frozen contracts:
 
 * the exact pinned revision is loaded, never ``main`` and never a resolved HEAD;
 * CUDA is required, and a missing device is a refusal with an actionable message
-  rather than a silent CPU fallback that would produce different numbers;
+  rather than a silent CPU fallback that would produce different numbers. There is
+  **no fixed GPU model, capability or memory floor** in Stage A: the schedule probe
+  proves the current runtime can execute the frozen schedule's worst microbatch;
 * outputs are ``float32``, L2-normalised, and checked for finiteness before they
   reach an artifact;
-* **truncation is declared, not hidden**: the loaded model must report exactly the
-  frozen common input boundary and its tokenizer must truncate on the right, so the
-  native encoding path shortens an over-long input at the declared point and in the
-  declared direction. Raw token counts are still measured without truncation by
+* **truncation is declared, not hidden**: the loaded model's boundary is set to the
+  frozen Stage A reference boundary and its tokenizer must truncate on the right, so
+  the native encoding path shortens an over-long input at the declared point and in
+  the declared direction. Raw token counts are still measured without truncation by
   ``token_counts`` and persisted as the authority;
 * the model-native prompt is applied by name, from the pinned repository's own
   prompt table, and the prompts have already been verified against the frozen
@@ -26,10 +28,10 @@ implement ``EmbeddingProvider``, it does not produce an
 :class:`~dynamisrag.embedding.identity.EmbeddingModelIdentity`, and nothing here
 is wired into the embedding boundary. The provenance it records says
 ``benchmark-only-native-sentence-transformers`` precisely so that a later reader
-cannot mistake these vectors for TEI-served ones. The
-:data:`~dynamisrag.benchmark.contracts.RES138_TEI_EQUIVALENCE_GATE` is the check that
-decides whether they are numerically equivalent, and it is evaluated locally against
-TEI 1.9.4 rather than here.
+cannot mistake these vectors for TEI-served ones. These Stage A vectors are the
+**reference** a production configuration must be shown numerically and rank
+equivalent to, which is the Stage B check in
+:mod:`dynamisrag.benchmark.production`.
 
 **It is also the only module in the project that imports torch.** That is why
 nothing imports *it*: the notebook constructs it explicitly, and CI never loads it.
@@ -60,14 +62,10 @@ from dynamisrag.benchmark.contracts import (
     RetrievalWorkload,
 )
 from dynamisrag.benchmark.errors import BenchmarkExecutionError
-from dynamisrag.benchmark.memory_probe import run_memory_probe
 from dynamisrag.benchmark.mrl import MrlPathDecision
 from dynamisrag.benchmark.res138 import CalibrationEncoder, run_mrl_calibration
-from dynamisrag.benchmark.runtime import (
-    RuntimeProbe,
-    require_cuda_available,
-    require_execution_floor,
-)
+from dynamisrag.benchmark.runtime import RuntimeProbe, require_cuda_available
+from dynamisrag.benchmark.schedule_probe import run_schedule_probe
 
 __all__ = [
     "RES138_RUNNER_PROVIDER",
@@ -285,7 +283,7 @@ def observed_attention_backend(model: object, *, operation: str) -> str:
       :data:`~dynamisrag.benchmark.contracts.RES138_ATTENTION_BACKEND`.
 
     The refusal happens at construction, immediately after the model is built and
-    before any calibration, memory-probe or corpus encode, because an implicit
+    before any calibration, schedule-probe or corpus encode, because an implicit
     dispatch is not an observation and recording one would make "SDPA ran" a claim
     about a default rather than a fact about the loaded model.
     """
@@ -522,13 +520,6 @@ def probe_colab_runtime(*, code_sha: str, nvidia_driver_version: str) -> Runtime
         operation="probe_colab_runtime",
     )
     properties = torch.cuda.get_device_properties(0)
-    require_execution_floor(
-        available=True,
-        device_count=int(torch.cuda.device_count()),
-        capability=(properties.major, properties.minor),
-        total_memory_bytes=int(properties.total_memory),
-        operation="probe_colab_runtime",
-    )
     capability = f"{properties.major}.{properties.minor}"
     versions = observed_library_versions()
     return RuntimeProbe(
@@ -559,17 +550,21 @@ class SentenceTransformersCalibrationEncoder:
     :class:`~dynamisrag.benchmark.res138.CalibrationEncoder` and, through
     :meth:`describe`, the model provenance a preflight records.
 
-    **Load-time refusals.** A loaded model whose own ``max_seq_length`` is not
-    exactly the frozen common input boundary, or whose tokenizer truncates from the
-    other side, would shorten inputs at a point or from an end nobody declared;
-    :func:`require_loaded_truncation_policy` refuses both at construction, before
-    any encode. The attention backend is requested in the load keywords and then
-    observed off the loaded ``auto_model`` config by
+    **Load-time refusals.** The loaded model's boundary is set to the frozen Stage A
+    reference boundary and the tokenizer must truncate from the declared side;
+    :func:`require_loaded_truncation_policy` refuses any other boundary or side at
+    construction, before any encode. The attention backend is requested in the load
+    keywords and then observed off the loaded ``auto_model`` config by
     :func:`observed_attention_backend`, which refuses any other implementation
     before calibration, probing or corpus encoding. A loaded model's pooling and
     its normalisation stage have already been checked against the pinned repository
     by :func:`~dynamisrag.benchmark.res138.verify_pinned_model_metadata`, which
     reads the same files this model was loaded from.
+
+    **No GPU eligibility floor.** Stage A runs on the runtime that captured the
+    fingerprint, whatever card that is; the schedule probe is what proves the
+    frozen schedule executes there. The A100-80GB floor is a Stage B deployment
+    qualification and is not applied here.
     """
 
     candidate: ModelCandidateSpec
@@ -584,14 +579,6 @@ class SentenceTransformersCalibrationEncoder:
         require_cuda_available(
             available=bool(torch.cuda.is_available()),
             device_count=int(torch.cuda.device_count()),
-            operation="load_candidate",
-        )
-        properties = torch.cuda.get_device_properties(0)
-        require_execution_floor(
-            available=True,
-            device_count=int(torch.cuda.device_count()),
-            capability=(properties.major, properties.minor),
-            total_memory_bytes=int(properties.total_memory),
             operation="load_candidate",
         )
         if self.batch_size < 1:
@@ -623,6 +610,12 @@ class SentenceTransformersCalibrationEncoder:
         self.observed_compute_dtype = require_observed_compute_dtype(
             candidate=self.candidate, model=self.model, operation="load_candidate"
         )
+        # The boundary is the Stage A reference boundary, not the model's native
+        # maximum: the same input policy has to hold for both candidates, and a
+        # loaded 32768-boundary model would accept inputs the contract declares
+        # truncated. Setting the property also updates the tokenizer length the
+        # native path passes as ``max_length``.
+        self.model.max_seq_length = RES138_INPUT_MAX_TOKENS
         self.tokenizer = self.model.tokenizer
         require_loaded_truncation_policy(
             candidate=self.candidate,
@@ -833,7 +826,7 @@ class CandidateCalibrationRun:
     candidate: ModelCandidateSpec
     provenance: Mapping[str, object]
     decisions: tuple[MrlPathDecision, ...]
-    memory_probe: Mapping[str, object] | None = None
+    schedule_probe: Mapping[str, object] | None = None
 
 
 def _gpu_encoder(
@@ -898,7 +891,7 @@ def calibrate_frozen_candidates(
                 operation=operation,
             )
             probe = (
-                run_memory_probe(encoder=encoder, candidate=candidate, workloads=workloads)
+                run_schedule_probe(encoder=encoder, candidate=candidate, workloads=workloads)
                 if workloads is not None
                 else None
             )
@@ -907,7 +900,10 @@ def calibrate_frozen_candidates(
             finish()
         runs.append(
             CandidateCalibrationRun(
-                candidate=candidate, provenance=provenance, decisions=decisions, memory_probe=probe
+                candidate=candidate,
+                provenance=provenance,
+                decisions=decisions,
+                schedule_probe=probe,
             )
         )
     return tuple(runs)

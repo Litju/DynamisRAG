@@ -394,10 +394,10 @@ def test_the_plan_is_written_and_its_digest_printed(
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
     assert status == 0
-    assert payload["artifact_revision"] == "res138-plan-v2"
+    assert payload["artifact_revision"] == "res138-plan-v3"
     assert len(payload["sha256"]) == 64
     written = json.loads(destination.read_text(encoding="utf-8"))
-    assert written["artifact_revision"] == "res138-plan-v2"
+    assert written["artifact_revision"] == "res138-plan-v3"
     assert written["code_sha"] == _CODE_SHA
 
 

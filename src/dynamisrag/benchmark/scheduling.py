@@ -1,12 +1,12 @@
 """Frozen, contiguous document scheduling over effective token counts.
 
 The scheduler is one deterministic function and nothing else: no model id, no
-allocator call, no telemetry and no retry. What changed in the RES-138 input
-repair is *which* counts it reads. Raw counts are measured without truncation and
-may exceed the common boundary; the scheduler plans with the derived effective
-counts (``min(raw_count, boundary)``), because those are the counts the encoder
-actually processes after its own right truncation. Scheduling on raw counts would
-reserve memory for tokens that are never embedded.
+allocator call, no telemetry and no retry. It reads raw counts measured without
+truncation, which may exceed the Stage A reference boundary; the scheduler plans
+with the derived effective counts (``min(raw_count, boundary)``), because those
+are the counts the encoder actually processes after its own right truncation.
+Scheduling on raw counts would reserve memory for tokens that are never
+embedded.
 
 The rule is unchanged: take the largest allowed contiguous batch whose
 ``size * max_effective_tokens**2`` fits the frozen budget, from the largest
@@ -42,9 +42,9 @@ def document_schedule(raw_counts: Sequence[int]) -> tuple[tuple[int, int, int], 
     """Return (offset, size, maximum effective tokens) for a run of raw counts.
 
     The counts are raw token counts measured without truncation. They are
-    converted to effective counts first, so an input of 36,572 tokens schedules
-    exactly as a 32,768-token input does, and the returned maximum is the
-    effective maximum the batch will actually hold.
+    converted to effective counts first, so an input above the reference boundary
+    schedules exactly as a boundary-length input does, and the returned maximum
+    is the effective maximum the batch will actually hold.
     """
     try:
         counts = effective_token_counts(raw_counts)

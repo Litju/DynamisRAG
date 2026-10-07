@@ -45,6 +45,8 @@ from dynamisrag.benchmark.contracts import (
     RES138_CANDIDATE_DIMENSIONS,
     RES138_INPUT_MAX_TOKENS,
     RES138_MODEL_CANDIDATES,
+    RES138_PRODUCTION_STAGE,
+    RES138_REFERENCE_STAGE,
     RES138_SHARD_SIZE,
     RES138_WORKLOAD_NAMES,
     ModelCandidateSpec,
@@ -56,7 +58,6 @@ from dynamisrag.benchmark.errors import (
     BenchmarkExecutionError,
     BenchmarkPreflightError,
 )
-from dynamisrag.benchmark.memory_probe import require_memory_probes
 from dynamisrag.benchmark.metrics import (
     WorkloadMetrics,
     evaluate_workload,
@@ -82,7 +83,8 @@ from dynamisrag.benchmark.retrieval import (
     exact_top_k,
     require_normalised_matrix,
 )
-from dynamisrag.benchmark.runtime import RuntimeFingerprint, require_execution_floor, run_id_for
+from dynamisrag.benchmark.runtime import RuntimeFingerprint, run_id_for
+from dynamisrag.benchmark.schedule_probe import require_schedule_probes
 from dynamisrag.benchmark.scheduling import (
     document_schedule,
     scheduling_evidence,
@@ -189,24 +191,12 @@ def require_full_run_approval(
         operation="require_full_run_approval",
     )
     _require_preflight_batch_size(approved, operation="require_full_run_approval")
-    require_execution_floor(
-        available=True,
-        device_count=1,
-        capability=cast(
-            "tuple[int, int]",
-            tuple(
-                int(part) for part in str(fingerprint.payload["gpu_compute_capability"]).split(".")
-            ),
-        ),
-        total_memory_bytes=cast("int", fingerprint.payload["gpu_total_memory_bytes"]),
-        operation="require_full_run_approval",
-    )
     if token_count_factory is None:
         from dynamisrag.benchmark.runner import document_token_counter
 
         token_count_factory = document_token_counter
-    require_memory_probes(
-        approved.payload.get("memory_probes"),
+    require_schedule_probes(
+        approved.payload.get("schedule_probes"),
         workloads=workloads,
         count_factory=token_count_factory,
     )
@@ -470,7 +460,7 @@ def execute_full_run(  # noqa: PLR0912, PLR0915 - the phases are the authorized 
     existing_loads: dict[str, tuple[Path, str, float]] = {}
     shard_sides: dict[tuple[str, str, str, int, ShardKind, int], ShardSidecar] = {}
     for candidate in candidates:
-        probes = cast("list[dict[str, Res138JsonValue]]", approved.payload["memory_probes"])
+        probes = cast("list[dict[str, Res138JsonValue]]", approved.payload["schedule_probes"])
         probe = next(item for item in probes if item["model_id"] == candidate.model_id)
         corpus_counts = cast("dict[str, list[int]]", probe["corpus_token_counts"])
         missing = _scan_candidate_shards(
@@ -685,7 +675,8 @@ def execute_full_run(  # noqa: PLR0912, PLR0915 - the phases are the authorized 
     source_summaries = cast("list[Res138JsonValue]", approved.payload["sources"])
     full_payload: dict[str, Res138JsonValue] = {
         **_identity(config, fingerprint, plan.sha256, approved.sha256),
-        "status": "quality_performance_evidence_complete",
+        "stage": RES138_REFERENCE_STAGE,
+        "status": "quality_evidence_complete",
         "candidates": [
             {
                 "model_id": candidate.model_id,
@@ -698,13 +689,20 @@ def execute_full_run(  # noqa: PLR0912, PLR0915 - the phases are the authorized 
         "shards": _shard_summary(run_directory, candidates, workloads),
         "result_artifacts": artifact_records,
         "selection": {"status": "not_applied"},
-        "tei_equivalence": {"status": "not_run"},
-        "opensearch_index_footprint": {"status": "not_measured"},
+        "production_qualification": {
+            "stage": RES138_PRODUCTION_STAGE,
+            "status": "not_run",
+            "note": (
+                "Stage A quality evidence is complete. Production inference, the numerical and "
+                "ranking equivalence gate against this reference and the operational metrics are "
+                "Stage B; the performance artifacts in this bundle are reference execution "
+                "observations, not production throughput."
+            ),
+        },
         "production_default": {"status": "not_configured"},
         "stop_reason": (
-            "quality/performance evidence complete; selection not yet applied; "
-            "TEI equivalence not yet applied; "
-            "OpenSearch index footprint not yet measured"
+            "Stage A quality evidence complete; selection not yet applied; production "
+            "qualification not yet run; no Stage A timing is reported as production throughput"
         ),
     }
     full_run_sha = _write_artifact(run_directory / "full-run.json", "full_run", full_payload)
@@ -945,6 +943,10 @@ def _performance_payload(
         )
     return {
         **identity,
+        "stage": RES138_REFERENCE_STAGE,
+        "measurement_environment": "colab-float32-native-sentence-transformers-reference",
+        "production_qualified": False,
+        "production_throughput": "not_measured_in_stage_a",
         "model_id": candidate.model_id,
         "model_revision": candidate.revision,
         "dimension": dimension,

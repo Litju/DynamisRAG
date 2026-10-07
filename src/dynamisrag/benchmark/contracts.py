@@ -78,21 +78,22 @@ __all__ = [
     "RES138_INPUT_MAX_TOKENS",
     "RES138_INPUT_TRUNCATION_DIRECTION",
     "RES138_LOCAL_SCRATCH_ROOT",
+    "RES138_LONG_CONTEXT_STAGE",
     "RES138_MODEL_CANDIDATES",
     "RES138_MODEL_IDS",
     "RES138_MRL_CALIBRATION_GATE",
     "RES138_MRL_DERIVATION_REVISION",
     "RES138_NDCG_CUTOFF",
     "RES138_POOLING_MODES",
+    "RES138_PRODUCTION_STAGE",
     "RES138_PROMPT_NAMES",
     "RES138_QUERY_SELECTION_POLICY",
     "RES138_RECALL_CUTOFFS",
+    "RES138_REFERENCE_STAGE",
     "RES138_RETRIEVAL_TOP_K",
     "RES138_RUN_ID_PREFIX",
     "RES138_SHARD_SIZE",
     "RES138_SUPPORTED_DTYPES",
-    "RES138_TEI_EQUIVALENCE_GATE",
-    "RES138_TEI_EQUIVALENCE_RUNTIME",
     "RES138_WORKLOAD_NAMES",
     "BeirSourceSpec",
     "DriveLocation",
@@ -208,6 +209,63 @@ def require_frozen_dtype(value: object, *, kind: str, operation: str, because: s
     raise BenchmarkContractError(
         f"benchmark {kind} is {name!r}, which is not one of the frozen "
         f"{list(RES138_SUPPORTED_DTYPES)}. {because}",
+        operation=operation,
+    )
+
+
+# ---------------------------------------------------------------------------
+# The three staged concerns of RES-138
+#
+# RES-138 is a benchmark architecture amendment, not one execution. Reference
+# quality, production qualification and long context are separate stages with
+# separate evidence, and each stage's identity carries which stage it is so an
+# artifact from one can never be read as an artifact from another.
+# ---------------------------------------------------------------------------
+
+RES138_REFERENCE_STAGE: Final[str] = "reference-quality"
+"""Stage A: the float32 reference-quality benchmark at the frozen 8192 boundary.
+
+Both candidates are encoded by the same native sentence-transformers runtime,
+with the same boundary, scheduler and exact retrieval; the evidence this stage
+produces is quality evidence and reference execution observations. It is not a
+deployment qualification: throughput measured here is never reported as
+production throughput, and index footprint is never measured here.
+"""
+
+RES138_PRODUCTION_STAGE: Final[str] = "production-qualification"
+"""Stage B: production inference qualification against the Stage A reference.
+
+Consumes a Stage A result, runs the candidate under the actual production
+inference configuration (TEI with the candidate-supported precision and
+backend), and requires an explicit numerical and ranking equivalence gate
+against the Stage A reference before any operational metric may be used. The
+A100-80GB deployment floor belongs to this stage, not to Stage A.
+"""
+
+RES138_LONG_CONTEXT_STAGE: Final[str] = "long-context"
+"""Stage C: an optional long-context benchmark (LongEmbed/LoCo-style, 8k/16k/32k).
+
+Defined separately so it cannot block Stage A or Stage B unless an operator
+explicitly promotes it to a production requirement. See
+:mod:`dynamisrag.benchmark.long_context`.
+"""
+
+_STAGES: Final[tuple[str, ...]] = (
+    RES138_REFERENCE_STAGE,
+    RES138_PRODUCTION_STAGE,
+    RES138_LONG_CONTEXT_STAGE,
+)
+"""Every declared stage, so a payload cannot name a stage nobody defined."""
+
+
+def require_stage(value: object, *, operation: str) -> str:
+    """Require one of the three declared stage names."""
+    if isinstance(value, str) and value in _STAGES:
+        return value
+    raise BenchmarkContractError(
+        f"benchmark stage {value!r} is not one of {list(_STAGES)}. A staged result has to name "
+        "the stage it belongs to, because evidence from one stage does not answer another "
+        "stage's question.",
         operation=operation,
     )
 
@@ -385,16 +443,21 @@ truncation, keeping float64) produces different vectors, so "the 512-d vectors"
 is not an identity until the rule is named.
 """
 
-RES138_INPUT_MAX_TOKENS: Final[int] = 32768
-"""The one common input boundary every candidate, document and query shares.
+RES138_INPUT_MAX_TOKENS: Final[int] = 8192
+"""The one common reference boundary every Stage A candidate, document and query shares.
 
-Frozen at the smallest native max sequence length among the two candidates, so
-the same boundary is legal for both models and a result is comparable across
-them. Every candidate must declare a native max sequence length **at least**
-this value, and the loaded model's own boundary must be **exactly** it: a model
-whose loaded boundary were longer would silently accept inputs this contract
-declares truncated, and one whose boundary were shorter would truncate at a
-point nobody declared.
+Frozen for the Stage A reference-quality benchmark at 8192 tokens: low enough
+that both candidates execute the frozen schedule in float32 on an ordinary
+hosted GPU, and high enough to carry SciFact, NFCorpus and the overwhelming
+majority of TREC-COVID. Long context is not part of Stage A; the 8k/16k/32k
+windows are a separate optional benchmark (:mod:`dynamisrag.benchmark.long_context`)
+and cannot be promoted into this boundary without a plan revision.
+
+Every candidate must declare a native max sequence length **at least** this
+value, and the loaded model's own boundary is set to **exactly** it before any
+encode: a model whose loaded boundary were longer would silently accept inputs
+this contract declares truncated, and one whose boundary were shorter would
+truncate at a point nobody declared.
 
 The boundary is not a capacity limit and not a refusal rule: inputs longer than
 it are truncated to it, explicitly and on the right, and the raw token count is
@@ -951,54 +1014,31 @@ that pair. The four evaluated configurations are the same either way; only the
 number of GPU passes changes.
 """
 
-RES138_TEI_EQUIVALENCE_GATE: Final[MrlCalibrationGate] = MrlCalibrationGate(
-    minimum_cosine=0.99999,
-    maximum_absolute_difference=1e-4,
-    require_identical_top_k=True,
-)
-"""Colab-native vectors must equal local TEI vectors for the evidence to be usable in production.
-
-Frozen and separate from the MRL gate, because it answers a different question:
-the MRL gate asks whether a shortcut is numerically sound, this one asks whether
-a benchmark-only execution path produces what the production serving path would.
-It is evaluated locally, against TEI 1.9.4, on the same calibration set — not in
-the Colab notebook, which cannot run Docker.
-"""
-
-RES138_TEI_EQUIVALENCE_RUNTIME: Final[Mapping[str, object]] = {
-    "tei_version": "1.9.4",
-    "max_batch_tokens": RES138_INPUT_MAX_TOKENS,
-    "auto_truncate": True,
-}
-"""The exact TEI serving flags the equivalence check must be run under.
-
-Frozen as data because both values change the vectors a request returns and
-neither may be left to the server's default. TEI 1.9.4's default
-``--max-batch-tokens`` is 16384, so a deployment left at the default would split
-or reject a 32768-token request the Colab path encoded whole; ``--auto-truncate``
-is the server-side switch the request-level ``truncate=true`` depends on. The
-plan, the preflight artifact and the preflight verifier all bind this mapping, so
-an equivalence result produced under any other pair is not this contract's
-result.
-"""
+# The production equivalence gate and the production TEI runtime are Stage B
+# contracts and live in :mod:`dynamisrag.benchmark.production`. Stage A does not
+# evaluate them: its reference vectors are the thing a production configuration
+# must later be proven equivalent to, so Stage A cannot also be the thing that
+# performs that proof.
 
 RES138_ARTIFACT_REVISIONS: Final[Mapping[str, str]] = {
-    "plan": "res138-plan-v2",
+    "plan": "res138-plan-v3",
     "runtime": "res138-runtime-v1",
     "source_manifest": "res138-source-manifest-v1",
     "model_manifest": "res138-model-manifest-v1",
     "shard": "res138-shard-v4",
     "calibration_selection": "res138-calibration-selection-v1",
     "mrl_calibration": "res138-mrl-calibration-v1",
-    "preflight": "res138-preflight-v4",
+    "preflight": "res138-preflight-v5",
     "results": "res138-results-v1",
     "query_results": "res138-query-results-v1",
     "workload_metrics": "res138-workload-metrics-v1",
     "macro_metrics": "res138-macro-metrics-v1",
     "bootstrap": "res138-bootstrap-v1",
-    "performance": "res138-performance-v3",
-    "full_run": "res138-full-run-v2",
-    "selection": "res138-selection-v1",
+    "performance": "res138-performance-v4",
+    "full_run": "res138-full-run-v3",
+    "selection": "res138-selection-v2",
+    "production_qualification": "res138-production-qualification-v1",
+    "long_context": "res138-long-context-benchmark-v1",
 }
 """Every artifact this benchmark writes, and the revision each one declares.
 
@@ -1006,6 +1046,18 @@ Named in one place because an artifact whose identity does not name its own
 schema cannot be compared with, or replaced by, another one. A change to what
 any artifact *binds* arrives as a new revision string here, never as a silent
 difference in a payload.
+
+The revision bumps of the staged amendment are deliberate and each answers a
+schema or identity change: ``plan`` v3 declares the three stages, the 8192
+reference boundary and the staged execution policy; ``preflight`` v5 carries
+schedule-execution probes and the stage marker instead of A100 memory-eligibility
+materials and TEI declarations; ``performance`` v4 marks Stage A execution
+observations as reference measurements that are not production throughput;
+``full-run`` v3 declares completed quality evidence and points production
+qualification at Stage B; ``selection`` v2 admits operational metrics only from
+Stage B. ``shard`` stays at v4 because the shard sidecar schema did not change —
+the boundary and policy it binds are recomputed from the persisted raw counts,
+so a pre-amendment sidecar is refused by the data, not by a revision string.
 
 ``calibration_selection`` is in this list rather than beside the other
 calibration constants because it *is* an artifact: the provenance record of which

@@ -1,16 +1,23 @@
-"""The RES-138 orchestration facade: what the Colab notebook calls, and nothing else.
+"""The RES-138 Stage A orchestration facade: what the Colab notebook calls, and nothing else.
 
-This module is the *whole* notebook-facing API:
+This module is the *whole* Stage A notebook-facing API:
 
     Res138ColabConfig            the parameter cell, validated
-    benchmark_plan               res138-plan-v2, written before anything is downloaded
+    benchmark_plan               res138-plan-v3, written before anything is downloaded
     verify_and_cache_beir_sources  fetch, verify, cache, extract, load, report
     verify_pinned_model_metadata    read the pinned repo configs and refuse a drift
     run_mrl_calibration          native-512 vs derived-512, per model and per path
     create_res138_run            open or refuse a Drive run directory
-    write_preflight_bundle       res138-preflight-v4, the gate the full run needs
+    write_preflight_bundle       res138-preflight-v5, the gate the full run needs
     verify_preflight_bundle      re-check one from disk
     require_approved_preflight   the only way into a full run
+
+Stage A is the reference-quality benchmark: both candidates, float32 native
+sentence-transformers inference, the frozen 8192 reference boundary, exact
+retrieval and the frozen metrics. Production qualification (TEI, optimized
+precision, numerical and ranking equivalence, OpenSearch footprint and throughput)
+is Stage B and lives in :mod:`dynamisrag.benchmark.production`; long context is
+the separate optional Stage C.
 
 Two structural decisions make the rest possible.
 
@@ -79,11 +86,11 @@ from dynamisrag.benchmark.contracts import (
     RES138_MRL_CALIBRATION_GATE,
     RES138_MRL_DERIVATION_REVISION,
     RES138_NDCG_CUTOFF,
+    RES138_PRODUCTION_STAGE,
     RES138_RECALL_CUTOFFS,
+    RES138_REFERENCE_STAGE,
     RES138_RETRIEVAL_TOP_K,
     RES138_SHARD_SIZE,
-    RES138_TEI_EQUIVALENCE_GATE,
-    RES138_TEI_EQUIVALENCE_RUNTIME,
     BeirSourceSpec,
     ModelCandidateSpec,
     RetrievalWorkload,
@@ -102,7 +109,6 @@ from dynamisrag.benchmark.errors import (
     BenchmarkExecutionError,
     BenchmarkPreflightError,
 )
-from dynamisrag.benchmark.memory_probe import MEMORY_PROBE_REVISION
 from dynamisrag.benchmark.metrics import MacroMetrics, WorkloadMetrics, macro_across_workloads
 from dynamisrag.benchmark.mrl import (
     MrlPathDecision,
@@ -111,6 +117,7 @@ from dynamisrag.benchmark.mrl import (
 )
 from dynamisrag.benchmark.retrieval import RES138_SCORE_DTYPE
 from dynamisrag.benchmark.runtime import RuntimeFingerprint
+from dynamisrag.benchmark.schedule_probe import SCHEDULE_PROBE_REVISION
 from dynamisrag.benchmark.scheduling import BATCH_SIZES, SCHEDULER_REVISION, TOKEN_SQUARE_BUDGET
 from dynamisrag.benchmark.selection import RES138_RECALL_TIE_TOLERANCE
 from dynamisrag.benchmark.truncation import input_policy_payload
@@ -255,6 +262,11 @@ def generation_semantics() -> tuple[Res138GenerationSemantics, ...]:
     at :data:`~dynamisrag.benchmark.contracts.RES138_INPUT_MAX_TOKENS` from the
     right, exactly as the runner verifies at load. The raw token counts remain
     measured and persisted without truncation, so the policy is auditable.
+
+    ``input_max_tokens`` is carried **in the semantics payload itself** rather
+    than only in the separate input-policy section: the maximum boundary is part
+    of what a generation configuration means, so the generation-semantics digest
+    changes when the boundary changes and a run cannot resume across the two.
     """
     semantics: list[Res138GenerationSemantics] = []
     for candidate in _FROZEN_MODEL_CANDIDATES:
@@ -266,6 +278,7 @@ def generation_semantics() -> tuple[Res138GenerationSemantics, ...]:
                         model_revision=candidate.revision,
                         kind=kind,
                         dimension=dimension,
+                        input_max_tokens=RES138_INPUT_MAX_TOKENS,
                         config=EmbeddingGenerationConfig(
                             normalize=True,
                             truncate=True,
@@ -286,6 +299,7 @@ class Res138GenerationSemantics:
     model_revision: str
     kind: ShardKind
     dimension: int
+    input_max_tokens: int
     config: EmbeddingGenerationConfig
 
     def label(self) -> str:
@@ -300,6 +314,7 @@ class Res138GenerationSemantics:
             "model_revision": self.model_revision,
             "kind": self.kind.value,
             "dimension": self.dimension,
+            "input_max_tokens": self.input_max_tokens,
             "generation_config": cast("dict[str, Res138JsonValue]", dict(self.config.payload())),
             "generation_config_sha256": self.config.sha256,
         }
@@ -332,23 +347,74 @@ def benchmark_plan(code_sha: str, *, operation: str = "benchmark_plan") -> Artif
     candidates = _FROZEN_MODEL_CANDIDATES
     payload: dict[str, Res138JsonValue] = {
         "artifact_revision": RES138_ARTIFACT_REVISIONS["plan"],
+        "stage": RES138_REFERENCE_STAGE,
+        "architecture": {
+            "stage_a": {
+                "name": RES138_REFERENCE_STAGE,
+                "question": (
+                    "which candidate-configuration retrieves better at the frozen reference "
+                    "boundary"
+                ),
+                "execution": (
+                    "native sentence-transformers, float32, one common runtime for both candidates"
+                ),
+                "evidence": [
+                    "macro nDCG@10",
+                    "paired bootstrap on the top two",
+                    "macro Recall@100",
+                ],
+                "outcome": "Stage A result and shortlist; not a deployment decision",
+            },
+            "stage_b": {
+                "name": RES138_PRODUCTION_STAGE,
+                "question": (
+                    "does a production inference configuration reproduce the Stage A reference, "
+                    "and at what operational cost"
+                ),
+                "execution": (
+                    "TEI and production-compatible configuration; precision and backend may be "
+                    "optimized per candidate"
+                ),
+                "prerequisite": (
+                    "an explicit numerical and ranking equivalence gate against the Stage A "
+                    "reference"
+                ),
+                "evidence": [
+                    "OpenSearch index store bytes",
+                    "ANN recall against exact retrieval",
+                    "production corpus throughput",
+                    "production query p95",
+                    "peak VRAM",
+                ],
+                "deployment_floor": "A100 80GB qualification belongs to this stage",
+            },
+            "stage_c": {
+                "name": "long-context",
+                "question": "how do the candidates behave at 8k/16k/32k context",
+                "status": (
+                    "separate optional benchmark; does not block Stage A or Stage B unless "
+                    "explicitly promoted"
+                ),
+            },
+        },
         "code_sha": code_sha,
         "input_policy": cast("dict[str, Res138JsonValue]", input_policy_payload()),
         "execution_policy": {
+            "stage": RES138_REFERENCE_STAGE,
             "scheduler_revision": SCHEDULER_REVISION,
             "token_square_budget": TOKEN_SQUARE_BUDGET,
             "allowed_document_batch_sizes": list(BATCH_SIZES),
             "scheduler_uses": "effective token counts: min(raw, input_max_tokens)",
             "attention_backend": RES138_ATTENTION_BACKEND,
+            "compute_dtype": "float32",
             "cuda_required": True,
-            "minimum_compute_capability": "8.0",
-            "minimum_gpu_memory_bytes": 80_000_000_000,
-            "memory_probe_revision": MEMORY_PROBE_REVISION,
-            "voyage_stop_rule": (
-                "A100 80GB longest legal input (raw 36572 -> effective 32768, batch=1, "
-                "native 1024, float32 SDPA) failure operationally disqualifies Voyage; "
-                "select Qwen, no further backend optimization tranche"
+            "same_runtime_for_both_candidates": True,
+            "runtime_eligibility": (
+                "no fixed GPU model, capability or memory floor in Stage A. The preflight schedule "
+                "probe must execute the frozen schedule's worst microbatch on the current runtime "
+                "before a full run may start; A100 80GB deployment qualification is Stage B"
             ),
+            "schedule_probe_revision": SCHEDULE_PROBE_REVISION,
         },
         "candidates": [
             cast("dict[str, Res138JsonValue]", dict(candidate.payload()))
@@ -397,12 +463,6 @@ def benchmark_plan(code_sha: str, *, operation: str = "benchmark_plan") -> Artif
                 "dict[str, Res138JsonValue]", dict(RES138_MRL_CALIBRATION_GATE.payload())
             ),
         },
-        "tei_equivalence_gate": cast(
-            "dict[str, Res138JsonValue]", dict(RES138_TEI_EQUIVALENCE_GATE.payload())
-        ),
-        "tei_equivalence_runtime": cast(
-            "dict[str, Res138JsonValue]", dict(RES138_TEI_EQUIVALENCE_RUNTIME)
-        ),
         "bootstrap": {
             "seed": RES138_BOOTSTRAP_SEED,
             "samples": RES138_BOOTSTRAP_SAMPLES,
@@ -412,17 +472,29 @@ def benchmark_plan(code_sha: str, *, operation: str = "benchmark_plan") -> Artif
         },
         "selection": {
             "recall_tie_tolerance": RES138_RECALL_TIE_TOLERANCE,
-            "steps": [
+            "quality_steps": [
                 "macro nDCG@10",
                 "paired bootstrap on the top two",
                 "macro Recall@100",
-                "actual OpenSearch index store bytes",
-                "fixed-policy corpus throughput",
-                "query latency p95",
             ],
+            "operational_tie_break": {
+                "stage": RES138_PRODUCTION_STAGE,
+                "steps": [
+                    "OpenSearch index store bytes",
+                    "production corpus throughput",
+                    "production query p95",
+                ],
+                "note": (
+                    "operational metrics may only be consumed after the Stage A quality evidence "
+                    "exists and only from a Stage B production qualification; Stage A float32 "
+                    "benchmark throughput is never reported as or substituted for production "
+                    "throughput"
+                ),
+            },
             "recall_tie_tolerance_is_frozen": True,
         },
         "execution": {
+            "stage": RES138_REFERENCE_STAGE,
             "compute": "google-colab-hosted-gpu",
             "provider": "benchmark-only native sentence-transformers",
             "docker_in_colab": False,
@@ -849,23 +921,25 @@ def write_preflight_bundle(
     calibration: CalibrationSet,
     decisions: Sequence[MrlPathDecision],
     artifact_digests: Mapping[str, str],
-    memory_probes: Sequence[Mapping[str, Res138JsonValue]] = (),
+    schedule_probes: Sequence[Mapping[str, Res138JsonValue]] = (),
 ) -> str:
-    """Write ``res138-preflight-v4`` and return its SHA-256.
+    """Write ``res138-preflight-v5`` and return its SHA-256.
 
-    The artifact a human reads before approving a full run, so it states everything
-    the full run would rely on: the code commit, the runtime payload and its
-    digest, the Drive run id, each BEIR archive's verified digest and what loading
-    it declared, each candidate's revision, prompt digests and loaded-model
-    provenance (including the requested and observed attention backend), the
-    generation semantics, the frozen input/truncation policy, the per-candidate
-    memory probes (raw corpus counts, truncation evidence and the actually-encoded
-    cases), the exact calibration inputs, the native-512-versus-derived-512 numbers,
-    the per-model-per-path MRL decision, the TEI equivalence runtime the gate will
-    be evaluated under, and the digests of the artifacts already written.
+    The artifact a human reads before approving a Stage A full run, so it states
+    everything the full run would rely on: the stage, the code commit, the runtime
+    payload and its digest, the Drive run id, each BEIR archive's verified digest
+    and what loading it declared, each candidate's revision, prompt digests and
+    loaded-model provenance (including the requested and observed attention
+    backend), the generation semantics with the explicitly bound reference
+    boundary, the frozen input/truncation policy, the per-candidate schedule probes
+    (raw corpus counts, truncation evidence and the actually-encoded cases that
+    prove this runtime executes the frozen schedule), the exact calibration inputs,
+    the native-512-versus-derived-512 numbers, the per-model-per-path MRL decision,
+    and the digests of the artifacts already written.
 
     It does **not** authorise itself: the authorisation is a human copying its
-    digest into ``APPROVED_PREFLIGHT_SHA256``.
+    digest into ``APPROVED_PREFLIGHT_SHA256``. Production qualification is not
+    authorised here at all; that is Stage B.
     """
     if not decisions:
         raise BenchmarkPreflightError(
@@ -880,6 +954,7 @@ def write_preflight_bundle(
     )
     payload: dict[str, Res138JsonValue] = {
         "artifact_revision": RES138_ARTIFACT_REVISIONS["preflight"],
+        "stage": RES138_REFERENCE_STAGE,
         "code_sha": config.code_sha,
         "run_id": run_id,
         "run_mode": config.run_mode,
@@ -890,18 +965,16 @@ def write_preflight_bundle(
         "input_policy": cast("dict[str, Res138JsonValue]", input_policy_payload()),
         "sources": [item.payload() for item in loaded],
         "models": list(model_provenance),
-        "memory_probes": list(memory_probes),
+        "schedule_probes": list(schedule_probes),
         "mrl_calibration": calibration_payload,
-        "tei_equivalence": {
-            "status": "not_run",
-            "gate": cast("dict[str, Res138JsonValue]", dict(RES138_TEI_EQUIVALENCE_GATE.payload())),
-            "runtime": cast("dict[str, Res138JsonValue]", dict(RES138_TEI_EQUIVALENCE_RUNTIME)),
+        "production_qualification": {
+            "stage": RES138_PRODUCTION_STAGE,
+            "status": "not_in_stage_a",
             "note": (
-                "the TEI equivalence gate is evaluated locally against TEI 1.9.4 under "
-                "--max-batch-tokens 32768 and --auto-truncate true, not in Colab; Colab cannot "
-                "run Docker, and TEI's own default max_batch_tokens of 16384 is not this "
-                "contract's runtime. A candidate whose native vectors are not TEI-equivalent "
-                "cannot be used for selection."
+                "Stage A authorises reference-quality execution only. Production inference (TEI, "
+                "candidate-supported precision/backend), the numerical and ranking equivalence "
+                "gate against these reference vectors, the A100-80GB deployment floor and the "
+                "operational metrics are Stage B and are not declared or decided here."
             ),
         },
         "artifact_digests": dict(artifact_digests),
@@ -983,6 +1056,7 @@ def verify_preflight_bundle(  # noqa: PLR0912 - identity fields must all pass be
     """
     envelope = read_artifact(path, name="preflight")
     required = (
+        "stage",
         "code_sha",
         "run_id",
         "runtime",
@@ -992,9 +1066,9 @@ def verify_preflight_bundle(  # noqa: PLR0912 - identity fields must all pass be
         "input_policy",
         "sources",
         "models",
-        "memory_probes",
+        "schedule_probes",
         "mrl_calibration",
-        "tei_equivalence",
+        "production_qualification",
         "artifact_digests",
     )
     missing = [key for key in required if key not in envelope.payload]
@@ -1005,6 +1079,12 @@ def verify_preflight_bundle(  # noqa: PLR0912 - identity fields must all pass be
             operation=operation,
             count=len(missing),
         )
+    if envelope.payload.get("stage") != RES138_REFERENCE_STAGE:
+        raise BenchmarkPreflightError(
+            "only a Stage A reference-quality preflight can authorise a Stage A full run. A "
+            "preflight from another stage describes evidence this run does not produce.",
+            operation=operation,
+        )
     if envelope.payload.get("run_mode") != RUN_MODE_PREFLIGHT:
         raise BenchmarkPreflightError(
             "only a preflight-mode artifact can authorize a full run.", operation=operation
@@ -1012,19 +1092,21 @@ def verify_preflight_bundle(  # noqa: PLR0912 - identity fields must all pass be
     if canonical_json(envelope.payload["input_policy"]) != canonical_json(input_policy_payload()):
         raise BenchmarkPreflightError(
             "the preflight input policy is not the frozen one. A preflight produced under a "
-            "different truncation contract — a refusal, a left truncation, or no declared "
-            "boundary — does not describe the inputs this harness encodes.",
+            "different truncation contract — a refusal, a left truncation, the pre-amendment "
+            "boundary, or no declared boundary — does not describe the inputs this harness "
+            "encodes.",
             operation=operation,
         )
-    tei_equivalence = envelope.payload["tei_equivalence"]
-    if not isinstance(tei_equivalence, Mapping) or canonical_json(
-        cast("Mapping[str, object]", tei_equivalence).get("runtime")
-    ) != canonical_json(dict(RES138_TEI_EQUIVALENCE_RUNTIME)):
+    production = envelope.payload["production_qualification"]
+    if (
+        not isinstance(production, Mapping)
+        or cast("Mapping[str, object]", production).get("stage") != RES138_PRODUCTION_STAGE
+        or cast("Mapping[str, object]", production).get("status") != "not_in_stage_a"
+    ):
         raise BenchmarkPreflightError(
-            "the preflight does not bind the frozen TEI equivalence runtime "
-            "(--max-batch-tokens 32768, --auto-truncate true). TEI's default max_batch_tokens is "
-            "16384, so an equivalence result produced without this binding would not be this "
-            "contract's result.",
+            "the preflight production-qualification section is not the Stage A declaration. A "
+            "Stage A preflight must state that production inference, equivalence and deployment "
+            "qualification belong to Stage B; it may not claim or import them.",
             operation=operation,
         )
     _require_frozen_attention_provenance(envelope.payload["models"], operation=operation)

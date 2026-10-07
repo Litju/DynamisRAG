@@ -13,10 +13,11 @@ What is pinned:
 * **step 3** — an interval including 0 makes quality tied, and macro Recall@100
   decides. A difference at or below 0.01 is a tie and falls through; one above it
   selects.
-* **steps 4-6** — index footprint, then corpus throughput, then query p95, each
-  requiring its measurement to exist. An unmeasured step **halts with the missing
-  measurement named**; nothing is substituted, and native Colab throughput is
-  never treated as index footprint or as TEI throughput.
+* **steps 4-6** — index footprint, then production corpus throughput, then
+  production query p95, each requiring Stage B production-qualification evidence
+  to exist. An unmeasured step **halts with the missing qualification named**;
+  nothing is substituted, and native Colab (Stage A) throughput is never treated
+  as index footprint or as production throughput.
 * **gates** — a candidate that failed a correctness gate is not ranked at all, and
   if none survive there is no winner. A table of fewer than two ranked candidates
   halts, because the rule compares two.
@@ -31,7 +32,7 @@ from typing import Any, Final, cast
 import pytest
 
 from dynamisrag.benchmark.bootstrap import BootstrapEstimate
-from dynamisrag.benchmark.contracts import RES138_MODEL_CANDIDATES
+from dynamisrag.benchmark.contracts import RES138_MODEL_CANDIDATES, RES138_PRODUCTION_STAGE
 from dynamisrag.benchmark.errors import BenchmarkContractError
 from dynamisrag.benchmark.selection import (
     RES138_RECALL_TIE_TOLERANCE,
@@ -69,6 +70,21 @@ def _candidate(
     passed: bool = True,
     failed: tuple[str, ...] = (),
 ) -> CandidateEvidence:
+    """One table row; operational metrics are all-or-nothing Stage B evidence.
+
+    A row whose three operational values are not all present carries no
+    operational evidence at all, which is the honest state of a Stage A-only
+    candidate. The production stage and the passed equivalence gate are attached
+    exactly when the metrics are.
+    """
+    metrics = (footprint, throughput, latency)
+    if all(value is not None for value in metrics):
+        index_bytes, documents_per_second, latency_p95 = footprint, throughput, latency
+        stage: str | None = RES138_PRODUCTION_STAGE
+        gate: bool | None = True
+    else:
+        index_bytes, documents_per_second, latency_p95 = None, None, None
+        stage, gate = None, None
     return CandidateEvidence(
         model_id=label_model,
         dimension=dimension,
@@ -76,9 +92,11 @@ def _candidate(
         macro_recall_at_100=recall,
         correctness_gates_passed=passed,
         failed_gates=failed,
-        index_store_bytes=footprint,
-        corpus_documents_per_second=throughput,
-        query_latency_p95_ms=latency,
+        index_store_bytes=index_bytes,
+        corpus_documents_per_second=documents_per_second,
+        query_latency_p95_ms=latency_p95,
+        operational_stage=stage,
+        operational_gate_passed=gate,
     )
 
 
@@ -164,13 +182,14 @@ def test_a_recall_difference_at_or_below_the_tolerance_is_a_tie() -> None:
         leader_bootstrap=_bootstrap(-0.01, 0.01),
     )
 
-    # Below the tolerance the rule falls through to footprint, where the runner-up wins.
-    assert outcome.decided_by == "4_opensearch_index_store_bytes"
+    # Below the tolerance the rule falls through to production footprint, where
+    # the runner-up wins.
+    assert outcome.decided_by == "4_production_opensearch_index_store_bytes"
     assert outcome.winner is not None
     assert outcome.winner.label == f"{_VOYAGE}@512"
 
 
-def test_a_tie_reaching_the_footprint_step_halts_when_footprint_was_never_measured() -> None:
+def test_a_tie_reaching_the_footprint_step_halts_without_production_qualification() -> None:
     outcome = select_candidate(
         evidence=_four(
             {
@@ -185,9 +204,9 @@ def test_a_tie_reaching_the_footprint_step_halts_when_footprint_was_never_measur
 
     assert outcome.status is SelectionStatus.HALTED
     assert outcome.winner is None
-    assert "index store bytes" in outcome.reasons[0]
-    assert "not a substitute for index footprint" in outcome.reasons[0]
-    assert outcome.steps[-1] == "4_opensearch_index_store_bytes"
+    assert "Stage B production qualification" in outcome.reasons[0]
+    assert "not a substitute" in outcome.reasons[0]
+    assert outcome.steps[-1] == "4_production_opensearch_index_store_bytes"
 
 
 def test_equal_footprints_fall_through_to_corpus_throughput() -> None:
@@ -203,7 +222,7 @@ def test_equal_footprints_fall_through_to_corpus_throughput() -> None:
         leader_bootstrap=_bootstrap(-0.01, 0.01),
     )
 
-    assert outcome.decided_by == "5_corpus_throughput"
+    assert outcome.decided_by == "5_production_corpus_throughput"
     assert outcome.winner is not None
     assert outcome.winner.label == f"{_VOYAGE}@512"
 
@@ -221,27 +240,59 @@ def test_equal_throughput_falls_through_to_query_latency_p95() -> None:
         leader_bootstrap=_bootstrap(-0.01, 0.01),
     )
 
-    assert outcome.decided_by == "6_query_latency_p95"
+    assert outcome.decided_by == "6_production_query_latency_p95"
     assert outcome.winner is not None
     assert outcome.winner.label == f"{_VOYAGE}@512"
 
 
-def test_a_throughput_tie_with_no_latency_halts_instead_of_guessing() -> None:
-    outcome = select_candidate(
-        evidence=_four(
-            {
-                "leader": {"footprint": 1_000, "throughput": 5.0, "latency": None},
-                "runner": {"footprint": 1_000, "throughput": 5.0, "latency": None},
-                "third": {},
-                "fourth": {},
-            }
-        ),
-        leader_bootstrap=_bootstrap(-0.01, 0.01),
-    )
+def test_a_partial_operational_record_is_refused_rather_than_guessed() -> None:
+    """Operational evidence is one production qualification or nothing at all."""
 
-    assert outcome.status is SelectionStatus.HALTED
-    assert "latency p95" in outcome.reasons[0]
-    assert outcome.steps[-1] == "6_query_latency_p95"
+    with pytest.raises(BenchmarkContractError, match="only part of its operational evidence"):
+        CandidateEvidence(
+            model_id=_VOYAGE,
+            dimension=1024,
+            macro_ndcg_at_10=0.7,
+            macro_recall_at_100=0.5,
+            correctness_gates_passed=True,
+            index_store_bytes=1_000,
+            corpus_documents_per_second=5.0,
+            query_latency_p95_ms=None,
+            operational_stage=RES138_PRODUCTION_STAGE,
+            operational_gate_passed=True,
+        )
+
+
+def test_stage_a_timings_cannot_be_labelled_as_production_metrics() -> None:
+    with pytest.raises(BenchmarkContractError, match="not 'production-qualification'"):
+        CandidateEvidence(
+            model_id=_VOYAGE,
+            dimension=1024,
+            macro_ndcg_at_10=0.7,
+            macro_recall_at_100=0.5,
+            correctness_gates_passed=True,
+            index_store_bytes=1_000,
+            corpus_documents_per_second=5.0,
+            query_latency_p95_ms=100.0,
+            operational_stage="reference-quality",
+            operational_gate_passed=True,
+        )
+
+
+def test_operational_metrics_without_a_passed_equivalence_gate_are_refused() -> None:
+    with pytest.raises(BenchmarkContractError, match="equivalence gate"):
+        CandidateEvidence(
+            model_id=_VOYAGE,
+            dimension=1024,
+            macro_ndcg_at_10=0.7,
+            macro_recall_at_100=0.5,
+            correctness_gates_passed=True,
+            index_store_bytes=1_000,
+            corpus_documents_per_second=5.0,
+            query_latency_p95_ms=100.0,
+            operational_stage=RES138_PRODUCTION_STAGE,
+            operational_gate_passed=False,
+        )
 
 
 def test_a_candidate_that_failed_a_gate_is_not_ranked_and_is_named() -> None:
@@ -253,7 +304,7 @@ def test_a_candidate_that_failed_a_gate_is_not_ranked_and_is_named() -> None:
                 512,
                 ndcg=0.99,
                 passed=False,
-                failed=("tei_equivalence",),
+                failed=("production_equivalence",),
             ),
             *_four(_FULL)[2:],
         ],
@@ -261,7 +312,7 @@ def test_a_candidate_that_failed_a_gate_is_not_ranked_and_is_named() -> None:
     )
 
     assert [candidate.label for candidate in outcome.unranked] == [f"{_VOYAGE}@512"]
-    assert outcome.unranked[0].failed_gates == ("tei_equivalence",)
+    assert outcome.unranked[0].failed_gates == ("production_equivalence",)
     # The gate-failing candidate had the highest quality and is still not the leader.
     assert outcome.winner is not None
     assert outcome.winner.label == f"{_VOYAGE}@1024"
@@ -288,7 +339,7 @@ def test_a_table_of_one_surviving_candidate_cannot_decide_a_pairwise_rule() -> N
     outcome = select_candidate(
         evidence=[
             _candidate(_VOYAGE, 1024, ndcg=0.7),
-            _candidate(_QWEN, 512, ndcg=0.6, passed=False, failed=("tei_equivalence",)),
+            _candidate(_QWEN, 512, ndcg=0.6, passed=False, failed=("production_equivalence",)),
         ],
         leader_bootstrap=_bootstrap(0.01, 0.02),
     )
@@ -312,10 +363,10 @@ def test_the_payload_records_the_whole_table_and_every_step() -> None:
 
     payload = outcome.payload()
 
-    assert payload["artifact_revision"] == "res138-selection-v1"
+    assert payload["artifact_revision"] == "res138-selection-v2"
     assert payload["status"] == "selected"
     assert payload["winner"] == f"{_VOYAGE}@512"
-    assert payload["decided_by"] == "6_query_latency_p95"
+    assert payload["decided_by"] == "6_production_query_latency_p95"
     assert payload["steps"] == list(outcome.steps)
     assert len(cast_list(payload["ranked"])) == 4
     assert payload["unranked"] == []

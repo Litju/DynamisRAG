@@ -35,6 +35,7 @@ from numpy.typing import NDArray
 from dynamisrag.benchmark.artifacts import Res138JsonValue, ShardKind
 from dynamisrag.benchmark.calibration import CalibrationSet, select_calibration_set
 from dynamisrag.benchmark.contracts import (
+    RES138_INPUT_MAX_TOKENS,
     RES138_MODEL_CANDIDATES,
     ModelCandidateSpec,
     RetrievalDocument,
@@ -84,7 +85,7 @@ class _FakeEncoder:
         return tuple(len(text.split()) for text in texts)
 
     def observed_max_sequence_length(self) -> int:
-        return self.candidate.native_max_sequence_length
+        return RES138_INPUT_MAX_TOKENS
 
     def encode(
         self, texts: Sequence[str], *, kind: ShardKind, dimension: int

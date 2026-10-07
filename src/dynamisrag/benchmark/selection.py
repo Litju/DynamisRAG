@@ -4,7 +4,7 @@ RES-138's rule was written down before any candidate was run, and this module is
 that rule. It is implemented, tested and **never applied by this tranche**: no
 evidence artifact exists yet, so there is nothing for it to decide.
 
-The rule, unchanged:
+The rule, unchanged in its sequence, staged in its evidence:
 
 1. macro nDCG@10 across the frozen workloads; the highest is the provisional leader.
 2. compare the top two by paired bootstrap. If the 95% CI for the nDCG@10
@@ -12,10 +12,19 @@ The rule, unchanged:
 3. if the CI includes 0, quality is tied: compare macro Recall@100.
 4. if Recall@100 is effectively tied (absolute difference <= 0.01), choose the
    smaller actual OpenSearch index footprint.
-5. if the footprints are equal, choose higher fixed-policy corpus throughput; the
-   final tie-break is lower query p95.
+5. if the footprints are equal, choose higher production corpus throughput; the
+   final tie-break is lower production query p95.
 6. thresholds and rules never change after candidates are seen, and the **full
    table** is recorded, not only the winner.
+
+**Steps 4-6 are Stage B evidence.** They may only be decided from a production
+qualification: a Stage A candidate carries its quality metrics, but its
+operational fields must come from the Stage B records, behind the numerical and
+ranking equivalence gate. Stage A float32 benchmark throughput is a reference
+execution observation and is **never** reported as or substituted for production
+throughput. Each candidate's operational evidence therefore records the stage it
+came from and whether the production equivalence gate passed, and a missing or
+foreign stage halts the tie-break rather than guessing.
 
 Three ways this stops rather than guessing, because each is the case where
 inventing a rule would be changing it after the fact:
@@ -43,7 +52,7 @@ from typing import Final, cast
 
 from dynamisrag.benchmark.artifacts import Res138JsonValue
 from dynamisrag.benchmark.bootstrap import BootstrapEstimate
-from dynamisrag.benchmark.contracts import require_candidate_dimension
+from dynamisrag.benchmark.contracts import RES138_PRODUCTION_STAGE, require_candidate_dimension
 from dynamisrag.benchmark.errors import BenchmarkContractError
 
 __all__ = [
@@ -93,6 +102,8 @@ class CandidateEvidence:
     index_store_bytes: int | None = None
     corpus_documents_per_second: float | None = None
     query_latency_p95_ms: float | None = None
+    operational_stage: str | None = None
+    operational_gate_passed: bool | None = None
 
     def __post_init__(self) -> None:
         require_candidate_dimension(self.dimension, operation="candidate_evidence")
@@ -115,6 +126,55 @@ class CandidateEvidence:
                     operation="candidate_evidence",
                     model_id=self.model_id,
                 )
+        self._require_operational_provenance()
+
+    def _require_operational_provenance(self) -> None:
+        """The operational fields are all-or-nothing, and only from Stage B.
+
+        A partially populated record is refused because it would let a step
+        compare one candidate's measured footprint against another's absence; and
+        a record that names any stage other than production qualification is
+        refused because Stage A reference timings are not production throughput.
+        """
+        values = (
+            self.index_store_bytes,
+            self.corpus_documents_per_second,
+            self.query_latency_p95_ms,
+        )
+        if all(value is None for value in values):
+            if self.operational_stage is not None or self.operational_gate_passed is not None:
+                raise BenchmarkContractError(
+                    f"candidate {self.label} declares operational provenance without any "
+                    "operational metric. The provenance describes measurements; there are none.",
+                    operation="candidate_evidence",
+                    model_id=self.model_id,
+                )
+            return
+        if any(value is None for value in values):
+            raise BenchmarkContractError(
+                f"candidate {self.label} carries only part of its operational evidence. Index "
+                "footprint, production throughput and production query p95 are measured together "
+                "under one production qualification; a partial record would compare a measurement "
+                "with a gap.",
+                operation="candidate_evidence",
+                model_id=self.model_id,
+            )
+        if self.operational_stage != RES138_PRODUCTION_STAGE:
+            raise BenchmarkContractError(
+                f"candidate {self.label} carries operational metrics attributed to "
+                f"{self.operational_stage!r}, not {RES138_PRODUCTION_STAGE!r}. Stage A reference "
+                "timings are not production measurements and cannot decide steps 4-6.",
+                operation="candidate_evidence",
+                model_id=self.model_id,
+            )
+        if self.operational_gate_passed is not True:
+            raise BenchmarkContractError(
+                f"candidate {self.label} carries operational metrics without a passed production "
+                "equivalence gate. Metrics from a configuration that does not reproduce the Stage "
+                "A reference are not qualified metrics.",
+                operation="candidate_evidence",
+                model_id=self.model_id,
+            )
 
     @property
     def label(self) -> str:
@@ -134,6 +194,8 @@ class CandidateEvidence:
             "index_store_bytes": self.index_store_bytes,
             "corpus_documents_per_second": self.corpus_documents_per_second,
             "query_latency_p95_ms": self.query_latency_p95_ms,
+            "operational_stage": self.operational_stage,
+            "operational_gate_passed": self.operational_gate_passed,
             "ranked": self.correctness_gates_passed,
         }
 
@@ -153,9 +215,9 @@ class SelectionOutcome:
     tie_tolerance: float = RES138_RECALL_TIE_TOLERANCE
 
     def payload(self) -> dict[str, Res138JsonValue]:
-        """The ``res138-selection-v1`` payload: the full table, not only the winner."""
+        """The ``res138-selection-v2`` payload: the full table, not only the winner."""
         return {
-            "artifact_revision": "res138-selection-v1",
+            "artifact_revision": "res138-selection-v2",
             "status": self.status.value,
             "winner": self.winner.label if self.winner is not None else None,
             "decided_by": self.decided_by,
@@ -264,9 +326,29 @@ def _decide_by_index_footprint(
     steps: list[str],
     bootstrap: BootstrapEstimate,
 ) -> SelectionOutcome:
-    """Step 4: choose the smaller actual OpenSearch index store footprint."""
-    steps.append("4_opensearch_index_store_bytes")
+    """Step 4: choose the smaller actual OpenSearch index store footprint.
+
+    The footprint is a Stage B production measurement. A Stage A candidate that has
+    not been through production qualification has no footprint to compare, and the
+    rule halts rather than substituting a reference-runtime timing.
+    """
+    steps.append("4_production_opensearch_index_store_bytes")
     contenders = (ranked[0], ranked[1])
+    if any(
+        candidate.operational_stage != RES138_PRODUCTION_STAGE
+        or candidate.operational_gate_passed is not True
+        for candidate in contenders
+    ):
+        return _halt(
+            "quality and Recall@100 are tied, and step 4 needs a Stage B production "
+            "qualification (numerical and ranking equivalence to the Stage A reference, then the "
+            "actual OpenSearch index store bytes). No production qualification has been supplied; "
+            "Stage A reference timings are not a substitute and are not used here.",
+            steps=steps,
+            ranked=ranked,
+            unranked=unranked,
+            bootstrap=bootstrap,
+        )
     footprints = {candidate.label: candidate.index_store_bytes for candidate in contenders}
     if any(value is None for value in footprints.values()):
         return _halt(
@@ -284,7 +366,7 @@ def _decide_by_index_footprint(
     if len(set(footprints.values())) > 1:
         return _win(
             ordered[0],
-            "4_opensearch_index_store_bytes",
+            "4_production_opensearch_index_store_bytes",
             steps=steps,
             ranked=ranked,
             unranked=unranked,
@@ -302,16 +384,16 @@ def _decide_by_corpus_throughput(
     steps: list[str],
     bootstrap: BootstrapEstimate,
 ) -> SelectionOutcome:
-    """Step 5: fixed-policy corpus throughput, then step 6: query latency p95."""
-    steps.append("5_corpus_throughput")
+    """Step 5: production corpus throughput, then step 6: production query latency p95."""
+    steps.append("5_production_corpus_throughput")
     contenders = (ranked[0], ranked[1])
     throughputs = {
         candidate.label: candidate.corpus_documents_per_second for candidate in contenders
     }
     if any(value is None for value in throughputs.values()):
         return _halt(
-            "steps 3 and 4 are tied and step 5 needs the fixed-policy corpus throughput, which has "
-            "not been measured under the declared policy",
+            "steps 3 and 4 are tied and step 5 needs the production corpus throughput, which has "
+            "not been measured under the declared production configuration",
             steps=steps,
             ranked=ranked,
             unranked=unranked,
@@ -324,18 +406,18 @@ def _decide_by_corpus_throughput(
         )
         return _win(
             winner,
-            "5_corpus_throughput",
+            "5_production_corpus_throughput",
             steps=steps,
             ranked=ranked,
             unranked=unranked,
             bootstrap=bootstrap,
         )
-    steps.append("6_query_latency_p95")
+    steps.append("6_production_query_latency_p95")
     latencies = {candidate.label: candidate.query_latency_p95_ms for candidate in contenders}
     if any(value is None for value in latencies.values()):
         return _halt(
-            "steps 3, 4 and 5 are tied and step 6 needs query latency p95 under the fixed policy, "
-            "which has not been measured",
+            "steps 3, 4 and 5 are tied and step 6 needs production query latency p95 under the "
+            "declared production configuration, which has not been measured",
             steps=steps,
             ranked=ranked,
             unranked=unranked,
@@ -346,7 +428,7 @@ def _decide_by_corpus_throughput(
     )
     return _win(
         winner,
-        "6_query_latency_p95",
+        "6_production_query_latency_p95",
         steps=steps,
         ranked=ranked,
         unranked=unranked,

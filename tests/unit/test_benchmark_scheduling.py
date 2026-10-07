@@ -1,4 +1,4 @@
-"""CPU proofs of the frozen execution policy, input truncation and corpus-tail authorization."""
+"""CPU proofs of the frozen execution policy, input truncation and schedule authorization."""
 
 import ast
 import copy
@@ -30,9 +30,8 @@ from dynamisrag.benchmark.fullrun import (
     _encode_input_shard,  # pyright: ignore[reportPrivateUsage]
     execute_full_run,
 )
-from dynamisrag.benchmark.memory_probe import run_memory_probe
 from dynamisrag.benchmark.runner import calibrate_frozen_candidates, exact_token_counts
-from dynamisrag.benchmark.runtime import require_execution_floor
+from dynamisrag.benchmark.schedule_probe import run_schedule_probe
 from dynamisrag.benchmark.scheduling import (
     BATCH_SIZES,
     TOKEN_SQUARE_BUDGET,
@@ -87,30 +86,37 @@ def test_deterministic_contiguous_scheduler_and_budget() -> None:
             for larger in BATCH_SIZES
         )
     assert indices == list(range(len(counts)))
-    assert document_schedule([32768] * 17) == tuple((index, 1, 32768) for index in range(17))
+    boundary = RES138_INPUT_MAX_TOKENS
+    assert document_schedule([boundary] * 17) == tuple((index, 1, boundary) for index in range(17))
 
 
 def test_raw_counts_above_the_boundary_schedule_as_effective_counts() -> None:
-    """33,296 and 36,572 must schedule exactly as 32,768 does, never as their raw value."""
+    """Raw counts above 8,192 must schedule exactly as 8,192 does, never as their raw value."""
 
-    assert effective_token_counts([100, 32767, 32768, 32769, 33296, 36572]) == (
+    boundary = RES138_INPUT_MAX_TOKENS
+    assert effective_token_counts([100, boundary - 1, boundary, boundary + 1, 33296, 36572]) == (
         100,
-        32767,
-        32768,
-        32768,
-        32768,
-        32768,
+        boundary - 1,
+        boundary,
+        boundary,
+        boundary,
+        boundary,
     )
-    assert document_schedule([33296, 36572]) == document_schedule([32768, 32768])
-    assert document_schedule([36572]) == ((0, 1, RES138_INPUT_MAX_TOKENS),)
-    assert scheduling_evidence([36572])["effective_maximum_token_count"] == 32768
+    assert document_schedule([33296, 36572]) == document_schedule([boundary, boundary])
+    assert document_schedule([36572]) == ((0, 1, boundary),)
+    assert scheduling_evidence([36572])["effective_maximum_token_count"] == boundary
 
 
 def test_truncated_ids_digest_is_order_sensitive_and_empty_is_defined() -> None:
+    boundary = RES138_INPUT_MAX_TOKENS
     ids = ("a", "b", "c")
     assert truncated_ids_sha256(ids, (1, 1, 1)) != truncated_ids_sha256(ids, (36572, 1, 1))
-    assert truncated_ids_sha256(ids, (36572, 1, 1)) == truncated_ids_sha256(ids, (36572, 1, 32768))
-    assert truncated_ids_sha256(ids, (36572, 1, 1)) != truncated_ids_sha256(ids, (36572, 32769, 1))
+    assert truncated_ids_sha256(ids, (36572, 1, 1)) == truncated_ids_sha256(
+        ids, (36572, 1, boundary)
+    )
+    assert truncated_ids_sha256(ids, (36572, 1, 1)) != truncated_ids_sha256(
+        ids, (36572, boundary + 1, 1)
+    )
     assert truncated_ids_sha256(ids, (36572, 1, 1)) != truncated_ids_sha256(
         ("c", "b", "a"), (36572, 1, 1)
     )
@@ -118,7 +124,7 @@ def test_truncated_ids_digest_is_order_sensitive_and_empty_is_defined() -> None:
     assert evidence["truncated_input_count"] == 1
     assert evidence["truncated_ids_sha256"] == truncated_ids_sha256(ids, (36572, 1, 1))
     assert evidence["raw_maximum_token_count"] == 36572
-    assert evidence["effective_maximum_token_count"] == 32768
+    assert evidence["effective_maximum_token_count"] == RES138_INPUT_MAX_TOKENS
 
 
 @pytest.mark.parametrize("count", [0, -1, True, 1.5])
@@ -143,7 +149,7 @@ class _TailEncoder(_Encoder):
 
 @pytest.mark.parametrize("candidate", RES138_MODEL_CANDIDATES)
 def test_documents_keep_order_and_sum_only_encode_times(candidate: ModelCandidateSpec) -> None:
-    counts = [8192] * 16 + [32768] + [100] * 18
+    counts = [8192] * 16 + [RES138_INPUT_MAX_TOKENS] + [100] * 18
     texts = tuple(f"doc-{index}/{count}" for index, count in enumerate(counts))
     encoder = _TailEncoder(candidate)
     matrix, seconds, latencies, evidence, input_evidence = _encode_input_shard(
@@ -185,13 +191,13 @@ def test_an_over_long_document_is_encoded_through_the_native_path() -> None:
     )
     assert input_evidence["raw_token_counts"] == [36572, 100]
     assert input_evidence["truncated_input_count"] == 1
-    assert input_evidence["effective_maximum_token_count"] == 32768
+    assert input_evidence["effective_maximum_token_count"] == RES138_INPUT_MAX_TOKENS
     assert evidence == scheduling_evidence(counts)
     assert encoder.calls == [(ShardKind.DOCUMENTS, 1024, 1), (ShardKind.DOCUMENTS, 1024, 1)]
 
 
 def test_sidecar_schedule_roundtrip_and_histogram() -> None:
-    counts = [8192] * 16 + [32768] + [100] * 7
+    counts = [2048] * 16 + [RES138_INPUT_MAX_TOKENS] + [100] * 7
     ids = tuple(f"d{index:03d}" for index in range(len(counts)))
     evidence = scheduling_evidence(counts)
     truncation = input_truncation_evidence(ids, counts)
@@ -203,7 +209,7 @@ def test_sidecar_schedule_roundtrip_and_histogram() -> None:
     summary = scheduling_summary([evidence, evidence])
     assert summary["batch_size_histogram"] == {"16": 2, "8": 0, "4": 2, "2": 2, "1": 4}
     assert summary["maximum_batch_size_used"] == 16
-    assert summary["effective_maximum_token_count"] == 32768
+    assert summary["effective_maximum_token_count"] == RES138_INPUT_MAX_TOKENS
     assert "maximum_token_count" not in summary
     for key in evidence:
         changed = copy.deepcopy(evidence)
@@ -220,48 +226,18 @@ def test_sidecar_schedule_roundtrip_and_histogram() -> None:
         )
 
 
-@pytest.mark.parametrize(
-    "memory,capability,available,accepted",
-    [
-        (80_000_000_000, (8, 0), True, True),
-        (80 * 1024**3, (8, 0), True, True),
-        (96 * 1024**3, (12, 0), True, True),
-        (40 * 1024**3, (8, 0), True, False),
-        (80_000_000_000 - 1, (8, 0), True, False),
-        (80 * 1024**3, (7, 5), True, False),
-        (80 * 1024**3, (8, 0), False, False),
-    ],
-)
-def test_a100_execution_floor(
-    memory: int, capability: tuple[int, int], *, available: bool, accepted: bool
-) -> None:
-    if accepted:
-        require_execution_floor(
-            available=available,
-            device_count=1,
-            capability=capability,
-            total_memory_bytes=memory,
-            operation="test",
-        )
-    else:
-        with pytest.raises(BenchmarkExecutionError):
-            require_execution_floor(
-                available=available,
-                device_count=1,
-                capability=capability,
-                total_memory_bytes=memory,
-                operation="test",
-            )
-
-
 def _tail_workloads(
     *, overlap: bool = False, counts: Sequence[int] | None = None
 ) -> dict[str, RetrievalWorkload]:
     result: dict[str, RetrievalWorkload] = {}
     for name, workload in _workloads().items():
-        resolved = list(counts) if counts is not None else [8192] * 16 + [32768] + [100] * 83
+        resolved = (
+            list(counts)
+            if counts is not None
+            else [4096] * 4 + [RES138_INPUT_MAX_TOKENS] + [100] * 95
+        )
         if overlap:
-            resolved[0], resolved[16] = resolved[16], resolved[0]
+            resolved[0] = RES138_INPUT_MAX_TOKENS
         documents = tuple(
             RetrievalDocument.from_beir(
                 document_id=document.document_id, title="", body=f"doc-{index}/{resolved[index]}"
@@ -278,7 +254,7 @@ def test_real_probe_encodes_corpus_tail_and_deduplicates(
     candidate: ModelCandidateSpec, *, overlap: bool
 ) -> None:
     encoder = _TailEncoder(candidate)
-    payload = run_memory_probe(
+    payload = run_schedule_probe(
         encoder=encoder, candidate=candidate, workloads=_tail_workloads(overlap=overlap)
     )
     assert payload["status"] == "pass"
@@ -292,7 +268,7 @@ def test_real_probe_encodes_corpus_tail_and_deduplicates(
     expected_calls = (
         [(ShardKind.DOCUMENTS, 1024, 1)]
         if overlap
-        else [(ShardKind.DOCUMENTS, 1024, 16), (ShardKind.DOCUMENTS, 1024, 1)]
+        else [(ShardKind.DOCUMENTS, 1024, 4), (ShardKind.DOCUMENTS, 1024, 1)]
     )
     assert encoder.calls == expected_calls
     counts = cast("dict[str, list[int]]", payload["corpus_token_counts"])
@@ -306,7 +282,7 @@ def test_probe_encodes_a_real_truncation_path_when_an_input_overflows() -> None:
     workloads = _tail_workloads(counts=counts)
     candidate = RES138_MODEL_CANDIDATES[0]
     encoder = _TailEncoder(candidate)
-    payload = run_memory_probe(encoder=encoder, candidate=candidate, workloads=workloads)
+    payload = run_schedule_probe(encoder=encoder, candidate=candidate, workloads=workloads)
 
     truncation = cast("dict[str, object]", payload["truncation_path_document"])
     assert truncation is not None
@@ -326,7 +302,7 @@ def test_probe_encodes_a_real_truncation_path_when_an_input_overflows() -> None:
     for entry in per_workload.values():
         assert entry["truncated_input_count"] == 2
         assert entry["raw_maximum_token_count"] == 36572
-        assert entry["effective_maximum_token_count"] == 32768
+        assert entry["effective_maximum_token_count"] == RES138_INPUT_MAX_TOKENS
 
 
 def test_probe_refuses_a_non_common_boundary_before_any_encode() -> None:
@@ -335,8 +311,10 @@ def test_probe_refuses_a_non_common_boundary_before_any_encode() -> None:
             return 512
 
     encoder = ShortEncoder(RES138_MODEL_CANDIDATES[0])
-    with pytest.raises(BenchmarkExecutionError, match="common input boundary"):
-        run_memory_probe(encoder=encoder, candidate=encoder.candidate, workloads=_tail_workloads())
+    with pytest.raises(BenchmarkExecutionError, match="reference boundary"):
+        run_schedule_probe(
+            encoder=encoder, candidate=encoder.candidate, workloads=_tail_workloads()
+        )
     assert encoder.calls == []
 
 
@@ -358,7 +336,9 @@ def test_probe_checks_actual_output(failure: str) -> None:
 
     encoder = BadEncoder(RES138_MODEL_CANDIDATES[0])
     with pytest.raises(BenchmarkError):
-        run_memory_probe(encoder=encoder, candidate=encoder.candidate, workloads=_tail_workloads())
+        run_schedule_probe(
+            encoder=encoder, candidate=encoder.candidate, workloads=_tail_workloads()
+        )
 
 
 def test_oom_propagates_from_first_call_without_retry() -> None:
@@ -371,7 +351,7 @@ def test_oom_propagates_from_first_call_without_retry() -> None:
 
     encoder = OomEncoder(RES138_MODEL_CANDIDATES[0])
     with pytest.raises(RuntimeError, match="CUDA out of memory"):
-        run_memory_probe(
+        run_schedule_probe(
             encoder=encoder, candidate=encoder.candidate, workloads=_tail_workloads(overlap=True)
         )
     assert encoder.calls == [(ShardKind.DOCUMENTS, 1024, 1)]
@@ -394,7 +374,7 @@ def test_exact_counter_matches_existing_tokenizer_preprocessing() -> None:
     assert received == [text.strip().lower()]
 
 
-def test_memory_probes_share_the_two_preflight_model_loads() -> None:
+def test_schedule_probes_share_the_two_preflight_model_loads() -> None:
     workloads = _workloads()
     loaded: list[_Encoder] = []
     released: list[int] = []
@@ -418,7 +398,7 @@ def test_memory_probes_share_the_two_preflight_model_loads() -> None:
     assert len(loaded) == 2
     assert released == [1, 2]
     assert all(
-        run.memory_probe is not None and run.memory_probe["status"] == "pass" for run in runs
+        run.schedule_probe is not None and run.schedule_probe["status"] == "pass" for run in runs
     )
 
 
@@ -454,17 +434,17 @@ def test_missing_failed_or_drifted_probe_refuses_before_model_load(
 
     def mutate(payload: dict[str, object]) -> None:
         if field == "absent":
-            del payload["memory_probes"]
+            del payload["schedule_probes"]
         else:
-            probes = cast("list[dict[str, Res138JsonValue]]", payload["memory_probes"])
+            probes = cast("list[dict[str, Res138JsonValue]]", payload["schedule_probes"])
             probes[1][field] = "drifted"
 
     sha = _mutate_preflight(preflight, mutate)
     loads: list[str] = []
     # An absent section is now refused by verify_preflight_bundle's required-field
-    # tuple, before require_memory_probes recomputes anything; a present but drifted
+    # tuple, before require_schedule_probes recomputes anything; a present but drifted
     # probe is refused by the probe gate itself. Both refuse before a model load.
-    with pytest.raises(BenchmarkPreflightError, match="memory"):
+    with pytest.raises(BenchmarkPreflightError, match="schedule"):
         execute_full_run(
             config=replace(config, approved_preflight_sha256=sha),
             preflight_path=preflight,
@@ -523,7 +503,7 @@ def test_scheduler_has_no_model_branch_and_encoding_has_no_oom_retry() -> None:
     root = Path("src/dynamisrag/benchmark")
     scheduler = (root / "scheduling.py").read_text()
     assert "model_id" not in scheduler
-    for filename in ("fullrun.py", "runner.py", "memory_probe.py", "scheduling.py"):
+    for filename in ("fullrun.py", "runner.py", "schedule_probe.py", "scheduling.py"):
         source = (root / filename).read_text()
         assert "OutOfMemoryError" not in source
         assert "memory_allocated(" not in source

@@ -125,20 +125,26 @@ Invoke-RestMethod http://127.0.0.1:8000/readyz
 │   │                          # identity), errors.py, manifest.py
 │   │                          # (passage-embeddings-v1), tei.py (tei-http-v1 adapter
 │   │                          # + TeiDeploymentSemantics)
-│   ├── benchmark/             # RES-138 retrieval benchmark; no result, no default.
-│   │                          # contracts.py (frozen workloads, model revisions,
-│   │                          # prompts, dimensions, Drive layout, artifact
-│   │                          # revisions), artifacts.py (canonical envelopes,
-│   │                          # shards, run manifests, verified Drive copies),
-│   │                          # runtime.py (runtime fingerprint, CUDA/torch guards),
-│   │                          # beir.py (verified acquisition + loading),
-│   │                          # retrieval.py + quality.py (exact scoring, metrics,
-│   │                          # paired bootstrap), mrl.py (Matryoshka gate),
-│   │                          # calibration.py (deterministic item selection),
+│   ├── benchmark/             # RES-138 staged retrieval benchmark; no result,
+│   │                          # no default. contracts.py (frozen workloads, model
+│   │                          # revisions, prompts, dimensions, stages, Drive
+│   │                          # layout, artifact revisions), artifacts.py (canonical
+│   │                          # envelopes, shards, run manifests, verified Drive
+│   │                          # copies), runtime.py (runtime fingerprint, CUDA/torch
+│   │                          # guards), beir.py (verified acquisition + loading),
+│   │                          # truncation.py + scheduling.py (8192 reference
+│   │                          # boundary, deterministic token-square schedule),
+│   │                          # schedule_probe.py (Stage A executability proof),
+│   │                          # retrieval.py + metrics.py (exact scoring, metrics),
+│   │                          # bootstrap.py (paired bootstrap), mrl.py (Matryoshka
+│   │                          # gate), calibration.py (deterministic item selection),
 │   │                          # selection.py (predeclared rule, never applied),
-│   │                          # res138.py (notebook-facing facade), runner.py
-│   │                          # (Colab-only GPU encoder; the only torch importer),
-│   │                          # bundle.py (local no-trust-on-first-use verifier)
+│   │                          # production.py (Stage B qualification against the
+│   │                          # Stage A reference), long_context.py (optional
+│   │                          # Stage C), res138.py (notebook-facing facade),
+│   │                          # runner.py (Colab-only GPU encoder; the only torch
+│   │                          # importer), results.py + bundle.py (local
+│   │                          # no-trust-on-first-use verifiers)
 │   ├── logging_config.py      # stdlib-only deterministic logging
 │   ├── db/                    # engine.py (SQLAlchemy/psycopg), probe.py
 │   ├── health/                # models.py, router.py (/healthz, /readyz)
@@ -626,6 +632,25 @@ deterministic calibration set, content-addressed artifacts, a resumable run
 manifest, and a local verifier that re-checks a finished bundle from its bytes
 alone.
 
+### Three stages, three questions
+
+The harness is staged, and each stage's identity says which stage it is:
+
+| Stage | Question | Execution | Evidence |
+| --- | --- | --- | --- |
+| **A — reference quality** | which candidate-configuration retrieves better at the frozen reference boundary | native sentence-transformers, float32, one common runtime, 8,192-token boundary, exact retrieval | macro nDCG@10, paired bootstrap, macro Recall@100 |
+| **B — production qualification** | does a production configuration reproduce that reference, and at what operational cost | TEI with the candidate-supported optimized precision/backend | numerical + ranking equivalence gate, OpenSearch index bytes, ANN recall, production throughput, query p95, VRAM |
+| **C — long context** (optional) | how do the candidates behave at 8k/16k/32k | LongEmbed/LoCo-style workload | separate benchmark, not a blocker |
+
+Stage A has **no fixed GPU model, compute-capability or memory floor**: the
+preflight schedule probes encode the frozen schedule's worst microbatch on the
+current runtime, and that observation is what proves the runtime can execute the
+schedule. The A100 80GB deployment floor belongs to Stage B, together with the
+TEI equivalence gate and the operational metrics. Stage A throughput is reference
+execution timing and is **never** reported as production throughput; the final
+selection rule reads operational metrics only from a Stage B qualification, after
+the quality evidence exists.
+
 ### Two commands run locally, with no GPU and no model
 
 ```powershell
@@ -663,7 +688,8 @@ model pins, and the installs have been proven not to have moved torch, CUDA or N
 
 1. **Parameters.** Set `CODE_SHA` to the exact 40-character commit of the harness
    branch. `RUN_MODE` is `"preflight"` by default; `APPROVED_PREFLIGHT_SHA256` is
-   empty. Nothing is imported here.
+   empty. The Stage A reference boundary is repeated as `INPUT_MAX_TOKENS = 8192`
+   and checked against the contracts after the checkout. Nothing is imported here.
 2. **GPU.** Raw `torch` only. A CPU runtime fails here with the actionable message,
    because a CPU MRL comparison would not answer the question the gate asks, and
    because the refusal has to arrive before twenty minutes of model load rather
@@ -714,15 +740,22 @@ model pins, and the installs have been proven not to have moved torch, CUDA or N
     SHA-256 in `contracts.py` and refuses on mismatch; `verify_pinned_model_metadata`
     confirms the served commit ids, pooling, prompt strings, positional limits and the
     frozen loading semantics.
-13. **Calibration.** `select_calibration_set` draws 2 items per
+13. **Calibration and schedule probes.** `select_calibration_set` draws 2 items per
     (workload × kind × length band) — 36 items over the three workloads — **once**, and
     `calibrate_frozen_candidates` loads each candidate **once** and decides the
     Matryoshka shortcut separately for every model, path and workload: 2 models × 2
-    paths × 3 workloads is 12 decisions from 2 model loads. Between candidates the
-    encoder is deleted, collected and the CUDA caching allocator emptied, so the second
-    model does not share a card with the first model's dead blocks.
+    paths × 3 workloads is 12 decisions from 2 model loads. The same load runs the
+    schedule probe: the full corpus is tokenised without truncation, the raw counts
+    are persisted as the authority, the exact scheduler is reconstructed from
+    `min(raw, 8192)`, and the longest effective input, the worst scheduled microbatch
+    and a real truncation-path input are encoded at native 1024 float32. Passing them
+    is what proves this runtime can execute the frozen schedule; no GPU floor is
+    applied. Between candidates the encoder is deleted, collected and the CUDA
+    caching allocator emptied, so the second model does not share a card with the
+    first model's dead blocks.
 14. **Preflight bundle and hard stop.** `write_preflight_bundle` writes the artifact
-    and prints its SHA-256. The cell then stops.
+    (stage, reference boundary, schedule probes, production qualification explicitly
+    *not* run) and prints its SHA-256. The cell then stops.
 
 ### Frozen model loading semantics
 
@@ -742,17 +775,19 @@ handing the wrong policy to a third, invisibly.
 `tests/unit/test_benchmark_boundaries.py` refuses any string literal naming a candidate
 in `runner.py`.
 
-The compute dtype is frozen to `float32` for both. The local sealed TEI 1.9.4 reference
-reported `model_dtype float32`, TEI equivalence is the gate that decides whether native
-Colab vectors may be used in production at all, and one explicit compute dtype keeps the
-four candidate runs comparable. Qwen's pinned config declares `bfloat16` and Voyage's
-recommended GPU path is BF16; neither is inherited. The dtype is passed explicitly as
+The compute dtype is frozen to `float32` for both. Stage A is the reference: one explicit
+compute dtype keeps the four candidate runs comparable, and the Stage B equivalence gate
+is what later decides whether an optimized production precision/backend reproduces these
+vectors. Qwen's pinned config declares `bfloat16` and Voyage's recommended GPU path is
+BF16; neither is inherited. The dtype is passed explicitly as
 `model_kwargs={"torch_dtype": torch.float32}` and then **read back** off
 `next(model.parameters()).dtype` and compared with the frozen value — a model that
 ignored the request is a failed preflight, not a quietly mislabelled artifact. If float32
 turns out not to fit the assigned Colab GPU, that is a feasibility finding to report, not
 a licence to switch: amending the closed `RES138_SUPPORTED_DTYPES` set is a visible
-contract edit, and it changes the plan digest.
+contract edit, and it changes the plan digest. The loaded model's boundary is set to the
+8,192 reference boundary and read back before any encode, so the reference path truncates
+at exactly the declared point on the right.
 
 Provenance records `requested_compute_dtype`, `observed_compute_dtype` and
 `output_dtype` as three separate fields and no bare `dtype`. The output matrix itself is
@@ -786,11 +821,16 @@ folder id to start would break the moment the tree is reorganised.
 It proves that on one GPU, at one pinned torch build, the derived 512-dimension
 prefix is a valid substitute for the full 1024-dimension vector **on 36 short
 scientific items** — cosine ≥ 0.999999, max component difference ≤ 1e-5, identical
-top-10 — and that every frozen identity in the plan is the one on disk.
+top-10 — that every frozen identity in the plan is the one on disk, and that this
+runtime executes the frozen schedule's worst microbatch at the 8,192 reference
+boundary.
 
-It proves nothing about retrieval quality, which needs the corpus pass, and it
-records no TEI equivalence result: that gate is evaluated locally against
-TEI 1.9.4 because Colab cannot run Docker.
+It proves nothing about retrieval quality, which needs the corpus pass. It records
+no production inference and no equivalence result: Stage B evaluates TEI under the
+declared production runtime and must reproduce the Stage A reference numerically
+and by rank, which is a local step because Colab cannot run Docker. It also says
+nothing about deployment eligibility: A100 80GB qualification is Stage B, and the
+optional 8k/16k/32k long-context benchmark is Stage C.
 
 ### Interrupting and resuming
 

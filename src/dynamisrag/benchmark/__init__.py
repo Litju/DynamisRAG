@@ -1,14 +1,25 @@
 """The RES-138 model-selection benchmark harness.
 
-    frozen BEIR archives
+    Stage A: reference quality
+        frozen BEIR archives
         -> RetrievalWorkload      (canonical order, every content digest bound)
         -> native model vectors   (float32, L2-normalised, pinned revisions,
-                                   raw token counts persisted, right truncation at 32768)
+                                   raw token counts persisted, right truncation at 8192)
         -> MRL derivation         (1024 -> 512, only where calibration proves it)
         -> sharded .npy artifacts (res138-shard-v4, resumable)
         -> exact cosine top-100   (chunked, deterministic tie order)
-        -> per-query/workload/macro metrics, paired bootstrap and performance evidence
-        -> res138-full-run-v2 (selection remains a later evidence step)
+        -> per-query/workload/macro metrics, paired bootstrap
+        -> res138-full-run-v3 (quality evidence complete; selection remains a later step)
+
+    Stage B: production qualification
+        a Stage A result
+        -> TEI with candidate-supported precision/backend
+        -> numerical + ranking equivalence gate against the Stage A reference
+        -> OpenSearch index bytes, ANN recall, production throughput, query p95, VRAM
+        -> res138-production-qualification-v1
+
+    Stage C: long context (optional, non-blocking)
+        LongEmbed/LoCo-style windows at 8k/16k/32k
 
 **What this package is.** The harness that makes a future default defensible: the
 frozen workloads, the frozen candidates, the frozen prompts, the frozen
@@ -17,8 +28,9 @@ four. It produces evidence; it does not encode a conclusion.
 
 **What it is not.** It is not a second embedding provider and not a TEI
 replacement. RES-137's TEI path is unchanged and remains the production serving
-contract; the Colab execution path here is a benchmark-only native
-SentenceTransformers runner that exists because managed Colab must not run Docker.
+contract; the Stage A execution path here is a benchmark-only native
+SentenceTransformers runner that exists because managed Colab must not run Docker,
+and the vectors it produces are the reference Stage B must be shown equivalent to.
 :mod:`dynamisrag.embedding` and :mod:`dynamisrag.search` do not import this
 package, and nothing here is read by production code.
 
@@ -56,12 +68,13 @@ from dynamisrag.benchmark.contracts import (
     RES138_CANDIDATE_DIMENSIONS,
     RES138_INPUT_MAX_TOKENS,
     RES138_INPUT_TRUNCATION_DIRECTION,
+    RES138_LONG_CONTEXT_STAGE,
     RES138_MODEL_CANDIDATES,
     RES138_MRL_CALIBRATION_GATE,
+    RES138_PRODUCTION_STAGE,
+    RES138_REFERENCE_STAGE,
     RES138_RETRIEVAL_TOP_K,
     RES138_SHARD_SIZE,
-    RES138_TEI_EQUIVALENCE_GATE,
-    RES138_TEI_EQUIVALENCE_RUNTIME,
     BeirSourceSpec,
     ModelCandidateSpec,
     RetrievalDocument,
@@ -89,12 +102,13 @@ __all__ = [
     "RES138_CANDIDATE_DIMENSIONS",
     "RES138_INPUT_MAX_TOKENS",
     "RES138_INPUT_TRUNCATION_DIRECTION",
+    "RES138_LONG_CONTEXT_STAGE",
     "RES138_MODEL_CANDIDATES",
     "RES138_MRL_CALIBRATION_GATE",
+    "RES138_PRODUCTION_STAGE",
+    "RES138_REFERENCE_STAGE",
     "RES138_RETRIEVAL_TOP_K",
     "RES138_SHARD_SIZE",
-    "RES138_TEI_EQUIVALENCE_GATE",
-    "RES138_TEI_EQUIVALENCE_RUNTIME",
     "BeirSourceSpec",
     "BenchmarkArtifactError",
     "BenchmarkContractError",
