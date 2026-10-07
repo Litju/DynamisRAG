@@ -510,6 +510,12 @@ def test_artifact_revisions_are_declared() -> None:
         "full_run": "res138-full-run-v3",
         "selection": "res138-selection-v2",
         "production_qualification": "res138-production-qualification-v1",
+        "stage_b_plan": "res138-stage-b-plan-v1",
+        "stage_b_runtime": "res138-stage-b-runtime-v1",
+        "gpu_evidence": "res138-gpu-equivalence-v1",
+        "stage_b_index": "res138-stage-b-opensearch-v1",
+        "stage_b_measurement": "res138-stage-b-measurement-v1",
+        "stage_b_corpus": "res138-stage-b-corpus-v1",
         "long_context": "res138-long-context-benchmark-v1",
     }
     # The calibration selection record is an artifact, so its revision is bound to

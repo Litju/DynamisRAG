@@ -1041,6 +1041,12 @@ RES138_ARTIFACT_REVISIONS: Final[Mapping[str, str]] = {
     "full_run": "res138-full-run-v3",
     "selection": "res138-selection-v2",
     "production_qualification": "res138-production-qualification-v1",
+    "stage_b_plan": "res138-stage-b-plan-v1",
+    "stage_b_runtime": "res138-stage-b-runtime-v1",
+    "gpu_evidence": "res138-gpu-equivalence-v1",
+    "stage_b_index": "res138-stage-b-opensearch-v1",
+    "stage_b_measurement": "res138-stage-b-measurement-v1",
+    "stage_b_corpus": "res138-stage-b-corpus-v1",
     "long_context": "res138-long-context-benchmark-v1",
 }
 """Every artifact this benchmark writes, and the revision each one declares.
@@ -1071,10 +1077,21 @@ agreeing on every revision they published.
 The Stage-B semantic-boundary correction (the TEI runtime binds the Stage A 8192
 reference boundary rather than a 32768 native context) is a pre-artifact
 amendment: no Stage-B artifact was ever released or persisted under
-``production_qualification`` and the staged amendment had not merged when it was
-made, so v1 is kept rather than bumped. The correction changes what the Stage-B
+``production_qualification`` and the staged amendment had not merged when it
+was made, so v1 is kept rather than bumped. The correction changes what the Stage-B
 runtime binds, not the schema of any artifact, and no Stage A revision changes
 with it.
+
+The six Stage B revisions were added when the Stage B execution lane became
+executable, and they are here for the same reason every other revision is: an
+artifact whose identity does not name its own schema cannot be compared with, or
+replaced by, another one. ``stage_b_plan`` is the deterministic semantic identity of
+a Stage B run, ``stage_b_runtime`` its machine-specific execution environment,
+``gpu_evidence`` the artifact a remote TEI run imports back, ``stage_b_index`` the
+local OpenSearch lane result, ``stage_b_measurement`` the frozen measurement
+protocol and ``stage_b_corpus`` the frozen corpus a Stage B index holds. Adding a
+key here is digest-neutral for every existing artifact: nothing hashes this map,
+it is looked up one name at a time.
 """
 
 RES138_CALIBRATION_SELECTION_REVISION: Final[str] = RES138_ARTIFACT_REVISIONS[
