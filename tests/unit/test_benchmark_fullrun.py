@@ -36,6 +36,7 @@ from dynamisrag.benchmark.contracts import (
     RES138_BEIR_SOURCES,
     RES138_CALIBRATION_BANDS,
     RES138_CANDIDATE_DIMENSIONS,
+    RES138_INPUT_MAX_TOKENS,
     RES138_MODEL_CANDIDATES,
     RES138_MRL_CALIBRATION_GATE,
     RES138_MRL_DERIVATION_REVISION,
@@ -61,7 +62,6 @@ from dynamisrag.benchmark.fullrun import (
     execute_full_run,
     require_full_run_approval,
 )
-from dynamisrag.benchmark.memory_probe import run_memory_probe
 from dynamisrag.benchmark.mrl import (
     MrlPathDecision,
     derive_mrl_prefix,
@@ -84,6 +84,7 @@ from dynamisrag.benchmark.runtime import (
     RuntimeProbe,
     capture_runtime_fingerprint,
 )
+from dynamisrag.benchmark.schedule_probe import run_schedule_probe
 from dynamisrag.benchmark.scheduling import scheduling_evidence
 from dynamisrag.benchmark.truncation import input_truncation_evidence
 from dynamisrag.embedding.contracts import canonical_json
@@ -115,7 +116,7 @@ class _Encoder(FullRunEncoder):
         return tuple(len(text.split()) for text in texts)
 
     def observed_max_sequence_length(self) -> int:
-        return self.candidate.native_max_sequence_length
+        return RES138_INPUT_MAX_TOKENS
 
     def describe(self) -> dict[str, object]:
         return {
@@ -379,10 +380,10 @@ def _approval(
         calibration=_calibration_set(),
         decisions=decisions,
         artifact_digests={},
-        memory_probes=[
+        schedule_probes=[
             cast(
                 "dict[str, Res138JsonValue]",
-                run_memory_probe(
+                run_schedule_probe(
                     encoder=_Encoder(candidate), candidate=candidate, workloads=workloads
                 ),
             )
@@ -612,7 +613,7 @@ def test_document_and_query_shards_bind_the_same_input_policy(tmp_path: Path) ->
         sidecar = read_shard_sidecar(path)
         seen_kinds.add(sidecar.kind)
         evidence = cast("dict[str, object]", sidecar.input_truncation)
-        assert evidence["input_max_tokens"] == 32768
+        assert evidence["input_max_tokens"] == RES138_INPUT_MAX_TOKENS
         assert evidence["truncation_direction"] == "right"
         assert evidence["truncate"] is True
         assert len(cast("list[int]", evidence["raw_token_counts"])) == sidecar.row_count
@@ -1211,7 +1212,7 @@ def test_a_drifted_or_incomplete_model_policy_refuses_before_any_load(
     assert loads == []
 
 
-def test_exact_rankings_metrics_unweighted_macro_bootstrap_and_performance_are_materialized(
+def test_exact_rankings_metrics_unweighted_macro_bootstrap_and_performance_are_materialized(  # noqa: PLR0915
     tmp_path: Path,
 ) -> None:
     report, directory, _, _, workloads, _, _ = _execute(tmp_path)
@@ -1323,12 +1324,18 @@ def test_exact_rankings_metrics_unweighted_macro_bootstrap_and_performance_are_m
     assert performance.payload["model_load_seconds"] == pytest.approx(0.01)
     assert performance.payload["corpus_document_count"] == 300
     assert performance.payload["corpus_documents_per_second"] == pytest.approx(100 / 0.07)
+    assert performance.payload["stage"] == "reference-quality"
+    assert performance.payload["production_qualified"] is False
+    assert performance.payload["production_throughput"] == "not_measured_in_stage_a"
     latency_policy = cast("dict[str, object]", performance.payload["query_latency_policy"])
     assert latency_policy["p95_ms"] == pytest.approx(10.0)
     full = read_artifact(directory / "full-run.json", name="full_run")
+    assert full.payload["stage"] == "reference-quality"
+    assert full.payload["status"] == "quality_evidence_complete"
     assert full.payload["selection"] == {"status": "not_applied"}
-    assert full.payload["tei_equivalence"] == {"status": "not_run"}
-    assert full.payload["opensearch_index_footprint"] == {"status": "not_measured"}
+    production = cast("dict[str, object]", full.payload["production_qualification"])
+    assert production["stage"] == "production-qualification"
+    assert production["status"] == "not_run"
     assert full.payload["production_default"] == {"status": "not_configured"}
     assert report.file_count > 0
     assert set(workloads) == set(RES138_WORKLOAD_NAMES)

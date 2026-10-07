@@ -210,9 +210,18 @@ def test_an_artifact_is_canonical_self_describing_and_reproducible(tmp_path: Pat
     second = write_artifact(tmp_path / "plan-copy.json", name="plan", payload=payload)
 
     assert first == second
-    assert first == ArtifactEnvelope(artifact_revision="res138-plan-v2", payload=payload).sha256
+    assert (
+        first
+        == ArtifactEnvelope(
+            artifact_revision=RES138_ARTIFACT_REVISIONS["plan"], payload=payload
+        ).sha256
+    )
     written = (tmp_path / "plan.json").read_text(encoding="utf-8")
-    assert written == '{"a":{"y":[1,2],"z":1},"artifact_revision":"res138-plan-v2","b":1}'
+    assert written == (
+        '{"a":{"y":[1,2],"z":1},"artifact_revision":"'
+        + RES138_ARTIFACT_REVISIONS["plan"]
+        + '","b":1}'
+    )
     assert written == canonical_json(json.loads(written))
 
 
@@ -226,10 +235,10 @@ def test_a_rewritten_artifact_leaves_no_temporary_file(tmp_path: Path) -> None:
 
 def test_an_artifact_whose_revision_is_not_the_declared_one_is_refused(tmp_path: Path) -> None:
     path = tmp_path / "plan.json"
-    path.write_text('{"artifact_revision":"res138-plan-v3","a":1}', encoding="utf-8")
+    path.write_text('{"artifact_revision":"res138-plan-v99","a":1}', encoding="utf-8")
     with pytest.raises(BenchmarkArtifactError) as caught:
         read_artifact(path, name="plan")
-    assert caught.value.expected == "res138-plan-v2"
+    assert caught.value.expected == RES138_ARTIFACT_REVISIONS["plan"]
 
 
 @pytest.mark.parametrize(

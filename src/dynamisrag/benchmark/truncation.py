@@ -1,16 +1,14 @@
-"""The frozen input-length contract: one boundary, explicit right truncation.
+"""The frozen Stage A input-length contract: one boundary, explicit right truncation.
 
-RES-138 used to treat an over-context input as a benchmark error: every corpus
-document was tokenised, and a count above the model's native boundary stopped the
-preflight. Two TREC-COVID documents are longer than any candidate can positionally
-reach — 33,296 and 36,572 tokens against a 32,768 boundary — so that rule could
-never pass, and the preflight never reached the GPU memory probe.
-
-The repaired contract keeps the same boundary but changes what happens at it:
+The Stage A reference boundary is :data:`RES138_INPUT_MAX_TOKENS` (8192). Every
+input — document text with its prompt, and query text with its prompt — is
+tokenised without truncation, and an input over the boundary is not an error, not
+excluded and not chunked; it is counted and truncated. Documents longer than the
+boundary therefore stay in the corpus, and no qrel is touched.
 
 * **Raw counts are the authority.** Every input is tokenised without truncation,
   prompt included, and the raw count is persisted. An input over the boundary is
-  not an error, not excluded and not chunked; it is counted and truncated.
+  counted and truncated, not refused.
 * **Effective counts are derived, never persisted as an array.** The count the
   scheduler plans with and the encoder actually processes is
   ``min(raw_count, RES138_INPUT_MAX_TOKENS)``, which any reader can reconstruct
@@ -19,9 +17,14 @@ The repaired contract keeps the same boundary but changes what happens at it:
 * **Truncation is declared, not incidental.** The native
   sentence-transformers 5.0.0 path tokenises with
   ``truncation="longest_first"`` at ``max_length=model.max_seq_length`` and the
-  tokenizer's own ``truncation_side``; the runner verifies the loaded model's
-  boundary is exactly :data:`RES138_INPUT_MAX_TOKENS` and the tokenizer's side is
-  ``right``, so this module's policy and the inference path are the same thing.
+  tokenizer's own ``truncation_side``; the runner sets and verifies the loaded
+  model's boundary is exactly :data:`RES138_INPUT_MAX_TOKENS` and the tokenizer's
+  side is ``right``, so this module's policy and the inference path are the same
+  thing.
+* **This is a Stage A reference policy.** The 8192 boundary is the reference
+  every later production configuration must be shown equivalent to, and long
+  context is a separate optional benchmark rather than an extension of this
+  boundary.
 
 **The truncation digest.** ``truncated_ids_sha256`` is SHA-256 over the canonical
 JSON list of the *ids* of the truncated inputs, in canonical order. It names
@@ -38,6 +41,7 @@ from typing import Final, cast
 from dynamisrag.benchmark.contracts import (
     RES138_INPUT_MAX_TOKENS,
     RES138_INPUT_TRUNCATION_DIRECTION,
+    RES138_REFERENCE_STAGE,
 )
 from dynamisrag.benchmark.errors import BenchmarkArtifactError, BenchmarkContractError
 from dynamisrag.embedding.contracts import canonical_json
@@ -52,13 +56,15 @@ __all__ = [
     "validate_input_truncation_evidence",
 ]
 
-INPUT_POLICY_REVISION: Final[str] = "res138-input-truncation-v1"
+INPUT_POLICY_REVISION: Final[str] = "res138-input-truncation-v2"
 """Revision of the raw/effective/truncation semantics this module defines.
 
 Named because it decides what the numbers in a shard sidecar mean: an artifact
 that recorded counts under a different rule (a refusal, a left truncation, an
-effective-only array) would carry the same field names and describe another
-experiment.
+effective-only array, or the pre-amendment 32768 boundary) would carry the same
+field names and describe another experiment. The v2 bump is the staged amendment:
+the reference boundary is 8192, the policy is bound to Stage A, and the evidence
+payload states both.
 """
 
 
@@ -130,6 +136,7 @@ def truncated_ids_sha256(ids: Sequence[str], raw_counts: Sequence[int]) -> str:
 def input_policy_payload() -> dict[str, object]:
     """The frozen input policy, as the plan and the preflight artifact state it."""
     return {
+        "stage": RES138_REFERENCE_STAGE,
         "policy_revision": INPUT_POLICY_REVISION,
         "input_max_tokens": RES138_INPUT_MAX_TOKENS,
         "truncate": True,
@@ -155,6 +162,7 @@ def input_truncation_evidence(ids: Sequence[str], raw_counts: Sequence[int]) -> 
         )
     effective = effective_token_counts(counts)
     return {
+        "stage": RES138_REFERENCE_STAGE,
         "policy_revision": INPUT_POLICY_REVISION,
         "input_max_tokens": RES138_INPUT_MAX_TOKENS,
         "truncate": True,

@@ -56,18 +56,21 @@ from dynamisrag.benchmark.contracts import (
     RES138_DOCUMENT_TEXT_POLICY,
     RES138_DRIVE_LOCATIONS,
     RES138_DRIVE_ROOT,
+    RES138_INPUT_MAX_TOKENS,
     RES138_LOCAL_SCRATCH_ROOT,
+    RES138_LONG_CONTEXT_STAGE,
     RES138_MODEL_CANDIDATES,
     RES138_MRL_CALIBRATION_GATE,
     RES138_MRL_DERIVATION_REVISION,
     RES138_NDCG_CUTOFF,
+    RES138_PRODUCTION_STAGE,
     RES138_QUERY_SELECTION_POLICY,
     RES138_RECALL_CUTOFFS,
+    RES138_REFERENCE_STAGE,
     RES138_RETRIEVAL_TOP_K,
     RES138_RUN_ID_PREFIX,
     RES138_SHARD_SIZE,
     RES138_SUPPORTED_DTYPES,
-    RES138_TEI_EQUIVALENCE_GATE,
     RES138_WORKLOAD_NAMES,
     BeirSourceSpec,
     ModelCandidateSpec,
@@ -441,10 +444,26 @@ def test_the_mrl_gate_is_frozen_before_any_calibration_is_seen() -> None:
     assert RES138_MRL_CALIBRATION_GATE.require_identical_top_k is True
 
 
-def test_the_tei_equivalence_gate_is_separate_and_looser_than_the_mrl_gate() -> None:
-    assert RES138_TEI_EQUIVALENCE_GATE.minimum_cosine == 0.99999
-    assert RES138_TEI_EQUIVALENCE_GATE.maximum_absolute_difference == 1e-4
-    assert RES138_TEI_EQUIVALENCE_GATE.minimum_cosine < RES138_MRL_CALIBRATION_GATE.minimum_cosine
+def test_the_production_equivalence_gate_is_separate_and_looser_than_the_mrl_gate() -> None:
+    from dynamisrag.benchmark.production import RES138_PRODUCTION_EQUIVALENCE_GATE
+
+    assert RES138_PRODUCTION_EQUIVALENCE_GATE.minimum_cosine == 0.99999
+    assert RES138_PRODUCTION_EQUIVALENCE_GATE.maximum_absolute_difference == 1e-4
+    assert RES138_PRODUCTION_EQUIVALENCE_GATE.require_identical_ranking is True
+    assert (
+        RES138_PRODUCTION_EQUIVALENCE_GATE.minimum_cosine
+        < RES138_MRL_CALIBRATION_GATE.minimum_cosine
+    )
+
+
+def test_the_three_stages_are_declared_and_the_reference_boundary_is_8192() -> None:
+    assert RES138_REFERENCE_STAGE == "reference-quality"
+    assert RES138_PRODUCTION_STAGE == "production-qualification"
+    assert RES138_LONG_CONTEXT_STAGE == "long-context"
+    assert RES138_INPUT_MAX_TOKENS == 8192
+    # Both candidates must still be able to reach the reference boundary natively.
+    for candidate in RES138_MODEL_CANDIDATES:
+        assert candidate.native_max_sequence_length >= RES138_INPUT_MAX_TOKENS
 
 
 @pytest.mark.parametrize(
@@ -474,22 +493,24 @@ def test_the_calibration_set_shape_is_frozen() -> None:
 
 def test_artifact_revisions_are_declared() -> None:
     assert RES138_ARTIFACT_REVISIONS == {
-        "plan": "res138-plan-v2",
+        "plan": "res138-plan-v3",
         "runtime": "res138-runtime-v1",
         "source_manifest": "res138-source-manifest-v1",
         "model_manifest": "res138-model-manifest-v1",
         "shard": "res138-shard-v4",
         "calibration_selection": "res138-calibration-selection-v1",
         "mrl_calibration": "res138-mrl-calibration-v1",
-        "preflight": "res138-preflight-v4",
+        "preflight": "res138-preflight-v5",
         "results": "res138-results-v1",
         "query_results": "res138-query-results-v1",
         "workload_metrics": "res138-workload-metrics-v1",
         "macro_metrics": "res138-macro-metrics-v1",
         "bootstrap": "res138-bootstrap-v1",
-        "performance": "res138-performance-v3",
-        "full_run": "res138-full-run-v2",
-        "selection": "res138-selection-v1",
+        "performance": "res138-performance-v4",
+        "full_run": "res138-full-run-v3",
+        "selection": "res138-selection-v2",
+        "production_qualification": "res138-production-qualification-v1",
+        "long_context": "res138-long-context-benchmark-v1",
     }
     # The calibration selection record is an artifact, so its revision is bound to
     # the one table rather than declared beside the other calibration constants.

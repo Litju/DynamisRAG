@@ -1,4 +1,4 @@
-"""Offline validation of a completed RES-138 quality/performance result set.
+"""Offline validation of a completed RES-138 Stage A quality result set.
 
 Beyond the outer integrity graph — every declared digest, every canonical JSON
 artifact, every metric recomputed from the stored rankings — this layer closes
@@ -49,6 +49,8 @@ from dynamisrag.benchmark.contracts import (
     RES138_BASE_DIMENSION,
     RES138_CANDIDATE_DIMENSIONS,
     RES138_MODEL_CANDIDATES,
+    RES138_PRODUCTION_STAGE,
+    RES138_REFERENCE_STAGE,
     RES138_RETRIEVAL_TOP_K,
     RES138_WORKLOAD_NAMES,
     RetrievalDocument,
@@ -58,7 +60,6 @@ from dynamisrag.benchmark.contracts import (
     ordered_ids_sha256,
 )
 from dynamisrag.benchmark.errors import BenchmarkArtifactError
-from dynamisrag.benchmark.memory_probe import memory_probe_policy
 from dynamisrag.benchmark.metrics import (
     QueryMetricRow,
     WorkloadMetrics,
@@ -73,6 +74,7 @@ from dynamisrag.benchmark.mrl import (
 )
 from dynamisrag.benchmark.res138 import verify_preflight_bundle
 from dynamisrag.benchmark.retrieval import QueryRanking, RankedDocument, exact_top_k
+from dynamisrag.benchmark.schedule_probe import schedule_probe_policy
 from dynamisrag.benchmark.scheduling import scheduling_summary
 from dynamisrag.embedding.contracts import canonical_json
 
@@ -108,8 +110,10 @@ def verify_full_run_bundle(  # noqa: PLR0912, PLR0915 - validates one cross-arti
         "source_digests": source_digests,
     }
     _require_fields(full.payload, common, "full_run")
-    if full.payload.get("status") != "quality_performance_evidence_complete":
-        _fail("the full-run summary does not declare completed quality/performance evidence")
+    if full.payload.get("stage") != RES138_REFERENCE_STAGE:
+        _fail("the full-run summary is not a Stage A reference-quality result")
+    if full.payload.get("status") != "quality_evidence_complete":
+        _fail("the full-run summary does not declare completed quality evidence")
     expected_candidates: list[Res138JsonValue] = [
         {
             "model_id": candidate.model_id,
@@ -120,10 +124,15 @@ def verify_full_run_bundle(  # noqa: PLR0912, PLR0915 - validates one cross-arti
     ]
     if _canonical(full.payload.get("candidates")) != _canonical(expected_candidates):
         _fail("the full-run summary does not bind every frozen model revision and dimension")
+    production = full.payload.get("production_qualification")
+    if (
+        not isinstance(production, Mapping)
+        or cast("Mapping[str, object]", production).get("stage") != RES138_PRODUCTION_STAGE
+        or cast("Mapping[str, object]", production).get("status") != "not_run"
+    ):
+        _fail("the full-run summary does not point production qualification at Stage B")
     for field, expected in (
         ("selection", {"status": "not_applied"}),
-        ("tei_equivalence", {"status": "not_run"}),
-        ("opensearch_index_footprint", {"status": "not_measured"}),
         ("production_default", {"status": "not_configured"}),
     ):
         if full.payload.get(field) != expected:
@@ -199,9 +208,9 @@ def verify_full_run_bundle(  # noqa: PLR0912, PLR0915 - validates one cross-arti
             )
 
     sidecars, ids_by_group = _shard_inventory(root, run_manifest, sources, decisions)
-    probes = _mapping_rows(preflight.payload.get("memory_probes"), "memory probes")
+    probes = _mapping_rows(preflight.payload.get("schedule_probes"), "schedule probes")
     if len(probes) != len(RES138_MODEL_CANDIDATES):
-        _fail("the preflight does not cover both memory probes")
+        _fail("the preflight does not cover both schedule probes")
     for candidate, probe in zip(RES138_MODEL_CANDIDATES, probes, strict=True):
         counts = {
             name: [
@@ -218,9 +227,9 @@ def verify_full_run_bundle(  # noqa: PLR0912, PLR0915 - validates one cross-arti
             name: ids_by_group[(candidate.model_id, 1024, name, ShardKind.DOCUMENTS)]
             for name in RES138_WORKLOAD_NAMES
         }
-        expected_probe = memory_probe_policy(candidate, workload_ids, counts)
+        expected_probe = schedule_probe_policy(candidate, workload_ids, counts)
         if _canonical(probe) != _canonical(expected_probe):
-            _fail("memory probe does not reconstruct from approved document shards")
+            _fail("schedule probe does not reconstruct from approved document shards")
     _require_expected_bundle_files(root, declared, set(records) | {"full-run.json"}, sidecars)
     _verify_summary_shards(root, full.payload.get("shards"), sidecars)
 
@@ -889,6 +898,15 @@ def _verify_performance(  # noqa: PLR0912, PLR0915 - reconcile recorded timings 
                 or payload.get("dimension") != dimension
             ):
                 _fail(f"{relative} names the wrong performance candidate")
+            if (
+                payload.get("stage") != RES138_REFERENCE_STAGE
+                or payload.get("production_qualified") is not False
+                or payload.get("production_throughput") != "not_measured_in_stage_a"
+            ):
+                _fail(
+                    f"{relative} does not mark its timings as Stage A reference execution "
+                    "observations rather than production throughput"
+                )
             if payload.get("model_load_seconds") != load_seconds:
                 _fail(f"{relative} changed its model load duration")
             load_link = payload.get("load_artifact")

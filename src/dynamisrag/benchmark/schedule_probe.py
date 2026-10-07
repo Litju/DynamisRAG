@@ -1,17 +1,23 @@
-"""Corpus-tail preflight workloads and their exact authorization binding.
+"""Stage A schedule-execution probes and their exact authorization binding.
 
 The preflight tokenises the complete frozen corpus with each pinned tokenizer and
 records the **raw** counts, measured without truncation. From those it derives the
 effective counts, reconstructs the exact scheduler, and actually encodes three
 cases at native 1024 in float32: the longest effective input, the worst scheduled
-microbatch, and — whenever any input overflows the common boundary — a real
+microbatch, and — whenever any input overflows the reference boundary — a real
 truncation-path input. The truncation case is the one that proves the encoding
 path itself shortens an over-long document rather than refusing it.
 
-The probe is an authorization record: :func:`require_memory_probes` recomputes it
-from the pinned tokenizer and the frozen corpus before a full run may construct a
-model, so a probe that was not produced by the pinned tokenizer, or was produced
-under a different input policy, cannot authorize anything.
+**This is Stage A executability, not deployment eligibility.** The probe does not
+gate on GPU model, compute capability or memory size. What it proves is that the
+current runtime can execute the frozen schedule's worst microbatch at the frozen
+native precision — an observation made on the runtime that is about to run the
+corpus. A100-80GB deployment qualification is Stage B and lives elsewhere.
+
+The probe is an authorization record: :func:`require_schedule_probes` recomputes
+it from the pinned tokenizer and the frozen corpus before a full run may
+construct a model, so a probe that was not produced by the pinned tokenizer, or
+was produced under a different input policy, cannot authorize anything.
 """
 
 from collections.abc import Callable, Mapping, Sequence
@@ -27,6 +33,7 @@ from dynamisrag.benchmark.contracts import (
     RES138_INPUT_MAX_TOKENS,
     RES138_INPUT_TRUNCATION_DIRECTION,
     RES138_MODEL_CANDIDATES,
+    RES138_REFERENCE_STAGE,
     RES138_SHARD_SIZE,
     RES138_WORKLOAD_NAMES,
     ModelCandidateSpec,
@@ -46,7 +53,14 @@ from dynamisrag.benchmark.truncation import (
 )
 from dynamisrag.embedding.contracts import canonical_json
 
-MEMORY_PROBE_REVISION = "res138-corpus-memory-probe-v2"
+SCHEDULE_PROBE_REVISION = "res138-schedule-probe-v1"
+"""Revision of the probe's schema and semantics.
+
+Bumped from the pre-amendment corpus-memory probe because the probe now states
+the stage it qualifies, carries the 8192 reference boundary and the 8192-squared
+token budget, and is an executability observation rather than a memory-eligibility
+gate.
+"""
 
 
 class ProbeEncoder(Protocol):
@@ -79,7 +93,7 @@ def corpus_token_counts(
             measured = count(tuple(candidate.document_prompt.content + text for text in chunk))
             if len(measured) != len(chunk):
                 raise BenchmarkExecutionError(
-                    "tokenizer did not return one count per document.", operation="memory_probe"
+                    "tokenizer did not return one count per document.", operation="schedule_probe"
                 )
             document_schedule(measured)
             counts.extend(measured)
@@ -114,7 +128,7 @@ def _covered(case: Mapping[str, object], *, name: str, index: int) -> bool:
     return offset <= index < offset + size
 
 
-def memory_probe_policy(  # noqa: PLR0912 - selection and evidence assembly are one pass
+def schedule_probe_policy(  # noqa: PLR0912 - selection and evidence assembly are one pass
     candidate: ModelCandidateSpec,
     workload_ids: Mapping[str, Sequence[str]],
     counts: Mapping[str, Sequence[int]],
@@ -136,7 +150,7 @@ def memory_probe_policy(  # noqa: PLR0912 - selection and evidence assembly are 
         ids = workload_ids[name]
         if len(values) != len(ids):
             raise BenchmarkPreflightError(
-                "corpus counts do not cover ids", operation="memory_probe"
+                "corpus counts do not cover ids", operation="schedule_probe"
             )
         evidence = input_truncation_evidence(ids, values)
         workload_truncation[name] = {
@@ -160,7 +174,7 @@ def memory_probe_policy(  # noqa: PLR0912 - selection and evidence assembly are 
                 if worst is None or work > worst[3]:
                     worst = (name, start + offset, size, work)
     if longest is None or worst is None:
-        raise BenchmarkPreflightError("memory probe corpus is empty", operation="memory_probe")
+        raise BenchmarkPreflightError("schedule probe corpus is empty", operation="schedule_probe")
 
     longest_case = _case(workload_ids, counts, name=longest[0], offset=longest[1], size=1)
     worst_case = _case(workload_ids, counts, name=worst[0], offset=worst[1], size=worst[2])
@@ -174,7 +188,8 @@ def memory_probe_policy(  # noqa: PLR0912 - selection and evidence assembly are 
             cases.append(selected)
         truncation_case = selected
     return {
-        "artifact_revision": MEMORY_PROBE_REVISION,
+        "artifact_revision": SCHEDULE_PROBE_REVISION,
+        "stage": RES138_REFERENCE_STAGE,
         "model_id": candidate.model_id,
         "model_revision": candidate.revision,
         "scheduler_revision": SCHEDULER_REVISION,
@@ -196,7 +211,7 @@ def memory_probe_policy(  # noqa: PLR0912 - selection and evidence assembly are 
     }
 
 
-def run_memory_probe(
+def run_schedule_probe(
     *,
     encoder: ProbeEncoder,
     candidate: ModelCandidateSpec,
@@ -204,21 +219,21 @@ def run_memory_probe(
 ) -> dict[str, object]:
     """Count the corpus, derive the cases, and actually encode them at native 1024.
 
-    The encoder is the real loaded model on the GPU: an over-long truncation case
-    is encoded through the same native sentence-transformers path the full run
-    uses, so "the model can encode the longest legal input" is an observation
-    rather than an inference.
+    The encoder is the real loaded model on the current runtime: an over-long
+    truncation case is encoded through the same native sentence-transformers path
+    the full run uses, so "this runtime can execute the frozen schedule" is an
+    observation rather than an inference.
     """
     if encoder.observed_max_sequence_length() != RES138_INPUT_MAX_TOKENS:
         raise BenchmarkExecutionError(
             f"the loaded model reports max_seq_length {encoder.observed_max_sequence_length()}, "
-            f"not the frozen common input boundary {RES138_INPUT_MAX_TOKENS}. A different "
+            f"not the frozen Stage A reference boundary {RES138_INPUT_MAX_TOKENS}. A different "
             "boundary would truncate at a point the plan does not declare; no probe was encoded.",
-            operation="memory_probe",
+            operation="schedule_probe",
         )
     document_ids = {name: workload.document_ids for name, workload in workloads.items()}
     counts = corpus_token_counts(candidate, workloads, encoder.token_counts)
-    payload = memory_probe_policy(candidate, document_ids, counts)
+    payload = schedule_probe_policy(candidate, document_ids, counts)
     cases = cast("list[dict[str, object]]", payload["encoded_cases"])
     for selected in cases:
         name = cast("str", selected["workload"])
@@ -234,12 +249,14 @@ def run_memory_probe(
             or matrix.dtype != np.float32
             or not bool(np.all(np.isfinite(matrix)))
         ):
-            raise BenchmarkExecutionError("invalid memory-probe output", operation="memory_probe")
-        require_normalised_matrix(matrix, name="memory-probe output")
+            raise BenchmarkExecutionError(
+                "invalid schedule-probe output", operation="schedule_probe"
+            )
+        require_normalised_matrix(matrix, name="schedule-probe output")
     return payload
 
 
-def require_memory_probes(
+def require_schedule_probes(
     value: object,
     *,
     workloads: Mapping[str, RetrievalWorkload],
@@ -257,14 +274,18 @@ def require_memory_probes(
         RES138_MODEL_CANDIDATES
     ):
         raise BenchmarkPreflightError(
-            "PASS memory probes for both candidates are required", operation="memory_probe_approval"
+            "PASS schedule probes for both candidates are required",
+            operation="schedule_probe_approval",
         )
     for candidate, raw in zip(RES138_MODEL_CANDIDATES, cast("list[object]", value), strict=True):
         if not isinstance(raw, dict):
-            raise BenchmarkPreflightError("invalid memory probe", operation="memory_probe_approval")
+            raise BenchmarkPreflightError(
+                "invalid schedule probe", operation="schedule_probe_approval"
+            )
         payload = cast("dict[str, object]", raw)
         required = {
-            "artifact_revision": MEMORY_PROBE_REVISION,
+            "artifact_revision": SCHEDULE_PROBE_REVISION,
+            "stage": RES138_REFERENCE_STAGE,
             "model_id": candidate.model_id,
             "model_revision": candidate.revision,
             "scheduler_revision": SCHEDULER_REVISION,
@@ -282,16 +303,17 @@ def require_memory_probes(
             for key, expected in required.items()
         ):
             raise BenchmarkPreflightError(
-                "memory probe identity/policy/status differs", operation="memory_probe_approval"
+                "schedule probe identity/policy/status differs",
+                operation="schedule_probe_approval",
             )
         counts = corpus_token_counts(candidate, workloads, count_factory(candidate))
         document_ids = {name: workload.document_ids for name, workload in workloads.items()}
-        expected = memory_probe_policy(candidate, document_ids, counts)
+        expected = schedule_probe_policy(candidate, document_ids, counts)
         if any(
             canonical_json(payload.get(key)) != canonical_json(item)
             for key, item in expected.items()
         ):
             raise BenchmarkPreflightError(
-                "memory probe differs from deterministic corpus recomputation",
-                operation="memory_probe_approval",
+                "schedule probe differs from deterministic corpus recomputation",
+                operation="schedule_probe_approval",
             )
