@@ -18,7 +18,7 @@ import json
 import math
 import re
 from dataclasses import dataclass
-from typing import Final
+from typing import Final, cast
 
 __all__ = [
     "IR_CONTRACT_REVISION",
