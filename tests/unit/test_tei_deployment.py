@@ -321,12 +321,17 @@ def test_the_example_revision_in_the_template_is_a_real_commit_id() -> None:
     :class:`~dynamisrag.embedding.errors.EmbeddingContractError` about a mutable
     alias -- at provider construction, before they had any reason to doubt it.
     """
-    expected = ExpectedTeiModel(model_id=TEI_MODEL_ID, model_sha=TEI_MODEL_SHA)
+    expected = ExpectedTeiModel(
+        model_id="Qwen/Qwen3-Embedding-0.6B",
+        model_sha="97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
+    )
     template = _ENV_EXAMPLE.read_text(encoding="utf-8")
 
-    assert expected.model_sha == TEI_MODEL_SHA
-    assert f"# DYNAMISRAG_TEI_MODEL_SHA={TEI_MODEL_SHA}" in template
-    assert f"# DYNAMISRAG_TEI_MODEL_ID={TEI_MODEL_ID}" in template
+    assert expected.model_sha == "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3"
+    assert f"# DYNAMISRAG_TEI_MODEL_SHA={expected.model_sha}" in template
+    assert f"# DYNAMISRAG_TEI_MODEL_ID={expected.model_id}" in template
+    assert "# Provisional RES-139 engineering profile" in template
+    assert "# Formal RES-138 Stage-B production qualification deferred." in template
 
 
 # ---------------------------------------------------------------------------

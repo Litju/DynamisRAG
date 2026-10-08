@@ -23,6 +23,7 @@ from dynamisrag.embedding.tei import (
     REFERENCE_TEI_DEPLOYMENT_SEMANTICS,
     TEI_HTTP_PROTOCOL_REVISION,
     TEI_PROVIDER_NAME,
+    TeiDeploymentSemantics,
 )
 from dynamisrag.search import retrieval as retrieval_module
 from dynamisrag.search.bm25 import SOURCE_FIELDS, SearchHit, SearchResponse, SearchSourceSpan
@@ -38,6 +39,7 @@ from dynamisrag.search.retrieval import (
     DENSE_SOURCE_FIELDS,
     DENSE_SPACE,
     DENSE_TIE_ORDER,
+    DOCUMENT_GENERATION_CONFIG,
     QUERY_GENERATION_CONFIG,
     RRF_K,
     DenseCandidate,
@@ -46,6 +48,7 @@ from dynamisrag.search.retrieval import (
     HybridRetrievalService,
     PassageProvenance,
     QueryEmbedder,
+    QueryEmbeddingResult,
     QueryEmbeddingService,
     QueryEmbeddingUnavailable,
     build_dense_knn_request,
@@ -70,7 +73,39 @@ from dynamisrag.search.vector import (
 _PHYSICAL_INDEX: Final[str] = "dynamisrag-passages-passage-index-v2-123456789abc"
 _PROJECTION_SHA: Final[str] = "c" * 64
 _CHUNKER_REVISION: Final[str] = "structure-v1.1.b19e0939b5de"
-_DOC_CONFIG_SHA: Final[str] = hashlib.sha256(b"document prompt config").hexdigest()
+
+
+def _provider_identity(
+    *,
+    model_id: str = DENSE_MODEL_ID,
+    model_sha: str = DENSE_MODEL_REVISION,
+    runtime_sha: str = "e" * 40,
+    model_dtype: str = "float32",
+    model_pooling: str = "last_token",
+    max_input_length: int = 32768,
+    deployment: TeiDeploymentSemantics = REFERENCE_TEI_DEPLOYMENT_SEMANTICS,
+) -> EmbeddingProviderIdentity:
+    return EmbeddingProviderIdentity(
+        provider=TEI_PROVIDER_NAME,
+        protocol_revision=TEI_HTTP_PROTOCOL_REVISION,
+        runtime_version="1.9.0",
+        runtime_sha=runtime_sha,
+        runtime_docker_label="sha-e80ef22",
+        model_id=model_id,
+        model_sha=model_sha,
+        model_dtype=model_dtype,
+        model_pooling=model_pooling,
+        max_input_length=max_input_length,
+        max_client_batch_size=8,
+        max_batch_tokens=8192,
+        max_batch_requests=8,
+        deployment=deployment,
+    )
+
+
+_PROVIDER_IDENTITY: Final[EmbeddingProviderIdentity] = _provider_identity()
+_QUERY_CONFIG_SHA: Final[str] = _PROVIDER_IDENTITY.embedding_config_sha256(QUERY_GENERATION_CONFIG)
+_DOC_CONFIG_SHA: Final[str] = _PROVIDER_IDENTITY.embedding_config_sha256(DOCUMENT_GENERATION_CONFIG)
 _MODEL = EmbeddingModelIdentity(DENSE_MODEL_ID, DENSE_MODEL_REVISION, _DOC_CONFIG_SHA)
 _VECTOR_CONFIG = VectorIndexConfig(DENSE_DIMENSION, DENSE_SPACE, _MODEL)
 _META = vector_index_meta(
@@ -79,6 +114,16 @@ _META = vector_index_meta(
     vector_config=_VECTOR_CONFIG,
 )
 _ALIAS = "dynamisrag-passages"
+
+
+def _meta_for_document_digest(document_config_sha: str) -> Mapping[str, Any]:
+    model = EmbeddingModelIdentity(DENSE_MODEL_ID, DENSE_MODEL_REVISION, document_config_sha)
+    config = VectorIndexConfig(DENSE_DIMENSION, DENSE_SPACE, model)
+    return vector_index_meta(
+        projection_sha256=_PROJECTION_SHA,
+        chunker_revision=_CHUNKER_REVISION,
+        vector_config=config,
+    )
 
 
 def _source(
@@ -193,13 +238,27 @@ class _FakeClient:
 
 
 class _FakeQueryEmbedder:
-    def __init__(self, vector: Sequence[float] | None = None) -> None:
+    def __init__(
+        self,
+        vector: Sequence[float] | None = None,
+        *,
+        query_embedding_config_sha256: str = _QUERY_CONFIG_SHA,
+        expected_document_embedding_config_sha256: str = _DOC_CONFIG_SHA,
+    ) -> None:
         self.vector = tuple(vector or _unit_vector(0))
+        self.query_embedding_config_sha256 = query_embedding_config_sha256
+        self.expected_document_embedding_config_sha256 = expected_document_embedding_config_sha256
         self.calls: list[str] = []
 
-    def embed_query(self, query: str) -> tuple[float, ...]:
+    def embed_query(self, query: str) -> QueryEmbeddingResult:
         self.calls.append(query)
-        return self.vector
+        return QueryEmbeddingResult(
+            vector=self.vector,
+            query_embedding_config_sha256=self.query_embedding_config_sha256,
+            expected_document_embedding_config_sha256=(
+                self.expected_document_embedding_config_sha256
+            ),
+        )
 
 
 def _unit_vector(position: int) -> tuple[float, ...]:
@@ -266,27 +325,6 @@ def _dense(
 # ---------------------------------------------------------------------------
 
 
-def _provider_identity(
-    *, model_id: str = DENSE_MODEL_ID, model_sha: str = DENSE_MODEL_REVISION
-) -> EmbeddingProviderIdentity:
-    return EmbeddingProviderIdentity(
-        provider=TEI_PROVIDER_NAME,
-        protocol_revision=TEI_HTTP_PROTOCOL_REVISION,
-        runtime_version="1.9.0",
-        runtime_sha="e" * 40,
-        runtime_docker_label="sha-e80ef22",
-        model_id=model_id,
-        model_sha=model_sha,
-        model_dtype="float32",
-        model_pooling="mean",
-        max_input_length=32768,
-        max_client_batch_size=8,
-        max_batch_tokens=8192,
-        max_batch_requests=8,
-        deployment=REFERENCE_TEI_DEPLOYMENT_SEMANTICS,
-    )
-
-
 class _FakeProvider:
     generation_config = QUERY_GENERATION_CONFIG
     batch_size = 1
@@ -314,7 +352,7 @@ class _FakeProvider:
 def test_query_generation_semantics_are_explicit_and_content_addressed() -> None:
     provider = _FakeProvider((_unit_vector(7),))
 
-    vector = QueryEmbeddingService(cast(Any, provider)).embed_query("  exact query bytes  ")
+    result = QueryEmbeddingService(cast(Any, provider)).embed_query("  exact query bytes  ")
 
     normalized = "exact query bytes"
     digest = hashlib.sha256(normalized.encode()).hexdigest()
@@ -328,7 +366,10 @@ def test_query_generation_semantics_are_explicit_and_content_addressed() -> None
         )
         == QUERY_GENERATION_CONFIG
     )
-    assert vector == _unit_vector(7)
+    assert result.vector == _unit_vector(7)
+    assert result.query_embedding_config_sha256 == _QUERY_CONFIG_SHA
+    assert result.expected_document_embedding_config_sha256 == _DOC_CONFIG_SHA
+    assert result.query_embedding_config_sha256 != result.expected_document_embedding_config_sha256
     assert provider.inputs[0].passage_key == f"query:{digest}"
     assert provider.inputs[0].content_sha256 == digest
     assert provider.inputs[0].text == normalized
@@ -364,6 +405,19 @@ def test_query_adapter_refuses_a_different_model_revision() -> None:
         ).embed_query("query")
 
 
+def test_query_adapter_requires_last_token_pooling_before_embedding() -> None:
+    provider = _FakeProvider(
+        (_unit_vector(0),),
+        identity=_provider_identity(model_pooling="mean"),
+    )
+
+    with pytest.raises(QueryEmbeddingUnavailable, match="pooling"):
+        QueryEmbeddingService(cast(Any, provider)).embed_query("query")
+
+    assert provider.inputs == ()
+    assert provider.describe_count == 1
+
+
 def test_query_adapter_requires_the_explicit_normalized_query_generation_config() -> None:
     class _UnnormalizedProvider(_FakeProvider):
         generation_config = EmbeddingGenerationConfig(
@@ -379,16 +433,25 @@ def test_query_adapter_requires_the_explicit_normalized_query_generation_config(
 
 
 def test_query_and_document_generation_digests_are_not_required_to_match() -> None:
-    query_digest = (
-        _provider_identity()
-        .embedding_model_identity(QUERY_GENERATION_CONFIG)
-        .embedding_config_sha256
-    )
+    identity = _provider_identity()
+    provider = _FakeProvider((_unit_vector(0),), identity=identity)
+    result = QueryEmbeddingService(cast(Any, provider)).embed_query("query")
+    query_digest = identity.embedding_config_sha256(QUERY_GENERATION_CONFIG)
+    document_digest = identity.embedding_config_sha256(DOCUMENT_GENERATION_CONFIG)
 
-    response = _service(_FakeClient()).retrieve("query")
+    response = _service(
+        _FakeClient(),
+        _FakeQueryEmbedder(
+            query_embedding_config_sha256=query_digest,
+            expected_document_embedding_config_sha256=document_digest,
+        ),
+    ).retrieve("query")
 
-    assert query_digest != _DOC_CONFIG_SHA
-    assert response.dense.document_embedding_config_sha256 == _DOC_CONFIG_SHA
+    assert result.query_embedding_config_sha256 == query_digest
+    assert result.expected_document_embedding_config_sha256 == document_digest
+    assert query_digest != document_digest
+    assert response.dense.query_embedding_config_sha256 == query_digest
+    assert response.dense.document_embedding_config_sha256 == document_digest
 
 
 def test_query_adapter_rejects_blank_and_overlong_queries_before_provider_calls() -> None:
@@ -517,6 +580,57 @@ def test_v1_or_incompatible_vector_metadata_is_refused(change: Mapping[str, Any]
 
     with pytest.raises(SearchBackendError):
         _service(_FakeClient(meta=meta)).retrieve("query")
+
+
+@pytest.mark.parametrize(
+    "document_digest",
+    [
+        pytest.param(
+            _provider_identity(runtime_sha="f" * 40).embedding_config_sha256(
+                DOCUMENT_GENERATION_CONFIG
+            ),
+            id="different-tei-build",
+        ),
+        pytest.param(
+            _provider_identity(model_dtype="bfloat16").embedding_config_sha256(
+                DOCUMENT_GENERATION_CONFIG
+            ),
+            id="different-dtype",
+        ),
+        pytest.param(
+            _provider_identity(model_pooling="mean").embedding_config_sha256(
+                DOCUMENT_GENERATION_CONFIG
+            ),
+            id="different-pooling",
+        ),
+        pytest.param(
+            _provider_identity(max_input_length=8192).embedding_config_sha256(
+                DOCUMENT_GENERATION_CONFIG
+            ),
+            id="different-tokenizer-boundary",
+        ),
+        pytest.param(
+            _provider_identity(
+                deployment=TeiDeploymentSemantics.with_literal_default_prompt("different")
+            ).embedding_config_sha256(DOCUMENT_GENERATION_CONFIG),
+            id="different-deployment-semantics",
+        ),
+        pytest.param(
+            _PROVIDER_IDENTITY.embedding_config_sha256(QUERY_GENERATION_CONFIG),
+            id="wrong-document-prompt",
+        ),
+        pytest.param("a" * 64, id="arbitrary-well-formed-digest"),
+    ],
+)
+def test_document_embedding_space_mismatch_is_rejected_before_ann(
+    document_digest: str,
+) -> None:
+    client = _FakeClient(meta=_meta_for_document_digest(document_digest))
+
+    with pytest.raises(SearchBackendError, match="incompatible"):
+        _service(client).retrieve("query")
+
+    assert all("knn" not in body["query"] for _, body in client.searches)
 
 
 def test_both_branches_use_one_resolved_physical_index_and_one_meta_read() -> None:
@@ -660,6 +774,7 @@ def _empty_response(query: str = "query") -> HybridRetrievalResponse:
         model_revision=DENSE_MODEL_REVISION,
         dimension=512,
         vector_space="cosinesimil",
+        query_embedding_config_sha256=_QUERY_CONFIG_SHA,
         document_embedding_config_sha256=_DOC_CONFIG_SHA,
         embedding_profile="res138-stage-a-provisional-qwen3-embedding-0.6b-512-v1",
         embedding_profile_status="provisional",

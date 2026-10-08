@@ -14,6 +14,7 @@ from dynamisrag.embedding.contracts import (
     EmbeddingGenerationConfig,
     EmbeddingInput,
     EmbeddingProvider,
+    EmbeddingProviderIdentity,
     TruncationDirection,
     passage_content_sha256,
 )
@@ -61,6 +62,7 @@ __all__ = [
     "DENSE_SOURCE_FIELDS",
     "DENSE_SPACE",
     "DENSE_TIE_ORDER",
+    "DOCUMENT_GENERATION_CONFIG",
     "FUSION_REVISION",
     "HYBRID_RETRIEVAL_REVISION",
     "PROVISIONAL_EMBEDDING_PROFILE",
@@ -97,6 +99,9 @@ DENSE_MODEL_ID: Final[str] = "Qwen/Qwen3-Embedding-0.6B"
 DENSE_MODEL_REVISION: Final[str] = "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3"
 DENSE_DIMENSION: Final[int] = 512
 DENSE_SPACE: Final[str] = VECTOR_SPACE_COSINESIMIL
+# Qwen3-Embedding-0.6B's profile reports last-token pooling; keep this production
+# fact local so search does not depend on benchmark qualification code.
+DENSE_MODEL_POOLING: Final[str] = "last_token"
 PROVISIONAL_EMBEDDING_PROFILE: Final[str] = "res138-stage-a-provisional-qwen3-embedding-0.6b-512-v1"
 """Provisional engineering default; RES-138 Stage-B qualification is deferred."""
 
@@ -109,6 +114,15 @@ QUERY_GENERATION_CONFIG: Final[EmbeddingGenerationConfig] = EmbeddingGenerationC
 )
 """Query-side Qwen semantics. Truncation is explicit and matches the RES-138 input policy."""
 
+DOCUMENT_GENERATION_CONFIG: Final[EmbeddingGenerationConfig] = EmbeddingGenerationConfig(
+    normalize=True,
+    truncate=True,
+    truncation_direction=TruncationDirection.RIGHT,
+    prompt_name="document",
+    dimensions=DENSE_DIMENSION,
+)
+"""Document-side Qwen semantics; the prompt intentionally differs from the query prompt."""
+
 
 class QueryEmbeddingUnavailable(EmbeddingProviderError):
     """A provider could not safely produce the provisional query vector."""
@@ -119,9 +133,19 @@ class QueryEmbeddingUnavailable(EmbeddingProviderError):
 class QueryEmbedder(Protocol):
     """Narrow query-only seam used by the dense retrieval service and tests."""
 
-    def embed_query(self, query: str) -> tuple[float, ...]:
-        """Return one validated query vector, without exposing its surrogate key."""
+    def embed_query(self, query: str) -> QueryEmbeddingResult:
+        """Return a validated query vector and the fingerprints bound to its runtime."""
         ...
+
+
+class QueryEmbeddingResult(BaseModel):
+    """One query vector with its stable provider's query and document fingerprints."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    vector: tuple[float, ...]
+    query_embedding_config_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    expected_document_embedding_config_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
 class QueryEmbeddingService:
@@ -137,7 +161,7 @@ class QueryEmbeddingService:
             )
         self._provider: Final[EmbeddingProvider] = provider
 
-    def embed_query(self, query: str) -> tuple[float, ...]:
+    def embed_query(self, query: str) -> QueryEmbeddingResult:
         normalized = validate_query(query)
         digest = passage_content_sha256(normalized)
         surrogate_key = f"query:{digest}"
@@ -148,11 +172,11 @@ class QueryEmbeddingService:
         )
         try:
             before = self._provider.describe()
-            self._require_model(before.model_id, before.model_sha)
+            self._require_model(before)
             vectors = self._provider.embed((item,))
             after = self._provider.describe()
             before.require_same_semantic_runtime(after, operation="embed_query")
-            self._require_model(after.model_id, after.model_sha)
+            self._require_model(after)
         except Exception as error:
             if isinstance(error, QueryEmbeddingUnavailable):
                 raise
@@ -171,6 +195,8 @@ class QueryEmbeddingService:
         values = vectors[0]
         try:
             identity = after.embedding_model_identity(QUERY_GENERATION_CONFIG)
+            query_config_sha = after.embedding_config_sha256(QUERY_GENERATION_CONFIG)
+            document_config_sha = after.embedding_config_sha256(DOCUMENT_GENERATION_CONFIG)
             config = VectorIndexConfig(
                 dimension=DENSE_DIMENSION,
                 space=DENSE_SPACE,
@@ -193,13 +219,22 @@ class QueryEmbeddingService:
                 "the query embedding provider did not honour required normalization",
                 operation="embed_query",
             )
-        return vector.values
+        return QueryEmbeddingResult(
+            vector=vector.values,
+            query_embedding_config_sha256=query_config_sha,
+            expected_document_embedding_config_sha256=document_config_sha,
+        )
 
     @staticmethod
-    def _require_model(model_id: str, model_revision: str) -> None:
-        if (model_id, model_revision) != (DENSE_MODEL_ID, DENSE_MODEL_REVISION):
+    def _require_model(identity: EmbeddingProviderIdentity) -> None:
+        if (identity.model_id, identity.model_sha) != (DENSE_MODEL_ID, DENSE_MODEL_REVISION):
             raise QueryEmbeddingUnavailable(
                 "the query embedding provider does not serve the provisional model revision",
+                operation="embed_query",
+            )
+        if identity.model_pooling != DENSE_MODEL_POOLING:
+            raise QueryEmbeddingUnavailable(
+                "the query embedding provider does not use the provisional model pooling",
                 operation="embed_query",
             )
 
@@ -292,7 +327,8 @@ class DenseSearchResponse(BaseModel):
     model_revision: str
     dimension: Literal[512]
     vector_space: Literal["cosinesimil"]
-    document_embedding_config_sha256: str
+    query_embedding_config_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    document_embedding_config_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     embedding_profile: Literal["res138-stage-a-provisional-qwen3-embedding-0.6b-512-v1"]
     embedding_profile_status: Literal["provisional"]
     candidate_window: Literal[50]
@@ -567,7 +603,16 @@ class _DenseSearchService:
             raise QueryEmbeddingUnavailable(
                 "no query embedding provider is configured", operation="embed_query"
             )
-        vector = self._query_embedder.embed_query(query)
+        query_result = self._query_embedder.embed_query(query)
+        if (
+            query_result.expected_document_embedding_config_sha256
+            != identity.document_embedding_config_sha256
+        ):
+            raise SearchBackendError(
+                "query and document embedding configurations are incompatible",
+                operation="dense_search",
+            )
+        vector = query_result.vector
         if len(vector) != DENSE_DIMENSION or any(
             not _is_finite_component(value) for value in vector
         ):
@@ -627,6 +672,7 @@ class _DenseSearchService:
             model_revision=identity.model_revision,
             dimension=identity.dimension,
             vector_space=identity.vector_space,
+            query_embedding_config_sha256=query_result.query_embedding_config_sha256,
             document_embedding_config_sha256=identity.document_embedding_config_sha256,
             embedding_profile=PROVISIONAL_EMBEDDING_PROFILE,
             embedding_profile_status="provisional",

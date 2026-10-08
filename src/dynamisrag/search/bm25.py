@@ -265,7 +265,9 @@ class Bm25SearchService:
         payload = self._client.search(
             physical_index, build_bm25_request(query=normalized, limit=limit)
         )
-        return self._to_response(query=normalized, limit=limit, meta=meta, payload=payload)
+        return self._to_response(
+            query=normalized, limit=limit, meta=meta, payload=payload, physical_index=physical_index
+        )
 
     # ------------------------------------------------------------------
     # Response validation
@@ -278,6 +280,7 @@ class Bm25SearchService:
         limit: int,
         meta: Mapping[str, JsonValue],
         payload: Mapping[str, JsonValue],
+        physical_index: str | None = None,
     ) -> SearchResponse:
         index_schema_revision = _require_meta_str(meta, "schema_revision")
         projection_sha256 = _require_meta_str(meta, "projection_sha256")
@@ -327,6 +330,7 @@ class Bm25SearchService:
                 chunker_revision=chunker_revision,
                 index_schema_revision=index_schema_revision,
                 projection_sha256=projection_sha256,
+                physical_index=physical_index,
             )
             for position, raw in enumerate(raw_hits, start=1)
         )

@@ -138,7 +138,7 @@ class Settings(BaseSettings):
             "DYNAMISRAG_TEI_MODEL_ID",
         ),
     )
-    """Repository this deployment insists TEI is serving, for example ``BAAI/bge-small-en-v1.5``.
+    """Repository this deployment insists TEI is serving, for example ``Qwen/Qwen3-Embedding-0.6B``.
 
     Compared against the *observed* ``/info`` ``model_id``, never used as a
     request. Which model should be the default is RES-138's decision; this is

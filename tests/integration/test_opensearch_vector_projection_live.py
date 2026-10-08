@@ -97,6 +97,7 @@ from dynamisrag.search import (
     PassageProjector,
     VectorPassageProjector,
 )
+from dynamisrag.search.retrieval import QueryEmbeddingResult
 from dynamisrag.search.schema import VECTOR_FIELD
 from dynamisrag.search.vector import (
     VECTOR_SPACE_COSINESIMIL,
@@ -135,6 +136,9 @@ _HYBRID_MODEL: Final[EmbeddingModelIdentity] = EmbeddingModelIdentity(
     model_revision=DENSE_MODEL_REVISION,
     embedding_config_sha256=hashlib.sha256(b"synthetic document generation semantics").hexdigest(),
 )
+_HYBRID_QUERY_CONFIG_SHA: Final[str] = hashlib.sha256(
+    b"synthetic query generation semantics"
+).hexdigest()
 _HYBRID_CONFIG: Final[VectorIndexConfig] = VectorIndexConfig(
     dimension=DENSE_DIMENSION,
     space=VECTOR_SPACE_COSINESIMIL,
@@ -893,12 +897,21 @@ def _hybrid_vectors(keys: Sequence[str], *, offset: int = 0) -> list[PassageVect
 class _FakeHybridQueryEmbedder:
     """A deterministic unit query vector; no TEI or model is involved."""
 
-    def embed_query(self, query: str) -> tuple[float, ...]:
+    def __init__(self, *, expected_document_embedding_config_sha256: str) -> None:
+        self.expected_document_embedding_config_sha256 = expected_document_embedding_config_sha256
+
+    def embed_query(self, query: str) -> QueryEmbeddingResult:
         assert query == "jumping"
         vector = [0.0] * DENSE_DIMENSION
         vector[0] = 0.6
         vector[2] = 0.8
-        return tuple(vector)
+        return QueryEmbeddingResult(
+            vector=tuple(vector),
+            query_embedding_config_sha256=_HYBRID_QUERY_CONFIG_SHA,
+            expected_document_embedding_config_sha256=(
+                self.expected_document_embedding_config_sha256
+            ),
+        )
 
 
 def test_production_hybrid_search_runs_over_one_live_512d_projection(
@@ -913,7 +926,11 @@ def test_production_hybrid_search_runs_over_one_live_512d_projection(
         vector_config=_HYBRID_CONFIG,
     )
     service = HybridRetrievalService(
-        node.client, alias=node.alias, query_embedder=_FakeHybridQueryEmbedder()
+        node.client,
+        alias=node.alias,
+        query_embedder=_FakeHybridQueryEmbedder(
+            expected_document_embedding_config_sha256=(_HYBRID_MODEL.embedding_config_sha256)
+        ),
     )
 
     first = service.retrieve("jumping", limit=4)
@@ -993,7 +1010,11 @@ def test_alias_cutover_after_snapshot_keeps_both_lanes_on_the_captured_index(
     monkeypatch.setattr(OpenSearchClient, "alias_targets", switch_after_snapshot)
     monkeypatch.setattr(OpenSearchClient, "search", record_search)
     response = HybridRetrievalService(
-        node.client, alias=node.alias, query_embedder=_FakeHybridQueryEmbedder()
+        node.client,
+        alias=node.alias,
+        query_embedder=_FakeHybridQueryEmbedder(
+            expected_document_embedding_config_sha256=(_HYBRID_MODEL.embedding_config_sha256)
+        ),
     ).retrieve("jumping", limit=4)
 
     assert switched is True

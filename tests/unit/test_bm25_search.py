@@ -441,6 +441,20 @@ def test_a_hit_indexed_under_different_projection_semantics_is_rejected() -> Non
         node.service().search("probiotic")
 
 
+def test_resolved_bm25_rejects_a_hit_from_another_physical_index() -> None:
+    wrong_index = _hit("a" * 64, 1.0)
+    wrong_index["_index"] = "another-physical-index"
+    node = _Node(payload=_search_payload([wrong_index]))
+
+    with pytest.raises(SearchBackendError, match="different physical index"):
+        node.service().search_resolved(
+            "probiotic",
+            limit=1,
+            physical_index="dynamisrag-passages-passage-index-v2-123456789abc",
+            meta=_META,
+        )
+
+
 def test_a_hit_without_a_score_is_rejected() -> None:
     payload = _search_payload([{"_id": "a" * 64, "_source": _source("a" * 64)}])
     node = _Node(payload=payload)
