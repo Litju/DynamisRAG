@@ -67,9 +67,12 @@ __all__ = [
     "RES138_SELECTION_FILENAME",
     "assemble_production_qualification",
     "qualification_path",
+    "read_qualification",
     "read_selection_artifact",
+    "require_current_qualification",
     "run_stage_b_selection",
     "stage_b_candidate_evidence",
+    "write_qualification",
     "write_selection_artifact",
 ]
 
@@ -242,6 +245,53 @@ def assemble_production_qualification(
     return qualification
 
 
+def require_current_qualification(
+    *,
+    sealed: SealedStageA,
+    plan: StageBPlan,
+    lanes: Sequence[OpenSearchLaneResult],
+    verdicts: Sequence[GpuEvidenceVerdict],
+    preflight: GpuPreflightManifest,
+    persisted: ProductionQualification,
+    operation: str = "require_current_qualification",
+) -> ProductionQualification:
+    """Rebuild the qualification from current verified evidence and require the persisted one.
+
+    The persisted ``production-qualification.json`` is an **output**, not an input: it is
+    trusted only when the current lane measurements and re-verified GPU verdicts
+    reconstruct the same canonical payload and digest. A qualification whose OpenSearch
+    metrics, GPU production metrics or Stage A reference moved after it was written is
+    stale or foreign, and selection must run on the qualification the current evidence
+    earns rather than on whatever file happens to be on disk.
+
+    Returns the freshly reconstructed qualification, never the persisted object.
+    """
+    current = assemble_production_qualification(
+        sealed=sealed,
+        plan=plan,
+        lanes=lanes,
+        verdicts=verdicts,
+        preflight=preflight,
+        operation=operation,
+    )
+    current_digest = qualification_sha256(current)
+    persisted_digest = qualification_sha256(persisted)
+    if current_digest != persisted_digest or canonical_json(current.payload()) != canonical_json(
+        persisted.payload()
+    ):
+        raise BenchmarkArtifactError(
+            "the persisted production qualification does not match the qualification reconstructed "
+            f"from the current verified evidence (persisted {persisted_digest}, current "
+            f"{current_digest}). Once its OpenSearch measurements, GPU production metrics or "
+            "Stage A reference move, a persisted qualification is stale or foreign; selection runs "
+            "only on the qualification the current evidence earns.",
+            operation=operation,
+            expected=current_digest,
+            observed=persisted_digest,
+        )
+    return current
+
+
 def write_qualification(qualification: ProductionQualification, path: Path) -> str:
     """Write the qualification payload as canonical JSON and return its digest."""
     payload = qualification.payload()
@@ -255,6 +305,7 @@ def write_qualification(qualification: ProductionQualification, path: Path) -> s
 def read_qualification(
     path: Path,
     *,
+    expect_reference_bundle_sha256: str | None = None,
     operation: str = "read_qualification",
 ) -> ProductionQualification:
     """Read a written qualification, or refuse it.
@@ -265,6 +316,11 @@ def read_qualification(
     dropped metric or a hand-edited equivalence verdict is refused here rather than being
     carried into the selection table. The returned object is the rebuilt one, so what the
     selection rule consumes is what the verifier accepted.
+
+    ``expect_reference_bundle_sha256`` is the binding the caller holds — the sealed Stage A
+    bundle the qualification must reproduce — and is passed straight into the frozen
+    verifier. A qualification that is internally consistent but bound to a different Stage A
+    reference is foreign, and is refused here.
     """
     try:
         decoded: object = json.loads(path.read_text(encoding="utf-8"))
@@ -279,7 +335,11 @@ def read_qualification(
             f"the production qualification at {path.name} is not valid JSON ({error}).",
             operation=operation,
         ) from None
-    verified = verify_production_qualification(decoded, operation=operation)
+    verified = verify_production_qualification(
+        decoded,
+        expect_reference_bundle_sha256=expect_reference_bundle_sha256,
+        operation=operation,
+    )
     reference = verified.get("reference")
     gate = verified.get("gate")
     reference_map = cast("Mapping[str, object]", reference)

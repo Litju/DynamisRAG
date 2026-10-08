@@ -658,7 +658,14 @@ def _assemble_qualification(arguments: argparse.Namespace) -> int:
 
 
 def _select(arguments: argparse.Namespace) -> int:
-    """Run the frozen selection rule, write its outcome, and exit non-zero if it halted.
+    """Run the frozen selection rule on the qualification the current evidence earns.
+
+    The persisted ``production-qualification.json`` is re-read through the frozen verifier
+    with the sealed Stage A bundle digest as its expected binding, and then the
+    qualification is **reconstructed from the current verified evidence**. Selection runs
+    only when the persisted artifact and the reconstructed one are canonically equal with
+    the same digest; a stale or foreign qualification is refused, never selected from.
+    The written selection artifact is bound to the reconstructed qualification's digest.
 
     A halted selection is a result a reviewer needs to see, so it is written and printed
     and the process reports failure — not because the command errored, but because the
@@ -668,18 +675,32 @@ def _select(arguments: argparse.Namespace) -> int:
     from dynamisrag.benchmark.qualification import (
         qualification_path,
         read_qualification,
+        require_current_qualification,
         run_stage_b_selection,
         write_selection_artifact,
     )
     from dynamisrag.benchmark.selection import SelectionStatus
 
     try:
-        sealed, _plan, _lanes, _verdicts, _preflight = _load_evidence(arguments)
+        sealed, plan, lanes, verdicts, preflight = _load_evidence(arguments)
         work_dir = Path(arguments.work_dir)
-        qualification = read_qualification(qualification_path(work_dir))
+        persisted = read_qualification(
+            qualification_path(work_dir),
+            expect_reference_bundle_sha256=sealed.reference.bundle_sha256,
+        )
+        qualification = require_current_qualification(
+            sealed=sealed,
+            plan=plan,
+            lanes=lanes,
+            verdicts=verdicts,
+            preflight=preflight,
+            persisted=persisted,
+        )
         outcome = run_stage_b_selection(sealed=sealed, qualification=qualification)
         digest = write_selection_artifact(
-            path=work_dir / "res138-selection.json", outcome=outcome, qualification=qualification
+            path=work_dir / "res138-selection.json",
+            outcome=outcome,
+            qualification=qualification,
         )
     except BenchmarkError as error:
         return _fail(
