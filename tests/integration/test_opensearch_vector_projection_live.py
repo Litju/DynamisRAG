@@ -20,6 +20,8 @@ of it is. This file proves the parts that only a real index can answer:
   a no-op, changing one vector is a new index and a safe cutover, and deleting
   everything rebuilds to the same digest, name, document ids and neighbour ranking
   from canonical PostgreSQL plus the same explicit vector set;
+* production dense retrieval and RRF run over deterministic 512-dimensional test
+  vectors, including an alias cutover after the physical target is captured;
 * the mechanics hold at PMC scale: the real PMC2731074 article, 19 passages, 19
   vectors, 19 documents.
 
@@ -33,12 +35,12 @@ chosen by the test, not produced by any model. The embedding identity on
 named so that no reader can mistake it for weights. These tests prove index
 mechanics — mapping acceptance, ANN ranking, BM25 coexistence, cutover, idempotency
 — and make **no claim whatsoever about semantic quality**, because the vectors
-carry no semantics. Choosing the production embedding model is RES-138's decision.
+carry no semantics. The Qwen 512 query profile exercised by the hybrid tests is
+provisional and does not establish formal RES-138 Stage-B qualification.
 
-The k-NN queries here are raw and test-only, written by the test and issued
-through the ordinary search client. There is deliberately no production dense
-service, no hybrid endpoint and no fusion: those are RES-139's, and adding an ANN
-query builder here would be building the next issue's interface by accident.
+The raw k-NN query below remains a test-only projection check. The RES-139 tests
+also exercise the production dense query builder and hybrid service against the
+same live OpenSearch node, using synthetic vectors and a fake query embedder.
 """
 
 from __future__ import annotations
@@ -83,9 +85,13 @@ from dynamisrag.jats import JatsCanonicalImporter
 from dynamisrag.search import (
     BM25_QUERY_REVISION,
     BM25_SIMILARITY_REVISION,
+    DENSE_DIMENSION,
+    DENSE_MODEL_ID,
+    DENSE_MODEL_REVISION,
     PASSAGE_INDEX_SCHEMA_REVISION,
     VECTOR_PASSAGE_INDEX_SCHEMA_REVISION,
     Bm25SearchService,
+    HybridRetrievalService,
     OpenSearchClient,
     OpenSearchError,
     PassageProjector,
@@ -122,6 +128,17 @@ _CONFIG: Final[VectorIndexConfig] = VectorIndexConfig(
     dimension=_DIMENSION,
     space=VECTOR_SPACE_COSINESIMIL,
     embedding_model=_SYNTHETIC_MODEL,
+)
+
+_HYBRID_MODEL: Final[EmbeddingModelIdentity] = EmbeddingModelIdentity(
+    model_id=DENSE_MODEL_ID,
+    model_revision=DENSE_MODEL_REVISION,
+    embedding_config_sha256=hashlib.sha256(b"synthetic document generation semantics").hexdigest(),
+)
+_HYBRID_CONFIG: Final[VectorIndexConfig] = VectorIndexConfig(
+    dimension=DENSE_DIMENSION,
+    space=VECTOR_SPACE_COSINESIMIL,
+    embedding_model=_HYBRID_MODEL,
 )
 
 # Three orthogonal unit vectors and one diagonal, so a cosine query equal to one
@@ -860,3 +877,120 @@ def test_the_mechanics_hold_for_a_real_article_with_nineteen_passages(
         hit.passage_key for hit in node.neighbours(node.alias, _one_hot(6, dimension), k=1)
     ] == [keys[6]]
     assert node.service().search("probiotic soy exercise", limit=5).total == response.total
+
+
+def _hybrid_unit(position: int) -> tuple[float, ...]:
+    return tuple(1.0 if index == position else 0.0 for index in range(DENSE_DIMENSION))
+
+
+def _hybrid_vectors(keys: Sequence[str], *, offset: int = 0) -> list[PassageVector]:
+    return [
+        PassageVector(passage_key=key, values=_hybrid_unit((index + offset) % len(keys)))
+        for index, key in enumerate(keys)
+    ]
+
+
+class _FakeHybridQueryEmbedder:
+    """A deterministic unit query vector; no TEI or model is involved."""
+
+    def embed_query(self, query: str) -> tuple[float, ...]:
+        assert query == "jumping"
+        vector = [0.0] * DENSE_DIMENSION
+        vector[0] = 0.6
+        vector[2] = 0.8
+        return tuple(vector)
+
+
+def test_production_hybrid_search_runs_over_one_live_512d_projection(
+    node: _Namespace, db_session: Session
+) -> None:
+    version = _seed(db_session)
+    keys = _passage_keys(db_session, version)
+    projection = node.project_vector(
+        db_session,
+        chunker_revision=_REVISION,
+        vectors=_hybrid_vectors(keys),
+        vector_config=_HYBRID_CONFIG,
+    )
+    service = HybridRetrievalService(
+        node.client, alias=node.alias, query_embedder=_FakeHybridQueryEmbedder()
+    )
+
+    first = service.retrieve("jumping", limit=4)
+    second = service.retrieve("jumping", limit=4)
+
+    assert first.physical_index == projection.index_name
+    assert first.lexical.query_revision == BM25_QUERY_REVISION
+    assert first.lexical.index_schema_revision == VECTOR_PASSAGE_INDEX_SCHEMA_REVISION
+    assert [hit.section_title for hit in first.lexical.hits] == ["Introduction", "Methods"]
+    assert first.dense.query_revision == "dense-knn-v1"
+    assert first.dense.projection_sha256 == projection.projection_sha256
+    assert first.dense.candidates[0].passage_key == keys[2]
+    assert first.dense.candidates[1].passage_key == keys[0]
+    assert first.dense.candidates[0].provenance.source_spans
+    assert first.fusion.revision == "rrf-v1"
+    assert first.fusion.hits[0].passage_key == keys[0]
+    assert first.fusion.hits[0].lexical.present
+    assert first.fusion.hits[0].dense.present
+    assert (
+        first.fusion.hits[0].provenance.source_spans[0].paragraph_source_anchor.startswith("jats:")
+    )
+    assert [hit.passage_key for hit in first.fusion.hits] == [
+        hit.passage_key for hit in second.fusion.hits
+    ]
+    assert [candidate.passage_key for candidate in first.dense.candidates] == [
+        candidate.passage_key for candidate in second.dense.candidates
+    ]
+    assert all("embedding" not in candidate.model_dump() for candidate in first.dense.candidates)
+
+
+def test_alias_cutover_after_snapshot_keeps_both_lanes_on_the_captured_index(
+    node: _Namespace,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    version = _seed(db_session)
+    keys = _passage_keys(db_session, version)
+    first = node.project_vector(
+        db_session,
+        chunker_revision=_REVISION,
+        vectors=_hybrid_vectors(keys),
+        vector_config=_HYBRID_CONFIG,
+    )
+    alternate_alias = f"{node.alias}-alternate"
+    alternate = VectorPassageProjector(
+        db_session,
+        node.client,
+        alias=alternate_alias,
+        vector_config=_HYBRID_CONFIG,
+    ).project(chunker_revision=_REVISION, vectors=_hybrid_vectors(keys, offset=1))
+    node.indexes.add(alternate.index_name)
+    original_targets = node.client.alias_targets
+    original_search = node.client.search
+    search_targets: list[str] = []
+    switched = False
+
+    def switch_after_snapshot(alias: str) -> tuple[str, ...]:
+        nonlocal switched
+        targets = original_targets(alias)
+        if alias == node.alias and targets == (first.index_name,) and not switched:
+            node.client.switch_alias(alias=node.alias, index=alternate.index_name, remove=targets)
+            switched = True
+        return targets
+
+    def record_search(target: str, body: Mapping[str, Any]) -> Mapping[str, Any]:
+        search_targets.append(target)
+        return original_search(target, body)
+
+    monkeypatch.setattr(node.client, "alias_targets", switch_after_snapshot)
+    monkeypatch.setattr(node.client, "search", record_search)
+    response = HybridRetrievalService(
+        node.client, alias=node.alias, query_embedder=_FakeHybridQueryEmbedder()
+    ).retrieve("jumping", limit=4)
+
+    assert switched is True
+    assert node.targets() == (alternate.index_name,)
+    assert response.physical_index == first.index_name
+    assert response.lexical.projection_sha256 == first.projection_sha256
+    assert response.dense.projection_sha256 == first.projection_sha256
+    assert search_targets == [first.index_name, first.index_name]
