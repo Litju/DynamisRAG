@@ -30,6 +30,7 @@ What is pinned, and why each is a separate refusal rather than one "invalid inpu
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 from collections.abc import Callable, Mapping, Sequence
@@ -106,7 +107,9 @@ from dynamisrag.benchmark.production import (
     EquivalenceEvidence,
     OperationalMetrics,
     ProductionInferenceSpec,
+    StageAReference,
     build_production_qualification,
+    qualification_sha256,
     verify_production_qualification,
 )
 from dynamisrag.benchmark.qualification import (
@@ -114,9 +117,12 @@ from dynamisrag.benchmark.qualification import (
     leader_bootstrap,
     qualification_path,
     read_qualification,
+    read_selection_artifact,
+    require_current_qualification,
     run_stage_b_selection,
     stage_b_candidate_evidence,
     write_qualification,
+    write_selection_artifact,
 )
 from dynamisrag.benchmark.res138 import (
     PREFLIGHT_FILENAME,
@@ -1630,6 +1636,19 @@ def test_materialize_refuses_a_manifest_that_does_not_authorize(
         )
 
 
+def test_renamed_full_evidence_cannot_be_imported(
+    tmp_path: Path, sealed: SealedStageA, plan: StageBPlan
+) -> None:
+    """The import never renames: a non-canonical basename is refused before any copy."""
+    evidence_dir = tmp_path / "a100"
+    _write_full_evidence_dir(evidence_dir, sealed, plan)
+    renamed = evidence_dir / "renamed-full.json"
+    renamed.write_bytes((evidence_dir / "gpu-evidence-512-full.json").read_bytes())
+    with pytest.raises(BenchmarkArtifactError, match="not the canonical"):
+        verify_and_materialize(renamed, sealed=sealed, plan=plan, work_dir=tmp_path / "work")
+    assert not (tmp_path / "work" / RES138_GPU_EVIDENCE_DIRECTORY).exists()
+
+
 # ---------------------------------------------------------------------------
 # 5. The local OpenSearch lane
 # ---------------------------------------------------------------------------
@@ -2393,6 +2412,202 @@ def test_a_written_qualification_is_rebuilt_from_its_own_records(
     path.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(BenchmarkContractError, match="not measured"):
         read_qualification(path)
+
+
+def test_the_exact_current_qualification_is_accepted(
+    sealed: SealedStageA, plan: StageBPlan
+) -> None:
+    lanes, verdicts, preflight = _complete_evidence(sealed, plan)
+    persisted = assemble_production_qualification(
+        sealed=sealed, plan=plan, lanes=lanes, verdicts=verdicts, preflight=preflight
+    )
+    current = require_current_qualification(
+        sealed=sealed,
+        plan=plan,
+        lanes=lanes,
+        verdicts=verdicts,
+        preflight=preflight,
+        persisted=persisted,
+    )
+    assert current is not persisted
+    assert qualification_sha256(current) == qualification_sha256(persisted)
+
+
+def test_a_stale_opensearch_qualification_is_refused(
+    sealed: SealedStageA, plan: StageBPlan
+) -> None:
+    lanes, verdicts, preflight = _complete_evidence(sealed, plan)
+    persisted = assemble_production_qualification(
+        sealed=sealed, plan=plan, lanes=lanes, verdicts=verdicts, preflight=preflight
+    )
+    moved = [_lane(sealed, plan, dimension=512, store_bytes=8_192), lanes[1]]
+    with pytest.raises(BenchmarkArtifactError, match="reconstructed"):
+        require_current_qualification(
+            sealed=sealed,
+            plan=plan,
+            lanes=moved,
+            verdicts=verdicts,
+            preflight=preflight,
+            persisted=persisted,
+        )
+
+
+def test_a_stale_gpu_metrics_qualification_is_refused(
+    sealed: SealedStageA, plan: StageBPlan
+) -> None:
+    lanes, verdicts, preflight = _complete_evidence(sealed, plan)
+    persisted = assemble_production_qualification(
+        sealed=sealed, plan=plan, lanes=lanes, verdicts=verdicts, preflight=preflight
+    )
+    moved = [
+        _verdict(
+            dimension=512,
+            plan=plan,
+            metrics=_gpu_metrics(corpus_documents_per_second=200.0),
+            approved_preflight_sha256=preflight.sha256,
+        ),
+        verdicts[1],
+    ]
+    with pytest.raises(BenchmarkArtifactError, match="reconstructed"):
+        require_current_qualification(
+            sealed=sealed,
+            plan=plan,
+            lanes=lanes,
+            verdicts=moved,
+            preflight=preflight,
+            persisted=persisted,
+        )
+
+
+def test_a_qualification_from_a_foreign_stage_a_reference_is_refused(
+    tmp_path: Path, sealed: SealedStageA, plan: StageBPlan
+) -> None:
+    lanes, verdicts, _preflight = _complete_evidence(sealed, plan)
+    foreign_reference = StageAReference(
+        bundle_sha256=_DIGEST_B,
+        full_run_sha256=sealed.reference.full_run_sha256,
+        plan_sha256=sealed.reference.plan_sha256,
+        generation_semantics_sha256=sealed.reference.generation_semantics_sha256,
+        input_policy_revision=sealed.reference.input_policy_revision,
+        input_max_tokens=sealed.reference.input_max_tokens,
+        candidates=sealed.reference.candidates,
+    )
+    metrics = [
+        OperationalMetrics(
+            model_id=verdict.model_id,
+            dimension=verdict.dimension,
+            opensearch_index_store_bytes=lane.index_store_bytes,
+            ann_recall_at_100=lane.ann_recall_at_100,
+            corpus_documents_per_second=float(
+                cast(
+                    "float",
+                    gpu_production_metrics(verdict)["corpus_documents_per_second"],
+                )
+            ),
+            query_latency_p95_ms=float(
+                cast("float", gpu_production_metrics(verdict)["query_latency_p95_ms"])
+            ),
+            peak_vram_bytes=int(cast("int", gpu_production_metrics(verdict)["peak_vram_bytes"])),
+        )
+        for lane, verdict in zip(lanes, verdicts, strict=True)
+    ]
+    foreign = build_production_qualification(
+        reference=foreign_reference,
+        inference=[verdict.inference for verdict in verdicts],
+        equivalence=[verdict.equivalence for verdict in verdicts],
+        metrics=metrics,
+    )
+    path = qualification_path(tmp_path)
+    write_qualification(foreign, path)
+    with pytest.raises(BenchmarkContractError, match="not the expected"):
+        read_qualification(path, expect_reference_bundle_sha256=sealed.reference.bundle_sha256)
+
+
+def test_selection_runs_on_the_reconstructed_qualification(
+    sealed: SealedStageA, plan: StageBPlan
+) -> None:
+    lanes, verdicts, preflight = _complete_evidence(sealed, plan)
+    persisted = assemble_production_qualification(
+        sealed=sealed, plan=plan, lanes=lanes, verdicts=verdicts, preflight=preflight
+    )
+    current = require_current_qualification(
+        sealed=sealed,
+        plan=plan,
+        lanes=lanes,
+        verdicts=verdicts,
+        preflight=preflight,
+        persisted=persisted,
+    )
+    table = stage_b_candidate_evidence(sealed=sealed, qualification=current)
+    estimate = leader_bootstrap(sealed=sealed, table=table, operation="test")
+    assert run_stage_b_selection(sealed=sealed, qualification=current).payload() == (
+        select_candidate(evidence=table, leader_bootstrap=estimate).payload()
+    )
+
+
+def test_the_selection_artifact_binds_the_reconstructed_qualification(
+    tmp_path: Path, sealed: SealedStageA, plan: StageBPlan
+) -> None:
+    lanes, verdicts, preflight = _complete_evidence(sealed, plan)
+    persisted = assemble_production_qualification(
+        sealed=sealed, plan=plan, lanes=lanes, verdicts=verdicts, preflight=preflight
+    )
+    current = require_current_qualification(
+        sealed=sealed,
+        plan=plan,
+        lanes=lanes,
+        verdicts=verdicts,
+        preflight=preflight,
+        persisted=persisted,
+    )
+    outcome = run_stage_b_selection(sealed=sealed, qualification=current)
+    path = tmp_path / "res138-selection.json"
+    write_selection_artifact(path=path, outcome=outcome, qualification=current)
+    payload = read_selection_artifact(path)
+    assert payload["qualification_sha256"] == qualification_sha256(current)
+
+
+def test_the_select_command_refuses_a_stale_persisted_qualification(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, sealed: SealedStageA, plan: StageBPlan
+) -> None:
+    from dynamisrag import __main__ as cli
+
+    lanes, verdicts, preflight = _complete_evidence(sealed, plan)
+    moved = [_lane(sealed, plan, dimension=512, store_bytes=8_192), lanes[1]]
+    stale = assemble_production_qualification(
+        sealed=sealed, plan=plan, lanes=moved, verdicts=verdicts, preflight=preflight
+    )
+    write_qualification(stale, qualification_path(tmp_path))
+
+    def loader(_arguments: object) -> tuple[object, ...]:
+        return (sealed, plan, lanes, verdicts, preflight)
+
+    monkeypatch.setattr("dynamisrag.__main__._load_evidence", loader)
+    arguments = argparse.Namespace(work_dir=str(tmp_path))
+    assert cli._select(arguments) == 1  # pyright: ignore[reportPrivateUsage]
+    assert not (tmp_path / "res138-selection.json").exists()
+
+
+def test_the_select_command_binds_the_selection_to_current_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, sealed: SealedStageA, plan: StageBPlan
+) -> None:
+    from dynamisrag import __main__ as cli
+
+    lanes, verdicts, preflight = _complete_evidence(sealed, plan)
+    persisted = assemble_production_qualification(
+        sealed=sealed, plan=plan, lanes=lanes, verdicts=verdicts, preflight=preflight
+    )
+    write_qualification(persisted, qualification_path(tmp_path))
+
+    def loader(_arguments: object) -> tuple[object, ...]:
+        return (sealed, plan, lanes, verdicts, preflight)
+
+    monkeypatch.setattr("dynamisrag.__main__._load_evidence", loader)
+    arguments = argparse.Namespace(work_dir=str(tmp_path))
+    exit_code = cli._select(arguments)  # pyright: ignore[reportPrivateUsage]
+    assert exit_code in (0, 1)
+    payload = read_selection_artifact(tmp_path / "res138-selection.json")
+    assert payload["qualification_sha256"] == qualification_sha256(persisted)
 
 
 # ---------------------------------------------------------------------------
