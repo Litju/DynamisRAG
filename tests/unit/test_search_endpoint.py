@@ -21,6 +21,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.testclient import TestClient as StarletteTestClient
 
+import dynamisrag.application as application_module
 from dynamisrag.application import API_DESCRIPTION, create_app
 from dynamisrag.config import Settings
 from dynamisrag.health.router import LIVENESS_PATH, READINESS_PATH
@@ -32,6 +33,8 @@ from dynamisrag.search.bm25 import (
     SearchSourceSpan,
 )
 from dynamisrag.search.errors import OpenSearchTransportError, SearchBackendError
+from dynamisrag.search.retrieval import QUERY_GENERATION_CONFIG
+from dynamisrag.search.retrieval_router import DENSE_RETRIEVAL_UNAVAILABLE_DETAIL
 from dynamisrag.search.router import SEARCH_PATH, SEARCH_UNAVAILABLE_DETAIL, build_search_router
 from tests._support import UNIT_TEST_PASSWORD
 
@@ -293,6 +296,44 @@ def test_the_application_searches_through_its_own_shared_client(
         assert response.headers["cache-control"] == "no-store"
 
 
+def test_application_wires_retrieve_without_making_tei_a_search_dependency(
+    offline_settings: Settings,
+) -> None:
+    with TestClient(create_app(offline_settings)) as client:
+        lexical = client.get(SEARCH_PATH, params={"q": "probiotic"})
+        hybrid = client.get("/retrieve", params={"q": "probiotic"})
+
+    assert lexical.status_code == 503
+    assert lexical.json() == {"detail": SEARCH_UNAVAILABLE_DETAIL}
+    assert hybrid.status_code == 503
+    assert hybrid.json() == {"detail": DENSE_RETRIEVAL_UNAVAILABLE_DETAIL}
+    assert hybrid.headers["cache-control"] == "no-store"
+
+
+def test_application_closes_the_optional_tei_provider(
+    offline_settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    closed: list[bool] = []
+
+    class _Provider:
+        generation_config = QUERY_GENERATION_CONFIG
+
+        def close(self) -> None:
+            closed.append(True)
+
+    provider = _Provider()
+
+    def build_provider(_settings: Settings) -> Any:
+        return provider
+
+    monkeypatch.setattr(application_module, "create_query_embedding_provider", build_provider)
+
+    with TestClient(create_app(offline_settings)):
+        assert closed == []
+
+    assert closed == [True]
+
+
 def test_health_endpoints_still_work_alongside_search(offline_settings: Settings) -> None:
     with TestClient(create_app(offline_settings)) as client:
         assert client.get(LIVENESS_PATH).status_code == 200
@@ -320,9 +361,9 @@ def test_the_openapi_document_publishes_the_search_endpoint() -> None:
     assert "503" in operation["responses"]
 
 
-def test_the_api_description_no_longer_claims_retrieval_is_absent() -> None:
-    """The description must not tell a reader that retrieval is missing."""
-    assert "Retrieval, ranking" not in API_DESCRIPTION
-    assert "not part of this slice" in API_DESCRIPTION
+def test_the_api_description_names_both_retrieval_surfaces() -> None:
+    """The description must not tell a reader that hybrid retrieval is missing."""
+    assert "BM25 retrieval" in API_DESCRIPTION
+    assert "provisional BM25+dense RRF retrieval" in API_DESCRIPTION
     assert "OpenSearch" in API_DESCRIPTION
     assert "rebuildable" in API_DESCRIPTION

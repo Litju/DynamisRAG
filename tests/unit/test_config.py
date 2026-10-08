@@ -59,6 +59,21 @@ def test_settings_are_loaded_from_prefixed_environment_variables(
     assert settings.dependency_timeout_seconds == 3.5
 
 
+def test_tei_expected_model_fields_accept_the_documented_compose_variable_names(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for name, value in _MINIMAL_ENVIRONMENT.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setenv("DYNAMISRAG_TEI_URL", "http://tei.internal:8080")
+    monkeypatch.setenv("DYNAMISRAG_TEI_MODEL_ID", "BAAI/bge-small-en-v1.5")
+    monkeypatch.setenv("DYNAMISRAG_TEI_MODEL_SHA", "a" * 40)
+
+    settings = load_settings()
+
+    assert settings.tei_expected_model_id == "BAAI/bge-small-en-v1.5"
+    assert settings.tei_expected_model_sha == "a" * 40
+
+
 def test_required_settings_have_no_defaults() -> None:
     """No defaults are invented: an incomplete environment must fail loudly
     rather than silently start against a guessed database."""

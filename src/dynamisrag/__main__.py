@@ -55,11 +55,17 @@ from sqlalchemy.orm import Session
 from dynamisrag.application import create_app
 from dynamisrag.config import load_settings
 from dynamisrag.db.engine import create_database_engine
+from dynamisrag.embedding.errors import EmbeddingProviderError
 from dynamisrag.logging_config import configure_logging
 from dynamisrag.search.bm25 import DEFAULT_LIMIT, MAX_LIMIT, Bm25SearchService
 from dynamisrag.search.client import OpenSearchClient
 from dynamisrag.search.errors import OpenSearchError, ProjectionError
 from dynamisrag.search.projection import PassageProjector
+from dynamisrag.search.retrieval import (
+    HybridRetrievalService,
+    QueryEmbeddingService,
+    create_query_embedding_provider,
+)
 
 if TYPE_CHECKING:
     from dynamisrag.benchmark.gpu_evidence import GpuEvidenceVerdict
@@ -94,6 +100,7 @@ PRODUCTION_QUALIFICATION_ARTIFACT_REVISION: Final[str] = "res138-production-qual
 
 _PROGRAM: Final[str] = "dynamisrag"
 _SEARCH: Final[str] = "search"
+_RETRIEVE: Final[str] = "retrieve"
 _PROJECT: Final[str] = "project-passages"
 _BENCHMARK: Final[str] = "benchmark"
 _RES138_PLAN: Final[str] = "res138-plan"
@@ -117,7 +124,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog=_PROGRAM,
         description=(
             "DynamisRAG. With no arguments, serves the HTTP API. "
-            "'search' queries the versioned BM25 passage projection; "
+            "'search' queries the BM25 baseline; 'retrieve' runs hybrid BM25+dense RRF; "
             "'project-passages' rebuilds that projection from canonical PostgreSQL; "
             "'benchmark' writes the frozen RES-138 plan and verifies benchmark bundles."
         ),
@@ -131,6 +138,18 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=DEFAULT_LIMIT,
         help=f"maximum number of hits, 1-{MAX_LIMIT} (default: {DEFAULT_LIMIT})",
+    )
+
+    retrieve = commands.add_parser(
+        _RETRIEVE,
+        help="query BM25 and dense passage candidates, fuse with RRF, and print JSON",
+    )
+    retrieve.add_argument("query", help="non-whitespace search text")
+    retrieve.add_argument(
+        "--limit",
+        type=int,
+        default=DEFAULT_LIMIT,
+        help=f"maximum number of fused hits, 1-{MAX_LIMIT} (default: {DEFAULT_LIMIT})",
     )
 
     project = commands.add_parser(
@@ -271,6 +290,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parsed = parser.parse_args(arguments)
     if parsed.command == _SEARCH:
         return _search(parsed.query, parsed.limit)
+    if parsed.command == _RETRIEVE:
+        return _retrieve(parsed.query, parsed.limit)
     if parsed.command == _PROJECT:
         return _project(parsed.chunker_revision)
     if parsed.command == _BENCHMARK:
@@ -302,6 +323,29 @@ def _search(query: str, limit: int) -> int:
     except (ValueError, OpenSearchError) as error:
         return _fail(_safe_error_line(_SEARCH, error, allow_application_detail=False))
     finally:
+        client.close()
+    _emit(response.model_dump(mode="json"))
+    return _EXIT_SUCCESS
+
+
+def _retrieve(query: str, limit: int) -> int:
+    """Run the same hybrid service as ``GET /retrieve`` and print its full trace."""
+    settings = load_settings()
+    client = OpenSearchClient(settings)
+    provider = None
+    try:
+        provider = create_query_embedding_provider(settings)
+        embedder = QueryEmbeddingService(provider) if provider is not None else None
+        response = HybridRetrievalService(
+            client,
+            alias=settings.opensearch_index_alias,
+            query_embedder=embedder,
+        ).retrieve(query, limit=limit)
+    except (ValueError, OpenSearchError, EmbeddingProviderError) as error:
+        return _fail(_safe_error_line(_RETRIEVE, error, allow_application_detail=False))
+    finally:
+        if provider is not None:
+            provider.close()
         client.close()
     _emit(response.model_dump(mode="json"))
     return _EXIT_SUCCESS
@@ -748,6 +792,8 @@ def _safe_error_line(command: str, error: Exception, *, allow_application_detail
     if isinstance(error, OpenSearchError):
         if allow_application_detail and isinstance(error, ProjectionError):
             return f"{prefix}: {error}"
+        return f"{prefix}: {error.safe_summary()}"
+    if isinstance(error, EmbeddingProviderError):
         return f"{prefix}: {error.safe_summary()}"
     return f"{prefix}: {error}"
 

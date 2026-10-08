@@ -18,7 +18,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Final
 
-from pydantic import AnyHttpUrl, Field, PostgresDsn, SecretStr
+from pydantic import AliasChoices, AnyHttpUrl, Field, PostgresDsn, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 __all__ = [
@@ -130,7 +130,14 @@ class Settings(BaseSettings):
     and ``POST /embed`` for vectors. No model name is ever sent to ``/embed``.
     """
 
-    tei_expected_model_id: str | None = None
+    tei_expected_model_id: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "tei_expected_model_id",
+            "DYNAMISRAG_TEI_EXPECTED_MODEL_ID",
+            "DYNAMISRAG_TEI_MODEL_ID",
+        ),
+    )
     """Repository this deployment insists TEI is serving, for example ``BAAI/bge-small-en-v1.5``.
 
     Compared against the *observed* ``/info`` ``model_id``, never used as a
@@ -138,7 +145,14 @@ class Settings(BaseSettings):
     only the check that whatever is configured is actually being served.
     """
 
-    tei_expected_model_sha: str | None = None
+    tei_expected_model_sha: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "tei_expected_model_sha",
+            "DYNAMISRAG_TEI_EXPECTED_MODEL_SHA",
+            "DYNAMISRAG_TEI_MODEL_SHA",
+        ),
+    )
     """Immutable Hugging Face Hub commit id this deployment insists on, 40 hex characters.
 
     The part that actually fixes the weights. A tag, a branch or ``latest`` is
