@@ -125,8 +125,9 @@ Invoke-RestMethod http://127.0.0.1:8000/readyz
 │   │                          # identity), errors.py, manifest.py
 │   │                          # (passage-embeddings-v1), tei.py (tei-http-v1 adapter
 │   │                          # + TeiDeploymentSemantics)
-│   ├── benchmark/             # RES-138 staged retrieval benchmark; no result,
-│   │                          # no default. contracts.py (frozen workloads, model
+│   ├── benchmark/             # RES-138 staged retrieval benchmark; Stage A sealed,
+│   │                          # Stage B executable, no default. contracts.py (frozen
+│   │                          # workloads, model
 │   │                          # revisions, prompts, dimensions, stages, Drive
 │   │                          # layout, artifact revisions), artifacts.py (canonical
 │   │                          # envelopes, shards, run manifests, verified Drive
@@ -138,12 +139,20 @@ Invoke-RestMethod http://127.0.0.1:8000/readyz
 │   │                          # retrieval.py + metrics.py (exact scoring, metrics),
 │   │                          # bootstrap.py (paired bootstrap), mrl.py (Matryoshka
 │   │                          # gate), calibration.py (deterministic item selection),
-│   │                          # selection.py (predeclared rule, never applied),
-│   │                          # production.py (Stage B qualification against the
-│   │                          # Stage A reference), long_context.py (optional
-│   │                          # Stage C), res138.py (notebook-facing facade),
-│   │                          # runner.py (Colab-only GPU encoder; the only torch
-│   │                          # importer), results.py + bundle.py (local
+│   │                          # selection.py (predeclared rule, applied only when
+│   │                          # Stage B evidence exists), production.py (Stage B
+│   │                          # qualification contracts against the Stage A
+│   │                          # reference), stage_a.py (strict loader for the
+│   │                          # sealed Stage A result), stage_b.py (deterministic
+│   │                          # Stage B plan + runtime fingerprint), gpu_evidence.py
+│   │                          # (imported A100 TEI evidence, gate recomputed
+│   │                          # locally), opensearch_lane.py (Lucene HNSW index
+│   │                          # bytes + ANN recall against Stage A exact rankings),
+│   │                          # qualification.py (qualification assembly + the
+│   │                          # frozen selection entry point), long_context.py
+│   │                          # (optional Stage C), res138.py (notebook-facing
+│   │                          # facade), runner.py (Colab-only GPU encoder; the only
+│   │                          # torch importer), results.py + bundle.py (local
 │   │                          # no-trust-on-first-use verifiers)
 │   ├── logging_config.py      # stdlib-only deterministic logging
 │   ├── db/                    # engine.py (SQLAlchemy/psycopg), probe.py
@@ -153,7 +162,8 @@ Invoke-RestMethod http://127.0.0.1:8000/readyz
 │                              # bm25.py (versioned query + service),
 │                              # router.py (/search), opensearch.py (probe)
 ├── notebooks/
-│   └── res138_colab.ipynb     # orchestration only; algorithms live in the harness
+│   ├── res138_colab.ipynb     # Stage A orchestration only; algorithms live in the harness
+│   └── res138_stage_b_gpu.py  # Stage B A100 TEI operator; orchestration only
 ├── requirements/
 │   └── res138-colab.txt       # Colab-only model pins; no NumPy, no torch, no CUDA wheel
 ├── tests/
@@ -319,6 +329,13 @@ dynamisrag search "colon lesions" --limit 5
 
 dynamisrag benchmark res138-plan --code-sha <40-hex>
 dynamisrag benchmark verify-res138-bundle <path>
+dynamisrag benchmark verify-stage-a <bundle>
+dynamisrag benchmark stage-b-plan --bundle <bundle> --code-sha <40-hex>
+dynamisrag benchmark run-opensearch --bundle <bundle> --code-sha <40-hex> --work-dir <dir>
+dynamisrag benchmark verify-gpu-evidence --bundle <bundle> --code-sha <40-hex> --evidence <file>
+dynamisrag benchmark assemble-qualification --bundle <bundle> --code-sha <40-hex> --work-dir <dir>
+dynamisrag benchmark select --bundle <bundle> --code-sha <40-hex> --work-dir <dir>
+dynamisrag benchmark cleanup-stage-b-indexes --bundle <bundle> --code-sha <40-hex>
 ```
 
 The CLI uses the same search service and the same `SearchResponse` as
@@ -465,10 +482,11 @@ deterministic client batching, the bounded retry policy, response validation, an
 the manifest.
 
 Not decided here, deliberately: **which embedding model is best** and **which
-dimension to index**. Those are a retrieval-quality question. The harness that will
-answer them lives in [`src/dynamisrag/benchmark/`](#the-res-138-retrieval-benchmark)
-and has produced no result: nothing has been ranked, no candidate has been
-selected, and no default model or dimension is configured anywhere in this tree.
+dimension to index**. Those are a retrieval-quality question. The harness that
+answers them lives in
+[`src/dynamisrag/benchmark/`](#the-res-138-retrieval-benchmark): Stage A has ranked
+both candidates and been sealed, Stage B is executable, and no candidate has been
+selected and no default model or dimension is configured anywhere in this tree.
 
 ### Identity is observed, never asserted
 
@@ -618,19 +636,29 @@ fingerprints; a NaN backoff satisfies every bound in Python and then fails insid
 ## The RES-138 retrieval benchmark
 
 The embedding model and the dimension to index at are **not decided in this
-repository**. `src/dynamisrag/benchmark/` is the harness that will produce that
-evidence on a GPU, and it currently holds no result: no ranking has been run, no
-candidate has been selected, and no default exists anywhere in the tree. That last
-property is asserted rather than promised — `tests/unit/test_benchmark_boundaries.py`
-walks every source file and fails if any module binds `DEFAULT_EMBEDDING_MODEL`,
-`DEFAULT_DIMENSION` or a selected candidate, if any production package imports
-`dynamisrag.benchmark` at all, or if a production module names either candidate.
+repository**. `src/dynamisrag/benchmark/` is the harness that produces that
+evidence on a GPU. Stage A has run and been sealed; Stage B is executable and its
+first A100 qualification run has not been launched; no production default exists
+anywhere in the tree. That last property is asserted rather than promised —
+`tests/unit/test_benchmark_boundaries.py` walks every source file and fails if any
+module binds `DEFAULT_EMBEDDING_MODEL`, `DEFAULT_DIMENSION` or a selected
+candidate, if any production package imports `dynamisrag.benchmark` at all, or if a
+production module names either candidate.
+
+The sealed Stage A result advanced **Qwen3-Embedding-0.6B at 512 and at 1024** to
+Stage B. Voyage 4 Nano remains in the sealed bundle as Stage A evidence — its macro
+metrics, per-query rows and bootstrap intervals are untouched — but it is not a
+Stage B admission, and `require_stage_b_shortlist` refuses it at that boundary.
+`RES138_STAGE_A_SEAL` is the one place that identity is written down: the bundle
+digest, the full-run digest, the code commit, the pinned revisions, the input policy
+and the three frozen BEIR digests, all checked before any Stage B work happens.
 
 What the harness *is*: frozen workloads, frozen model revisions, exact retrieval,
 two recall metrics and nDCG@10, a paired bootstrap, exact Matryoshka derivation, a
 deterministic calibration set, content-addressed artifacts, a resumable run
-manifest, and a local verifier that re-checks a finished bundle from its bytes
-alone.
+manifest, a local verifier that re-checks a finished bundle from its bytes alone,
+and an executable production-qualification lane that ends in the frozen selection
+rule.
 
 ### Three stages, three questions
 
@@ -639,7 +667,7 @@ The harness is staged, and each stage's identity says which stage it is:
 | Stage | Question | Execution | Evidence |
 | --- | --- | --- | --- |
 | **A — reference quality** | which candidate-configuration retrieves better at the frozen reference boundary | native sentence-transformers, float32, one common runtime, 8,192-token boundary, exact retrieval | macro nDCG@10, paired bootstrap, macro Recall@100 |
-| **B — production qualification** | does a production configuration reproduce that reference, and at what operational cost | TEI at the Stage A reference boundary (8,192, right truncation) with candidate-selected optimized precision/backend, subject to the equivalence gate | numerical + ranking equivalence gate, OpenSearch index bytes, ANN recall, production throughput, query p95, VRAM |
+| **B — production qualification** | does a production configuration reproduce that reference, and at what operational cost | local: sealed-reference load, deterministic plan, OpenSearch Lucene HNSW index bytes and ANN recall; remote A100: TEI at the Stage A reference boundary (8,192, right truncation) with an operator-declared optimized precision/backend | numerical + per-workload query-to-document ranking equivalence gate recomputed locally, OpenSearch index bytes, ANN recall, per-dimension production throughput, TEI query-embedding p95, server-host VRAM |
 | **C — long context** (optional) | how do the candidates behave at 8k/16k/32k | LongEmbed/LoCo-style workload | separate benchmark, not a blocker |
 
 Stage A has **no fixed GPU model, compute-capability or memory floor**: the
@@ -652,33 +680,235 @@ selection rule reads operational metrics only from a Stage B qualification, afte
 the quality evidence exists.
 
 Stage B reproduces Stage A's semantic input policy **exactly** — 8,192 tokens,
-right truncation — and changes only execution: TEI, a candidate-selected
-optimized precision/backend, and the production index/runtime. A 16k/32k boundary
-would evaluate a different function above the reference boundary and confound
-both equivalence and ANN recall; the 8k/16k/32k windows are Stage C only and are
-never promoted into Stage B.
+right truncation — and changes only execution: TEI, an operator-declared
+production precision/backend observed from the served model's `/info`, and the
+production index/runtime. The precision is chosen before launch and observed, never
+inferred from a benchmark result. A 16k/32k boundary would evaluate a different
+function above the reference boundary and confound both equivalence and ANN recall;
+the 8k/16k/32k windows are Stage C only and are never promoted into Stage B.
 
-### Two commands run locally, with no GPU and no model
+### The local Stage B workflow
+
+Stage B is split across two machines, and the split is structural rather than
+convenient. The workstation owns everything that can be re-checked without a GPU:
+loading the sealed Stage A result, building the deterministic plan, building the
+Lucene HNSW indexes and measuring what they actually occupy, and running the final
+selection. The A100 owns the three things only it can measure, and it imports them
+back as one artifact.
 
 ```powershell
-uv run dynamisrag benchmark res138-plan --code-sha <40-hex> --out plan.json
-uv run dynamisrag benchmark verify-res138-bundle <path> [--code-sha <40-hex>]
+# 1. Load the sealed Stage A result. Refuses anything but the sealed bundle.
+uv run dynamisrag benchmark verify-stage-a <bundle> --code-sha <40-hex>
+
+# 2. The deterministic plan. Two machines compute the same digest.
+uv run dynamisrag benchmark stage-b-plan --bundle <bundle> --code-sha <40-hex>
+
+# 3. The local OpenSearch lane: index bytes and ANN recall, per dimension.
+uv run dynamisrag benchmark run-opensearch --bundle <bundle> --code-sha <40-hex> --work-dir <dir>
+
+# 4. The A100 has meanwhile produced its preflight evidence (see below); verify both
+#    dimensions. Preflight artifacts are verification inputs only and are never
+#    imported into the work directory. Only if both pass is the full pass authorized.
+uv run dynamisrag benchmark verify-gpu-evidence --bundle <bundle> --code-sha <40-hex> `
+    --evidence <evidence-dir>/gpu-evidence-512.json
+uv run dynamisrag benchmark verify-gpu-evidence --bundle <bundle> --code-sha <40-hex> `
+    --evidence <evidence-dir>/gpu-evidence-1024.json
+#    ... then the A100 runs `--mode full` and writes gpu-evidence-<dimension>-full.json
+#    beside the approved gpu-preflight.json. Verify and materialize each full artifact;
+#    verification runs first, and only verified full evidence is copied into the work
+#    directory under its canonical name.
+uv run dynamisrag benchmark verify-gpu-evidence --bundle <bundle> --code-sha <40-hex> `
+    --evidence <evidence-dir>/gpu-evidence-512-full.json --work-dir <dir>
+uv run dynamisrag benchmark verify-gpu-evidence --bundle <bundle> --code-sha <40-hex> `
+    --evidence <evidence-dir>/gpu-evidence-1024-full.json --work-dir <dir>
+
+# 5. Complete evidence: assemble the qualification and run the frozen rule.
+uv run dynamisrag benchmark assemble-qualification --bundle <bundle> --code-sha <40-hex> --work-dir <dir>
+uv run dynamisrag benchmark select --bundle <bundle> --code-sha <40-hex> --work-dir <dir>
+
+# When the measurement is no longer needed, remove only this plan's indexes.
+uv run dynamisrag benchmark cleanup-stage-b-indexes --bundle <bundle> --code-sha <40-hex>
 ```
 
-`res138-plan` writes the frozen plan for an exact commit and prints its SHA-256.
-That digest is reproducible on any machine with no GPU, no Drive and no Hub
-account, which is what makes it useful: a reviewer computes the plan identity
-independently and compares it with the one a Colab session recorded.
+`verify-stage-a` runs the whole bundle verifier first — every digest, every shard,
+canonical order, the exact rankings reconstructed from the persisted matrices, every
+metric and bootstrap interval recomputed — and only then the *external* identity: the
+bundle digest, the full-run digest, the commit, the pinned revisions, the 8192/right
+input policy, the three frozen BEIR digests, and the two completion states
+(`production_qualification: not_run`, `production_default: not_configured`). The two
+layers answer different questions: internal completeness says the bundle is a whole
+Stage A run, external identity says it is *this* run.
 
-`verify-res138-bundle` takes a run directory or a zip of one and refuses it unless
-every shard, sidecar, run manifest and bundle manifest agrees — declared digests,
-shard ordinals with no gap and no duplicate, canonical `passage_key` order within
-and across shards, matrix dtype and normalisation, the runtime revision, and the
-model and dataset identities the run claims. It trusts nothing on first use: it
-recomputes every digest it verifies.
+`run-opensearch` builds one isolated `passage-index-v2` Lucene HNSW index per
+configuration per workload — same engine, method, space, `m=16`, `ef_construction=100`
+and `index.knn` as a production index — from the sealed matrices. Each index records
+its identity in its own mapping `_meta`: the plan digest, the model, revision,
+dimension, workload, vector config digest, ordered document-id digest and the digest of
+the concatenated corpus matrix. A resume reads that back *from the node* and requires
+its visible document count to equal the sealed corpus before adoption, so an index
+built from different bytes — or a partially populated one — is refused rather than
+adopted, and the index name itself carries the plan, dimension and workload so the two
+dimensions can never be resumed interchangeably. The measured sequence is frozen:
+create or resume, bulk index, flush, **explicit refresh**, verify the visible document
+count, force-merge to one segment, **explicit refresh again**, verify the visible count
+again, and only then read `primaries.store.size_in_bytes` and run the ANN queries. The
+bare float32 vector size is recorded beside the footprint as context and is never the
+comparison. ANN recall is measured against the sealed Stage A *exact* per-query
+rankings, never against the approximate index.
+
+`verify-gpu-evidence` is the gate. It never reads a `passed` field: it re-reads the
+reference vectors from the sealed shards, re-checks the calibration item identities
+against Stage A's own recorded set, recomputes both vector digests, recomputes cosine,
+absolute difference and the **query-to-document** top-k ordering — per workload, so
+unrelated corpora never share one retrieval population — from the imported vectors, and
+applies the frozen tolerances itself. It also requires the artifact's
+`stage_b_plan_sha256` to equal the plan this command built from the bundle and the
+commit, which is what stops evidence produced by another Stage-B implementation from
+being imported. The A100-80GB floor is checked first, because an ineligible machine's
+evidence is not evidence. A configuration that fails the gate is **disqualified**, and
+its operational metrics never reach the caller; the tolerances are frozen before any
+production vector exists and are not adjusted to admit one.
+
+The metrics/preflight-authorization pair is one state: preflight evidence carries
+`metrics = null` and `approved_preflight_sha256 = null`, and full production evidence
+carries both its metrics and the exact approved GPU-preflight manifest digest. A full
+artifact without that digest is an artifact nobody authorized and is refused.
+
+With `--work-dir`, `verify-gpu-evidence` closes the import: verification runs first and
+raises on any failure, and only a verified **full** artifact is materialized — its
+JSON, its referenced `.npy` and the `gpu-preflight.json` that authorizes it — into
+`<work-dir>/gpu-evidence/` under the canonical `gpu-evidence-<dimension>-full.json`
+name. The manifest's canonical digest must equal the artifact's
+`approved_preflight_sha256`, so an import can never carry an authorization the manifest
+does not grant. Files are written atomically, importing the same bytes twice is
+idempotent, and a target that already holds different bytes is refused rather than
+overwritten silently. Preflight artifacts verify and import nothing: they are inputs to
+the verification decision, not to qualification.
+
+`assemble-qualification` is complete or nothing, and its GPU input set is derived, not
+discovered: exactly `<work-dir>/gpu-evidence/gpu-evidence-512-full.json` and
+`gpu-evidence-1024-full.json`, one per planned dimension. It never globs, so preflight
+artifacts and directory ordering cannot contribute, and a missing full artifact fails
+closed. It re-reads `gpu-preflight.json` and requires each full artifact's
+`approved_preflight_sha256` to equal its canonical digest, refuses duplicate
+`(model_id, dimension)` verdicts before any mapping, and refuses a verdict without
+production metrics by name. Every shortlisted configuration must contribute a lane
+measurement and a passed full verdict carrying its production metrics, or the command
+refuses naming the missing evidence. The assembled
+`res138-production-qualification-v1` is passed to the existing
+`build_production_qualification` and re-read through
+`verify_production_qualification`, so nothing is written that cannot be rebuilt from
+its own records.
+
+`select` builds the table from the sealed macro metrics and the sealed paired
+bootstrap, plus the operational fields the qualification supplies, and calls the
+frozen `select_candidate`. It does not trust `production-qualification.json` merely
+because it is internally valid: the persisted qualification is re-read with the
+sealed Stage A bundle digest as its expected binding, the qualification is
+reconstructed from the current verified evidence, and selection runs only when the
+two are canonically equal with the same digest. A stale or foreign qualification —
+one whose OpenSearch measurements, GPU production metrics or reference moved — is
+refused, and the written selection artifact is bound to the digest of the
+reconstructed qualification. If the Stage B evidence is incomplete the quality and
+Recall@100 steps still decide, and the rule **halts** at the first operational step
+naming the missing measurement — a halted selection is written, printed and reported
+as a non-zero exit, because it is a result a reviewer needs to see. No Stage A
+sentence-transformers timing is ever read as a production number.
 
 Both commands import the benchmark inside the handler, so starting the served
 application never loads the harness or the numeric stack behind it.
+
+### The GPU half, on the A100
+
+`notebooks/res138_stage_b_gpu.py` is orchestration only, for the same reason the Stage
+A notebook is: it embeds nothing itself, and every load-bearing value — the calibration
+set, the reference vectors, the TEI request semantics, the server-info contract, the
+metric names, the digests, the measurement policy — is imported from
+`dynamisrag.benchmark`. It lives under `notebooks/` because it is GPU-host orchestration
+that no dependency group installs; `tests/unit/test_benchmark_stage_b_gpu_script.py`
+asserts its structure, and `test_benchmark_stage_b_gpu_requests.py` drives its TEI
+requests and its measurement path through fakes to prove they carry the frozen
+dimension, boundary, truncation direction, normalisation, prompt name and client batch
+sizes.
+
+**Two modes, because an A100 hour should not be spent before equivalence is known.**
+
+```powershell
+# Preflight: identity, both dimension request paths, calibration set only, metrics=null.
+python notebooks/res138_stage_b_gpu.py --mode preflight `
+    --bundle ./sealed-run --beir-cache ./sources/beir --scratch ./scratch `
+    --code-sha <40-hex> --tei-url http://127.0.0.1:8080 `
+    --expected-precision <declared dtype> --out ./evidence
+
+# ... the workstation runs verify-gpu-evidence on both dimensions and only then:
+python notebooks/res138_stage_b_gpu.py --mode full `
+    --bundle ./sealed-run --beir-cache ./sources/beir --scratch ./scratch `
+    --code-sha <40-hex> --tei-url http://127.0.0.1:8080 `
+    --expected-precision <declared dtype> --out ./evidence `
+    --approved-preflight-sha256 <preflight digest>
+```
+
+Preflight verifies the sealed Stage A reference, the Stage-B plan, the A100-80GB floor,
+TEI `/health` and the canonical `/info` identity, exercises the 512 and 1024 request
+paths, re-embeds only the frozen calibration set, writes one artifact per dimension with
+`metrics = null`, writes `gpu-preflight.json` — one deterministic digest over both
+dimensions and their vector/artifact digests — and stops. Full mode refuses to measure
+the production corpus unless `--approved-preflight-sha256` equals that manifest's
+digest, re-reads the manifest, requires the Stage-B plan, model revision, TEI server
+identity, precision, backend and dimensions to be unchanged, re-embeds the calibration
+set and requires the bytes to match the approved vector digests, and only then measures
+each dimension separately: warmup (untimed), document throughput at the frozen batch
+size, query-embedding p95 at batch size 1, and the server host's `nvidia-smi` VRAM
+high-water mark.
+
+`--expected-precision` is the production dtype chosen by the operator **before launch**;
+the script never infers it and never rewrites it after vectors exist. `--batch-size` and
+`--dimension` do not exist: the client measurement policy (document batch 8, query batch
+1, concurrency 1, declared warmup, timing boundaries, VRAM sampling interval) is frozen
+inside the Stage-B plan digest, so no CLI value can silently alter a frozen measurement.
+
+**The TEI server is server configuration.** The endpoint must be local to the GPU host
+(`localhost`, `127.0.0.1` or `::1`), and the script refuses unless `GET /info` proves:
+
+* `version` = `1.9.4`;
+* `model_id` = `Qwen/Qwen3-Embedding-0.6B`;
+* `model_sha` = `97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3` (the pinned revision);
+* `model_dtype` = the `--expected-precision` value, exactly;
+* `max_input_length` = `8192`;
+* `max_batch_tokens` = `8192` (TEI's own default is 16384, which is not the reference
+  boundary);
+* `auto_truncate` = `true`;
+* `max_client_batch_size` ≥ the frozen document batch size (8).
+
+The matching TEI 1.9.4 startup is therefore:
+
+```bash
+text-embeddings-router \
+    --model-id Qwen/Qwen3-Embedding-0.6B \
+    --revision 97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3 \
+    --dtype <declared production dtype> \
+    --max-batch-tokens 8192 \
+    --auto-truncate \
+    --max-client-batch-size 32 \
+    --hostname 127.0.0.1 --port 8080
+```
+
+TEI 1.9.4 exposes no router CLI option for the input length. `max_input_length = 8192`
+remains a required `/info` invariant, and the server reaches it through the frozen
+token boundary and auto-truncation: `--max-batch-tokens 8192` with `--auto-truncate`
+is the startup that satisfies it. A container image digest is pinned in the operator
+runbook only once it has actually been resolved; until then this document states the
+flags, not a fabricated digest.
+
+**The GPU identity and VRAM are observed on the server host.** The Python client's
+`torch.cuda.max_memory_allocated()` describes the client process, not the TEI server, so
+it is never the VRAM measurement; `torch.version.cuda` is a toolkit version, not the
+NVIDIA driver, so it is never the driver field. The artifact's GPU record comes from
+`nvidia-smi` (name, UUID, compute capability, total memory, actual driver version), and
+peak VRAM is the device `memory.used` high-water mark sampled during each dimension's
+timed run at the frozen interval. **A Stage A timing is not an A100 production
+measurement**, and an RTX-class Stage A observation is not A100 production evidence:
+that is the whole reason this half exists.
 
 ### The GPU preflight, in Colab
 
