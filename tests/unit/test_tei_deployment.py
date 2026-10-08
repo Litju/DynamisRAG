@@ -403,14 +403,8 @@ def test_the_readme_states_that_a_null_prompt_name_is_not_no_prompt() -> None:
     assert '"no prompt"' in flat
 
 
-def test_the_readme_does_not_claim_embeddings_are_unimplemented() -> None:
-    """The opening used to say the repository never generates embeddings.
-
-    Which was true when it was written and became false the moment the adapter
-    landed. Both halves are asserted: generation is implemented, and the *choice* of
-    a model is not. Read through collapsed whitespace, because the sentences are
-    hard-wrapped and a match spanning a line break would be testing the formatter.
-    """
+def test_the_readme_documents_provisional_hybrid_retrieval_and_deferred_qualification() -> None:
+    """The profile and qualification status stay explicit in the product docs."""
     readme = _README.read_text(encoding="utf-8")
     flat = " ".join(readme.split())
 
@@ -419,11 +413,12 @@ def test_the_readme_does_not_claim_embeddings_are_unimplemented() -> None:
     assert "`passage-embeddings-v1` manifest whose SHA-256" in flat
     assert "never generates" not in flat
     assert "not implemented here, by design: embedding generation" not in flat
-    # Still absent, and still said to be absent.
-    for later in (
-        "a production ANN retrieval API",
-        "BM25+dense fusion",
-        "reranking",
-        "generation, and agents",
-    ):
-        assert later in flat, later
+    assert "Production dense ANN retrieval" in flat
+    assert "BM25+dense fusion" in flat
+    assert "Qwen/Qwen3-Embedding-0.6B" in flat
+    assert "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3" in flat
+    assert "Qwen led RES-138 Stage-A quality" in flat
+    assert "512/1024 dimensions were effectively tied" in flat
+    assert "storage efficiency" in flat
+    assert "Formal Stage-B production qualification is deferred" in flat
+    assert "Reranking, generation and agents remain out of scope" in flat
