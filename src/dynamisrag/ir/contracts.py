@@ -65,7 +65,6 @@ def _nonblank(value: object, *, field: str) -> None:
         raise IrContractError(f"{field} must be non-blank")
 
 
-
 def _require_git_sha(value: object) -> None:
     if not isinstance(value, str) or _GIT_SHA.fullmatch(value) is None:
         raise IrContractError("code_sha must be a full 40-character lowercase Git SHA")
