@@ -164,12 +164,14 @@ def _restore_dataset(raw: object) -> IrDataset:
     qrels = data.get("qrels")
     if not isinstance(queries, list) or not isinstance(qrels, list):
         raise IrContractError("IR dataset contains invalid query/qrel lists")
+    typed_queries = cast("list[object]", queries)
+    typed_qrels = cast("list[object]", qrels)
     return IrDataset(
         source_id=cast("str", data.get("source_id")),
         source_revision=cast("str", data.get("source_revision")),
         corpus_sha256=cast("str", data.get("corpus_sha256")),
-        queries=tuple(IrQuery(**_restore_json(q, kind="query")) for q in queries),
-        qrels=tuple(IrQrel(**_restore_json(q, kind="qrel")) for q in qrels),
+        queries=tuple(IrQuery(**_restore_json(q, kind="query")) for q in typed_queries),
+        qrels=tuple(IrQrel(**_restore_json(q, kind="qrel")) for q in typed_qrels),
     )
 
 
@@ -190,11 +192,12 @@ def _restore_run(raw: object) -> IrRun:
     query_ids = data.get("query_ids")
     if not isinstance(hits, list) or not isinstance(query_ids, list):
         raise IrContractError("IR run contains invalid query/hit lists")
+    typed_hits = cast("list[object]", hits)
     return IrRun(
         dataset_sha256=cast("str", data.get("dataset_sha256")),
         config_sha256=cast("str", data.get("config_sha256")),
         query_ids=tuple(cast("list[str]", query_ids)),
-        hits=tuple(IrHit(**_restore_json(hit, kind="hit")) for hit in hits),
+        hits=tuple(IrHit(**_restore_json(hit, kind="hit")) for hit in typed_hits),
     )
 
 
@@ -213,11 +216,13 @@ def _verified_payloads(root: Path, manifest: dict[str, object]) -> dict[str, byt
     if not isinstance(files, list) or len(files) != len(_PAYLOAD_NAMES):
         raise IrContractError("IR bundle declares an invalid artifact inventory")
     contents: dict[str, bytes] = {}
-    for name, entry in zip(_PAYLOAD_NAMES, files, strict=True):
-        if not isinstance(entry, dict) or entry.get("name") != name:
+    entries = cast("list[object]", files)
+    for name, entry in zip(_PAYLOAD_NAMES, entries, strict=True):
+        info = _restore_json(entry, kind="artifact inventory entry")
+        if info.get("name") != name:
             raise IrContractError("IR bundle file name or ordering is invalid")
         content = (root / name).read_bytes()
-        if entry.get("size_bytes") != len(content) or entry.get("sha256") != _sha256(content):
+        if info.get("size_bytes") != len(content) or info.get("sha256") != _sha256(content):
             raise IrContractError("IR bundle content disagrees with its manifest")
         contents[name] = content
     return contents

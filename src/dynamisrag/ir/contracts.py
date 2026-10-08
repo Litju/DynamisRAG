@@ -43,7 +43,7 @@ class IrContractError(ValueError):
     """An IR artifact is ambiguous, internally inconsistent, or not reproducible."""
 
 
-def _token(value: str, *, field: str) -> None:
+def _token(value: object, *, field: str) -> None:
     if (
         not isinstance(value, str)
         or not value
@@ -55,12 +55,12 @@ def _token(value: str, *, field: str) -> None:
         raise IrContractError(f"{field} must be a non-empty, whitespace-free identifier")
 
 
-def _sha(value: str, *, field: str) -> None:
+def _sha(value: object, *, field: str) -> None:
     if not isinstance(value, str) or _SHA256.fullmatch(value) is None:
         raise IrContractError(f"{field} must be a lowercase 64-character SHA-256")
 
 
-def _nonblank(value: str, *, field: str) -> None:
+def _nonblank(value: object, *, field: str) -> None:
     if not isinstance(value, str) or not value.strip():
         raise IrContractError(f"{field} must be non-blank")
 
@@ -108,7 +108,8 @@ class IrQrel:
         # Historical TREC collections may use -1 for unjudged/nonrelevant.
         # Preserve the original value; the evaluation policy will decide how
         # to interpret it without destroying source evidence.
-        if isinstance(self.relevance, bool) or not isinstance(self.relevance, int):
+        relevance: object = self.relevance
+        if isinstance(relevance, bool) or not isinstance(relevance, int):
             raise IrContractError("qrel relevance must be an integer, not a boolean")
 
     def payload(self) -> dict[str, object]:
@@ -172,17 +173,21 @@ class IrExperimentConfig:
     def __post_init__(self) -> None:
         _sha(self.dataset_sha256, field="dataset_sha256")
         _sha(self.projection_sha256, field="projection_sha256")
-        if not isinstance(self.code_sha, str) or _GIT_SHA.fullmatch(self.code_sha) is None:
+        code_sha: object = self.code_sha
+        if not isinstance(code_sha, str) or _GIT_SHA.fullmatch(code_sha) is None:
             raise IrContractError("code_sha must be a full 40-character lowercase Git SHA")
         _token(self.retrieval_revision, field="retrieval_revision")
         try:
             config: object = json.loads(self.parameters_json)
         except (TypeError, ValueError) as error:
             raise IrContractError("parameters_json must be valid canonical JSON") from error
-        if not isinstance(config, dict) or any(not isinstance(k, str) for k in config):
+        if not isinstance(config, dict):
             raise IrContractError("parameters_json must encode a JSON object")
+        parameters = cast("dict[object, object]", config)
+        if any(not isinstance(key, str) for key in parameters):
+            raise IrContractError("parameters_json must have string object keys")
         try:
-            canonical = canonical_ir_json(config).decode("utf-8").rstrip("\n")
+            canonical = canonical_ir_json(parameters).decode("utf-8").rstrip("\n")
         except (ValueError, TypeError, OverflowError) as error:
             raise IrContractError("parameters_json has unsupported or non-finite values") from error
         if canonical != self.parameters_json:
@@ -215,16 +220,18 @@ class IrHit:
     def __post_init__(self) -> None:
         _token(self.query_id, field="hit query_id")
         _token(self.document_id, field="hit document_id")
-        if isinstance(self.rank, bool) or not isinstance(self.rank, int) or self.rank < 1:
+        rank: object = self.rank
+        if isinstance(rank, bool) or not isinstance(rank, int) or rank < 1:
             raise IrContractError("hit rank must be a positive one-based integer")
+        raw_score: object = self.raw_score
         if (
-            isinstance(self.raw_score, bool)
-            or not isinstance(self.raw_score, (int, float))
-            or not math.isfinite(self.raw_score)
+            isinstance(raw_score, bool)
+            or not isinstance(raw_score, (int, float))
+            or not math.isfinite(raw_score)
         ):
             raise IrContractError("hit raw_score must be a finite numeric value")
         # 0.0 and -0.0 are identical scores and must hash identically.
-        score = float(self.raw_score)
+        score = float(raw_score)
         object.__setattr__(self, "raw_score", 0.0 if score == 0.0 else score)
 
     def payload(self) -> dict[str, object]:
