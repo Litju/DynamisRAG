@@ -176,5 +176,6 @@ def test_signed_zero_has_a_single_identity_and_non_finite_scores_are_refused() -
 
 def test_qrels_preserve_negative_labels_but_refuse_boolean_relevance() -> None:
     assert IrQrel("q1", "d1", -1).relevance == -1
+    invalid_relevance = cast(Any, True)
     with pytest.raises(IrContractError):
-        IrQrel("q1", "d1", cast(Any, True))
+        IrQrel("q1", "d1", invalid_relevance)

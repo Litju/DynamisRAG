@@ -181,7 +181,11 @@ class IrExperimentConfig:
             raise IrContractError("parameters_json must be valid canonical JSON") from error
         if not isinstance(config, dict) or any(not isinstance(k, str) for k in config):
             raise IrContractError("parameters_json must encode a JSON object")
-        if canonical_ir_json(config).decode("utf-8").rstrip("\n") != self.parameters_json:
+        try:
+            canonical = canonical_ir_json(config).decode("utf-8").rstrip("\n")
+        except (ValueError, TypeError, OverflowError) as error:
+            raise IrContractError("parameters_json has unsupported or non-finite values") from error
+        if canonical != self.parameters_json:
             raise IrContractError(
                 "parameters_json must have canonical sorted keys and no whitespace"
             )
