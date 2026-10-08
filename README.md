@@ -802,7 +802,14 @@ its own records.
 
 `select` builds the table from the sealed macro metrics and the sealed paired
 bootstrap, plus the operational fields the qualification supplies, and calls the
-frozen `select_candidate`. If the Stage B evidence is incomplete the quality and
+frozen `select_candidate`. It does not trust `production-qualification.json` merely
+because it is internally valid: the persisted qualification is re-read with the
+sealed Stage A bundle digest as its expected binding, the qualification is
+reconstructed from the current verified evidence, and selection runs only when the
+two are canonically equal with the same digest. A stale or foreign qualification —
+one whose OpenSearch measurements, GPU production metrics or reference moved — is
+refused, and the written selection artifact is bound to the digest of the
+reconstructed qualification. If the Stage B evidence is incomplete the quality and
 Recall@100 steps still decide, and the rule **halts** at the first operational step
 naming the missing measurement — a halted selection is written, printed and reported
 as a non-zero exit, because it is a result a reviewer needs to see. No Stage A
