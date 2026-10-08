@@ -72,7 +72,12 @@ def test_complete_contract_binds_dataset_config_and_run() -> None:
     run = _run(dataset, config)
     run.validate_against(dataset, config)
     assert set(dataset.payload()) == {
-        "revision", "source_id", "source_revision", "corpus_sha256", "queries", "qrels",
+        "revision",
+        "source_id",
+        "source_revision",
+        "corpus_sha256",
+        "queries",
+        "qrels",
     }
     assert dataset.payload()["revision"] == IR_CONTRACT_REVISION
     for fingerprint in (dataset.sha256, config.sha256, run.sha256):
@@ -89,9 +94,7 @@ def test_trec_qrels_keep_original_signed_judgments() -> None:
 def test_trec_run_ranks_are_not_reordered_by_native_scores() -> None:
     dataset = _dataset()
     run = _run(dataset, _config(dataset))
-    assert trec_run(run, run_tag="baseline") == (
-        "q1 Q0 d1 1 -1 baseline\nq1 Q0 d2 2 -2 baseline\n"
-    )
+    assert trec_run(run, run_tag="baseline") == ("q1 Q0 d1 1 -1 baseline\nq1 Q0 d2 2 -2 baseline\n")
     with pytest.raises(IrContractError, match="run tag"):
         trec_run(run, run_tag="has space")
 
@@ -111,7 +114,10 @@ def test_dataset_requires_canonical_order_unique_qrels_and_known_queries() -> No
         IrDataset("s", "r", _CORPUS_SHA, (IrQuery("b", "B"), IrQuery("a", "A")), ())
     with pytest.raises(IrContractError, match="qrels"):
         IrDataset(
-            "s", "r", _CORPUS_SHA, (IrQuery("q", "Q"),),
+            "s",
+            "r",
+            _CORPUS_SHA,
+            (IrQuery("q", "Q"),),
             (IrQrel("q", "d", 1), IrQrel("q", "d", 0)),
         )
     with pytest.raises(IrContractError, match="declared query"):
@@ -137,15 +143,14 @@ def test_run_refuses_wrong_rank_duplicates_and_unknown_query() -> None:
 def test_config_identity_is_sensitive_to_every_semantic_setting() -> None:
     ds = _dataset()
     cfg = _config(ds)
-    assert cfg.sha256 != dataclasses.replace(
-        cfg, parameters_json='{"candidate_window":50,"rrf_k":61}'
-    ).sha256
+    assert (
+        cfg.sha256
+        != dataclasses.replace(cfg, parameters_json='{"candidate_window":50,"rrf_k":61}').sha256
+    )
     assert cfg.sha256 != dataclasses.replace(cfg, code_sha="d" * 40).sha256
     assert cfg.sha256 != dataclasses.replace(cfg, projection_sha256="e" * 64).sha256
-    assert cfg.sha256 != dataclasses.replace(
-        cfg, retrieval_revision="dense-knn-v1"
-    ).sha256
-    for invalid in ('{"z":1, "a":2}', '{"z":NaN}', '[]', '{"x":1,"x":2}'):
+    assert cfg.sha256 != dataclasses.replace(cfg, retrieval_revision="dense-knn-v1").sha256
+    for invalid in ('{"z":1, "a":2}', '{"z":NaN}', "[]", '{"x":1,"x":2}'):
         with pytest.raises(IrContractError):
             dataclasses.replace(cfg, parameters_json=invalid)
 
@@ -155,9 +160,7 @@ def test_run_cannot_be_attributed_to_different_dataset_or_config() -> None:
     cfg = _config(ds)
     run = _run(ds, cfg)
     with pytest.raises(IrContractError):
-        run.validate_against(
-            dataclasses.replace(ds, source_revision="another"), cfg
-        )
+        run.validate_against(dataclasses.replace(ds, source_revision="another"), cfg)
     with pytest.raises(IrContractError):
         run.validate_against(ds, dataclasses.replace(cfg, parameters_json='{"x":1}'))
     with pytest.raises(IrContractError):

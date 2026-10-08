@@ -47,7 +47,10 @@ def _token(value: str, *, field: str) -> None:
     if (
         not isinstance(value, str)
         or not value
-        or any(character.isspace() or ord(character) < 32 or ord(character) == 127 for character in value)
+        or any(
+            character.isspace() or ord(character) < 32 or ord(character) == 127
+            for character in value
+        )
     ):
         raise IrContractError(f"{field} must be a non-empty, whitespace-free identifier")
 
@@ -132,7 +135,9 @@ class IrDataset:
         _sha(self.corpus_sha256, field="corpus_sha256")
         ids = tuple(query.query_id for query in self.queries)
         if not ids or ids != tuple(sorted(set(ids))):
-            raise IrContractError("dataset queries must be non-empty, unique and query_id ascending")
+            raise IrContractError(
+                "dataset queries must be non-empty, unique and query_id ascending"
+            )
         qrel_keys = tuple((qrel.query_id, qrel.document_id) for qrel in self.qrels)
         if qrel_keys != tuple(sorted(set(qrel_keys))):
             raise IrContractError("qrels must be unique and (query_id, document_id) ascending")
@@ -177,7 +182,9 @@ class IrExperimentConfig:
         if not isinstance(config, dict) or any(not isinstance(k, str) for k in config):
             raise IrContractError("parameters_json must encode a JSON object")
         if canonical_ir_json(config).decode("utf-8").rstrip("\n") != self.parameters_json:
-            raise IrContractError("parameters_json must have canonical sorted keys and no whitespace")
+            raise IrContractError(
+                "parameters_json must have canonical sorted keys and no whitespace"
+            )
 
     def payload(self) -> dict[str, object]:
         return {
@@ -285,8 +292,7 @@ class IrRun:
 def trec_qrels(dataset: IrDataset) -> str:
     """Canonical TREC qrels. Preserve negative judgments; do not reinterpret them."""
     return "".join(
-        f"{qrel.query_id} 0 {qrel.document_id} {qrel.relevance}\n"
-        for qrel in dataset.qrels
+        f"{qrel.query_id} 0 {qrel.document_id} {qrel.relevance}\n" for qrel in dataset.qrels
     )
 
 
