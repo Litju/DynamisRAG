@@ -916,8 +916,12 @@ checked-out runtime dependencies; verifies the sealed Stage A bundle on Drive th
 caches the frozen BEIR archives; builds the Stage-B plan and derives the evidence
 directory from its digest; clones `huggingface/text-embeddings-inference` and detaches
 it at the immutable v1.9.4 commit; installs Rust 1.92.0 and builds the CUDA router with
-`cargo install --path router -F candle-cuda`; launches the router as a local process on
-`127.0.0.1:8080` with the startup above; waits bounded for `/health`; prints and then
+`cargo install --locked --path router -F candle-cuda`, so the build uses the pinned
+source's own `Cargo.lock` and refuses dependency-resolution drift; launches the router as
+a local process on `127.0.0.1:8080` with the startup above and the declared precision
+`EXPECTED_PRECISION = "float16"` (the TEI 1.9.4 candle backend compiles `float16` and
+`float32` only; `bfloat16` exists solely under its python backend, which this lane does
+not use); waits bounded for `/health`; prints and then
 validates `/info` through `parse_tei_server_info`; and only then runs the operator.
 
 No container runtime is involved: managed Colab has none, so TEI is a local process and

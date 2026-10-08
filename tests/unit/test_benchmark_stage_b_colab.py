@@ -13,8 +13,10 @@ reading the committed JSON and parsing every code cell:
   no proxy, no public port;
 * **the server identity is proven through the repository.** TEI 1.9.4 is built from the
   exact upstream commit with the pinned Rust toolchain and the upstream CUDA router
-  build, launched with the frozen Stage-B command line, and ``GET /info`` is validated
-  by ``parse_tei_server_info`` rather than by notebook code;
+  build against the source's own ``Cargo.lock`` (``--locked``), with a declared
+  precision the ``candle-cuda`` backend can actually serve (``float16``), launched with
+  the frozen Stage-B command line, and ``GET /info`` is validated by
+  ``parse_tei_server_info`` rather than by notebook code;
 * **the notebook is orchestration, not implementation.** Every load-bearing value and
   every algorithm is imported from ``dynamisrag.benchmark``, and the GPU work is
   delegated to ``notebooks/res138_stage_b_gpu.py``; no metric, no gate, no selection and
@@ -33,6 +35,7 @@ import re
 from pathlib import Path
 from typing import Final, cast
 
+from dynamisrag.benchmark.production import RES138_PRODUCTION_PRECISIONS
 from tests._support import REPO_ROOT
 
 _NOTEBOOK: Final[Path] = REPO_ROOT / "notebooks" / "res138_stage_b_colab.ipynb"
@@ -41,6 +44,17 @@ _CODE_SHA: Final[str] = "f35487f4e9c5b36da7e0f9951698810f7107a985"
 _TEI_COMMIT: Final[str] = "e80ef225ed0e6cb1717ce632a6a84b6cf211bb67"
 _MODEL_ID: Final[str] = "Qwen/Qwen3-Embedding-0.6B"
 _MODEL_REVISION: Final[str] = "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3"
+_EXPECTED_PRECISION: Final[str] = "float16"
+
+_CANDLE_CUDA_PRECISIONS: Final[frozenset[str]] = frozenset({"float16", "float32"})
+"""The dtypes the TEI 1.9.4 ``candle-cuda`` router compiles.
+
+Upstream ``backends/src/dtype.rs`` compiles ``Float16`` and ``Float32`` under the
+``candle`` feature (without ``accelerate``), while ``Bfloat16`` exists only under the
+``python`` feature. A declared
+``bfloat16`` would be rejected by the router's ``--dtype`` parser at launch, after the
+whole build.
+"""
 
 _BEIR_DIGESTS: Final[tuple[str, ...]] = (
     "536e14446a0ba56ed1398ab1055f39fe852686ecad24a6306c80c490fa8e0165",
@@ -48,6 +62,7 @@ _BEIR_DIGESTS: Final[tuple[str, ...]] = (
     "120f42a7864d2214234537733c0d2c6684e42fdfafff2c5eacf98afca6656aa0",
 )
 
+_BUILD_FRAGMENT: Final[str] = "build_command = ["
 _LAUNCH_FRAGMENT: Final[str] = "--max-batch-tokens"
 _EXECUTION_FRAGMENT: Final[str] = "res138_stage_b_gpu.py"
 _HARD_STOP_FRAGMENT: Final[str] = "STAGE-B GPU PREFLIGHT COMPLETE"
@@ -111,7 +126,7 @@ def test_the_parameter_cell_is_the_frozen_contract() -> None:
         f'CODE_SHA = "{_CODE_SHA}"',
         'RUN_MODE = "preflight"',
         'APPROVED_PREFLIGHT_SHA256 = ""',
-        'EXPECTED_PRECISION = "bfloat16"',
+        'EXPECTED_PRECISION = "float16"',
         'TEI_REPO_URL = "https://github.com/huggingface/text-embeddings-inference.git"',
         f'TEI_COMMIT = "{_TEI_COMMIT}"',
         'TEI_VERSION = "1.9.4"',
@@ -137,11 +152,43 @@ def test_the_parameter_cell_states_the_mode_rules() -> None:
 def test_the_expected_precision_is_declared_before_execution() -> None:
     assignments = [source for source in _code_cells() if "EXPECTED_PRECISION =" in source]
     assert len(assignments) == 1
-    assert 'EXPECTED_PRECISION = "bfloat16"' in assignments[0]
+    assert f'EXPECTED_PRECISION = "{_EXPECTED_PRECISION}"' in assignments[0]
     assert _index_of("EXPECTED_PRECISION =") == 0
     launch = _cell_containing(_LAUNCH_FRAGMENT)
     assert "EXPECTED_PRECISION" in launch
     assert _index_of(_LAUNCH_FRAGMENT) < _index_of(_EXECUTION_FRAGMENT)
+
+
+def _declared_precision() -> str:
+    """The literal ``EXPECTED_PRECISION`` assigned in the parameter cell."""
+    for node in ast.walk(ast.parse(_code_cells()[0])):
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and node.targets[0].id == "EXPECTED_PRECISION"
+            and isinstance(node.value, ast.Constant)
+            and isinstance(node.value.value, str)
+        ):
+            return node.value.value
+    raise AssertionError("the parameter cell assigns no literal EXPECTED_PRECISION")
+
+
+def test_the_declared_precision_is_servable_by_the_selected_backend() -> None:
+    """candle-cuda compiles float16/float32 only; this notebook declares exactly float16."""
+    build = _cell_containing(_BUILD_FRAGMENT)
+    assert '"-F", "candle-cuda"' in build
+    assert '"python"' not in build
+    declared = _declared_precision()
+    assert declared in _CANDLE_CUDA_PRECISIONS
+    assert declared == _EXPECTED_PRECISION
+    assert declared in RES138_PRODUCTION_PRECISIONS
+    assert 'TEI_CANDLE_PRECISIONS = ("float16", "float32")' in build
+    assert "EXPECTED_PRECISION not in TEI_CANDLE_PRECISIONS" in build
+    assert build.index("EXPECTED_PRECISION not in TEI_CANDLE_PRECISIONS") < build.index(
+        "build_command = ["
+    )
+    assert '"bfloat16"' not in _code_source()
 
 
 def test_the_tei_source_is_pinned_to_an_immutable_commit() -> None:
@@ -206,8 +253,9 @@ def test_the_rust_toolchain_is_provisioned_at_the_pinned_version() -> None:
 
 
 def test_the_tei_build_is_the_upstream_cuda_router_build() -> None:
-    build = _cell_containing("candle-cuda")
-    assert '["cargo", "install", "--path", "router", "-F", "candle-cuda"]' in build
+    build = _cell_containing(_BUILD_FRAGMENT)
+    assert '["cargo", "install", "--locked", "--path", "router", "-F", "candle-cuda"]' in build
+    assert '"--frozen"' not in build and '"--offline"' not in build
     assert "candle-cuda-turing" not in _code_source()
     assert "nvcc" in _code_source()
 
