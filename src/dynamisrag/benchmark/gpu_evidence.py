@@ -1208,7 +1208,10 @@ def materialize_verified_evidence(
     """Copy one verified full artifact, its vectors and its manifest into the work directory.
 
     Only full production evidence is materialized: preflight evidence is a verification
-    input. The artifact's authorized preflight digest must equal the digest of the
+    input. The source artifact must already carry the canonical
+    ``full_evidence_filename(verdict.dimension)`` name — the import never renames one —
+    so the materialized file is exactly the path qualification assembly derives. The
+    artifact's authorized preflight digest must equal the digest of the
     ``gpu-preflight.json`` beside it, so an import can never carry an authorization the
     manifest does not grant. Each file is written atomically, and a target that already
     holds different bytes is refused rather than overwritten silently; importing the
@@ -1227,6 +1230,15 @@ def materialize_verified_evidence(
             "materialized.",
             operation=operation,
         )
+    canonical_name = full_evidence_filename(verdict.dimension)
+    if evidence_path.name != canonical_name:
+        raise BenchmarkArtifactError(
+            f"the verified full evidence is named {evidence_path.name!r}, not the canonical "
+            f"{canonical_name!r}. The import never renames an artifact: a renamed file could be "
+            "materialized under a name qualification assembly does not derive, or silently collide "
+            "with a different artifact.",
+            operation=operation,
+        )
     manifest_path = evidence_path.parent / RES138_GPU_PREFLIGHT_FILENAME
     manifest = read_gpu_preflight(manifest_path, operation=operation)
     if manifest.sha256 != approved:
@@ -1238,7 +1250,7 @@ def materialize_verified_evidence(
         )
     base = vectors_directory if vectors_directory is not None else evidence_path.parent
     sources = (
-        (evidence_path, evidence_path.name),
+        (evidence_path, canonical_name),
         (base / verdict.vector_file, verdict.vector_file),
         (manifest_path, RES138_GPU_PREFLIGHT_FILENAME),
     )
