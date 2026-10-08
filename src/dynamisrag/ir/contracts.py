@@ -65,6 +65,34 @@ def _nonblank(value: object, *, field: str) -> None:
         raise IrContractError(f"{field} must be non-blank")
 
 
+
+def _require_git_sha(value: object) -> None:
+    if not isinstance(value, str) or _GIT_SHA.fullmatch(value) is None:
+        raise IrContractError("code_sha must be a full 40-character lowercase Git SHA")
+
+
+def _require_relevance(value: object) -> None:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise IrContractError("qrel relevance must be an integer, not a boolean")
+
+
+def _require_rank(value: object) -> None:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise IrContractError("hit rank must be a positive one-based integer")
+
+
+def _finite_score(value: object) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise IrContractError("hit raw_score must be a finite numeric value")
+    try:
+        number = float(value)
+    except OverflowError as error:
+        raise IrContractError("hit raw_score cannot overflow float") from error
+    if not math.isfinite(number):
+        raise IrContractError("hit raw_score must be a finite numeric value")
+    return 0.0 if number == 0.0 else number
+
+
 def canonical_ir_json(payload: object) -> bytes:
     """Exact UTF-8 canonical artifact bytes, ending in one LF on every platform."""
     return (
@@ -108,9 +136,7 @@ class IrQrel:
         # Historical TREC collections may use -1 for unjudged/nonrelevant.
         # Preserve the original value; the evaluation policy will decide how
         # to interpret it without destroying source evidence.
-        relevance: object = self.relevance
-        if isinstance(relevance, bool) or not isinstance(relevance, int):
-            raise IrContractError("qrel relevance must be an integer, not a boolean")
+        _require_relevance(self.relevance)
 
     def payload(self) -> dict[str, object]:
         return {
@@ -173,9 +199,7 @@ class IrExperimentConfig:
     def __post_init__(self) -> None:
         _sha(self.dataset_sha256, field="dataset_sha256")
         _sha(self.projection_sha256, field="projection_sha256")
-        code_sha: object = self.code_sha
-        if not isinstance(code_sha, str) or _GIT_SHA.fullmatch(code_sha) is None:
-            raise IrContractError("code_sha must be a full 40-character lowercase Git SHA")
+        _require_git_sha(self.code_sha)
         _token(self.retrieval_revision, field="retrieval_revision")
         try:
             config: object = json.loads(self.parameters_json)
@@ -220,19 +244,9 @@ class IrHit:
     def __post_init__(self) -> None:
         _token(self.query_id, field="hit query_id")
         _token(self.document_id, field="hit document_id")
-        rank: object = self.rank
-        if isinstance(rank, bool) or not isinstance(rank, int) or rank < 1:
-            raise IrContractError("hit rank must be a positive one-based integer")
-        raw_score: object = self.raw_score
-        if (
-            isinstance(raw_score, bool)
-            or not isinstance(raw_score, (int, float))
-            or not math.isfinite(raw_score)
-        ):
-            raise IrContractError("hit raw_score must be a finite numeric value")
+        _require_rank(self.rank)
         # 0.0 and -0.0 are identical scores and must hash identically.
-        score = float(raw_score)
-        object.__setattr__(self, "raw_score", 0.0 if score == 0.0 else score)
+        object.__setattr__(self, "raw_score", _finite_score(self.raw_score))
 
     def payload(self) -> dict[str, object]:
         return {

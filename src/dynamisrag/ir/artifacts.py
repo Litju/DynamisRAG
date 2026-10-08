@@ -212,11 +212,13 @@ def _require_closed_inventory(root: Path) -> None:
 
 
 def _verified_payloads(root: Path, manifest: dict[str, object]) -> dict[str, bytes]:
-    files = manifest.get("files")
-    if not isinstance(files, list) or len(files) != len(_PAYLOAD_NAMES):
+    raw_entries: object = manifest.get("files")
+    if not isinstance(raw_entries, list):
+        raise IrContractError("IR bundle declares an invalid artifact inventory")
+    entries = cast("list[object]", raw_entries)
+    if len(entries) != len(_PAYLOAD_NAMES):
         raise IrContractError("IR bundle declares an invalid artifact inventory")
     contents: dict[str, bytes] = {}
-    entries = cast("list[object]", files)
     for name, entry in zip(_PAYLOAD_NAMES, entries, strict=True):
         info = _restore_json(entry, kind="artifact inventory entry")
         if info.get("name") != name:
