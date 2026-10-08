@@ -3,9 +3,9 @@
 Everything a vector-capable passage index needs in order to be *identifiable*
 lives here, as a frozen, fully explicit value. Nothing in this module generates
 an embedding, calls a model, chooses a model or runs a query: it declares the
-contract that the later embedding provider (RES-137), model evaluation (RES-138)
-and ANN retrieval path (RES-139) will have to satisfy, and it validates values
-before they can reach OpenSearch.
+contract consumed by the RES-137 embedding provider, RES-138 evaluation harness
+and RES-139 dense retrieval service, and validates values before they can reach
+OpenSearch.
 
 **Why a frozen contract at all.** A vector index is identified by much more than
 the passages it holds. Two indexes with identical passages but a different
@@ -162,8 +162,8 @@ VECTOR_FIELD: Final[str] = "embedding"
 """The one ``knn_vector`` field name in a passage index.
 
 A named constant because the field appears in the mapping, in the ``_meta``
-provenance and — in RES-139 — in the query. Letting each of those spell the name
-independently is how a mapping ends up with two vector fields, or a query
+provenance and in the production dense query. Letting each of those spell the
+name independently is how a mapping ends up with two vector fields, or a query
 targeting a field the index never declared.
 """
 

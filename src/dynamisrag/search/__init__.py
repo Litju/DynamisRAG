@@ -20,9 +20,9 @@ atomically, never destroying a served index — lives in
 The dense-vector index contract (RES-136) is declared in
 :mod:`dynamisrag.search.vector`, rendered into a ``passage-index-v2`` mapping by
 :mod:`dynamisrag.search.schema` and projected in
-:mod:`dynamisrag.search.vector_projection`; embedding generation, model
-selection, ANN retrieval and hybrid fusion are deliberately absent and belong to
-RES-137, RES-138 and RES-139.
+:mod:`dynamisrag.search.vector_projection`; RES-139 adds the versioned dense
+query contract and rank-only BM25+dense fusion while leaving model qualification
+explicitly provisional.
 """
 
 from __future__ import annotations
@@ -65,6 +65,31 @@ from dynamisrag.search.publication import (
     FailClosedAliasPublisher,
     PublicationPlan,
     PublicationResult,
+)
+from dynamisrag.search.retrieval import (
+    CANDIDATE_WINDOW,
+    DENSE_DIMENSION,
+    DENSE_MODEL_ID,
+    DENSE_MODEL_REVISION,
+    DENSE_QUERY_REVISION,
+    DENSE_SCHEMA_REVISION,
+    DENSE_SOURCE_FIELDS,
+    DENSE_SPACE,
+    DENSE_TIE_ORDER,
+    FUSION_REVISION,
+    HYBRID_RETRIEVAL_REVISION,
+    PROVISIONAL_EMBEDDING_PROFILE,
+    RRF_K,
+    DenseCandidate,
+    DenseSearchResponse,
+    FusedHit,
+    HybridRetrievalResponse,
+    HybridRetrievalService,
+    QueryEmbeddingService,
+    RrfLaneTrace,
+    RrfTrace,
+    build_dense_knn_request,
+    reciprocal_rank_fusion,
 )
 from dynamisrag.search.schema import (
     BM25_SIMILARITY_NAME,
@@ -114,14 +139,27 @@ __all__ = [
     "BM25_SIMILARITY_PARAMS",
     "BM25_SIMILARITY_REVISION",
     "BM25_TIE_BREAKER",
+    "CANDIDATE_WINDOW",
     "DEFAULT_LIMIT",
+    "DENSE_DIMENSION",
+    "DENSE_MODEL_ID",
+    "DENSE_MODEL_REVISION",
+    "DENSE_QUERY_REVISION",
+    "DENSE_SCHEMA_REVISION",
+    "DENSE_SOURCE_FIELDS",
+    "DENSE_SPACE",
+    "DENSE_TIE_ORDER",
+    "FUSION_REVISION",
     "HNSW_EF_CONSTRUCTION",
     "HNSW_M",
+    "HYBRID_RETRIEVAL_REVISION",
     "INDEX_KNN_ENABLED",
     "MAX_LIMIT",
     "MIN_LIMIT",
     "OPENSEARCH_DEPENDENCY_NAME",
     "PASSAGE_INDEX_SCHEMA_REVISION",
+    "PROVISIONAL_EMBEDDING_PROFILE",
+    "RRF_K",
     "SUPPORTED_VECTOR_SPACES",
     "VECTOR_ENGINE",
     "VECTOR_FIELD",
@@ -132,8 +170,13 @@ __all__ = [
     "VECTOR_SPACE_INNER_PRODUCT",
     "VECTOR_SPACE_L2",
     "Bm25SearchService",
+    "DenseCandidate",
+    "DenseSearchResponse",
     "EmbeddingModelIdentity",
     "FailClosedAliasPublisher",
+    "FusedHit",
+    "HybridRetrievalResponse",
+    "HybridRetrievalService",
     "OpenSearchBulkError",
     "OpenSearchClient",
     "OpenSearchError",
@@ -149,6 +192,9 @@ __all__ = [
     "ProjectionResult",
     "PublicationPlan",
     "PublicationResult",
+    "QueryEmbeddingService",
+    "RrfLaneTrace",
+    "RrfTrace",
     "SearchBackendError",
     "SearchHit",
     "SearchResponse",
@@ -160,12 +206,14 @@ __all__ = [
     "VectorPassageProjector",
     "VectorProjectionResult",
     "build_bm25_request",
+    "build_dense_knn_request",
     "build_projection_manifest",
     "build_vector_projection_manifest",
     "index_mappings",
     "index_settings",
     "physical_index_name",
     "physical_vector_index_name",
+    "reciprocal_rank_fusion",
     "validate_vector_set",
     "vector_index_mappings",
     "vector_index_meta",
