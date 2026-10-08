@@ -31,6 +31,6 @@ __all__ = [
     "canonical_ir_json",
     "trec_qrels",
     "trec_run",
-    "write_ir_bundle",
     "verify_ir_bundle",
+    "write_ir_bundle",
 ]

@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import shutil
 import tempfile
 from dataclasses import dataclass
@@ -127,7 +126,7 @@ def write_ir_bundle(
         # The final artifact path appears only after every file exists.
         if destination.exists():
             raise IrContractError("another process published this bundle already")
-        os.rename(stage, destination)
+        stage.rename(destination)
     except BaseException:
         shutil.rmtree(stage, ignore_errors=True)
         raise
@@ -199,13 +198,7 @@ def _restore_run(raw: object) -> IrRun:
     )
 
 
-def verify_ir_bundle(root: Path, *, expected_run_sha256: str) -> IrBundleReceipt:
-    """Recompute every contract, cross-link and derivative from trusted run SHA.
-
-    A manifest is not a trust anchor. The caller must supply the expected run
-    identity out of band. Qrels and TREC are regenerated from verified JSON:
-    rewriting a manifest to bless a substituted TREC file cannot pass.
-    """
+def _require_closed_inventory(root: Path) -> None:
     if not root.is_dir() or root.is_symlink():
         raise IrContractError("IR bundle root is not a regular directory")
     names = {path.name for path in root.iterdir()}
@@ -213,20 +206,9 @@ def verify_ir_bundle(root: Path, *, expected_run_sha256: str) -> IrBundleReceipt
         raise IrContractError("IR bundle file inventory differs from the closed contract")
     if any((root / name).is_symlink() for name in names):
         raise IrContractError("IR bundle does not permit symbolic links")
-    data = (root / _MANIFEST_NAME).read_bytes()
-    manifest = _parse_manifest(data)
-    if manifest.get("revision") != IR_BUNDLE_REVISION:
-        raise IrContractError("IR bundle revision is incompatible")
-    dataset_sha256 = manifest.get("dataset_sha256")
-    config_sha256 = manifest.get("config_sha256")
-    run_sha256 = manifest.get("run_sha256")
-    if (
-        not isinstance(dataset_sha256, str)
-        or not isinstance(config_sha256, str)
-        or not isinstance(run_sha256, str)
-        or run_sha256 != expected_run_sha256
-    ):
-        raise IrContractError("IR bundle identities do not match caller expectations")
+
+
+def _verified_payloads(root: Path, manifest: dict[str, object]) -> dict[str, bytes]:
     files = manifest.get("files")
     if not isinstance(files, list) or len(files) != len(_PAYLOAD_NAMES):
         raise IrContractError("IR bundle declares an invalid artifact inventory")
@@ -238,6 +220,16 @@ def verify_ir_bundle(root: Path, *, expected_run_sha256: str) -> IrBundleReceipt
         if entry.get("size_bytes") != len(content) or entry.get("sha256") != _sha256(content):
             raise IrContractError("IR bundle content disagrees with its manifest")
         contents[name] = content
+    return contents
+
+
+def _verified_json(
+    contents: dict[str, bytes],
+    *,
+    dataset_sha256: str,
+    config_sha256: str,
+    run_sha256: str,
+) -> dict[str, object]:
     documents: dict[str, object] = {}
     for name, expected in (
         ("dataset.json", dataset_sha256),
@@ -252,23 +244,72 @@ def verify_ir_bundle(root: Path, *, expected_run_sha256: str) -> IrBundleReceipt
         if canonical_ir_json(document) != content or _sha256(content) != expected:
             raise IrContractError("IR bundle semantic identity does not match its JSON content")
         documents[name] = document
+    return documents
+
+
+def _verify_semantics(
+    documents: dict[str, object],
+    contents: dict[str, bytes],
+    *,
+    dataset_sha256: str,
+    config_sha256: str,
+    run_sha256: str,
+) -> None:
     try:
         dataset = _restore_dataset(documents["dataset.json"])
         config = _restore_config(documents["config.json"])
         run = _restore_run(documents["run.json"])
         run.validate_against(dataset, config)
-        if (
-            dataset.sha256 != dataset_sha256
-            or config.sha256 != config_sha256
-            or run.sha256 != run_sha256
-        ):
-            raise IrContractError("IR bundle typed semantic identity disagrees with its manifest")
-        if contents["qrels.trec"] != trec_qrels(dataset).encode("utf-8"):
-            raise IrContractError("IR qrels TREC text differs from the canonical dataset")
-        if contents["run.trec"] != trec_run(run).encode("utf-8"):
-            raise IrContractError("IR run TREC text differs from the canonical ranking")
     except (TypeError, KeyError) as error:
         raise IrContractError("IR bundle contains malformed typed payloads") from error
+    if (
+        dataset.sha256 != dataset_sha256
+        or config.sha256 != config_sha256
+        or run.sha256 != run_sha256
+    ):
+        raise IrContractError("IR bundle typed semantic identity disagrees with its manifest")
+    if contents["qrels.trec"] != trec_qrels(dataset).encode("utf-8"):
+        raise IrContractError("IR qrels TREC text differs from the canonical dataset")
+    if contents["run.trec"] != trec_run(run).encode("utf-8"):
+        raise IrContractError("IR run TREC text differs from the canonical ranking")
+
+
+def verify_ir_bundle(root: Path, *, expected_run_sha256: str) -> IrBundleReceipt:
+    """Recompute every contract, cross-link and derivative from trusted run SHA.
+
+    A manifest is not a trust anchor. The caller must supply the expected run
+    identity out of band. Qrels and TREC are regenerated from verified JSON:
+    rewriting a manifest to bless a substituted TREC file cannot pass.
+    """
+    _require_closed_inventory(root)
+    data = (root / _MANIFEST_NAME).read_bytes()
+    manifest = _parse_manifest(data)
+    if manifest.get("revision") != IR_BUNDLE_REVISION:
+        raise IrContractError("IR bundle revision is incompatible")
+    dataset_sha256 = manifest.get("dataset_sha256")
+    config_sha256 = manifest.get("config_sha256")
+    run_sha256 = manifest.get("run_sha256")
+    if (
+        not isinstance(dataset_sha256, str)
+        or not isinstance(config_sha256, str)
+        or not isinstance(run_sha256, str)
+        or run_sha256 != expected_run_sha256
+    ):
+        raise IrContractError("IR bundle identities do not match caller expectations")
+    contents = _verified_payloads(root, manifest)
+    documents = _verified_json(
+        contents,
+        dataset_sha256=dataset_sha256,
+        config_sha256=config_sha256,
+        run_sha256=run_sha256,
+    )
+    _verify_semantics(
+        documents,
+        contents,
+        dataset_sha256=dataset_sha256,
+        config_sha256=config_sha256,
+        run_sha256=run_sha256,
+    )
     return IrBundleReceipt(
         root=root,
         manifest_sha256=_sha256(data),
