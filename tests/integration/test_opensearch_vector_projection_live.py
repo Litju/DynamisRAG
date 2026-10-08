@@ -965,25 +965,33 @@ def test_alias_cutover_after_snapshot_keeps_both_lanes_on_the_captured_index(
         vector_config=_HYBRID_CONFIG,
     ).project(chunker_revision=_REVISION, vectors=_hybrid_vectors(keys, offset=1))
     node.indexes.add(alternate.index_name)
-    original_targets = node.client.alias_targets
-    original_search = node.client.search
+    original_targets = OpenSearchClient.alias_targets
+    original_search = OpenSearchClient.search
     search_targets: list[str] = []
     switched = False
 
-    def switch_after_snapshot(alias: str) -> tuple[str, ...]:
+    def switch_after_snapshot(self: OpenSearchClient, alias: str) -> tuple[str, ...]:
         nonlocal switched
-        targets = original_targets(alias)
-        if alias == node.alias and targets == (first.index_name,) and not switched:
-            node.client.switch_alias(alias=node.alias, index=alternate.index_name, remove=targets)
+        targets = original_targets(self, alias)
+        if (
+            self is node.client
+            and alias == node.alias
+            and targets == (first.index_name,)
+            and not switched
+        ):
+            self.switch_alias(alias=node.alias, index=alternate.index_name, remove=targets)
             switched = True
         return targets
 
-    def record_search(target: str, body: Mapping[str, Any]) -> Mapping[str, Any]:
-        search_targets.append(target)
-        return original_search(target, body)
+    def record_search(
+        self: OpenSearchClient, target: str, body: Mapping[str, Any]
+    ) -> Mapping[str, Any]:
+        if self is node.client:
+            search_targets.append(target)
+        return original_search(self, target, body)
 
-    monkeypatch.setattr(node.client, "alias_targets", switch_after_snapshot)
-    monkeypatch.setattr(node.client, "search", record_search)
+    monkeypatch.setattr(OpenSearchClient, "alias_targets", switch_after_snapshot)
+    monkeypatch.setattr(OpenSearchClient, "search", record_search)
     response = HybridRetrievalService(
         node.client, alias=node.alias, query_embedder=_FakeHybridQueryEmbedder()
     ).retrieve("jumping", limit=4)
