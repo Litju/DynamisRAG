@@ -422,9 +422,9 @@ RES138_WORKLOAD_NAMES: Final[tuple[str, ...]] = tuple(
 RES138_CANDIDATE_DIMENSIONS: Final[tuple[int, ...]] = (512, 1024)
 """The four evaluated configurations: two models at two dimensions each.
 
-Declared as a set of *candidate* dimensions and nothing more. Neither value is
-a default, and the pair is not a preference; RES-139 consumes a selection this
-benchmark produces, and until then no dimension in this tuple is chosen.
+Declared as a set of *candidate* dimensions for formal qualification, not a
+default or preference. RES-139 uses a separately documented provisional 512-d
+engineering profile because formal Stage-B selection is deferred.
 """
 
 RES138_BASE_DIMENSION: Final[int] = 1024

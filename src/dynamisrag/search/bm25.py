@@ -52,6 +52,9 @@ __all__ = [
     "SearchResponse",
     "SearchSourceSpan",
     "build_bm25_request",
+    "parse_search_hit",
+    "validate_limit",
+    "validate_query",
 ]
 
 BM25_QUERY_REVISION: Final[str] = "bm25-v1"
@@ -235,13 +238,36 @@ class Bm25SearchService:
         :class:`~dynamisrag.search.errors.OpenSearchError` for a backend or
         response-validation failure. Raw OpenSearch objects never escape.
         """
-        normalized = _validate_query(query)
-        _validate_limit(limit)
+        normalized = validate_query(query)
+        validate_limit(limit)
         meta = self._client.index_meta(self._alias)
         response = self._client.search(
             self._alias, build_bm25_request(query=normalized, limit=limit)
         )
         return self._to_response(query=normalized, limit=limit, meta=meta, payload=response)
+
+    def search_resolved(
+        self,
+        query: str,
+        *,
+        limit: int,
+        physical_index: str,
+        meta: Mapping[str, JsonValue],
+    ) -> SearchResponse:
+        """Run unchanged ``bm25-v1`` against a physical index and a captured ``_meta``.
+
+        Hybrid retrieval resolves the alias once before either lane runs. This
+        entry point keeps the lexical parser and request contract shared while
+        ensuring that BM25 cannot independently resolve the alias again.
+        """
+        normalized = validate_query(query)
+        validate_limit(limit)
+        payload = self._client.search(
+            physical_index, build_bm25_request(query=normalized, limit=limit)
+        )
+        return self._to_response(
+            query=normalized, limit=limit, meta=meta, payload=payload, physical_index=physical_index
+        )
 
     # ------------------------------------------------------------------
     # Response validation
@@ -254,6 +280,7 @@ class Bm25SearchService:
         limit: int,
         meta: Mapping[str, JsonValue],
         payload: Mapping[str, JsonValue],
+        physical_index: str | None = None,
     ) -> SearchResponse:
         index_schema_revision = _require_meta_str(meta, "schema_revision")
         projection_sha256 = _require_meta_str(meta, "projection_sha256")
@@ -297,12 +324,13 @@ class Bm25SearchService:
             )
 
         hits = tuple(
-            self._to_hit(
+            parse_search_hit(
                 position=position,
                 raw=raw,
                 chunker_revision=chunker_revision,
                 index_schema_revision=index_schema_revision,
                 projection_sha256=projection_sha256,
+                physical_index=physical_index,
             )
             for position, raw in enumerate(raw_hits, start=1)
         )
@@ -317,87 +345,90 @@ class Bm25SearchService:
             hits=hits,
         )
 
-    def _to_hit(
-        self,
-        *,
-        position: int,
-        raw: JsonValue,
-        chunker_revision: str,
-        index_schema_revision: str,
-        projection_sha256: str,
-    ) -> SearchHit:
-        if not isinstance(raw, dict):
-            raise SearchBackendError(
-                f"UnexpectedPayload: hit {position} is a {type(raw).__name__}, not an object",
-                operation="search",
-            )
-        source = raw.get("_source")
-        if not isinstance(source, dict):
-            raise SearchBackendError(
-                f"UnexpectedPayload: hit {position} carries no _source", operation="search"
-            )
-        document_id = raw.get("_id")
-        if not isinstance(document_id, str) or document_id != source.get("passage_key"):
-            # The index is written with _id = passage_key, so a disagreement is
-            # an integrity failure in the projection, not a search nuance.
-            raise SearchBackendError(
-                f"ProjectionIntegrity: hit {position} has _id {document_id!r} but "
-                f"_source.passage_key {source.get('passage_key')!r}; the projection is "
-                "inconsistent with its own identity rule",
-                operation="search",
-            )
-        if (
-            source.get("chunker_revision") != chunker_revision
-            or source.get("projection_schema_revision") != index_schema_revision
-            or source.get("projection_sha256") != projection_sha256
-        ):
-            raise SearchBackendError(
-                f"ProjectionIntegrity: hit {position} was indexed under different projection "
-                "semantics than the active index declares",
-                operation="search",
-            )
-        score = raw.get("_score")
-        if isinstance(score, bool) or not isinstance(score, (int, float)):
-            raise SearchBackendError(
-                f"UnexpectedPayload: hit {position} carries no numeric _score",
-                operation="search",
-            )
-        try:
-            hit = SearchHit(
-                rank=position,
-                score=float(score),
-                passage_key=_require_str(source, "passage_key", position),
-                text=_require_str(source, "text", position),
-                document_canonical_key=_require_str(source, "document_canonical_key", position),
-                document_version_key=_require_str(source, "document_version_key", position),
-                title=_require_str(source, "title", position),
-                language=_require_str(source, "language", position),
-                chunker_revision=_require_str(source, "chunker_revision", position),
-                passage_ordinal=_require_int(source, "passage_ordinal", f"hit {position}"),
-                token_count=_require_int(source, "token_count", f"hit {position}"),
-                document_type=_require_str(source, "document_type", position),
-                content_sha256=_require_str(source, "content_sha256", position),
-                section_key=_optional_str(source, "section_key"),
-                section_path=_optional_str(source, "section_path"),
-                section_title=_optional_str(source, "section_title"),
-                primary_source_anchor=_optional_str(source, "primary_source_anchor"),
-                source_spans=_source_spans(source, position),
-                doi=_optional_str(source, "doi"),
-                pmid=_optional_str(source, "pmid"),
-                pmcid=_optional_str(source, "pmcid"),
-                source_system=_require_str(source, "source_system", position),
-                source_external_id=_require_str(source, "source_external_id", position),
-            )
-        except ValidationError as error:
-            raise SearchBackendError(
-                f"UnexpectedPayload: hit {position} does not satisfy the search contract: "
-                f"{_flatten(error)}",
-                operation="search",
-            ) from error
-        return hit
+
+def parse_search_hit(
+    *,
+    position: int,
+    raw: JsonValue,
+    chunker_revision: str,
+    index_schema_revision: str,
+    projection_sha256: str,
+    physical_index: str | None = None,
+) -> SearchHit:
+    """Parse one lexical or dense hit through the shared provenance contract."""
+    if not isinstance(raw, dict):
+        raise SearchBackendError(
+            f"UnexpectedPayload: hit {position} is a {type(raw).__name__}, not an object",
+            operation="search",
+        )
+    if physical_index is not None and raw.get("_index") != physical_index:
+        raise SearchBackendError(
+            f"ProjectionIntegrity: hit {position} came from a different physical index",
+            operation="search",
+        )
+    source = raw.get("_source")
+    if not isinstance(source, dict):
+        raise SearchBackendError(
+            f"UnexpectedPayload: hit {position} carries no _source", operation="search"
+        )
+    document_id = raw.get("_id")
+    if not isinstance(document_id, str) or document_id != source.get("passage_key"):
+        raise SearchBackendError(
+            f"ProjectionIntegrity: hit {position} has _id {document_id!r} but "
+            f"_source.passage_key {source.get('passage_key')!r}; the projection is "
+            "inconsistent with its own identity rule",
+            operation="search",
+        )
+    if (
+        source.get("chunker_revision") != chunker_revision
+        or source.get("projection_schema_revision") != index_schema_revision
+        or source.get("projection_sha256") != projection_sha256
+    ):
+        raise SearchBackendError(
+            f"ProjectionIntegrity: hit {position} was indexed under different projection "
+            "semantics than the active index declares",
+            operation="search",
+        )
+    score = raw.get("_score")
+    if isinstance(score, bool) or not isinstance(score, (int, float)):
+        raise SearchBackendError(
+            f"UnexpectedPayload: hit {position} carries no numeric _score", operation="search"
+        )
+    try:
+        return SearchHit(
+            rank=position,
+            score=float(score),
+            passage_key=_require_str(source, "passage_key", position),
+            text=_require_str(source, "text", position),
+            document_canonical_key=_require_str(source, "document_canonical_key", position),
+            document_version_key=_require_str(source, "document_version_key", position),
+            title=_require_str(source, "title", position),
+            language=_require_str(source, "language", position),
+            chunker_revision=_require_str(source, "chunker_revision", position),
+            passage_ordinal=_require_int(source, "passage_ordinal", f"hit {position}"),
+            token_count=_require_int(source, "token_count", f"hit {position}"),
+            document_type=_require_str(source, "document_type", position),
+            content_sha256=_require_str(source, "content_sha256", position),
+            section_key=_optional_str(source, "section_key"),
+            section_path=_optional_str(source, "section_path"),
+            section_title=_optional_str(source, "section_title"),
+            primary_source_anchor=_optional_str(source, "primary_source_anchor"),
+            source_spans=_source_spans(source, position),
+            doi=_optional_str(source, "doi"),
+            pmid=_optional_str(source, "pmid"),
+            pmcid=_optional_str(source, "pmcid"),
+            source_system=_require_str(source, "source_system", position),
+            source_external_id=_require_str(source, "source_external_id", position),
+        )
+    except ValidationError as error:
+        raise SearchBackendError(
+            f"UnexpectedPayload: hit {position} does not satisfy the search contract: "
+            f"{_flatten(error)}",
+            operation="search",
+        ) from error
 
 
-def _validate_query(query: str) -> str:
+def validate_query(query: str) -> str:
     normalized = query.strip()
     if not normalized:
         raise ValueError("query must contain non-whitespace text")
@@ -406,7 +437,7 @@ def _validate_query(query: str) -> str:
     return normalized
 
 
-def _validate_limit(limit: int) -> None:
+def validate_limit(limit: int) -> None:
     # `bool` is a subclass of `int`; `True` is not a meaningful result window.
     if isinstance(limit, bool):
         raise ValueError("limit must be an integer")

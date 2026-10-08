@@ -13,10 +13,10 @@ the repository rather than by reading the diff.
   modules may name ``dynamisrag.benchmark``. The benchmark *may* consume the sealed
   embedding and search contracts, which is the direction that is safe.
 
-* **Nothing selects or defaults a model.** No ``DEFAULT_EMBEDDING_MODEL``, no
-  ``DEFAULT_DIMENSION``, no ``selected_candidate``, anywhere in the repository — and
-  no ``VectorIndexConfig`` default that names either candidate. This is the
-  property that would make RES-139 unnecessary, so it is asserted directly.
+* **The benchmark makes no frozen selection.** The served retrieval contract may
+  name its documented provisional profile, but no generic default name or
+  ``VectorIndexConfig`` default can turn it into a qualified winner. The boundary
+  below allows that one profile only in the dense retrieval module.
 
 * **CI cannot reach a model.** ``torch``, ``sentence-transformers``,
   ``transformers``, ``huggingface-hub`` and ``pyarrow`` appear in no dependency
@@ -194,19 +194,19 @@ def test_no_module_encodes_a_default_or_a_selected_candidate() -> None:
     assert offenders == []
 
 
-def test_no_production_module_names_a_benchmark_candidate_as_a_value() -> None:
-    """A candidate id may appear in a frozen contract; nowhere else.
-
-    The harness names both models in every constant it publishes. A production
-    module naming one would be a default in everything but name.
-    """
-    offenders: list[str] = []
+def test_only_the_provisional_qwen_profile_is_named_in_production_search() -> None:
+    """RES-139 names its provisional Qwen profile; Voyage remains absent."""
+    unexpected: list[str] = []
     for package in _PRODUCTION_PACKAGES:
         for path in _python_files(_DYNAMISRAG / package):
             text = path.read_text(encoding="utf-8")
-            if any(model_id in text for model_id in _CANDIDATE_MODEL_IDS):
-                offenders.append(_relative(path))
-    assert offenders == []
+            if "voyageai/voyage-4-nano" in text:
+                unexpected.append(_relative(path))
+            if "Qwen/Qwen3-Embedding-0.6B" in text and _relative(path) != (
+                "src/dynamisrag/search/retrieval.py"
+            ):
+                unexpected.append(_relative(path))
+    assert unexpected == []
 
 
 def test_the_search_contract_still_declares_no_embedding_default() -> None:

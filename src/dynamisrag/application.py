@@ -25,11 +25,18 @@ from fastapi import FastAPI
 from dynamisrag import __version__
 from dynamisrag.config import Settings, load_settings
 from dynamisrag.db.engine import create_database_engine
+from dynamisrag.embedding.errors import EmbeddingProviderError
 from dynamisrag.health.router import LIVENESS_PATH, READINESS_PATH, build_health_router
 from dynamisrag.logging_config import APP_LOGGER_NAME
 from dynamisrag.search.bm25 import Bm25SearchService
 from dynamisrag.search.client import OpenSearchClient
 from dynamisrag.search.opensearch import OpenSearchProbe
+from dynamisrag.search.retrieval import (
+    HybridRetrievalService,
+    QueryEmbeddingService,
+    create_query_embedding_provider,
+)
+from dynamisrag.search.retrieval_router import RETRIEVE_PATH, build_retrieval_router
 from dynamisrag.search.router import SEARCH_PATH, build_search_router
 
 __all__ = ["API_DESCRIPTION", "API_TITLE", "create_app"]
@@ -38,10 +45,10 @@ API_TITLE: Final[str] = "DynamisRAG"
 API_DESCRIPTION: Final[str] = (
     "Evaluation-first RAG platform for auditable retrieval and evidence-grounded AI. "
     "This build projects the canonical PostgreSQL passage model into a versioned, "
-    "disposable OpenSearch projection and serves deterministic BM25 retrieval over "
-    "it. The projection is a rebuildable cache, never an authority: no canonical "
-    "state depends on it. Embeddings, vector search and generation are not part of "
-    "this slice."
+    "disposable OpenSearch projection and serves deterministic BM25 retrieval plus "
+    "provisional BM25+dense RRF retrieval over it. Dense query embeddings use an "
+    "optional configured TEI provider. The projection is a rebuildable cache, "
+    "never an authority: no canonical state depends on it."
 )
 
 _logger: Final[logging.Logger] = logging.getLogger(APP_LOGGER_NAME)
@@ -59,6 +66,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     opensearch_client = OpenSearchClient(resolved)
     probe = OpenSearchProbe(opensearch_client)
     search = Bm25SearchService(opensearch_client, alias=resolved.opensearch_index_alias)
+    tei_provider = None
+    query_embedder = None
+    try:
+        tei_provider = create_query_embedding_provider(resolved)
+        query_embedder = QueryEmbeddingService(tei_provider) if tei_provider is not None else None
+    except EmbeddingProviderError as error:
+        _logger.warning(
+            "query embedding provider unavailable: %s (%s)",
+            type(error).__name__,
+            error.safe_summary(),
+        )
+        if tei_provider is not None:
+            tei_provider.close()
+            tei_provider = None
+    retrieval = HybridRetrievalService(
+        opensearch_client,
+        alias=resolved.opensearch_index_alias,
+        query_embedder=query_embedder,
+    )
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncGenerator[None]:
@@ -66,8 +92,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             yield
         finally:
-            opensearch_client.close()
-            engine.dispose()
+            try:
+                if tei_provider is not None:
+                    tei_provider.close()
+            finally:
+                opensearch_client.close()
+                engine.dispose()
             _logger.info("stopped: version=%s", __version__)
 
     app = FastAPI(
@@ -78,8 +108,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.include_router(build_health_router(settings=resolved, engine=engine, opensearch=probe))
     app.include_router(build_search_router(search=search))
+    app.include_router(build_retrieval_router(retrieval=retrieval))
 
     _logger.debug(
-        "application created: health=%s,%s search=%s", LIVENESS_PATH, READINESS_PATH, SEARCH_PATH
+        "application created: health=%s,%s search=%s retrieve=%s",
+        LIVENESS_PATH,
+        READINESS_PATH,
+        SEARCH_PATH,
+        RETRIEVE_PATH,
     )
     return app

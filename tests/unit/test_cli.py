@@ -25,6 +25,7 @@ from typing import Any, Final
 import pytest
 
 import dynamisrag.__main__ as cli
+from dynamisrag.embedding.errors import EmbeddingProviderError
 from dynamisrag.search.bm25 import SearchHit, SearchResponse, SearchSourceSpan
 from dynamisrag.search.errors import OpenSearchTransportError, ProjectionError
 from tests._support import UNIT_TEST_PASSWORD, build_settings
@@ -273,6 +274,108 @@ def test_the_search_client_is_always_closed(
     assert cli.main(["search", "probiotic"]) != 0
     assert closed == [True]
     capsys.readouterr()
+
+
+def test_retrieve_uses_the_hybrid_service_and_emits_all_three_traces(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    seen: dict[str, Any] = {}
+    closed: list[str] = []
+
+    class _Client:
+        def __init__(self, settings: Any) -> None:
+            seen["client"] = self
+
+        def close(self) -> None:
+            closed.append("opensearch")
+
+    class _Embedder:
+        pass
+
+    class _Provider:
+        def close(self) -> None:
+            closed.append("tei")
+
+    class _Response:
+        def model_dump(self, *, mode: str) -> dict[str, Any]:
+            assert mode == "json"
+            return {
+                "lexical": {"query_revision": "bm25-v1"},
+                "dense": {"query_revision": "dense-knn-v1"},
+                "fusion": {"revision": "rrf-v1"},
+            }
+
+    class _Service:
+        def __init__(self, client: Any, *, alias: str, query_embedder: Any) -> None:
+            seen.update({"client": client, "alias": alias, "query_embedder": query_embedder})
+
+        def retrieve(self, query: str, *, limit: int) -> _Response:
+            seen.update({"query": query, "limit": limit})
+            return _Response()
+
+    tei = _Provider()
+
+    def build_provider(_settings: Any) -> _Provider:
+        return tei
+
+    def build_embedder(_selected: Any) -> _Embedder:
+        return _Embedder()
+
+    monkeypatch.setattr(cli, "OpenSearchClient", _Client)
+    monkeypatch.setattr(cli, "create_query_embedding_provider", build_provider)
+    monkeypatch.setattr(cli, "QueryEmbeddingService", build_embedder)
+    monkeypatch.setattr(cli, "HybridRetrievalService", _Service)
+
+    status = cli.main(["retrieve", "probiotic exercise", "--limit", "4"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert status == 0
+    assert seen["alias"] == build_settings().opensearch_index_alias
+    assert seen["client"] is not None
+    assert isinstance(seen["query_embedder"], _Embedder)
+    assert seen["query"] == "probiotic exercise"
+    assert seen["limit"] == 4
+    assert payload["lexical"]["query_revision"] == "bm25-v1"
+    assert payload["dense"]["query_revision"] == "dense-knn-v1"
+    assert payload["fusion"]["revision"] == "rrf-v1"
+    assert closed == ["tei", "opensearch"]
+
+
+def test_retrieve_renders_embedding_failure_as_one_safe_line(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    class _Client:
+        def __init__(self, settings: Any) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+    class _Service:
+        def __init__(self, client: Any, *, alias: str, query_embedder: Any) -> None:
+            pass
+
+        def retrieve(self, query: str, *, limit: int) -> Any:
+            raise EmbeddingProviderError(
+                "SECRET_TEI_PROSE", operation="embed_query", cause="RuntimeError"
+            )
+
+    monkeypatch.setattr(cli, "OpenSearchClient", _Client)
+
+    def no_provider(_settings: Any) -> None:
+        return None
+
+    monkeypatch.setattr(cli, "create_query_embedding_provider", no_provider)
+    monkeypatch.setattr(cli, "HybridRetrievalService", _Service)
+
+    status = cli.main(["retrieve", "query"])
+
+    captured = capsys.readouterr()
+    assert status != 0
+    assert captured.out == ""
+    assert "SECRET_TEI_PROSE" not in captured.err
+    assert "Traceback" not in captured.err
+    assert captured.err.count("\n") == 1
 
 
 # ---------------------------------------------------------------------------

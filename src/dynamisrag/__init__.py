@@ -11,9 +11,10 @@ What this package holds today:
   ``passage-index-v1`` for BM25 and ``passage-index-v2``, a vector-capable
   Lucene HNSW projection over the same lexical mapping.
 
-Embedding generation, the embedding provider and TEI, a production ANN retrieval
-API, BM25+dense fusion, reranking, generation and agents are deliberately absent
-and are scoped to later Linear issues.
+Embedding generation, the embedding provider and TEI support the provisional
+Qwen 512 dense query path used by hybrid retrieval. Formal RES-138 Stage-B
+qualification remains deferred. Reranking, generation and agents belong to
+later Linear issues.
 """
 
 from __future__ import annotations

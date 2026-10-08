@@ -47,8 +47,9 @@ vector sets collide.
 :attr:`PassageEmbeddingManifest.embedding_model_identity` produce the exact
 values :mod:`dynamisrag.search.vector_projection` consumes. Combining those with
 an explicit :class:`~dynamisrag.search.vector.VectorIndexConfig` space and
-dimension is RES-138's decision and RES-139's publication; nothing here writes to
-OpenSearch, and no dimension is guessed from the first vector that arrives.
+dimension remains the caller's decision; RES-139's query profile is provisional.
+Nothing here writes to OpenSearch, and no dimension is guessed from the first
+vector that arrives.
 """
 
 from __future__ import annotations

@@ -24,13 +24,15 @@ document to a ranked, auditable hit:
   byte-reproducible record of which model, at which weights, under which
   generation semantics, produced which vector for which passage.
 
-Deliberately **not** implemented here, by design: the choice of a **default
-embedding model and dimension** (a retrieval-quality benchmark, taken in a later
-issue), a production ANN retrieval API, BM25+dense fusion, reranking, generation,
-and agents. Those are scoped to later Linear issues. No model is selected, no
-dimension is chosen and nothing is published to a vector index: a
-`passage-index-v2` index therefore still holds vectors **supplied by the caller**,
-and this repository does not index the vectors it generates.
+Production dense ANN retrieval and rank-only BM25+dense fusion are available over
+`passage-index-v2`. The code uses the explicitly provisional
+`Qwen/Qwen3-Embedding-0.6B` profile at revision
+`97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3`, 512 dimensions and cosine space.
+Qwen led RES-138 Stage-A quality, and its 512/1024 dimensions were effectively
+tied; 512 is selected provisionally for engineering and storage efficiency.
+Formal Stage-B production qualification is deferred, so this is not a
+statistically proven winner. Passage vectors are still supplied to the existing
+projector. Reranking, generation and agents remain out of scope.
 
 ---
 
@@ -307,6 +309,51 @@ canonical `Paragraph.text` exactly.
 - `Cache-Control: no-store` on every search response, success or failure.
 - No PostgreSQL is read: search reads the projection only.
 
+### `GET /retrieve` — hybrid BM25 and dense retrieval
+
+Runs the unchanged `bm25-v1` lexical lane and `dense-knn-v1` Lucene HNSW lane
+against one physical `passage-index-v2` index captured from the configured
+alias. Both lanes return up to 50 candidates. `rrf-v1` fuses candidate ranks
+with `1 / (60 + rank)` contributions; raw BM25 and ANN scores are never compared.
+The response keeps `lexical.hits`, `dense.candidates` and `fusion.hits` as
+independently inspectable traces, including each lane's raw score, rank and the
+passage's exact source spans.
+
+`DYNAMISRAG_TEI_URL`, `DYNAMISRAG_TEI_MODEL_ID` and
+`DYNAMISRAG_TEI_MODEL_SHA` must all be set for dense query embedding. The TEI
+provider is optional for the application: `GET /search`, liveness and readiness
+do not depend on it. `GET /retrieve` returns a fixed `503` when TEI is absent or
+cannot prove the configured model. Both success and failure responses use
+`Cache-Control: no-store`.
+
+```powershell
+curl.exe -s "http://127.0.0.1:8000/retrieve?q=probiotic+soy&limit=5"
+dynamisrag retrieve "probiotic soy" --limit 5
+```
+
+The excerpt below shows the three independent traces. Dense and fused provenance
+include `source_spans` so a passage can be checked against canonical paragraphs.
+
+```json
+{
+  "physical_index": "dynamisrag-passages-passage-index-v2-b62af58acf99",
+  "embedding_profile_status": "provisional",
+  "lexical": {
+    "query_revision": "bm25-v1",
+    "hits": [{"rank": 1, "score": 5.1, "passage_key": "…", "source_spans": [{"paragraph_key": "…", "start_char": 0, "end_char": 264}]}]
+  },
+  "dense": {
+    "query_revision": "dense-knn-v1",
+    "candidates": [{"rank": 1, "raw_score": 0.93, "passage_key": "…", "provenance": {"source_spans": [{"paragraph_key": "…", "start_char": 0, "end_char": 264}]}}]
+  },
+  "fusion": {
+    "revision": "rrf-v1",
+    "k": 60,
+    "hits": [{"passage_key": "…", "final_rank": 1, "rrf_score": 0.0325, "lexical": {"present": true, "rank": 1, "raw_score": 5.1, "rrf_contribution": 0.01639}, "dense": {"present": true, "rank": 2, "raw_score": 0.88, "rrf_contribution": 0.01613}, "provenance": {"source_spans": [{"paragraph_key": "…", "start_char": 0, "end_char": 264}]}}]
+  }
+}
+```
+
 ### Projecting passages
 
 The projector is a service, not an endpoint. Rebuild the projection from
@@ -326,6 +373,7 @@ would duplicate retrieval content under different identities.
 dynamisrag                                     # serve the HTTP API (unchanged)
 dynamisrag search "probiotic soy exercise"     # BM25 over the projection, JSON on stdout
 dynamisrag search "colon lesions" --limit 5
+dynamisrag retrieve "probiotic soy" --limit 5 # lexical, dense and fused JSON traces
 
 dynamisrag benchmark res138-plan --code-sha <40-hex>
 dynamisrag benchmark verify-res138-bundle <path>
@@ -338,13 +386,11 @@ dynamisrag benchmark select --bundle <bundle> --code-sha <40-hex> --work-dir <di
 dynamisrag benchmark cleanup-stage-b-indexes --bundle <bundle> --code-sha <40-hex>
 ```
 
-The CLI uses the same search service and the same `SearchResponse` as
-`GET /search`; there is no second search implementation. A backend failure
-exits non-zero with one safe line on stderr: an application-authored failure
-such as a blank query or a chunker revision that does not exist is shown in
-full, while a low-level OpenSearch failure is rendered from its safe summary
-(exception class, operation, HTTP status, `error.type`, target) and never from
-the exception text.
+`dynamisrag search` stays BM25-only and uses the same service and
+`SearchResponse` as `GET /search`. `dynamisrag retrieve` uses the same hybrid
+service as `GET /retrieve`. Failures exit non-zero with one safe line on stderr;
+backend and embedding failures use structured summaries, never backend or TEI
+response prose.
 
 ## Configuration
 
@@ -386,11 +432,12 @@ whatever the server happened to be serving. `DYNAMISRAG_TEI_VERSION` and
 `DYNAMISRAG_TEI_MAX_CLIENT_BATCH_SIZE` are read by `compose.embedding.yaml`, never
 by the application.
 
-**No variable configures the generation semantics or the deployment attestation.**
-Which model, and under which normalization, truncation and dimensions, is a caller
-argument, and the attested startup policy (`TeiDeploymentSemantics`) is passed
-alongside it — both are hashed into the embedding fingerprint, and neither belongs
-in configuration next to a timeout.
+Passage embedding semantics remain an explicit caller-supplied configuration.
+Hybrid query semantics are pinned by `dense-knn-v1` (`prompt_name=query`,
+`normalize=true`, `truncate=true` from the right, `dimensions=512`); the optional
+TEI identity settings attest which model and immutable revision answered. The
+attested startup policy (`TeiDeploymentSemantics`) is passed explicitly and is
+hashed with the request semantics, not configured as an operational timeout.
 
 Design rules, all covered by tests:
 
@@ -1227,13 +1274,15 @@ retrieval, the vector-capable projection (`passage-index-v2`, Lucene HNSW), the
 model-agnostic embedding boundary with its TEI adapter
 (`EmbeddingProvider`, `passage-embeddings-v1`), the RES-138 retrieval benchmark
 harness (frozen contracts, exact scoring, Matryoshka gate, content-addressed
-artifacts, resumable run manifest, local bundle verifier, Colab notebook — with no
-result and no default), and the lint/type/test/CI gates.
+artifacts, resumable run manifest, local bundle verifier and Colab notebook),
+dense ANN retrieval and `hybrid-rrf-v1` fusion over one resolved v2 index, and
+the lint/type/test/CI gates.
 
-Not implemented here, by design: which embedding model and dimension are **best**
-(the harness for that question exists but has not been run through a corpus pass),
-a production ANN retrieval API, BM25+dense fusion, reranking, generation, and
-agents. Those belong to later issues in this milestone.
+The engineering profile is provisionally `Qwen/Qwen3-Embedding-0.6B` at revision
+`97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3`, 512 dimensions and cosine space,
+based on RES-138 Stage-A evidence. Formal Stage-B production qualification remains
+deferred; this repository does not claim that a frozen Stage-B selection
+completed. Reranking, generation and agents belong to later issues.
 
 What that means concretely. Embedding *generation* is implemented and
 reproducible: the adapter calls a TEI server you point it at, proves which model
@@ -1241,12 +1290,11 @@ and which immutable weights answered, verifies each passage against its own
 content digest, validates every returned vector without repairing it, and hands
 you a deterministic passage-to-embedding manifest whose SHA-256 names the observed
 runtime, the attested startup policy and the requested generation semantics
-together. What does **not** exist is a *choice* — no model is selected, no
-dimension is chosen, no default is configured, and nothing is published to
-OpenSearch. A `passage-index-v2` index therefore still holds vectors **supplied by
-the caller**: this repository does not index the vectors it generates, and the
-vectors used in its tests are labelled synthetic test values. BM25 search serves
-both revisions and never selects a vector.
+together. The hybrid query adapter uses that provider for one query vector and
+keeps the query prompt digest distinct from the indexed document embedding
+digest. Passage indexing still uses the existing projector and caller-supplied
+vectors; no corpus embedding job is part of this retrieval slice. BM25 search
+continues to serve both schema revisions and never selects a vector.
 
 ## Copyright
 
