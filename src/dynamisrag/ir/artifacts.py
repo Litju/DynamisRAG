@@ -17,12 +17,15 @@ import shutil
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final, cast
+from typing import Any, Final, cast
 
 from dynamisrag.ir.contracts import (
     IrContractError,
     IrDataset,
     IrExperimentConfig,
+    IrHit,
+    IrQrel,
+    IrQuery,
     IrRun,
     canonical_ir_json,
     trec_qrels,
@@ -57,9 +60,7 @@ def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def _contents(
-    dataset: IrDataset, config: IrExperimentConfig, run: IrRun
-) -> dict[str, bytes]:
+def _contents(dataset: IrDataset, config: IrExperimentConfig, run: IrRun) -> dict[str, bytes]:
     run.validate_against(dataset, config)
     return {
         "config.json": canonical_ir_json(config.payload()),
@@ -152,12 +153,58 @@ def _parse_manifest(data: bytes) -> dict[str, object]:
     return manifest
 
 
-def verify_ir_bundle(root: Path, *, expected_run_sha256: str) -> IrBundleReceipt:
-    """Recompute all file digests and compare against a caller-trusted run SHA.
+def _restore_json(payload: object, *, kind: str) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        raise IrContractError(f"IR {kind} payload must be a JSON object")
+    return cast("dict[str, Any]", payload)
 
-    A manifest alone is not a trust anchor; the caller must supply the expected
-    run identity out of band. The frozen file inventory prevents unnoticed extras
-    and path traversal through attacker-controlled manifest filenames.
+
+def _restore_dataset(raw: object) -> IrDataset:
+    data = _restore_json(raw, kind="dataset")
+    queries = data.get("queries")
+    qrels = data.get("qrels")
+    if not isinstance(queries, list) or not isinstance(qrels, list):
+        raise IrContractError("IR dataset contains invalid query/qrel lists")
+    return IrDataset(
+        source_id=cast("str", data.get("source_id")),
+        source_revision=cast("str", data.get("source_revision")),
+        corpus_sha256=cast("str", data.get("corpus_sha256")),
+        queries=tuple(IrQuery(**_restore_json(q, kind="query")) for q in queries),
+        qrels=tuple(IrQrel(**_restore_json(q, kind="qrel")) for q in qrels),
+    )
+
+
+def _restore_config(raw: object) -> IrExperimentConfig:
+    data = _restore_json(raw, kind="configuration")
+    return IrExperimentConfig(
+        dataset_sha256=cast("str", data.get("dataset_sha256")),
+        code_sha=cast("str", data.get("code_sha")),
+        retrieval_revision=cast("str", data.get("retrieval_revision")),
+        projection_sha256=cast("str", data.get("projection_sha256")),
+        parameters_json=cast("str", data.get("parameters_json")),
+    )
+
+
+def _restore_run(raw: object) -> IrRun:
+    data = _restore_json(raw, kind="run")
+    hits = data.get("hits")
+    query_ids = data.get("query_ids")
+    if not isinstance(hits, list) or not isinstance(query_ids, list):
+        raise IrContractError("IR run contains invalid query/hit lists")
+    return IrRun(
+        dataset_sha256=cast("str", data.get("dataset_sha256")),
+        config_sha256=cast("str", data.get("config_sha256")),
+        query_ids=tuple(cast("list[str]", query_ids)),
+        hits=tuple(IrHit(**_restore_json(hit, kind="hit")) for hit in hits),
+    )
+
+
+def verify_ir_bundle(root: Path, *, expected_run_sha256: str) -> IrBundleReceipt:
+    """Recompute every contract, cross-link and derivative from trusted run SHA.
+
+    A manifest is not a trust anchor. The caller must supply the expected run
+    identity out of band. Qrels and TREC are regenerated from verified JSON:
+    rewriting a manifest to bless a substituted TREC file cannot pass.
     """
     if not root.is_dir() or root.is_symlink():
         raise IrContractError("IR bundle root is not a regular directory")
@@ -183,24 +230,45 @@ def verify_ir_bundle(root: Path, *, expected_run_sha256: str) -> IrBundleReceipt
     files = manifest.get("files")
     if not isinstance(files, list) or len(files) != len(_PAYLOAD_NAMES):
         raise IrContractError("IR bundle declares an invalid artifact inventory")
+    contents: dict[str, bytes] = {}
     for name, entry in zip(_PAYLOAD_NAMES, files, strict=True):
         if not isinstance(entry, dict) or entry.get("name") != name:
             raise IrContractError("IR bundle file name or ordering is invalid")
         content = (root / name).read_bytes()
         if entry.get("size_bytes") != len(content) or entry.get("sha256") != _sha256(content):
             raise IrContractError("IR bundle content disagrees with its manifest")
+        contents[name] = content
+    documents: dict[str, object] = {}
     for name, expected in (
         ("dataset.json", dataset_sha256),
         ("config.json", config_sha256),
         ("run.json", run_sha256),
     ):
-        content = (root / name).read_bytes()
+        content = contents[name]
         try:
             document: object = json.loads(content)
         except (UnicodeDecodeError, ValueError) as error:
             raise IrContractError("IR bundle contains invalid JSON") from error
         if canonical_ir_json(document) != content or _sha256(content) != expected:
             raise IrContractError("IR bundle semantic identity does not match its JSON content")
+        documents[name] = document
+    try:
+        dataset = _restore_dataset(documents["dataset.json"])
+        config = _restore_config(documents["config.json"])
+        run = _restore_run(documents["run.json"])
+        run.validate_against(dataset, config)
+        if (
+            dataset.sha256 != dataset_sha256
+            or config.sha256 != config_sha256
+            or run.sha256 != run_sha256
+        ):
+            raise IrContractError("IR bundle typed semantic identity disagrees with its manifest")
+        if contents["qrels.trec"] != trec_qrels(dataset).encode("utf-8"):
+            raise IrContractError("IR qrels TREC text differs from the canonical dataset")
+        if contents["run.trec"] != trec_run(run).encode("utf-8"):
+            raise IrContractError("IR run TREC text differs from the canonical ranking")
+    except (TypeError, KeyError) as error:
+        raise IrContractError("IR bundle contains malformed typed payloads") from error
     return IrBundleReceipt(
         root=root,
         manifest_sha256=_sha256(data),
