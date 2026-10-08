@@ -900,6 +900,34 @@ is the startup that satisfies it. A container image digest is pinned in the oper
 runbook only once it has actually been resolved; until then this document states the
 flags, not a fabricated digest.
 
+### The Colab operator notebook
+
+`notebooks/res138_stage_b_colab.ipynb` is the managed-Colab operator for this GPU half.
+It is orchestration only, exactly like the script: it imports the repository's Stage-B
+plan, TEI server-info contract, deployment floor and preflight reader, and it invokes
+`notebooks/res138_stage_b_gpu.py` for everything that decides or measures. Its structural
+invariants are asserted in `tests/unit/test_benchmark_stage_b_colab.py`.
+
+It runs on a clean A100-80GB Colab runtime and, in order: mounts Drive; prints
+`nvidia-smi` and refuses any GPU below the frozen floor; clones DynamisRAG with
+`--no-checkout` and detaches it at one exact 40-hex `CODE_SHA`; installs only the
+checked-out runtime dependencies; verifies the sealed Stage A bundle on Drive through
+`load_sealed_stage_a` (discovered under `runs/`, never assumed by name); verifies and
+caches the frozen BEIR archives; builds the Stage-B plan and derives the evidence
+directory from its digest; clones `huggingface/text-embeddings-inference` and detaches
+it at the immutable v1.9.4 commit; installs Rust 1.92.0 and builds the CUDA router with
+`cargo install --path router -F candle-cuda`; launches the router as a local process on
+`127.0.0.1:8080` with the startup above; waits bounded for `/health`; prints and then
+validates `/info` through `parse_tei_server_info`; and only then runs the operator.
+
+No container runtime is involved: managed Colab has none, so TEI is a local process and
+the endpoint never leaves the host. Default `RUN_MODE = "preflight"` re-embeds only the
+frozen calibration set at both dimensions, lists every artifact with its SHA-256, prints
+the `gpu-preflight.json` digest and hard-stops. `RUN_MODE = "full"` additionally requires
+`APPROVED_PREFLIGHT_SHA256` to name that preflight and re-runs the same identity checks;
+a reconnect to a new runtime is allowed, but full mode still proceeds only if the
+serving identity, the plan and the calibration bytes match the approved preflight.
+
 **The GPU identity and VRAM are observed on the server host.** The Python client's
 `torch.cuda.max_memory_allocated()` describes the client process, not the TEI server, so
 it is never the VRAM measurement; `torch.version.cuda` is a toolkit version, not the
