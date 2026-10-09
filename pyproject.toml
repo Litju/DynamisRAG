@@ -43,6 +43,10 @@ benchmark = [
     # `dynamisrag.embedding`, `dynamisrag.search` or `dynamisrag.db` imports it,
     # so production installs are unaffected by its presence.
     "numpy>=2.3,<2.4",
+    # RES-140's offline IR scoring and Parquet artifacts are benchmark-only.
+    # Exact versions keep the metric and serialization environment reproducible.
+    "ir-measures==0.4.3",
+    "pyarrow==25.0.1",
 ]
 
 [tool.uv]
