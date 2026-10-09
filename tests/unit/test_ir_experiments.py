@@ -16,10 +16,14 @@ from dynamisrag.ir import (
     IrDataset,
     IrExperimentConfig,
     IrHit,
+    IrPassageHit,
+    IrPassageMapEntry,
+    IrPassageMapping,
     IrQrel,
     IrQuery,
     IrRun,
     canonical_ir_json,
+    document_run_from_passages,
     read_verified_ir_evaluation,
     verify_ir_bundle,
     write_ir_bundle,
@@ -127,6 +131,77 @@ def test_candidate_comparison_requires_matching_scientific_boundary(tmp_path: Pa
 
     with pytest.raises(IrContractError, match="index snapshot differs"):
         compare_ir_evaluations(baseline, dataclasses.replace(candidate, projection_sha256="d" * 64))
+
+
+def test_cross_lane_results_share_the_snapshot_mapping_authority(tmp_path: Path) -> None:
+    dataset = IrDataset(
+        "synthetic:shared-mapping",
+        "v1",
+        "a" * 64,
+        (IrQuery("q1", "shared snapshot"), IrQuery("q2", "zero-hit query")),
+        (IrQrel("q1", "d01", 2), IrQrel("q1", "d11", 1), IrQrel("q1", "d99", -1)),
+    )
+    baseline_config = IrExperimentConfig(dataset.sha256, "b" * 40, "bm25-v1", "c" * 64, "{}")
+    candidate_config = IrExperimentConfig(dataset.sha256, "d" * 40, "dense-v1", "c" * 64, "{}")
+    mapping = IrPassageMapping(
+        tuple(IrPassageMapEntry(f"p{i:02}", f"d{i:02}", "v1") for i in range(1, 21))
+    )
+    baseline_run = document_run_from_passages(
+        dataset=dataset,
+        config=baseline_config,
+        passage_mapping=mapping,
+        hits=tuple(IrPassageHit("q1", f"p{i:02}", i, float(21 - i)) for i in range(1, 11)),
+        evaluation_depth=10,
+    )
+    candidate_run = document_run_from_passages(
+        dataset=dataset,
+        config=candidate_config,
+        passage_mapping=mapping,
+        hits=tuple(IrPassageHit("q1", f"p{i:02}", i - 10, 1.0 / i) for i in range(11, 21)),
+        evaluation_depth=10,
+    )
+    baseline_path = tmp_path / "shared-baseline"
+    candidate_path = tmp_path / "shared-candidate"
+    write_ir_bundle(
+        baseline_path,
+        dataset=dataset,
+        config=baseline_config,
+        run=baseline_run,
+        passage_mapping=mapping,
+    )
+    write_ir_bundle(
+        candidate_path,
+        dataset=dataset,
+        config=candidate_config,
+        run=candidate_run,
+        passage_mapping=mapping,
+    )
+    baseline = read_verified_ir_evaluation(baseline_path, expected_run_sha256=baseline_run.sha256)
+    candidate = read_verified_ir_evaluation(
+        candidate_path, expected_run_sha256=candidate_run.sha256
+    )
+
+    assert {hit.source_passage_id for hit in baseline_run.hits}.isdisjoint(
+        {hit.source_passage_id for hit in candidate_run.hits}
+    )
+    assert baseline.passage_mapping_sha256 == candidate.passage_mapping_sha256 == mapping.sha256
+    comparison = compare_ir_evaluations(baseline, candidate)
+    receipt = write_ir_comparison(tmp_path / "shared-diff", baseline=baseline, candidate=candidate)
+    assert (
+        verify_ir_comparison(
+            receipt.root,
+            baseline=baseline,
+            candidate=candidate,
+            expected_comparison_sha256=comparison.sha256,
+        )
+        == receipt
+    )
+    assert comparison.aggregate[0].difference < 0
+
+    with pytest.raises(IrContractError, match="passage mapping differs"):
+        compare_ir_evaluations(
+            baseline, dataclasses.replace(candidate, passage_mapping_sha256="e" * 64)
+        )
 
 
 def test_comparison_verifier_rejects_resigned_swapped_rows(tmp_path: Path) -> None:

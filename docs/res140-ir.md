@@ -108,14 +108,15 @@ explicit one-based rank even when raw scores tie or use different scales.
 ## Passage and document identity
 
 Qrels name documents. Production retrieval returns passages, so a passage key
-is never used as a qrel document ID. `IrPassageMapping` records each returned
-passage key, the evaluation document ID and its document version ID. The full
-mapping for the submitted run is included in the bundle and its SHA is tied to
-mapped runs. Repeated passages
-for one document collapse to the first passage within the declared window;
-rank ties break by passage key, independent of lane score. A single evaluation
-document mapping to conflicting versions is rejected, as is any returned
-passage without a mapping.
+is never used as a qrel document ID. `IrPassageMapping` is the complete,
+snapshot-wide authority from every passage key in the frozen projection to its
+evaluation document ID and document version ID. The same mapping file and SHA
+must be supplied for every candidate run on that snapshot. Each run verifies
+its encountered passages against that authority; the run's actual hit list
+remains separate. Repeated passages for one document collapse to the first
+passage within the declared window; rank ties break by passage key, independent
+of lane score. A single evaluation document mapping to conflicting versions is
+rejected, as is any returned passage without a mapping.
 
 Passage ranks are competition ranks: tied passages share a rank and the next
 rank advances by the size of that tie group (for example, `1, 1, 3`). Every
@@ -129,24 +130,15 @@ to complete the document top 10. Zero-hit queries remain valid and need no
 exhaustion marker.
 
 To adapt an existing `GET /retrieve` response, map its `FusedHit` passage and
-provenance fields to the IR input types. `qrel_id_by_canonical_key` below is a
-caller-owned mapping to the document IDs used in that dataset's qrels:
+provenance fields to the IR input types. Build `snapshot_mapping_entries` once
+from the complete frozen projection using the caller-owned
+`qrel_id_by_canonical_key` mapping to the document IDs used in the dataset's
+qrels:
 
 ```python
+# Loaded once from the complete frozen projection inventory, not from a lane's hits.
 mapping = IrPassageMapping(
-    tuple(
-        sorted(
-            (
-                IrPassageMapEntry(
-                    hit.passage_key,
-                    qrel_id_by_canonical_key[hit.provenance.document_canonical_key],
-                    hit.provenance.document_version_key,
-                )
-                for hit in response.fusion.hits
-            ),
-            key=lambda entry: entry.passage_id,
-        )
-    )
+    tuple(sorted(snapshot_mapping_entries, key=lambda entry: entry.passage_id))
 )
 run = document_run_from_passages(
     dataset=dataset,
@@ -160,9 +152,14 @@ run = document_run_from_passages(
 )
 ```
 
-BM25 `SearchHit` and dense candidates can be converted from their explicit
-rank and raw score fields the same way. The mapping must cover every hit in
-the submitted window.
+Use this same `mapping` for BM25, dense and hybrid results from that frozen
+projection, even when each lane returns a different passage set. The inventory
+must be bound to the same corpus/projection identity supplied in each config.
+If a complete snapshot mapping is unavailable, do not build one from returned
+hits and claim lane comparability: those per-run hashes correctly differ. BM25
+`SearchHit` and dense candidates can be converted from their explicit rank and
+raw score fields the same way; each candidate's hits must exist in the shared
+mapping.
 
 Comparisons require the same corpus/query/qrel dataset SHA, projection
 snapshot, passage mapping, evaluation depth, metric-policy SHA and scoring
