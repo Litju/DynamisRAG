@@ -429,7 +429,12 @@ def _restore_run(raw: object) -> IrRun:
         raise IrContractError("IR run contract revision is incompatible")
     hits = data.get("hits")
     query_ids = data.get("query_ids")
-    if not isinstance(hits, list) or not isinstance(query_ids, list):
+    source_exhausted_query_ids = data.get("source_exhausted_query_ids", [])
+    if (
+        not isinstance(hits, list)
+        or not isinstance(query_ids, list)
+        or not isinstance(source_exhausted_query_ids, list)
+    ):
         raise IrContractError("IR run contains invalid query/hit lists")
     typed_hits = cast("list[object]", hits)
     return IrRun(
@@ -439,6 +444,7 @@ def _restore_run(raw: object) -> IrRun:
         hits=tuple(IrHit(**_restore_json(hit, kind="hit")) for hit in typed_hits),
         evaluation_depth=cast("int", data.get("evaluation_depth")),
         passage_mapping_sha256=cast("str | None", data.get("passage_mapping_sha256")),
+        source_exhausted_query_ids=tuple(cast("list[str]", source_exhausted_query_ids)),
     )
 
 

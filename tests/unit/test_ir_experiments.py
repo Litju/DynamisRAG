@@ -31,7 +31,7 @@ from dynamisrag.ir.experiments import (
     write_ir_comparison,
 )
 
-_RUN_SHA = "b85b7c334d630ad5b9f7489679a56a257c0038d451d99ea76ecfa464718c714e"
+_RUN_SHA = "a64f361ed29b25ce57db9554dcb403d810ed4b5f94a5a7d55fc5f63066eb30f2"
 _PARQUET = cast(Any, pq)
 
 

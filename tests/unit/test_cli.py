@@ -34,7 +34,7 @@ _PROJECTION_SHA: Final[str] = "c" * 64
 _CHUNKER_REVISION: Final[str] = "structure-v1.1.b19e0939b5de"
 _PASSAGE_KEY: Final[str] = "a" * 64
 _CODE_SHA: Final[str] = "a" * 40
-_RES140_RUN_SHA: Final[str] = "b85b7c334d630ad5b9f7489679a56a257c0038d451d99ea76ecfa464718c714e"
+_RES140_RUN_SHA: Final[str] = "a64f361ed29b25ce57db9554dcb403d810ed4b5f94a5a7d55fc5f63066eb30f2"
 
 
 def _response(query: str) -> SearchResponse:

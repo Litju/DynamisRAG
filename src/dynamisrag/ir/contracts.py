@@ -422,6 +422,7 @@ class IrRun:
     hits: tuple[IrHit, ...]
     evaluation_depth: int
     passage_mapping_sha256: str | None = None
+    source_exhausted_query_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         _sha(self.config_sha256, field="config_sha256")
@@ -436,6 +437,12 @@ class IrRun:
             _sha(self.passage_mapping_sha256, field="passage_mapping_sha256")
         if not self.query_ids or self.query_ids != tuple(sorted(set(self.query_ids))):
             raise IrContractError("run query_ids must be non-empty, unique and ascending")
+        if self.source_exhausted_query_ids != tuple(
+            sorted(set(self.source_exhausted_query_ids))
+        ) or not (set(self.source_exhausted_query_ids) <= set(self.query_ids)):
+            raise IrContractError(
+                "source-exhausted query IDs must be unique, ascending run query IDs"
+            )
         query_set = set(self.query_ids)
         last_key: tuple[str, int] | None = None
         documents: set[tuple[str, str]] = set()
@@ -478,6 +485,7 @@ class IrRun:
             "dataset_sha256": self.dataset_sha256,
             "evaluation_depth": self.evaluation_depth,
             "passage_mapping_sha256": self.passage_mapping_sha256,
+            "source_exhausted_query_ids": list(self.source_exhausted_query_ids),
             "query_ids": list(self.query_ids),
             "hits": [hit.payload() for hit in self.hits],
         }
@@ -494,12 +502,15 @@ def document_run_from_passages(
     passage_mapping: IrPassageMapping,
     hits: tuple[IrPassageHit, ...],
     evaluation_depth: int,
+    source_exhausted_query_ids: tuple[str, ...] = (),
 ) -> IrRun:
     """Collapse ranked passage hits to documents with stable rank-tie ordering.
 
-    At most the declared first-stage passage window is evaluated. A document is
-    represented by its earliest passage hit; rank ties break on passage_id.
+    Source ranks use competition ties (1, 1, 3); each query needs a complete
+    observed prefix. A document is represented by its earliest passage hit;
+    ties break by passage_id. Fewer than ten documents require source exhaustion.
     """
+    _require_evaluation_depth(evaluation_depth)
     if evaluation_depth < IR_REQUIRED_RECALL_CUTOFF:
         raise IrContractError(
             f"evaluation depth {evaluation_depth} cannot support Recall@10; "
@@ -508,7 +519,14 @@ def document_run_from_passages(
     mapping = {entry.passage_id: entry for entry in passage_mapping.entries}
     query_set = {query.query_id for query in dataset.queries}
     seen_passages: set[tuple[str, str]] = set()
+    ranks_by_query: dict[str, dict[int, int]] = {}
     mapped_hits: list[tuple[IrPassageHit, IrPassageMapEntry]] = []
+    if source_exhausted_query_ids != tuple(sorted(set(source_exhausted_query_ids))) or not (
+        set(source_exhausted_query_ids) <= query_set
+    ):
+        raise IrContractError(
+            "source-exhausted query IDs must be unique, ascending dataset queries"
+        )
     for hit in hits:
         if hit.query_id not in query_set:
             raise IrContractError("passage hit refers to an undeclared query")
@@ -518,10 +536,14 @@ def document_run_from_passages(
         if pair in seen_passages:
             raise IrContractError("passage run contains a duplicate passage hit")
         seen_passages.add(pair)
+        rank_counts = ranks_by_query.setdefault(hit.query_id, {})
+        rank_counts[hit.rank] = rank_counts.get(hit.rank, 0) + 1
         entry = mapping.get(hit.passage_id)
         if entry is None:
             raise IrContractError(f"passage hit has no document mapping: {hit.passage_id}")
         mapped_hits.append((hit, entry))
+
+    _require_passage_rank_prefixes(ranks_by_query)
 
     mapped_hits.sort(key=lambda pair: (pair[0].query_id, pair[0].rank, pair[0].passage_id))
     document_hits: list[IrHit] = []
@@ -544,6 +566,15 @@ def document_run_from_passages(
             )
         )
 
+    exhausted_queries = set(source_exhausted_query_ids)
+    if any(
+        0 < count < IR_REQUIRED_RECALL_CUTOFF and query_id not in exhausted_queries
+        for query_id, count in next_rank.items()
+    ):
+        raise IrContractError(
+            "passage window cannot establish a complete document top-10 without source exhaustion"
+        )
+
     run = IrRun(
         config_sha256=config.sha256,
         dataset_sha256=dataset.sha256,
@@ -551,10 +582,22 @@ def document_run_from_passages(
         hits=tuple(document_hits),
         evaluation_depth=evaluation_depth,
         passage_mapping_sha256=passage_mapping.sha256,
+        source_exhausted_query_ids=source_exhausted_query_ids,
     )
     run.validate_against(dataset, config)
     passage_mapping.validate_run(run)
     return run
+
+
+def _require_passage_rank_prefixes(ranks_by_query: dict[str, dict[int, int]]) -> None:
+    for rank_counts in ranks_by_query.values():
+        expected_rank = 1
+        for rank, count in sorted(rank_counts.items()):
+            if rank != expected_rank:
+                raise IrContractError(
+                    "passage ranks must form a complete one-based prefix with competition ties"
+                )
+            expected_rank += count
 
 
 def trec_qrels(dataset: IrDataset) -> str:

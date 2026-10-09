@@ -94,6 +94,17 @@ def test_bundle_is_reproducible_across_paths_and_verifiable(tmp_path: Path) -> N
     assert (first.root / "qrels.trec").read_text(encoding="utf-8") == "q1 0 d1 2\n"
 
 
+def test_source_exhaustion_evidence_is_sealed_with_the_run(tmp_path: Path) -> None:
+    dataset, config, original_run = _inputs()
+    run = dataclasses.replace(original_run, source_exhausted_query_ids=("q1",))
+    receipt = write_ir_bundle(tmp_path / "bundle", dataset=dataset, config=config, run=run)
+
+    assert json.loads((receipt.root / "run.json").read_bytes())["source_exhausted_query_ids"] == [
+        "q1"
+    ]
+    assert verify_ir_bundle(receipt.root, expected_run_sha256=run.sha256) == receipt
+
+
 def test_existing_bundle_cannot_be_overwritten(tmp_path: Path) -> None:
     ds, cfg, run = _inputs()
     path = tmp_path / "bundle"

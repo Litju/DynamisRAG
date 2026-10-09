@@ -218,12 +218,14 @@ def test_passage_hits_map_to_documents_with_stable_tie_break_and_dedup() -> None
             IrPassageMapEntry("p1", "d1", "v1"),
             IrPassageMapEntry("p2", "d1", "v1"),
             IrPassageMapEntry("p3", "d2", "v1"),
+            IrPassageMapEntry("p4", "d3", "v1"),
         )
     )
     hits = (
-        IrPassageHit("q1", "p3", 1, 100.0),
+        IrPassageHit("q1", "p3", 3, 100.0),
         IrPassageHit("q1", "p2", 1, 900.0),
         IrPassageHit("q1", "p1", 1, 0.1),
+        IrPassageHit("q1", "p4", 4, 0.05),
     )
 
     run = document_run_from_passages(
@@ -232,6 +234,7 @@ def test_passage_hits_map_to_documents_with_stable_tie_break_and_dedup() -> None
         passage_mapping=mapping,
         hits=hits,
         evaluation_depth=50,
+        source_exhausted_query_ids=("q1",),
     )
     reordered = document_run_from_passages(
         dataset=dataset,
@@ -239,6 +242,7 @@ def test_passage_hits_map_to_documents_with_stable_tie_break_and_dedup() -> None
         passage_mapping=mapping,
         hits=tuple(reversed(hits)),
         evaluation_depth=50,
+        source_exhausted_query_ids=("q1",),
     )
 
     assert run == reordered
@@ -247,8 +251,66 @@ def test_passage_hits_map_to_documents_with_stable_tie_break_and_dedup() -> None
     ] == [
         ("d1", 1, 0.1, "p1"),
         ("d2", 2, 100.0, "p3"),
+        ("d3", 3, 0.05, "p4"),
     ]
     mapping.validate_run(run)
+    assert run.source_exhausted_query_ids == ("q1",)
+
+
+def test_passage_conversion_requires_a_complete_source_rank_prefix() -> None:
+    dataset = _dataset()
+    config = _config(dataset)
+    mapping = IrPassageMapping(
+        (
+            IrPassageMapEntry("p1", "d1", "v1"),
+            IrPassageMapEntry("p3", "d2", "v1"),
+            IrPassageMapEntry("p50", "d3", "v1"),
+        )
+    )
+
+    for hits in (
+        (IrPassageHit("q1", "p50", 50, 1.0),),
+        (IrPassageHit("q1", "p1", 1, 1.0), IrPassageHit("q1", "p3", 3, 0.5)),
+    ):
+        with pytest.raises(IrContractError, match="complete one-based prefix"):
+            document_run_from_passages(
+                dataset=dataset,
+                config=config,
+                passage_mapping=mapping,
+                hits=hits,
+                evaluation_depth=50,
+                source_exhausted_query_ids=("q1",),
+            )
+
+
+def test_passage_conversion_requires_exhaustion_for_censored_top_ten() -> None:
+    dataset = _dataset()
+    config = _config(dataset)
+    mapping = IrPassageMapping(
+        tuple(IrPassageMapEntry(f"p{rank:02}", f"d{rank % 9}", "v1") for rank in range(1, 51))
+    )
+    hits = tuple(IrPassageHit("q1", f"p{rank:02}", rank, float(51 - rank)) for rank in range(1, 51))
+
+    with pytest.raises(IrContractError, match="complete document top-10"):
+        document_run_from_passages(
+            dataset=dataset,
+            config=config,
+            passage_mapping=mapping,
+            hits=hits,
+            evaluation_depth=50,
+        )
+
+    run = document_run_from_passages(
+        dataset=dataset,
+        config=config,
+        passage_mapping=mapping,
+        hits=hits,
+        evaluation_depth=50,
+        source_exhausted_query_ids=("q1",),
+    )
+    assert len(run.hits) == 9
+    assert run.source_exhausted_query_ids == ("q1",)
+    assert run.query_ids == ("q1", "q2")
 
 
 def test_passage_mapping_rejects_missing_duplicate_and_conflicting_sources() -> None:

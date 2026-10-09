@@ -17,7 +17,7 @@ The checked-in input fixture is synthetic. Score and verify it with its pinned
 run identity:
 
 ```powershell
-$runSha256 = "b85b7c334d630ad5b9f7489679a56a257c0038d451d99ea76ecfa464718c714e"
+$runSha256 = "a64f361ed29b25ce57db9554dcb403d810ed4b5f94a5a7d55fc5f63066eb30f2"
 uv run dynamisrag ir score `
   --inputs tests/fixtures/ir-res140 `
   --run-sha256 $runSha256 `
@@ -116,6 +116,17 @@ for one document collapse to the first passage within the declared window;
 rank ties break by passage key, independent of lane score. A single evaluation
 document mapping to conflicting versions is rejected, as is any returned
 passage without a mapping.
+
+Passage ranks are competition ranks: tied passages share a rank and the next
+rank advances by the size of that tie group (for example, `1, 1, 3`). Every
+non-empty query result must provide a complete prefix starting at rank 1;
+unexplained gaps are rejected before passage deduplication. Ties are ordered by
+passage ID. If a non-empty window collapses to fewer than ten documents, pass
+the query ID in `source_exhausted_query_ids` only when the retrieval source
+confirms it returned all available passages. That evidence is sealed with the
+run. Without it, conversion fails closed because later passages may be needed
+to complete the document top 10. Zero-hit queries remain valid and need no
+exhaustion marker.
 
 To adapt an existing `GET /retrieve` response, map its `FusedHit` passage and
 provenance fields to the IR input types. `qrel_id_by_canonical_key` below is a
