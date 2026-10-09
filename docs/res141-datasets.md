@@ -36,7 +36,7 @@ uv run dynamisrag datasets materialize `
   --split test `
   --archive .tmp/scifact.zip `
   --out .tmp/scifact-test
-uv run dynamisrag datasets verify .tmp/scifact-test
+uv run dynamisrag datasets verify .tmp/scifact-test --registered-source
 ```
 
 Already extracted a distribution? `--source-dir` verifies every member in place
@@ -167,15 +167,31 @@ dangling-qrel exclusion respectively.
 
 ## Verification and refusal
 
-`datasets verify` recomputes everything from bytes: the closed directory
-inventory, every file digest, the typed dataset identity, the manifest's
-declared counts, and — for QASPER — the task content hash and its pinned
-cardinalities. A tampered file, an extra file, a swapped dataset, a non-canonical
-manifest or a drifted count all refuse. Materialization refuses an existing
-output directory, a member that drifted after pinning, an archive that matches
-no pin, a source whose rights decision is rejected, and any request that cannot
-name exactly one input mode.
+`datasets verify` runs in one of two explicit modes, and reports which one it
+ran:
 
-Tests pin all of this on synthetic fixtures under
-`tests/fixtures/datasets/`, and the real registry digests are asserted in
-`tests/unit/test_datasets_sources.py`.
+- **self-consistency** (default): recomputes everything the sealed bytes can
+  prove — the closed directory inventory, every file digest, the typed dataset
+  or QASPER task identity, the manifest's query, qrel and QASPER counts, the
+  source/split revision binding, the generated `rights.txt` and every
+  SciFact-Open provenance-sidecar statistic. A re-signed manifest with a false
+  count, a changed rights notice, a changed source description or a mismatched
+  split/source refuses.
+- **qualified**: self-consistency plus a caller-supplied trust anchor. Pass
+  `--registered-source` to require the manifest source to equal the registered
+  frozen source exactly, and/or `--expect-manifest-sha256 <hex>` to require the
+  canonical manifest digest to match an out-of-band value.
+
+Corpus identity counts (`document_count`, `documents_without_text`) and the
+original archive/member digests cannot be recomputed without the source bytes.
+The receipt lists them under `attested_claims` — never as verified — unless a
+trust anchor authenticates the manifest they live in. There is no
+trust-on-first-use: a manifest that matches nothing trusted stays
+self-consistency-only, and the CLI output says so. A synthetic fixture is not
+the registered distribution, so `--registered-source` refuses it by design.
+
+Materialization refuses an existing output directory, a member that drifted
+after pinning, an archive that matches no pin, a source whose rights decision is
+rejected, and any request that cannot name exactly one input mode. Tests pin all
+of this on synthetic fixtures under `tests/fixtures/datasets/`, and the real
+registry digests are asserted in `tests/unit/test_datasets_sources.py`.

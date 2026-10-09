@@ -344,9 +344,25 @@ def _add_datasets_commands(datasets: argparse.ArgumentParser) -> None:
     )
 
     verify = dataset_commands.add_parser(
-        _DATASETS_VERIFY, help="verify a materialized slice against its manifest"
+        _DATASETS_VERIFY,
+        help="verify a materialized slice against its manifest",
+        description=(
+            "Recompute every claim the sealed bytes can prove. Corpus identity counts and the "
+            "original archive/member pins cannot be recomputed without source bytes and are "
+            "reported as attested; pass --registered-source or --expect-manifest-sha256 for "
+            "qualified verification against a trust anchor."
+        ),
     )
     verify.add_argument("slice", type=Path, help="the slice directory to verify")
+    verify.add_argument(
+        "--registered-source",
+        action="store_true",
+        help="require the manifest source to equal the registered frozen source exactly",
+    )
+    verify.add_argument(
+        "--expect-manifest-sha256",
+        help="require the canonical manifest digest to match this out-of-band value",
+    )
 
     score = dataset_commands.add_parser(
         _DATASETS_SCORE_EVIDENCE,
@@ -467,7 +483,11 @@ def _datasets(command: str | None, arguments: argparse.Namespace) -> int:
         if command == _DATASETS_VERIFY:
             from dynamisrag.datasets.slices import verify_slice
 
-            receipt = verify_slice(arguments.slice)
+            receipt = verify_slice(
+                arguments.slice,
+                registered_source=arguments.registered_source,
+                expected_manifest_sha256=arguments.expect_manifest_sha256,
+            )
             _emit(
                 {
                     "slice": str(receipt.root),
@@ -476,6 +496,11 @@ def _datasets(command: str | None, arguments: argparse.Namespace) -> int:
                     "manifest_sha256": receipt.manifest_sha256,
                     "dataset_sha256": receipt.dataset_sha256,
                     "task_sha256": receipt.task_sha256,
+                    "verification": receipt.verification,
+                    "trusted_source_sha256": receipt.trusted_source_sha256,
+                    "expected_manifest_sha256": receipt.expected_manifest_sha256,
+                    "verified_claims": list(receipt.verified_claims),
+                    "attested_claims": list(receipt.attested_claims),
                 }
             )
             return _EXIT_SUCCESS

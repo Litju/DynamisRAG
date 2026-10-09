@@ -12,7 +12,9 @@ accepts is not an integration.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -29,10 +31,11 @@ from dynamisrag.datasets.pipeline import (
     materialize,
     materialize_source,
 )
+from dynamisrag.datasets.primitives import canonical_bytes
 from dynamisrag.datasets.qasper import QasperSplitExpectation
 from dynamisrag.datasets.rights import RightsOutcome
 from dynamisrag.datasets.scifact_open import ScifactOpenExpectation
-from dynamisrag.datasets.slices import verify_slice
+from dynamisrag.datasets.slices import bytes_sha256, verify_slice
 from dynamisrag.datasets.sources import (
     FAMILY_SCIFACT_OPEN,
     FrozenDatasetSource,
@@ -394,6 +397,253 @@ def test_verification_refuses_a_noncanonical_manifest(tmp_path: Path) -> None:
     manifest.write_bytes(manifest.read_bytes().replace(b"{", b"{ ", 1))
     with pytest.raises(DatasetArtifactError):
         verify_slice(tmp_path / "slice")
+
+
+def _materialize_scifact(tmp_path: Path, name: str = "slice") -> Path:
+    materialize_source(
+        _scifact_source(archive=False, tmp_path=tmp_path),
+        _request(tmp_path / name, source_dir=_SCIFACT_FIXTURE),
+        overrides=_SCIFACT_OVERRIDES,
+    )
+    return tmp_path / name
+
+
+def _mutate_manifest(root: Path, mutate: Callable[[dict[str, Any]], None]) -> None:
+    path = root / "manifest.json"
+    payload: Any = json.loads(path.read_bytes())
+    mutate(payload)
+    path.write_bytes(canonical_bytes(payload))
+
+
+def _resign_manifest_file(root: Path, payload: dict[str, Any], name: str) -> None:
+    content = (root / name).read_bytes()
+    entries: list[dict[str, Any]] = payload["files"]
+    for entry in entries:
+        if entry["name"] == name:
+            entry["size_bytes"] = len(content)
+            entry["sha256"] = bytes_sha256(content)
+            return
+    raise AssertionError(f"no manifest entry for {name}")
+
+
+def test_verification_recomputes_the_manifest_statistics(tmp_path: Path) -> None:
+    root = _materialize_scifact(tmp_path)
+    receipt = verify_slice(root)
+    assert receipt.verification == "self-consistency"
+    assert receipt.trusted_source_sha256 is None
+    assert "qrel-statistics" in receipt.verified_claims
+    assert "query-statistics" in receipt.verified_claims
+    assert "generated-rights-notice" in receipt.verified_claims
+    assert "corpus-identity" in receipt.attested_claims
+    assert "source-archive-and-member-pins" in receipt.attested_claims
+
+
+def test_verification_refuses_a_resigned_false_qrel_count(tmp_path: Path) -> None:
+    root = _materialize_scifact(tmp_path)
+
+    def mutate(payload: dict[str, Any]) -> None:
+        payload["qrels"]["count"] = 99
+
+    _mutate_manifest(root, mutate)
+    with pytest.raises(DatasetArtifactError) as raised:
+        verify_slice(root)
+    assert "qrel" in str(raised.value)
+
+
+def test_verification_refuses_a_resigned_false_query_count(tmp_path: Path) -> None:
+    root = _materialize_scifact(tmp_path)
+
+    def mutate(payload: dict[str, Any]) -> None:
+        payload["queries"]["count"] = 99
+
+    _mutate_manifest(root, mutate)
+    with pytest.raises(DatasetArtifactError) as raised:
+        verify_slice(root)
+    assert "query" in str(raised.value)
+
+
+def test_verification_refuses_a_resigned_false_relevance_distribution(tmp_path: Path) -> None:
+    root = _materialize_scifact(tmp_path)
+
+    def mutate(payload: dict[str, Any]) -> None:
+        payload["qrels"]["positive_count"] = 0
+
+    _mutate_manifest(root, mutate)
+    with pytest.raises(DatasetArtifactError):
+        verify_slice(root)
+
+
+def test_verification_refuses_a_changed_rights_notice_even_when_resigned(tmp_path: Path) -> None:
+    root = _materialize_scifact(tmp_path)
+    rights = root / "rights.txt"
+    rights.write_bytes(rights.read_bytes().replace(b"decision: accepted", b"decision: rejected"))
+
+    def mutate(payload: dict[str, Any]) -> None:
+        _resign_manifest_file(root, payload, "rights.txt")
+
+    _mutate_manifest(root, mutate)
+    with pytest.raises(DatasetArtifactError) as raised:
+        verify_slice(root)
+    assert "rights" in str(raised.value)
+
+
+def test_verification_refuses_changed_manifest_source_metadata(tmp_path: Path) -> None:
+    root = _materialize_scifact(tmp_path)
+
+    def mutate(payload: dict[str, Any]) -> None:
+        payload["source"]["rights"]["dataset_license"] = "MIT"
+
+    _mutate_manifest(root, mutate)
+    with pytest.raises(DatasetArtifactError) as raised:
+        verify_slice(root)
+    assert "rights" in str(raised.value)
+
+
+def test_a_self_consistent_forgery_still_requires_a_trust_anchor(tmp_path: Path) -> None:
+    """A forged source can regenerate its own notice; only a trust anchor catches it."""
+    root = _materialize_scifact(tmp_path)
+    rights = root / "rights.txt"
+    rights.write_bytes(
+        rights.read_bytes().replace(b"dataset_license: synthetic-fixture", b"dataset_license: MIT")
+    )
+    manifest_path = root / "manifest.json"
+    payload: Any = json.loads(manifest_path.read_bytes())
+    payload["source"]["rights"]["dataset_license"] = "MIT"
+    _resign_manifest_file(root, payload, "rights.txt")
+    manifest_path.write_bytes(canonical_bytes(payload))
+    verify_slice(root)
+    trusted = _scifact_source(archive=False, tmp_path=tmp_path)
+    with pytest.raises(DatasetArtifactError):
+        verify_slice(root, trusted_source=trusted)
+
+
+def test_verification_refuses_a_mismatched_split(tmp_path: Path) -> None:
+    root = _materialize_scifact(tmp_path)
+
+    def mutate(payload: dict[str, Any]) -> None:
+        payload["split"] = "train"
+
+    _mutate_manifest(root, mutate)
+    with pytest.raises(DatasetArtifactError):
+        verify_slice(root)
+
+
+def test_verification_refuses_a_mismatched_dataset_source(tmp_path: Path) -> None:
+    root = _materialize_scifact(tmp_path)
+
+    def mutate(payload: dict[str, Any]) -> None:
+        payload["source"]["source_id"] = "beir.nfcorpus"
+
+    _mutate_manifest(root, mutate)
+    with pytest.raises(DatasetArtifactError):
+        verify_slice(root)
+
+
+def test_verification_refuses_an_untrusted_source_pin(tmp_path: Path) -> None:
+    root = _materialize_scifact(tmp_path)
+    with pytest.raises(DatasetArtifactError):
+        verify_slice(root, trusted_source=source_by_id("beir.nfcorpus"))
+
+
+def test_registered_source_verification_refuses_a_synthetic_slice(tmp_path: Path) -> None:
+    """The synthetic fixture is not the registered distribution, whatever its source id."""
+    root = _materialize_scifact(tmp_path)
+    with pytest.raises(DatasetArtifactError):
+        verify_slice(root, registered_source=True)
+
+
+def test_qualified_verification_with_an_expected_manifest_digest(tmp_path: Path) -> None:
+    root = _materialize_scifact(tmp_path)
+    digest = verify_slice(root).manifest_sha256
+    receipt = verify_slice(root, expected_manifest_sha256=digest)
+    assert receipt.verification == "qualified"
+    assert receipt.expected_manifest_sha256 == digest
+    with pytest.raises(DatasetArtifactError):
+        verify_slice(root, expected_manifest_sha256="0" * 64)
+
+
+def test_verification_refuses_a_resigned_false_qasper_manifest_count(tmp_path: Path) -> None:
+    materialize_source(
+        qasper_source(),
+        MaterializeRequest(
+            source_id="qasper",
+            split="test",
+            out=tmp_path / "qasper-slice",
+            source_dir=DATASET_FIXTURES / "qasper-mini",
+        ),
+        overrides=AdapterOverrides(qasper_expectations={"test": _QASPER_EXPECTATION}),
+    )
+    root = tmp_path / "qasper-slice"
+
+    def mutate(payload: dict[str, Any]) -> None:
+        payload["counts"]["questions"] = 99
+
+    _mutate_manifest(root, mutate)
+    with pytest.raises(DatasetArtifactError):
+        verify_slice(root)
+
+
+def _materialize_scifact_open(tmp_path: Path) -> Path:
+    materialize_source(
+        scifact_open_source(),
+        MaterializeRequest(
+            source_id="scifact-open",
+            split="test",
+            out=tmp_path / "open-slice",
+            source_dir=DATASET_FIXTURES / "scifact-open-mini",
+        ),
+        overrides=AdapterOverrides(scifact_open_expectation=_SCIFACT_OPEN_EXPECTATION),
+    )
+    return tmp_path / "open-slice"
+
+
+def test_verification_refuses_a_resigned_false_sidecar_count(tmp_path: Path) -> None:
+    root = _materialize_scifact_open(tmp_path)
+    sidecar = root / "evidence-provenance.json"
+    payload: Any = json.loads(sidecar.read_bytes())
+    payload["counts"]["citation_links"] = 99
+    sidecar.write_bytes(canonical_bytes(payload))
+
+    def mutate(manifest: dict[str, Any]) -> None:
+        _resign_manifest_file(root, manifest, "evidence-provenance.json")
+
+    _mutate_manifest(root, mutate)
+    with pytest.raises(DatasetArtifactError):
+        verify_slice(root)
+
+
+def test_verification_refuses_a_changed_sidecar_link_even_when_resigned(tmp_path: Path) -> None:
+    root = _materialize_scifact_open(tmp_path)
+    sidecar = root / "evidence-provenance.json"
+    payload: Any = json.loads(sidecar.read_bytes())
+    payload["links"][0]["document_id"] = "404"
+    sidecar.write_bytes(canonical_bytes(payload))
+
+    def mutate(manifest: dict[str, Any]) -> None:
+        _resign_manifest_file(root, manifest, "evidence-provenance.json")
+
+    _mutate_manifest(root, mutate)
+    with pytest.raises(DatasetArtifactError):
+        verify_slice(root)
+
+
+def test_the_cli_verifies_with_a_manifest_digest(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _materialize_scifact(tmp_path)
+    digest = verify_slice(root).manifest_sha256
+    assert cli.main(["datasets", "verify", str(root), "--expect-manifest-sha256", digest]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["verification"] == "qualified"
+    assert payload["expected_manifest_sha256"] == digest
+
+
+def test_the_cli_registered_source_flag_refuses_a_synthetic_slice(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _materialize_scifact(tmp_path)
+    assert cli.main(["datasets", "verify", str(root), "--registered-source"]) == 1
+    assert "DatasetArtifactError" in capsys.readouterr().err
 
 
 def _write_ir_inputs(slice_dir: Path, work: Path) -> str:

@@ -26,23 +26,43 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, cast
 
-from dynamisrag.datasets.errors import DatasetArtifactError, DatasetContractError
+from dynamisrag.datasets.errors import (
+    DatasetArtifactError,
+    DatasetContractError,
+    DatasetRightsError,
+)
 from dynamisrag.datasets.primitives import (
     canonical_bytes,
     canonical_sequence_digest,
     digest,
     ordered_ids_sha256,
 )
-from dynamisrag.datasets.sources import FrozenDatasetSource
+from dynamisrag.datasets.rights import (
+    LicenseScope,
+    Redistribution,
+    RightsDecision,
+    RightsOutcome,
+)
+from dynamisrag.datasets.sources import (
+    FrozenDatasetSource,
+    SourceArtifact,
+    SourceFormat,
+    SourceMember,
+    source_by_id,
+)
 from dynamisrag.ir.contracts import IrDataset, IrQrel, IrQuery
 
 __all__ = [
+    "ATTESTED_CORPUS_IDENTITY",
+    "ATTESTED_SOURCE_PINS",
     "DATASET_FILENAME",
     "MANIFEST_FILENAME",
     "RIGHTS_FILENAME",
     "SLICE_REVISION",
     "TASK_DOCUMENT_RETRIEVAL",
     "TASK_EVIDENCE_SELECTION",
+    "VERIFICATION_QUALIFIED",
+    "VERIFICATION_SELF_CONSISTENCY",
     "CorpusIdentity",
     "CorpusIdentityBuilder",
     "RetrievalArtifacts",
@@ -61,6 +81,28 @@ TASK_EVIDENCE_SELECTION: Final[str] = "within-document-evidence-selection"
 DATASET_FILENAME: Final[str] = "dataset.json"
 MANIFEST_FILENAME: Final[str] = "manifest.json"
 RIGHTS_FILENAME: Final[str] = "rights.txt"
+
+VERIFICATION_SELF_CONSISTENCY: Final[str] = "self-consistency"
+"""Everything recomputable from the sealed bytes was recomputed; the corpus
+identity and the source archive/member pins cannot be recomputed without the
+original bytes and are reported as attested, not verified."""
+VERIFICATION_QUALIFIED: Final[str] = "qualified"
+"""Self-consistency plus a caller-supplied trust anchor: a registry source pin,
+an out-of-band expected manifest digest, or both."""
+
+ATTESTED_SOURCE_PINS: Final[str] = "source-archive-and-member-pins"
+ATTESTED_CORPUS_IDENTITY: Final[str] = "corpus-identity"
+
+_CLAIM_INVENTORY: Final[str] = "manifest-file-inventory"
+_CLAIM_RIGHTS_NOTICE: Final[str] = "generated-rights-notice"
+_CLAIM_DATASET_IDENTITY: Final[str] = "typed-dataset-identity"
+_CLAIM_QUERY_STATISTICS: Final[str] = "query-statistics"
+_CLAIM_QREL_STATISTICS: Final[str] = "qrel-statistics"
+_CLAIM_SOURCE_SPLIT_IDENTITY: Final[str] = "source-split-identity"
+_CLAIM_TASK_IDENTITY: Final[str] = "qasper-task-identity"
+_CLAIM_TASK_STATISTICS: Final[str] = "qasper-task-statistics"
+_CLAIM_PROVENANCE_SIDECAR: Final[str] = "scifact-open-provenance-sidecar"
+_SCIFACT_OPEN_SIDECAR: Final[str] = "evidence-provenance.json"
 
 
 @dataclass(frozen=True)
@@ -134,7 +176,13 @@ class CorpusIdentityBuilder:
 
 @dataclass(frozen=True)
 class SliceReceipt:
-    """The verified identities of one materialized slice."""
+    """The verified identities and claim status of one materialized slice.
+
+    ``verified_claims`` were recomputed from the sealed bytes. ``attested_claims``
+    cannot be recomputed without the original corpus bytes and are only
+    authenticated when a trust anchor was supplied (``verification ==
+    "qualified"``): a registry source pin, an expected manifest digest, or both.
+    """
 
     root: Path
     source_id: str
@@ -142,6 +190,11 @@ class SliceReceipt:
     manifest_sha256: str
     dataset_sha256: str | None
     task_sha256: str | None
+    verification: str
+    trusted_source_sha256: str | None
+    expected_manifest_sha256: str | None
+    verified_claims: tuple[str, ...]
+    attested_claims: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -565,60 +618,636 @@ def _verify_inventory(
     return listed
 
 
-def _verify_task_identity(
-    root: Path, manifest: dict[str, object], *, source_id: str, split: str
-) -> tuple[str | None, str | None]:
-    task = str(manifest.get("task"))
-    if task == TASK_DOCUMENT_RETRIEVAL:
-        dataset_bytes = (root / DATASET_FILENAME).read_bytes()
-        dataset = _restore_dataset_bytes(dataset_bytes, name=DATASET_FILENAME)
-        if dataset.sha256 != bytes_sha256(dataset_bytes):
-            raise DatasetArtifactError(
-                "the slice dataset bytes are not the canonical payload of the typed dataset.",
-                operation="verify_slice",
-                source_id=source_id,
-                split=split,
-            )
-        if dataset.sha256 != str(manifest.get("dataset_sha256")):
-            raise DatasetArtifactError(
-                "the slice dataset identity disagrees with the manifest.",
-                operation="verify_slice",
-                source_id=source_id,
-                split=split,
-            )
-        return dataset.sha256, None
-    if task == TASK_EVIDENCE_SELECTION:
-        from dynamisrag.datasets.qasper import TASK_FILENAME, verify_task_bytes
-
-        task_sha256 = verify_task_bytes(
-            (root / TASK_FILENAME).read_bytes(),
-            expected_sha256=str(manifest.get("task_sha256")),
+def _manifest_object(
+    manifest: dict[str, object], *, field: str, source_id: str, split: str
+) -> dict[str, object]:
+    value = manifest.get(field)
+    if not isinstance(value, dict):
+        raise DatasetArtifactError(
+            f"the slice manifest {field!r} is not an object.",
+            operation="verify_slice",
             source_id=source_id,
             split=split,
         )
-        return None, task_sha256
-    raise DatasetArtifactError(
-        f"the slice declares an unknown task {task!r}.",
-        operation="verify_slice",
-        source_id=source_id,
-        split=split,
-        observed=task,
+    return cast("dict[str, object]", value)
+
+
+def _payload_text(payload: Mapping[str, object], field: str, *, item_id: str) -> str:
+    value = payload.get(field)
+    if not isinstance(value, str) or not value.strip():
+        raise DatasetArtifactError(
+            f"the slice manifest source field {field!r} must be non-blank text.",
+            operation="verify_slice",
+            item_id=item_id,
+        )
+    return value
+
+
+def _payload_int(payload: Mapping[str, object], field: str, *, item_id: str) -> int:
+    value = payload.get(field)
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise DatasetArtifactError(
+            f"the slice manifest source field {field!r} must be an integer.",
+            operation="verify_slice",
+            item_id=item_id,
+        )
+    return value
+
+
+def _member_from_payload(raw: object, *, source_id: str) -> SourceMember:
+    if not isinstance(raw, dict):
+        raise DatasetArtifactError(
+            "a slice manifest source member is not an object.",
+            operation="verify_slice",
+            source_id=source_id,
+        )
+    member = cast("dict[str, object]", raw)
+    return SourceMember(
+        name=_payload_text(member, "name", item_id=source_id),
+        size_bytes=_payload_int(member, "size_bytes", item_id=source_id),
+        sha256=_payload_text(member, "sha256", item_id=source_id),
     )
 
 
-def verify_slice(root: Path) -> SliceReceipt:
-    """Verify a materialized slice against its manifest, or refuse it.
+def _artifact_from_payload(raw: object, *, source_id: str) -> SourceArtifact:
+    if not isinstance(raw, dict):
+        raise DatasetArtifactError(
+            "a slice manifest source artifact is not an object.",
+            operation="verify_slice",
+            source_id=source_id,
+        )
+    artifact = cast("dict[str, object]", raw)
+    members_raw = artifact.get("members")
+    if not isinstance(members_raw, list):
+        raise DatasetArtifactError(
+            "a slice manifest source artifact does not list its members.",
+            operation="verify_slice",
+            source_id=source_id,
+        )
+    return SourceArtifact(
+        url=_payload_text(artifact, "url", item_id=source_id),
+        archive_name=_payload_text(artifact, "archive_name", item_id=source_id),
+        format=SourceFormat(_payload_text(artifact, "format", item_id=source_id)),
+        size_bytes=_payload_int(artifact, "size_bytes", item_id=source_id),
+        sha256=_payload_text(artifact, "sha256", item_id=source_id),
+        members=tuple(
+            _member_from_payload(entry, source_id=source_id)
+            for entry in cast("list[object]", members_raw)
+        ),
+    )
 
-    A manifest is not a trust anchor: the dataset is re-parsed into the typed
-    RES-140 contract, its digest recomputed from bytes, and every listed file
-    matched against its pinned size and digest.
+
+def _rights_from_payload(raw: object, *, source_id: str) -> RightsDecision:
+    if not isinstance(raw, dict):
+        raise DatasetArtifactError(
+            "the slice manifest source does not describe its rights decision.",
+            operation="verify_slice",
+            source_id=source_id,
+        )
+    rights = cast("dict[str, object]", raw)
+    return RightsDecision(
+        dataset_license=_payload_text(rights, "dataset_license", item_id=source_id),
+        license_scope=LicenseScope(_payload_text(rights, "license_scope", item_id=source_id)),
+        license_source=_payload_text(rights, "license_source", item_id=source_id),
+        underlying_content=_payload_text(rights, "underlying_content", item_id=source_id),
+        redistribution=Redistribution(_payload_text(rights, "redistribution", item_id=source_id)),
+        attribution=_payload_text(rights, "attribution", item_id=source_id),
+        outcome=RightsOutcome(_payload_text(rights, "outcome", item_id=source_id)),
+        basis=_payload_text(rights, "basis", item_id=source_id),
+    )
+
+
+def _source_from_payload(payload: object, *, source_id: str, split: str) -> FrozenDatasetSource:
+    """Rebuild the manifest's source description, refusing anything malformed.
+
+    This proves internal consistency of the source metadata and the rights
+    decision; it is not a trust anchor. Qualified verification supplies the trust
+    anchor (a registry source pin or an expected manifest digest) separately.
+    """
+    if not isinstance(payload, dict):
+        raise DatasetArtifactError(
+            "the slice manifest does not describe its source.",
+            operation="verify_slice",
+            source_id=source_id,
+            split=split,
+        )
+    source = cast("dict[str, object]", payload)
+    try:
+        artifacts_raw = source.get("artifacts")
+        if not isinstance(artifacts_raw, list):
+            raise DatasetArtifactError(
+                "the slice manifest source does not list its artifacts.",
+                operation="verify_slice",
+                source_id=source_id,
+                split=split,
+            )
+        return FrozenDatasetSource(
+            source_id=_payload_text(source, "source_id", item_id=source_id),
+            family=_payload_text(source, "family", item_id=source_id),
+            revision=_payload_text(source, "revision", item_id=source_id),
+            documentation=_payload_text(source, "documentation", item_id=source_id),
+            content_note=_payload_text(source, "content_note", item_id=source_id),
+            artifacts=tuple(
+                _artifact_from_payload(entry, source_id=source_id)
+                for entry in cast("list[object]", artifacts_raw)
+            ),
+            rights=_rights_from_payload(source.get("rights"), source_id=source_id),
+        )
+    except DatasetArtifactError:
+        raise
+    except (DatasetContractError, DatasetRightsError, ValueError, TypeError) as error:
+        raise DatasetArtifactError(
+            f"the slice manifest source description is invalid ({type(error).__name__}).",
+            operation="verify_slice",
+            source_id=source_id,
+            split=split,
+        ) from None
+
+
+def _declared_revision_candidates(
+    manifest: dict[str, object], *, source: FrozenDatasetSource, split: str
+) -> set[str]:
+    """Every dataset revision the manifest's own declarations can justify.
+
+    The base form is ``source.revision.split``; a corpus variant or a declared
+    protocol policy appends one token. A revision outside this set is a
+    mismatched split or source identity, not an acceptable alias.
+    """
+    base = f"{source.revision}.{split}"
+    candidates = {base}
+    variant = manifest.get("corpus_variant")
+    if isinstance(variant, str) and variant:
+        candidates.add(f"{base}.{variant}")
+    diagnostics = manifest.get("diagnostics")
+    if isinstance(diagnostics, dict):
+        policy = cast("dict[str, object]", diagnostics).get("self_document_policy")
+        if isinstance(policy, str) and policy:
+            candidates.add(f"{base}.{policy}")
+    return candidates
+
+
+def _verify_document_retrieval(
+    root: Path,
+    manifest: dict[str, object],
+    *,
+    source: FrozenDatasetSource,
+    source_id: str,
+    split: str,
+) -> IrDataset:
+    """Recompute every dataset claim the sealed payload can prove."""
+    dataset_bytes = (root / DATASET_FILENAME).read_bytes()
+    dataset = _restore_dataset_bytes(dataset_bytes, name=DATASET_FILENAME)
+    if dataset.sha256 != bytes_sha256(dataset_bytes):
+        raise DatasetArtifactError(
+            "the slice dataset bytes are not the canonical payload of the typed dataset.",
+            operation="verify_slice",
+            source_id=source_id,
+            split=split,
+        )
+    if dataset.sha256 != str(manifest.get("dataset_sha256")):
+        raise DatasetArtifactError(
+            "the slice dataset identity disagrees with the manifest.",
+            operation="verify_slice",
+            source_id=source_id,
+            split=split,
+        )
+    if dataset.source_id != source_id:
+        raise DatasetArtifactError(
+            "the slice dataset names a different source than the manifest.",
+            operation="verify_slice",
+            source_id=source_id,
+            split=split,
+        )
+    variant = manifest.get("corpus_variant")
+    if variant is not None and not isinstance(variant, str):
+        raise DatasetArtifactError(
+            "the slice corpus variant is not text.",
+            operation="verify_slice",
+            source_id=source_id,
+            split=split,
+        )
+    candidates = _declared_revision_candidates(manifest, source=source, split=split)
+    if dataset.source_revision not in candidates:
+        raise DatasetArtifactError(
+            "the slice dataset revision does not match the manifest source and split.",
+            operation="verify_slice",
+            source_id=source_id,
+            split=split,
+            expected=str(sorted(candidates)),
+            observed=dataset.source_revision,
+        )
+    if manifest.get("dataset_revision") != dataset.source_revision:
+        raise DatasetArtifactError(
+            "the slice manifest dataset revision disagrees with the dataset payload.",
+            operation="verify_slice",
+            source_id=source_id,
+            split=split,
+        )
+    if manifest.get("queries") != _query_statistics(dataset.queries):
+        raise DatasetArtifactError(
+            "the slice manifest query statistics disagree with the dataset payload.",
+            operation="verify_slice",
+            source_id=source_id,
+            split=split,
+            item_id="queries",
+        )
+    if manifest.get("qrels") != _qrel_statistics(dataset.qrels):
+        raise DatasetArtifactError(
+            "the slice manifest qrel statistics disagree with the dataset payload.",
+            operation="verify_slice",
+            source_id=source_id,
+            split=split,
+            item_id="qrels",
+        )
+    corpus_claim = manifest.get("corpus")
+    if not isinstance(corpus_claim, dict):
+        raise DatasetArtifactError(
+            "the slice manifest does not describe its corpus identity.",
+            operation="verify_slice",
+            source_id=source_id,
+            split=split,
+        )
+    if cast("dict[str, object]", corpus_claim).get("sha256") != dataset.corpus_sha256:
+        raise DatasetArtifactError(
+            "the slice corpus identity disagrees with the dataset payload.",
+            operation="verify_slice",
+            source_id=source_id,
+            split=split,
+            item_id="corpus",
+        )
+    return dataset
+
+
+@dataclass(frozen=True)
+class _SidecarStats:
+    """Recoverable statistics of one SciFact-Open provenance sidecar."""
+
+    pairs: tuple[tuple[str, str], ...]
+    document_ids: frozenset[str]
+    citation: int
+    pooling: int
+    support: int
+    contradict: int
+    in_pool: int
+
+
+def _parse_sidecar_links(raw_links: list[object], *, source_id: str, split: str) -> _SidecarStats:
+    """Validate every sidecar link and recompute its statistics, or refuse."""
+    pairs: list[tuple[str, str]] = []
+    document_ids: set[str] = set()
+    citation = pooling = support = contradict = in_pool = 0
+    for raw_link in raw_links:
+        if not isinstance(raw_link, dict):
+            raise DatasetArtifactError(
+                "a SciFact-Open provenance link is not an object.",
+                operation="verify_slice",
+                source_id=source_id,
+                split=split,
+            )
+        link = {str(key): value for key, value in cast("dict[object, object]", raw_link).items()}
+        query_id = link.get("query_id")
+        document_id = link.get("document_id")
+        relevance = link.get("relevance")
+        provenance = link.get("provenance")
+        label = link.get("label")
+        released = link.get("in_released_pool")
+        if (
+            not isinstance(query_id, str)
+            or not query_id
+            or not isinstance(document_id, str)
+            or not document_id
+            or isinstance(relevance, bool)
+            or relevance != 1
+            or not isinstance(released, bool)
+            or provenance not in {"citation", "pooling"}
+            or label not in {"SUPPORT", "CONTRADICT"}
+        ):
+            raise DatasetArtifactError(
+                "a SciFact-Open provenance link is malformed.",
+                operation="verify_slice",
+                source_id=source_id,
+                split=split,
+            )
+        pair = (query_id, document_id)
+        if pairs and pair <= pairs[-1]:
+            raise DatasetArtifactError(
+                "the SciFact-Open provenance links are not unique and ascending.",
+                operation="verify_slice",
+                source_id=source_id,
+                split=split,
+            )
+        pairs.append(pair)
+        document_ids.add(document_id)
+        citation += provenance == "citation"
+        pooling += provenance == "pooling"
+        support += label == "SUPPORT"
+        contradict += label == "CONTRADICT"
+        in_pool += released
+    return _SidecarStats(
+        pairs=tuple(pairs),
+        document_ids=frozenset(document_ids),
+        citation=citation,
+        pooling=pooling,
+        support=support,
+        contradict=contradict,
+        in_pool=in_pool,
+    )
+
+
+def _verify_scifact_open_sidecar(
+    root: Path,
+    manifest: dict[str, object],
+    dataset: IrDataset,
+    *,
+    source: FrozenDatasetSource,
+    source_id: str,
+    split: str,
+) -> None:
+    """Recompute every provenance-sidecar statistic the sealed bytes can prove."""
+    from dynamisrag.datasets.scifact_open import PROJECTION_REVISION
+
+    payload = _parse_canonical_object(
+        (root / _SCIFACT_OPEN_SIDECAR).read_bytes(), name=_SCIFACT_OPEN_SIDECAR
+    )
+    if payload.get("artifact_revision") != PROJECTION_REVISION:
+        raise DatasetArtifactError(
+            "the SciFact-Open provenance sidecar revision is incompatible.",
+            operation="verify_slice",
+            source_id=source_id,
+            split=split,
+        )
+    if payload.get("source_id") != source_id or payload.get("source_revision") != source.revision:
+        raise DatasetArtifactError(
+            "the SciFact-Open provenance sidecar names a different source.",
+            operation="verify_slice",
+            source_id=source_id,
+            split=split,
+        )
+    if payload.get("corpus_variant") != manifest.get("corpus_variant"):
+        raise DatasetArtifactError(
+            "the SciFact-Open provenance sidecar names a different corpus variant.",
+            operation="verify_slice",
+            source_id=source_id,
+            split=split,
+        )
+    if payload.get("judgement_status") != "pooled-partial":
+        raise DatasetArtifactError(
+            "the SciFact-Open provenance sidecar declares an unknown judgment status.",
+            operation="verify_slice",
+            source_id=source_id,
+            split=split,
+        )
+    raw_links = payload.get("links")
+    if not isinstance(raw_links, list):
+        raise DatasetArtifactError(
+            "the SciFact-Open provenance sidecar does not list its links.",
+            operation="verify_slice",
+            source_id=source_id,
+            split=split,
+        )
+    stats = _parse_sidecar_links(cast("list[object]", raw_links), source_id=source_id, split=split)
+    if stats.pairs != tuple((qrel.query_id, qrel.document_id) for qrel in dataset.qrels):
+        raise DatasetArtifactError(
+            "the SciFact-Open provenance links disagree with the dataset qrels.",
+            operation="verify_slice",
+            source_id=source_id,
+            split=split,
+        )
+    if any(qrel.relevance != 1 for qrel in dataset.qrels):
+        raise DatasetArtifactError(
+            "a SciFact-Open qrel is not binary evidence-presence relevance.",
+            operation="verify_slice",
+            source_id=source_id,
+            split=split,
+        )
+    expected_counts: dict[str, object] = {
+        "citation_links": stats.citation,
+        "pooling_links": stats.pooling,
+        "support_links": stats.support,
+        "contradict_links": stats.contradict,
+    }
+    if payload.get("counts") != expected_counts:
+        raise DatasetArtifactError(
+            "the SciFact-Open provenance sidecar counts disagree with its links.",
+            operation="verify_slice",
+            source_id=source_id,
+            split=split,
+        )
+    pool = payload.get("pool")
+    if not isinstance(pool, dict):
+        raise DatasetArtifactError(
+            "the SciFact-Open provenance sidecar does not describe its pool.",
+            operation="verify_slice",
+            source_id=source_id,
+            split=split,
+        )
+    pool_claim = cast("dict[str, object]", pool)
+    outside = len(stats.pairs) - stats.in_pool
+    if pool_claim.get("evidence_links_in_pool") != stats.in_pool or (
+        pool_claim.get("evidence_links_outside_pool") != outside
+    ):
+        raise DatasetArtifactError(
+            "the SciFact-Open provenance pool block disagrees with its links.",
+            operation="verify_slice",
+            source_id=source_id,
+            split=split,
+        )
+    diagnostics = _manifest_object(manifest, field="diagnostics", source_id=source_id, split=split)
+    expected_diagnostics: tuple[tuple[str, object], ...] = (
+        ("claims", len(dataset.queries)),
+        ("evidence_links", len(stats.pairs)),
+        ("evidence_documents", len(stats.document_ids)),
+        ("citation_links", stats.citation),
+        ("pooling_links", stats.pooling),
+        ("support_links", stats.support),
+        ("contradict_links", stats.contradict),
+        ("evidence_links_in_pool", stats.in_pool),
+        ("evidence_links_outside_pool", outside),
+        ("pool_pairs", pool_claim.get("pairs")),
+        ("pool_union_documents", pool_claim.get("union_documents")),
+        ("evidence_document_ids_sha256", ordered_ids_sha256(stats.document_ids)),
+        ("provenance_sidecar_sha256", digest(payload)),
+    )
+    for field, expected in expected_diagnostics:
+        if diagnostics.get(field) != expected:
+            raise DatasetArtifactError(
+                f"the slice manifest diagnostic {field!r} disagrees with the payload.",
+                operation="verify_slice",
+                source_id=source_id,
+                split=split,
+                item_id=field,
+            )
+
+
+def _verify_qasper(
+    root: Path,
+    manifest: dict[str, object],
+    *,
+    source_id: str,
+    split: str,
+) -> str:
+    """Recompute every QASPER task claim the sealed payload can prove."""
+    from dynamisrag.datasets.qasper import ANCHOR_POLICY, TASK_FILENAME, read_task_bytes
+
+    task = read_task_bytes(
+        (root / TASK_FILENAME).read_bytes(),
+        expected_sha256=str(manifest.get("task_sha256")),
+        source_id=source_id,
+        split=split,
+    )
+    if task.split != split:
+        raise DatasetArtifactError(
+            "the QASPER task declares a different split than the manifest.",
+            operation="verify_slice",
+            source_id=source_id,
+            split=split,
+        )
+    if manifest.get("counts") != task.counts:
+        raise DatasetArtifactError(
+            "the slice manifest QASPER counts disagree with the task payload.",
+            operation="verify_slice",
+            source_id=source_id,
+            split=split,
+            item_id="counts",
+        )
+    if manifest.get("expected") != dict(task.expected):
+        raise DatasetArtifactError(
+            "the slice manifest QASPER expectations disagree with the task payload.",
+            operation="verify_slice",
+            source_id=source_id,
+            split=split,
+            item_id="expected",
+        )
+    if manifest.get("scoring") != dict(task.scoring):
+        raise DatasetArtifactError(
+            "the slice manifest QASPER scoring policy disagrees with the task payload.",
+            operation="verify_slice",
+            source_id=source_id,
+            split=split,
+            item_id="scoring",
+        )
+    if manifest.get("anchor_policy") != ANCHOR_POLICY:
+        raise DatasetArtifactError(
+            "the slice manifest declares an unknown QASPER anchor policy.",
+            operation="verify_slice",
+            source_id=source_id,
+            split=split,
+        )
+    if manifest.get("source") != dict(task.source_payload):
+        raise DatasetArtifactError(
+            "the QASPER task source identity disagrees with the manifest.",
+            operation="verify_slice",
+            source_id=source_id,
+            split=split,
+        )
+    return task.sha256
+
+
+def verify_slice(
+    root: Path,
+    *,
+    trusted_source: FrozenDatasetSource | None = None,
+    registered_source: bool = False,
+    expected_manifest_sha256: str | None = None,
+) -> SliceReceipt:
+    """Verify a materialized slice, or refuse it.
+
+    Self-consistency mode (the default) recomputes everything the sealed bytes
+    can prove: the closed inventory, the typed dataset or QASPER task identity,
+    query and qrel statistics, source/split identity, the generated rights notice
+    and any provenance-sidecar statistics. Corpus identity counts and the
+    original archive/member pins cannot be recomputed without the source bytes
+    and are returned as *attested*, never as verified.
+
+    Qualified verification supplies a trust anchor: ``trusted_source`` (or
+    ``registered_source`` to resolve the registry pin by the manifest's own
+    source id) requires the manifest source description to equal the trusted
+    source exactly, and ``expected_manifest_sha256`` requires the canonical
+    manifest digest to match an out-of-band value. There is no
+    trust-on-first-use: a manifest that matches nothing trusted stays
+    self-consistency-only, and the receipt says so.
     """
     manifest_bytes, manifest = _load_manifest(root)
     source_id, split = _manifest_identity(manifest)
-    _verify_inventory(root, manifest, source_id=source_id, split=split)
-    dataset_sha256, task_sha256 = _verify_task_identity(
-        root, manifest, source_id=source_id, split=split
-    )
+    source = _source_from_payload(manifest.get("source"), source_id=source_id, split=split)
+    if registered_source:
+        if trusted_source is not None:
+            raise DatasetContractError(
+                "supply either a trusted source object or the registry lookup, never both.",
+                operation="verify_slice",
+                source_id=source_id,
+                split=split,
+            )
+        trusted_source = source_by_id(source_id)
+    verified: list[str] = []
+    listed = _verify_inventory(root, manifest, source_id=source_id, split=split)
+    verified.append(_CLAIM_INVENTORY)
+    if trusted_source is not None and (
+        trusted_source.source_id != source_id or trusted_source.payload() != source.payload()
+    ):
+        raise DatasetArtifactError(
+            "the slice manifest source does not match the caller-trusted source identity.",
+            operation="verify_slice",
+            source_id=source_id,
+            split=split,
+        )
+    expected_manifest: str | None = None
+    if expected_manifest_sha256 is not None:
+        observed = bytes_sha256(manifest_bytes)
+        if observed != expected_manifest_sha256:
+            raise DatasetArtifactError(
+                "the slice manifest does not match the caller-supplied expected digest.",
+                operation="verify_slice",
+                source_id=source_id,
+                split=split,
+                expected=expected_manifest_sha256,
+                observed=observed,
+            )
+        expected_manifest = expected_manifest_sha256
+    if (root / RIGHTS_FILENAME).read_bytes() != rights_notice(source):
+        raise DatasetArtifactError(
+            "the slice rights notice is not the notice generated from the manifest source.",
+            operation="verify_slice",
+            source_id=source_id,
+            split=split,
+        )
+    verified.append(_CLAIM_RIGHTS_NOTICE)
+    attested: list[str] = [ATTESTED_SOURCE_PINS]
+    task = str(manifest.get("task"))
+    dataset_sha256: str | None = None
+    task_sha256: str | None = None
+    if task == TASK_DOCUMENT_RETRIEVAL:
+        dataset = _verify_document_retrieval(
+            root, manifest, source=source, source_id=source_id, split=split
+        )
+        dataset_sha256 = dataset.sha256
+        verified.extend(
+            (
+                _CLAIM_DATASET_IDENTITY,
+                _CLAIM_QUERY_STATISTICS,
+                _CLAIM_QREL_STATISTICS,
+                _CLAIM_SOURCE_SPLIT_IDENTITY,
+            )
+        )
+        attested.append(ATTESTED_CORPUS_IDENTITY)
+        names = {str(entry.get("name")) for entry in listed}
+        if _SCIFACT_OPEN_SIDECAR in names:
+            _verify_scifact_open_sidecar(
+                root, manifest, dataset, source=source, source_id=source_id, split=split
+            )
+            verified.append(_CLAIM_PROVENANCE_SIDECAR)
+    elif task == TASK_EVIDENCE_SELECTION:
+        task_sha256 = _verify_qasper(root, manifest, source_id=source_id, split=split)
+        verified.extend((_CLAIM_TASK_IDENTITY, _CLAIM_TASK_STATISTICS))
+    else:
+        raise DatasetArtifactError(
+            f"the slice declares an unknown task {task!r}.",
+            operation="verify_slice",
+            source_id=source_id,
+            split=split,
+            observed=task,
+        )
+    qualified = trusted_source is not None or expected_manifest_sha256 is not None
     return SliceReceipt(
         root=root,
         source_id=source_id,
@@ -626,4 +1255,9 @@ def verify_slice(root: Path) -> SliceReceipt:
         manifest_sha256=bytes_sha256(manifest_bytes),
         dataset_sha256=dataset_sha256,
         task_sha256=task_sha256,
+        verification=VERIFICATION_QUALIFIED if qualified else VERIFICATION_SELF_CONSISTENCY,
+        trusted_source_sha256=trusted_source.sha256 if trusted_source is not None else None,
+        expected_manifest_sha256=expected_manifest,
+        verified_claims=tuple(verified),
+        attested_claims=tuple(attested),
     )
