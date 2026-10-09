@@ -105,6 +105,12 @@ class IrEvaluation:
     per_query: tuple[IrQueryScore, ...]
     aggregate: tuple[IrAggregateScore, ...]
 
+    def __post_init__(self) -> None:
+        names = tuple(name for name, _ in self.scoring_engine)
+        if len(names) != len(set(names)):
+            raise IrContractError("scoring engine keys must be unique")
+        object.__setattr__(self, "scoring_engine", tuple(sorted(self.scoring_engine)))
+
     def payload(self) -> dict[str, object]:
         return {
             "revision": IR_EVALUATION_REVISION,

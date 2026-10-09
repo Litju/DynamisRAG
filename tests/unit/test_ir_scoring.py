@@ -138,3 +138,29 @@ def test_metric_order_uses_rank_not_raw_lane_score() -> None:
         evaluate_ir_run(dataset, config, run).per_query
         == evaluate_ir_run(dataset, config, reversed_raw_scores).per_query
     )
+
+
+def test_all_zero_qrels_and_empty_run_keep_zero_queries_in_macro_denominator() -> None:
+    dataset = IrDataset(
+        "synthetic:empty-run",
+        "v1",
+        "a" * 64,
+        (IrQuery("q1", "zero qrels"), IrQuery("q2", "no qrels")),
+        (IrQrel("q1", "d1", 0), IrQrel("q1", "d2", -1)),
+    )
+    config = IrExperimentConfig(dataset.sha256, "b" * 40, "bm25-v1", "c" * 64, "{}")
+    run = IrRun(config.sha256, dataset.sha256, ("q1", "q2"), (), evaluation_depth=10)
+
+    evaluation = evaluate_ir_run(dataset, config, run)
+
+    assert [
+        (row.qrel_document_count, row.retrieved_document_count) for row in evaluation.per_query
+    ] == [
+        (2, 0),
+        (0, 0),
+    ]
+    assert all(row.positive_qrel_document_count == 0 for row in evaluation.per_query)
+    assert all(row.value == row.numerator == 0 for row in evaluation.aggregate)
+    assert all(row.query_denominator == 2 for row in evaluation.aggregate)
+    assert all(row.queries_without_qrels == 1 for row in evaluation.aggregate)
+    assert all(row.zero_positive_queries == 2 for row in evaluation.aggregate)

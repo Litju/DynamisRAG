@@ -34,6 +34,7 @@ from dynamisrag.ir.experiments import (
     verify_ir_comparison,
     write_ir_comparison,
 )
+from dynamisrag.ir.scoring import evaluate_ir_run
 
 _RUN_SHA = "a64f361ed29b25ce57db9554dcb403d810ed4b5f94a5a7d55fc5f63066eb30f2"
 _PARQUET = cast(Any, pq)
@@ -131,6 +132,32 @@ def test_candidate_comparison_requires_matching_scientific_boundary(tmp_path: Pa
 
     with pytest.raises(IrContractError, match="index snapshot differs"):
         compare_ir_evaluations(baseline, dataclasses.replace(candidate, projection_sha256="d" * 64))
+
+
+def test_fresh_and_verified_evaluations_have_same_scoring_engine_identity(
+    tmp_path: Path,
+) -> None:
+    dataset, base_config, base_run, candidate_config, candidate_run = _candidates()
+    base_path = tmp_path / "baseline"
+    candidate_path = tmp_path / "candidate"
+    write_ir_bundle(base_path, dataset=dataset, config=base_config, run=base_run)
+    write_ir_bundle(candidate_path, dataset=dataset, config=candidate_config, run=candidate_run)
+    baseline = evaluate_ir_run(dataset, base_config, base_run)
+    verified_baseline = read_verified_ir_evaluation(base_path, expected_run_sha256=base_run.sha256)
+    verified_candidate = read_verified_ir_evaluation(
+        candidate_path, expected_run_sha256=candidate_run.sha256
+    )
+
+    assert baseline == verified_baseline
+    assert compare_ir_evaluations(baseline, verified_candidate).aggregate
+    with pytest.raises(IrContractError, match="keys must be unique"):
+        dataclasses.replace(
+            baseline,
+            scoring_engine=(
+                ("ir-measures", "0.4.3"),
+                ("ir-measures", "0.4.3"),
+            ),
+        )
 
 
 def test_cross_lane_results_share_the_snapshot_mapping_authority(tmp_path: Path) -> None:
