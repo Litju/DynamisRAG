@@ -22,25 +22,65 @@ from typing import Final, cast
 
 __all__ = [
     "IR_CONTRACT_REVISION",
+    "IR_METRIC_POLICY_REVISION",
     "IrContractError",
     "IrDataset",
     "IrExperimentConfig",
     "IrHit",
+    "IrMetricPolicy",
+    "IrPassageHit",
+    "IrPassageMapEntry",
+    "IrPassageMapping",
     "IrQrel",
     "IrQuery",
     "IrRun",
     "canonical_ir_json",
+    "document_run_from_passages",
     "trec_qrels",
     "trec_run",
 ]
 
-IR_CONTRACT_REVISION: Final[str] = "canonical-ir-v1"
+IR_CONTRACT_REVISION: Final[str] = "canonical-ir-v2"
+IR_METRIC_POLICY_REVISION: Final[str] = "ir-metric-policy-v1"
+IR_REQUIRED_RECALL_CUTOFF: Final[int] = 10
 _SHA256: Final[re.Pattern[str]] = re.compile(r"[0-9a-f]{64}\Z")
 _GIT_SHA: Final[re.Pattern[str]] = re.compile(r"[0-9a-f]{40}\Z")
+_NON_SEMANTIC_PARAMETER: Final[re.Pattern[str]] = re.compile(
+    r"(?:^|_)(?:host|hostname|url|uri|path|file|filename|directory|dir|token|access_key|"
+    r"password|secret|credential|api_key|private_key|timestamp|datetime|created_at|"
+    r"started_at|completed_at|wall_time|duration|latency|took_ms|error|message|response)(?:_|$)"
+)
+_ENVIRONMENT_VALUE: Final[re.Pattern[str]] = re.compile(
+    r"^(?:https?://|file://|[a-zA-Z]:[\\/]|/(?!/))"
+)
 
 
 class IrContractError(ValueError):
     """An IR artifact is ambiguous, internally inconsistent, or not reproducible."""
+
+
+@dataclass(frozen=True)
+class IrMetricPolicy:
+    """Versioned macro-scoring rules; source qrels are never changed."""
+
+    def payload(self) -> dict[str, object]:
+        return {
+            "revision": IR_METRIC_POLICY_REVISION,
+            "measures": ["nDCG@10", "Recall@10", "MAP", "MRR"],
+            "ndcg_gain": "linear_relevance",
+            "relevance_threshold": 1,
+            "negative_relevance_for_scoring": 0,
+            "unjudged_documents": "score_as_zero_and_report_count",
+            "zero_positive_queries": "score_zero_and_include",
+            "queries_without_qrels": "score_zero_and_include",
+            "aggregation": "macro_mean_over_all_declared_queries",
+            "ap_and_mrr_depth": "declared_run_depth",
+            "evaluation_order": "explicit_rank",
+        }
+
+    @property
+    def sha256(self) -> str:
+        return _digest(self.payload())
 
 
 def _token(value: object, *, field: str) -> None:
@@ -75,9 +115,32 @@ def _require_relevance(value: object) -> None:
         raise IrContractError("qrel relevance must be an integer, not a boolean")
 
 
+def _require_semantic_parameters(value: object) -> None:
+    if isinstance(value, dict):
+        for key, child in cast("dict[object, object]", value).items():
+            if not isinstance(key, str):
+                continue
+            normalized_key = re.sub(r"[^a-z0-9]+", "_", key.lower()).strip("_")
+            if _NON_SEMANTIC_PARAMETER.search(normalized_key) is not None:
+                raise IrContractError(
+                    "parameters_json cannot contain host, path, credential, time or response fields"
+                )
+            _require_semantic_parameters(child)
+    elif isinstance(value, list):
+        for child in cast("list[object]", value):
+            _require_semantic_parameters(child)
+    elif isinstance(value, str) and _ENVIRONMENT_VALUE.match(value.strip()) is not None:
+        raise IrContractError("parameters_json cannot contain environment-specific paths or URLs")
+
+
 def _require_rank(value: object) -> None:
     if isinstance(value, bool) or not isinstance(value, int) or value < 1:
         raise IrContractError("hit rank must be a positive one-based integer")
+
+
+def _require_evaluation_depth(value: object) -> None:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise IrContractError("evaluation_depth must be a positive integer")
 
 
 def _finite_score(value: object) -> float:
@@ -209,6 +272,7 @@ class IrExperimentConfig:
         parameters = cast("dict[object, object]", config)
         if any(not isinstance(key, str) for key in parameters):
             raise IrContractError("parameters_json must have string object keys")
+        _require_semantic_parameters(parameters)
         try:
             canonical = canonical_ir_json(parameters).decode("utf-8").rstrip("\n")
         except (ValueError, TypeError, OverflowError) as error:
@@ -226,6 +290,7 @@ class IrExperimentConfig:
             "retrieval_revision": self.retrieval_revision,
             "projection_sha256": self.projection_sha256,
             "parameters_json": self.parameters_json,
+            "metric_policy": IrMetricPolicy().payload(),
         }
 
     @property
@@ -239,6 +304,7 @@ class IrHit:
     document_id: str
     rank: int
     raw_score: float
+    source_passage_id: str | None = None
 
     def __post_init__(self) -> None:
         _token(self.query_id, field="hit query_id")
@@ -246,6 +312,8 @@ class IrHit:
         _require_rank(self.rank)
         # 0.0 and -0.0 are identical scores and must hash identically.
         object.__setattr__(self, "raw_score", _finite_score(self.raw_score))
+        if self.source_passage_id is not None:
+            _token(self.source_passage_id, field="hit source_passage_id")
 
     def payload(self) -> dict[str, object]:
         return {
@@ -253,7 +321,95 @@ class IrHit:
             "document_id": self.document_id,
             "rank": self.rank,
             "raw_score": self.raw_score,
+            "source_passage_id": self.source_passage_id,
         }
+
+
+@dataclass(frozen=True)
+class IrPassageHit:
+    """One passage-level retrieval result before document-level deduplication."""
+
+    query_id: str
+    passage_id: str
+    rank: int
+    raw_score: float
+
+    def __post_init__(self) -> None:
+        _token(self.query_id, field="passage hit query_id")
+        _token(self.passage_id, field="passage hit passage_id")
+        _require_rank(self.rank)
+        object.__setattr__(self, "raw_score", _finite_score(self.raw_score))
+
+    def payload(self) -> dict[str, object]:
+        return {
+            "query_id": self.query_id,
+            "passage_id": self.passage_id,
+            "rank": self.rank,
+            "raw_score": self.raw_score,
+        }
+
+
+@dataclass(frozen=True)
+class IrPassageMapEntry:
+    """Audited identity link from a passage key to one document version."""
+
+    passage_id: str
+    document_id: str
+    document_version_id: str
+
+    def __post_init__(self) -> None:
+        _token(self.passage_id, field="mapping passage_id")
+        _token(self.document_id, field="mapping document_id")
+        _token(self.document_version_id, field="mapping document_version_id")
+
+    def payload(self) -> dict[str, object]:
+        return {
+            "passage_id": self.passage_id,
+            "document_id": self.document_id,
+            "document_version_id": self.document_version_id,
+        }
+
+
+@dataclass(frozen=True)
+class IrPassageMapping:
+    """Complete, canonical passage-to-document map for one evaluation snapshot."""
+
+    entries: tuple[IrPassageMapEntry, ...]
+
+    def __post_init__(self) -> None:
+        passage_ids = tuple(entry.passage_id for entry in self.entries)
+        if passage_ids != tuple(sorted(set(passage_ids))):
+            raise IrContractError("passage mapping entries must be unique and passage_id ascending")
+        versions: dict[str, str] = {}
+        for entry in self.entries:
+            previous = versions.setdefault(entry.document_id, entry.document_version_id)
+            if previous != entry.document_version_id:
+                raise IrContractError("passage mapping contains conflicting document versions")
+
+    def payload(self) -> dict[str, object]:
+        return {
+            "revision": "ir-passage-mapping-v1",
+            "entries": [entry.payload() for entry in self.entries],
+        }
+
+    @property
+    def sha256(self) -> str:
+        return _digest(self.payload())
+
+    def validate_run(self, run: IrRun) -> None:
+        if run.passage_mapping_sha256 is None:
+            if self.entries:
+                raise IrContractError("document-level run cannot omit its passage mapping identity")
+            return
+        if run.passage_mapping_sha256 != self.sha256:
+            raise IrContractError("run and passage mapping identities do not agree")
+        by_passage_id = {entry.passage_id: entry for entry in self.entries}
+        for hit in run.hits:
+            if hit.source_passage_id is None:
+                raise IrContractError("mapped document hit must identify its source passage")
+            entry = by_passage_id.get(hit.source_passage_id)
+            if entry is None or entry.document_id != hit.document_id:
+                raise IrContractError("mapped document hit disagrees with its passage mapping")
 
 
 @dataclass(frozen=True)
@@ -264,10 +420,20 @@ class IrRun:
     dataset_sha256: str
     query_ids: tuple[str, ...]
     hits: tuple[IrHit, ...]
+    evaluation_depth: int
+    passage_mapping_sha256: str | None = None
 
     def __post_init__(self) -> None:
         _sha(self.config_sha256, field="config_sha256")
         _sha(self.dataset_sha256, field="dataset_sha256")
+        _require_evaluation_depth(self.evaluation_depth)
+        if self.evaluation_depth < IR_REQUIRED_RECALL_CUTOFF:
+            raise IrContractError(
+                f"evaluation depth {self.evaluation_depth} cannot support Recall@10; "
+                "choose a depth of at least 10"
+            )
+        if self.passage_mapping_sha256 is not None:
+            _sha(self.passage_mapping_sha256, field="passage_mapping_sha256")
         if not self.query_ids or self.query_ids != tuple(sorted(set(self.query_ids))):
             raise IrContractError("run query_ids must be non-empty, unique and ascending")
         query_set = set(self.query_ids)
@@ -277,6 +443,12 @@ class IrRun:
         for hit in self.hits:
             if hit.query_id not in query_set:
                 raise IrContractError("a hit refers to a query outside the run's query universe")
+            if hit.rank > self.evaluation_depth:
+                raise IrContractError("a hit rank exceeds the declared evaluation depth")
+            if (hit.source_passage_id is not None) != (self.passage_mapping_sha256 is not None):
+                raise IrContractError(
+                    "passage provenance and mapping identity must be supplied together"
+                )
             expected = rank_by_query.get(hit.query_id, 0) + 1
             if hit.rank != expected:
                 raise IrContractError("each query's ranks must be contiguous and one-based")
@@ -304,6 +476,8 @@ class IrRun:
             "revision": IR_CONTRACT_REVISION,
             "config_sha256": self.config_sha256,
             "dataset_sha256": self.dataset_sha256,
+            "evaluation_depth": self.evaluation_depth,
+            "passage_mapping_sha256": self.passage_mapping_sha256,
             "query_ids": list(self.query_ids),
             "hits": [hit.payload() for hit in self.hits],
         }
@@ -311,6 +485,76 @@ class IrRun:
     @property
     def sha256(self) -> str:
         return _digest(self.payload())
+
+
+def document_run_from_passages(
+    *,
+    dataset: IrDataset,
+    config: IrExperimentConfig,
+    passage_mapping: IrPassageMapping,
+    hits: tuple[IrPassageHit, ...],
+    evaluation_depth: int,
+) -> IrRun:
+    """Collapse ranked passage hits to documents with stable rank-tie ordering.
+
+    At most the declared first-stage passage window is evaluated. A document is
+    represented by its earliest passage hit; rank ties break on passage_id.
+    """
+    if evaluation_depth < IR_REQUIRED_RECALL_CUTOFF:
+        raise IrContractError(
+            f"evaluation depth {evaluation_depth} cannot support Recall@10; "
+            "choose a depth of at least 10"
+        )
+    mapping = {entry.passage_id: entry for entry in passage_mapping.entries}
+    query_set = {query.query_id for query in dataset.queries}
+    seen_passages: set[tuple[str, str]] = set()
+    mapped_hits: list[tuple[IrPassageHit, IrPassageMapEntry]] = []
+    for hit in hits:
+        if hit.query_id not in query_set:
+            raise IrContractError("passage hit refers to an undeclared query")
+        if hit.rank > evaluation_depth:
+            raise IrContractError("passage hit exceeds the declared evaluation depth")
+        pair = (hit.query_id, hit.passage_id)
+        if pair in seen_passages:
+            raise IrContractError("passage run contains a duplicate passage hit")
+        seen_passages.add(pair)
+        entry = mapping.get(hit.passage_id)
+        if entry is None:
+            raise IrContractError(f"passage hit has no document mapping: {hit.passage_id}")
+        mapped_hits.append((hit, entry))
+
+    mapped_hits.sort(key=lambda pair: (pair[0].query_id, pair[0].rank, pair[0].passage_id))
+    document_hits: list[IrHit] = []
+    ranked_documents: set[tuple[str, str]] = set()
+    next_rank: dict[str, int] = {}
+    for hit, entry in mapped_hits:
+        key = (hit.query_id, entry.document_id)
+        if key in ranked_documents:
+            continue
+        ranked_documents.add(key)
+        rank = next_rank.get(hit.query_id, 0) + 1
+        next_rank[hit.query_id] = rank
+        document_hits.append(
+            IrHit(
+                query_id=hit.query_id,
+                document_id=entry.document_id,
+                rank=rank,
+                raw_score=hit.raw_score,
+                source_passage_id=hit.passage_id,
+            )
+        )
+
+    run = IrRun(
+        config_sha256=config.sha256,
+        dataset_sha256=dataset.sha256,
+        query_ids=tuple(query.query_id for query in dataset.queries),
+        hits=tuple(document_hits),
+        evaluation_depth=evaluation_depth,
+        passage_mapping_sha256=passage_mapping.sha256,
+    )
+    run.validate_against(dataset, config)
+    passage_mapping.validate_run(run)
+    return run
 
 
 def trec_qrels(dataset: IrDataset) -> str:

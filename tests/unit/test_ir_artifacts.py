@@ -6,7 +6,9 @@ import dataclasses
 import hashlib
 import json
 from pathlib import Path
+from typing import Any, cast
 
+import pyarrow.parquet as pq
 import pytest
 
 from dynamisrag.ir import (
@@ -21,6 +23,8 @@ from dynamisrag.ir import (
     verify_ir_bundle,
     write_ir_bundle,
 )
+
+_PARQUET = cast(Any, pq)
 
 
 def _inputs() -> tuple[IrDataset, IrExperimentConfig, IrRun]:
@@ -43,6 +47,7 @@ def _inputs() -> tuple[IrDataset, IrExperimentConfig, IrRun]:
         config_sha256=config.sha256,
         query_ids=("q1", "q2"),
         hits=(IrHit("q1", "d1", 1, 1.0), IrHit("q1", "d2", 2, -2.0)),
+        evaluation_depth=50,
     )
     return dataset, config, run
 
@@ -54,6 +59,35 @@ def test_bundle_is_reproducible_across_paths_and_verifiable(tmp_path: Path) -> N
     assert first.manifest_sha256 == second.manifest_sha256
     assert first.run_sha256 == run.sha256
     assert verify_ir_bundle(first.root, expected_run_sha256=run.sha256) == first
+    expected_inventory = {
+        "manifest.json",
+        "config.json",
+        "dataset.json",
+        "passage-mapping.json",
+        "qrels.trec",
+        "run.json",
+        "run.trec",
+        "evaluation.json",
+        "per-query.json",
+        "per-query.parquet",
+        "aggregate.json",
+        "aggregate.parquet",
+        "ranked-run.json",
+        "ranked-run.parquet",
+    }
+    assert {path.name for path in first.root.iterdir()} == expected_inventory
+    for stem, revision in (
+        ("per-query", "ir-per-query-v1"),
+        ("aggregate", "ir-aggregate-v1"),
+        ("ranked-run", "ir-ranked-run-v1"),
+    ):
+        parquet_path = first.root / f"{stem}.parquet"
+        table: Any = _PARQUET.read_table(parquet_path)
+        json_table = json.loads((first.root / f"{stem}.json").read_bytes())
+        assert table.to_pylist() == json_table["rows"]
+        assert table.schema.metadata[b"dynamisrag.schema_revision"].decode() == revision
+        assert table.schema.metadata[b"dynamisrag.pyarrow_version"] == b"25.0.1"
+        assert parquet_path.read_bytes() == (second.root / parquet_path.name).read_bytes()
     assert (first.root / "run.trec").read_text(encoding="utf-8") == (
         "q1 Q0 d1 1 -1 dynamisrag\nq1 Q0 d2 2 -2 dynamisrag\n"
     )
@@ -139,6 +173,32 @@ def test_bundle_rejects_directory_in_place_of_payload_file(tmp_path: Path) -> No
 
     with pytest.raises(IrContractError, match="regular files"):
         verify_ir_bundle(path, expected_run_sha256=run.sha256)
+
+
+def test_bundle_rejects_swapped_parquet_even_when_file_digest_is_resigned(tmp_path: Path) -> None:
+    dataset, config, first_run = _inputs()
+    first_path = tmp_path / "first"
+    write_ir_bundle(first_path, dataset=dataset, config=config, run=first_run)
+    second_run = IrRun(
+        dataset_sha256=dataset.sha256,
+        config_sha256=config.sha256,
+        query_ids=("q1", "q2"),
+        hits=(IrHit("q1", "d2", 1, 1.0), IrHit("q1", "d1", 2, -2.0)),
+        evaluation_depth=50,
+    )
+    second_path = tmp_path / "second"
+    write_ir_bundle(second_path, dataset=dataset, config=config, run=second_run)
+
+    replacement = (second_path / "per-query.parquet").read_bytes()
+    (first_path / "per-query.parquet").write_bytes(replacement)
+    manifest = json.loads((first_path / "manifest.json").read_bytes())
+    entry = next(item for item in manifest["files"] if item["name"] == "per-query.parquet")
+    entry["size_bytes"] = len(replacement)
+    entry["sha256"] = hashlib.sha256(replacement).hexdigest()
+    (first_path / "manifest.json").write_bytes(canonical_ir_json(manifest))
+
+    with pytest.raises(IrContractError, match="rows differ"):
+        verify_ir_bundle(first_path, expected_run_sha256=first_run.sha256)
 
 
 def test_incompatible_inputs_cannot_publish_a_partial_bundle(tmp_path: Path) -> None:

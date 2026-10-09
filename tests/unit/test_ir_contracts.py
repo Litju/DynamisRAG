@@ -14,10 +14,15 @@ from dynamisrag.ir import (
     IrDataset,
     IrExperimentConfig,
     IrHit,
+    IrMetricPolicy,
+    IrPassageHit,
+    IrPassageMapEntry,
+    IrPassageMapping,
     IrQrel,
     IrQuery,
     IrRun,
     canonical_ir_json,
+    document_run_from_passages,
     trec_qrels,
     trec_run,
 )
@@ -57,6 +62,7 @@ def _run(dataset: IrDataset, config: IrExperimentConfig) -> IrRun:
         dataset_sha256=dataset.sha256,
         query_ids=("q1", "q2"),
         hits=(IrHit("q1", "d1", 1, 0.1), IrHit("q1", "d2", 2, 800.0)),
+        evaluation_depth=50,
     )
 
 
@@ -155,6 +161,20 @@ def test_config_identity_is_sensitive_to_every_semantic_setting() -> None:
             dataclasses.replace(cfg, parameters_json=invalid)
 
 
+def test_config_identity_rejects_environment_and_runtime_fields() -> None:
+    ds = _dataset()
+    cfg = _config(ds)
+    for invalid in (
+        '{"cache_path":"C:/tmp/index"}',
+        '{"api_token":"private"}',
+        '{"started_at":"2026-10-08T00:00:00Z"}',
+        '{"node":"https://private.example"}',
+        '{"backend_error":"index unavailable"}',
+    ):
+        with pytest.raises(IrContractError):
+            dataclasses.replace(cfg, parameters_json=invalid)
+
+
 def test_run_cannot_be_attributed_to_different_dataset_or_config() -> None:
     ds = _dataset()
     cfg = _config(ds)
@@ -179,3 +199,99 @@ def test_qrels_preserve_negative_labels_but_refuse_boolean_relevance() -> None:
     invalid_relevance: Any = True
     with pytest.raises(IrContractError):
         IrQrel("q1", "d1", invalid_relevance)
+
+
+def test_metric_policy_is_explicit_and_versioned() -> None:
+    policy = IrMetricPolicy().payload()
+    assert policy["revision"] == "ir-metric-policy-v1"
+    assert policy["measures"] == ["nDCG@10", "Recall@10", "MAP", "MRR"]
+    assert policy["ndcg_gain"] == "linear_relevance"
+    assert policy["aggregation"] == "macro_mean_over_all_declared_queries"
+    assert policy["negative_relevance_for_scoring"] == 0
+
+
+def test_passage_hits_map_to_documents_with_stable_tie_break_and_dedup() -> None:
+    dataset = _dataset()
+    config = _config(dataset)
+    mapping = IrPassageMapping(
+        (
+            IrPassageMapEntry("p1", "d1", "v1"),
+            IrPassageMapEntry("p2", "d1", "v1"),
+            IrPassageMapEntry("p3", "d2", "v1"),
+        )
+    )
+    hits = (
+        IrPassageHit("q1", "p3", 1, 100.0),
+        IrPassageHit("q1", "p2", 1, 900.0),
+        IrPassageHit("q1", "p1", 1, 0.1),
+    )
+
+    run = document_run_from_passages(
+        dataset=dataset,
+        config=config,
+        passage_mapping=mapping,
+        hits=hits,
+        evaluation_depth=50,
+    )
+    reordered = document_run_from_passages(
+        dataset=dataset,
+        config=config,
+        passage_mapping=mapping,
+        hits=tuple(reversed(hits)),
+        evaluation_depth=50,
+    )
+
+    assert run == reordered
+    assert [
+        (hit.document_id, hit.rank, hit.raw_score, hit.source_passage_id) for hit in run.hits
+    ] == [
+        ("d1", 1, 0.1, "p1"),
+        ("d2", 2, 100.0, "p3"),
+    ]
+    mapping.validate_run(run)
+
+
+def test_passage_mapping_rejects_missing_duplicate_and_conflicting_sources() -> None:
+    with pytest.raises(IrContractError, match="conflicting document versions"):
+        IrPassageMapping(
+            (
+                IrPassageMapEntry("p1", "d1", "v1"),
+                IrPassageMapEntry("p2", "d1", "v2"),
+            )
+        )
+
+    dataset = _dataset()
+    config = _config(dataset)
+    mapping = IrPassageMapping((IrPassageMapEntry("p1", "d1", "v1"),))
+    duplicate = (IrPassageHit("q1", "p1", 1, 1.0),) * 2
+    with pytest.raises(IrContractError, match="duplicate passage hit"):
+        document_run_from_passages(
+            dataset=dataset,
+            config=config,
+            passage_mapping=mapping,
+            hits=duplicate,
+            evaluation_depth=50,
+        )
+    with pytest.raises(IrContractError, match="no document mapping"):
+        document_run_from_passages(
+            dataset=dataset,
+            config=config,
+            passage_mapping=mapping,
+            hits=(IrPassageHit("q1", "missing", 1, 1.0),),
+            evaluation_depth=50,
+        )
+
+
+def test_run_depth_cannot_overclaim_recall_or_contain_deeper_hits() -> None:
+    dataset = _dataset()
+    config = _config(dataset)
+    with pytest.raises(IrContractError, match="cannot support Recall@10"):
+        IrRun(config.sha256, dataset.sha256, ("q1", "q2"), (), evaluation_depth=9)
+    with pytest.raises(IrContractError, match="exceeds the declared evaluation depth"):
+        IrRun(
+            config.sha256,
+            dataset.sha256,
+            ("q1", "q2"),
+            (IrHit("q1", "d1", 11, 1.0),),
+            evaluation_depth=10,
+        )
