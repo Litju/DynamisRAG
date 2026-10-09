@@ -110,11 +110,11 @@ def test_the_declared_revisions_are_the_mission_versions() -> None:
     assert SLICE_REVISION == "res141-dataset-slice-v1"
     assert PROJECTION_REVISION == "scifact-open-retrieval-projection-v1"
     assert TASK_REVISION == "qasper-evidence-selection-v1"
-    assert METRIC_REVISION == "qasper-paragraph-f1-v1"
+    assert METRIC_REVISION == "qasper-paragraph-f1-v2"
 
 
 def test_only_declared_res141_revisions_appear_in_the_package() -> None:
-    declared = {"res141-dataset-slice-v1", "res141-qasper-evidence-evaluation-v1"}
+    declared = {"res141-dataset-slice-v1", "res141-qasper-evidence-evaluation-v2"}
     found: set[str] = set()
     for path in _python_files(_DATASETS):
         tree = ast.parse(path.read_text(encoding="utf-8"))

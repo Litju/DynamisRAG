@@ -143,11 +143,21 @@ question belongs to one known paper, and the selection unit is one paragraph
 with a stable anchor (`paper/section/paragraph`). Every annotation is preserved
 (answer forms, annotation and worker IDs, both evidence fields). Anchors are
 resolved by exact text match and every resolution is recorded as `unique`,
-`ambiguous` or `unmatched`; unresolvable evidence stays in the task but is
-excluded from the anchor ground truth. The reference metric,
-`qasper-paragraph-f1-v1`, follows the official evaluator's evidence-F1 shape
-(per-question maximum over annotation references; empty-versus-empty is 1.0; a
-missing prediction scores 0.0 and is counted) over anchors instead of strings.
+`ambiguous` or `unmatched`; unresolvable evidence stays in the task. The
+reference metric, `qasper-paragraph-f1-v2`, follows the official evaluator's
+evidence-F1 shape (per-question maximum over annotation references;
+empty-versus-empty is 1.0; a missing prediction scores 0.0 and is counted) over
+anchors instead of strings, and each annotation is classified as `complete`
+(every reference resolved, or genuinely no evidence), `partial` (resolved and
+unresolved references mixed) or `unavailable` (nonempty evidence with no
+resolved anchor). A question is scored only when **every** annotation is
+`complete`; otherwise it is excluded from the metric denominator with a recorded
+reason, and the evaluation reports per-question status, resolution coverage and
+every denominator count. Positive but unresolved evidence — unmatched,
+ambiguous or figure/table (`FLOAT SELECTED`) — is therefore never scored as
+absent gold: an unresolved annotator can no longer yield a false perfect F1.
+`qasper-paragraph-f1-v1` treated an all-unresolved annotation as an empty
+reference and is superseded by this revision.
 
 **BEIR shortlist.** A fixed set of comparators — NFCorpus and SciDocs
 (scientific), ArguAna and FiQA-2018 (out-of-domain) — each with per-split

@@ -17,16 +17,21 @@ The versioned task, ``qasper-evidence-selection-v1``, preserves:
   ``ambiguous`` or ``unmatched`` — never repaired and never silently dropped;
 * the split (``train``, ``validation``, ``test``).
 
-The reference metric, ``qasper-paragraph-f1-v1``, follows the official
+The reference metric, ``qasper-paragraph-f1-v2``, follows the official
 evaluator's evidence-F1 shape — per-question score is the maximum F1 over that
 question's annotation references; an empty-vs-empty comparison is 1.0; a missing
 prediction scores 0.0 and is counted — but scores paragraph *anchors* rather
-than raw strings. The difference is deliberate and documented: a retriever
-selects paragraphs, and string coincidence should not decide whether a selected
-paragraph was the evidence. Unresolvable evidence strings (about 8% of the
-release: section names and truncated snippets) are excluded from the anchor
-ground truth, declared by count and digest, and remain fully present in the
-task artifact.
+than raw strings, and never treats unresolved evidence as absent gold. Each
+annotation is classified as ``complete`` (every reference resolved, or the
+annotation genuinely has no evidence), ``partial`` (resolved and unresolved
+references mixed) or ``unavailable`` (nonempty evidence that did not resolve to
+a paragraph anchor). A question is scored only when *every* one of its
+annotations is complete; otherwise it is excluded from the metric denominator
+with a recorded reason and full coverage counts, so an unresolved annotator can
+never be dropped in a way that turns its positive evidence into a scorable empty
+reference. Unresolvable evidence strings (about 8% of the release: section names,
+truncated snippets and figure/table captions) are preserved in the task,
+declared by count and digest, and remain fully present in the task artifact.
 """
 
 from __future__ import annotations
@@ -43,7 +48,12 @@ from dynamisrag.datasets.errors import (
     DatasetContractError,
     DatasetFormatError,
 )
-from dynamisrag.datasets.primitives import canonical_bytes, digest, text_sha256
+from dynamisrag.datasets.primitives import (
+    canonical_bytes,
+    digest,
+    ordered_ids_sha256,
+    text_sha256,
+)
 from dynamisrag.datasets.slices import (
     RIGHTS_FILENAME,
     SLICE_REVISION,
@@ -56,26 +66,48 @@ from dynamisrag.datasets.sources import FrozenDatasetSource
 
 __all__ = [
     "ANCHOR_POLICY",
+    "ANNOTATION_COMPLETE",
+    "ANNOTATION_PARTIAL",
+    "ANNOTATION_UNAVAILABLE",
+    "EVALUATION_REVISION",
+    "EXCLUSION_PARTIAL_RESOLUTION",
+    "EXCLUSION_UNAVAILABLE_RESOLUTION",
     "METRIC_REVISION",
     "QASPER_EXPECTATIONS",
     "QASPER_SPLIT_FILES",
+    "QUESTION_EXCLUDED",
+    "QUESTION_SCORABLE",
     "TASK_FILENAME",
     "TASK_REVISION",
     "QasperEvidenceEvaluation",
     "QasperSplitExpectation",
     "QasperTask",
+    "annotation_scorability",
     "build_qasper_task_artifacts",
     "parse_task",
     "read_rankings",
+    "read_task_bytes",
     "score_evidence_selection",
     "verify_task_bytes",
     "write_evaluation",
 ]
 
 TASK_REVISION: Final[str] = "qasper-evidence-selection-v1"
-METRIC_REVISION: Final[str] = "qasper-paragraph-f1-v1"
+METRIC_REVISION: Final[str] = "qasper-paragraph-f1-v2"
+EVALUATION_REVISION: Final[str] = "res141-qasper-evidence-evaluation-v2"
 ANCHOR_POLICY: Final[str] = "paper/section/paragraph exact-text unique match v1"
 TASK_FILENAME: Final[str] = "task.json"
+
+ANNOTATION_COMPLETE: Final[str] = "complete"
+"""Every reference resolved to a paragraph anchor, or genuinely no evidence."""
+ANNOTATION_PARTIAL: Final[str] = "partial"
+"""At least one resolved anchor and at least one unresolved reference."""
+ANNOTATION_UNAVAILABLE: Final[str] = "unavailable"
+"""Nonempty evidence with no resolved paragraph anchor."""
+QUESTION_SCORABLE: Final[str] = "scorable"
+QUESTION_EXCLUDED: Final[str] = "excluded"
+EXCLUSION_PARTIAL_RESOLUTION: Final[str] = "partially-resolved-annotation"
+EXCLUSION_UNAVAILABLE_RESOLUTION: Final[str] = "unresolved-annotation"
 
 FLOAT_MARKER: Final[str] = "FLOAT SELECTED"
 """QASPER's prefix for figure/table evidence; those are captions, not paragraphs."""
@@ -302,6 +334,43 @@ class QasperTask:
     def sha256(self) -> str:
         """SHA-256 of the canonical task payload."""
         return digest(self.payload())
+
+    @property
+    def counts(self) -> dict[str, int]:
+        """The recomputed cardinality block the manifest must reproduce."""
+        return _counts(self.papers, self.questions, self.annotations)
+
+
+def annotation_scorability(annotation: QasperAnnotation) -> str:
+    """Classify one annotation's anchor scorability without altering it.
+
+    ``complete`` means every evidence reference resolved to a unique paragraph
+    anchor, or the annotation genuinely carries no evidence at all. ``partial``
+    means resolved anchors and unresolved references are mixed, and
+    ``unavailable`` means nonempty evidence that did not resolve. Only a
+    ``complete`` annotation is ever scored: an unresolved reference is never
+    reinterpreted as an absent one.
+    """
+    resolved = sum(
+        1
+        for reference in annotation.evidence
+        if reference.resolution == "unique" and reference.anchor is not None
+    )
+    unresolved = len(annotation.evidence) - resolved
+    if unresolved == 0:
+        return ANNOTATION_COMPLETE
+    if resolved:
+        return ANNOTATION_PARTIAL
+    return ANNOTATION_UNAVAILABLE
+
+
+def _annotation_anchors(annotation: QasperAnnotation) -> frozenset[str]:
+    """The unique-resolved paragraph anchors one annotation contributes."""
+    return frozenset(
+        reference.anchor
+        for reference in annotation.evidence
+        if reference.resolution == "unique" and reference.anchor is not None
+    )
 
 
 def _require_text(value: object, *, field: str, item_id: str | None = None) -> str:
@@ -764,14 +833,18 @@ def _require_task_strings(value: object, *, field: str) -> tuple[str, ...]:
     return tuple(str(item) for item in items)
 
 
-def verify_task_bytes(
+def read_task_bytes(
     content: bytes,
     *,
     expected_sha256: str,
     source_id: str,
     split: str,
-) -> str:
-    """Verify a frozen QASPER task artifact and return its content identity."""
+) -> QasperTask:
+    """Verify frozen QASPER task bytes and return the typed task.
+
+    The bytes must be canonical JSON, the content hash must equal
+    ``expected_sha256`` and the task must reproduce every declared cardinality.
+    """
     try:
         value: object = json.loads(content)
     except (UnicodeDecodeError, ValueError) as error:
@@ -797,7 +870,7 @@ def verify_task_bytes(
             split=split,
         )
     task = _task_from_payload(payload, expected_sha256=expected_sha256)
-    observed = _counts(task.papers, task.questions, task.annotations)
+    observed = task.counts
     for field, pinned in task.expected.items():
         if observed.get(field) != pinned:
             raise DatasetArtifactError(
@@ -809,7 +882,23 @@ def verify_task_bytes(
                 expected=str(pinned),
                 observed=str(observed.get(field)),
             )
-    return task.sha256
+    return task
+
+
+def verify_task_bytes(
+    content: bytes,
+    *,
+    expected_sha256: str,
+    source_id: str,
+    split: str,
+) -> str:
+    """Verify a frozen QASPER task artifact and return its content identity."""
+    return read_task_bytes(
+        content,
+        expected_sha256=expected_sha256,
+        source_id=source_id,
+        split=split,
+    ).sha256
 
 
 def parse_task(path: Path) -> QasperTask:
@@ -965,12 +1054,26 @@ def _build_task(
         scoring={
             "revision": METRIC_REVISION,
             "ground_truth": "unique-resolved paragraph anchors, unioned per annotation reference",
-            "question_score": "maximum evidence F1 over that question's annotation references",
-            "empty_semantics": "an empty prediction against an empty reference scores 1.0",
-            "missing_prediction": "scores 0.0 and is counted",
+            "annotation_status": (
+                "complete (every reference resolved, or genuinely no evidence), partial (resolved "
+                "and unresolved references mixed), unavailable (nonempty evidence with no "
+                "resolved paragraph anchor)"
+            ),
+            "question_policy": (
+                "a question is scorable only when every annotation is complete; otherwise it is "
+                "excluded from the metric denominator with a recorded reason"
+            ),
+            "question_score": (
+                "maximum evidence F1 over the question's complete annotation references"
+            ),
+            "empty_semantics": (
+                "an empty prediction against a genuinely empty reference scores 1.0; unresolved "
+                "evidence is never reinterpreted as an empty reference"
+            ),
+            "missing_prediction": "scores 0.0 and is counted among scorable questions",
             "excluded_evidence": (
-                "ambiguous and unmatched evidence strings are preserved in the task but are "
-                "not part of the anchor ground truth"
+                "ambiguous, unmatched and float evidence are preserved in the task but make "
+                "their annotation non-complete; they are never scored as absent gold"
             ),
         },
     )
@@ -1079,7 +1182,7 @@ def build_qasper_task_artifacts(
         "task_sha256": verified,
         "anchor_policy": ANCHOR_POLICY,
         "expected": dict(task.expected),
-        "counts": _counts(task.papers, task.questions, task.annotations),
+        "counts": task.counts,
         "scoring": dict(task.scoring),
         "files": [
             {
@@ -1095,14 +1198,29 @@ def build_qasper_task_artifacts(
 
 @dataclass(frozen=True)
 class QasperQuestionScore:
-    """One question's evidence-selection score."""
+    """One question's evidence-selection score and its scorability record.
+
+    ``evidence_f1`` is ``None`` exactly when the question is excluded: a
+    question whose annotation set contains unresolved positive evidence is never
+    scored as if that evidence were absent gold.
+    """
 
     question_id: str
     paper_id: str
     answerable: bool
     prediction_present: bool
+    status: str
+    exclusion_reason: str | None
     annotation_references: int
-    evidence_f1: float
+    complete_annotations: int
+    partial_annotations: int
+    unavailable_annotations: int
+    resolved_references: int
+    ambiguous_references: int
+    unmatched_references: int
+    float_references: int
+    ground_truth_anchors: int | None
+    evidence_f1: float | None
 
     def payload(self) -> dict[str, object]:
         return {
@@ -1110,7 +1228,17 @@ class QasperQuestionScore:
             "paper_id": self.paper_id,
             "answerable": self.answerable,
             "prediction_present": self.prediction_present,
+            "status": self.status,
+            "exclusion_reason": self.exclusion_reason,
             "annotation_references": self.annotation_references,
+            "complete_annotations": self.complete_annotations,
+            "partial_annotations": self.partial_annotations,
+            "unavailable_annotations": self.unavailable_annotations,
+            "resolved_references": self.resolved_references,
+            "ambiguous_references": self.ambiguous_references,
+            "unmatched_references": self.unmatched_references,
+            "float_references": self.float_references,
+            "ground_truth_anchors": self.ground_truth_anchors,
             "evidence_f1": self.evidence_f1,
         }
 
@@ -1123,33 +1251,77 @@ class QasperEvidenceEvaluation:
     per_question: tuple[QasperQuestionScore, ...]
 
     @property
+    def scorable(self) -> tuple[QasperQuestionScore, ...]:
+        """The questions that contribute to the metric denominator."""
+        return tuple(row for row in self.per_question if row.status == QUESTION_SCORABLE)
+
+    @property
+    def excluded(self) -> tuple[QasperQuestionScore, ...]:
+        """The questions excluded because an annotation was not complete."""
+        return tuple(row for row in self.per_question if row.status == QUESTION_EXCLUDED)
+
+    @property
     def evidence_f1(self) -> float:
-        """Macro mean evidence F1 over every declared question."""
-        if not self.per_question:
-            return 0.0
-        return sum(row.evidence_f1 for row in self.per_question) / len(self.per_question)
+        """Macro mean evidence F1 over the scorable questions only."""
+        return _mean(row.evidence_f1 for row in self.scorable if row.evidence_f1 is not None)
 
     def aggregate(self) -> dict[str, object]:
-        """Aggregate rows any artifact or report should carry."""
-        answerable = [row for row in self.per_question if row.answerable]
-        unanswerable = [row for row in self.per_question if not row.answerable]
-        missing = sum(1 for row in self.per_question if not row.prediction_present)
+        """Aggregate rows any artifact or report should carry.
+
+        Quality metrics are computed over ``scorable_questions``; resolution
+        coverage is reported separately so a reader can see how much of the task
+        the metric actually covers.
+        """
+        scorable = self.scorable
+        excluded = self.excluded
+        answerable = [row for row in scorable if row.answerable]
+        unanswerable = [row for row in scorable if not row.answerable]
+        missing = sum(1 for row in scorable if not row.prediction_present)
         return {
             "revision": METRIC_REVISION,
             "task_sha256": self.task_sha256,
+            "denominator": "scorable_questions",
             "questions": len(self.per_question),
+            "scorable_questions": len(scorable),
+            "excluded_questions": len(excluded),
+            "excluded_question_ids_sha256": ordered_ids_sha256(row.question_id for row in excluded),
             "answerable_questions": len(answerable),
             "unanswerable_questions": len(unanswerable),
             "missing_predictions": missing,
             "evidence_f1": self.evidence_f1,
-            "answerable_evidence_f1": _mean(row.evidence_f1 for row in answerable),
-            "unanswerable_evidence_f1": _mean(row.evidence_f1 for row in unanswerable),
+            "answerable_evidence_f1": _mean(
+                row.evidence_f1 for row in answerable if row.evidence_f1 is not None
+            ),
+            "unanswerable_evidence_f1": _mean(
+                row.evidence_f1 for row in unanswerable if row.evidence_f1 is not None
+            ),
+            "coverage": {
+                "annotations": sum(row.annotation_references for row in self.per_question),
+                "complete_annotations": sum(row.complete_annotations for row in self.per_question),
+                "partial_annotations": sum(row.partial_annotations for row in self.per_question),
+                "unavailable_annotations": sum(
+                    row.unavailable_annotations for row in self.per_question
+                ),
+                "evidence_references": sum(
+                    row.resolved_references
+                    + row.ambiguous_references
+                    + row.unmatched_references
+                    + row.float_references
+                    for row in self.per_question
+                ),
+                "resolved_references": sum(row.resolved_references for row in self.per_question),
+                "ambiguous_references": sum(row.ambiguous_references for row in self.per_question),
+                "unmatched_references": sum(row.unmatched_references for row in self.per_question),
+                "float_references": sum(row.float_references for row in self.per_question),
+                "scorable_questions": len(scorable),
+                "excluded_questions": len(excluded),
+            },
         }
 
     def payload(self) -> dict[str, object]:
         """The canonical evaluation artifact payload."""
         return {
-            "artifact_revision": "res141-qasper-evidence-evaluation-v1",
+            "artifact_revision": EVALUATION_REVISION,
             "aggregate": self.aggregate(),
             "per_question": [row.payload() for row in self.per_question],
         }
@@ -1178,6 +1350,21 @@ def _paragraph_f1(prediction: frozenset[str], ground_truth: frozenset[str]) -> f
     return 2 * precision * recall / (precision + recall)
 
 
+def _reference_counts(annotation: QasperAnnotation) -> tuple[int, int, int, int]:
+    """Resolved, ambiguous, unmatched and float reference counts, in that order."""
+    resolved = ambiguous = unmatched = floats = 0
+    for reference in annotation.evidence:
+        if reference.kind == "float":
+            floats += 1
+        elif reference.resolution == "unique":
+            resolved += 1
+        elif reference.resolution == "ambiguous":
+            ambiguous += 1
+        else:
+            unmatched += 1
+    return resolved, ambiguous, unmatched, floats
+
+
 def score_evidence_selection(
     task: QasperTask,
     rankings: Mapping[str, Sequence[str]],
@@ -1186,22 +1373,22 @@ def score_evidence_selection(
 
     Fail-closed validations: every ranked question must belong to the task, every
     anchor must belong to that question's paper, and no ranking may repeat an
-    anchor. The scoring shape mirrors the official evaluator's evidence F1.
+    anchor. A question is scorable only when every annotation is ``complete``;
+    questions with a ``partial`` or ``unavailable`` annotation are excluded from
+    the metric denominator, counted, and reported per question — an unresolved
+    annotator is never dropped in a way that would turn its positive evidence
+    into a scorable empty reference.
     """
     anchor_sets: dict[str, frozenset[str]] = {
         paper.paper_id: frozenset(paragraph.anchor for paragraph in paper.paragraphs)
         for paper in task.papers
     }
-    references: dict[str, list[frozenset[str]]] = {}
+    annotations_by_question: dict[str, list[QasperAnnotation]] = {}
     for annotation in task.annotations:
-        ground_truth = frozenset(
-            reference.anchor
-            for reference in annotation.evidence
-            if reference.anchor is not None and reference.resolution == "unique"
-        )
-        references.setdefault(annotation.question_id, []).append(ground_truth)
+        annotations_by_question.setdefault(annotation.question_id, []).append(annotation)
     rows: list[QasperQuestionScore] = []
     for question in task.questions:
+        annotations = annotations_by_question.get(question.question_id, [])
         if question.question_id in rankings:
             raw_ranking = rankings[question.question_id]
             seen: set[str] = set()
@@ -1225,19 +1412,55 @@ def score_evidence_selection(
         else:
             prediction = frozenset[str]()
             present = False
-        annotation_references = references[question.question_id]
-        score = (
-            max(_paragraph_f1(prediction, ground_truth) for ground_truth in annotation_references)
-            if present
-            else 0.0
-        )
+        statuses = [annotation_scorability(annotation) for annotation in annotations]
+        complete = sum(1 for status in statuses if status == ANNOTATION_COMPLETE)
+        partial = sum(1 for status in statuses if status == ANNOTATION_PARTIAL)
+        unavailable = sum(1 for status in statuses if status == ANNOTATION_UNAVAILABLE)
+        resolved = ambiguous = unmatched = floats = 0
+        for annotation in annotations:
+            counts = _reference_counts(annotation)
+            resolved += counts[0]
+            ambiguous += counts[1]
+            unmatched += counts[2]
+            floats += counts[3]
+        if not annotations:
+            status = QUESTION_EXCLUDED
+            reason: str | None = "no-annotations"
+            score: float | None = None
+            ground_truth_anchors: int | None = None
+        elif partial or unavailable:
+            status = QUESTION_EXCLUDED
+            reason = EXCLUSION_PARTIAL_RESOLUTION if partial else EXCLUSION_UNAVAILABLE_RESOLUTION
+            score = None
+            ground_truth_anchors = None
+        else:
+            status = QUESTION_SCORABLE
+            reason = None
+            ground_truths = [_annotation_anchors(annotation) for annotation in annotations]
+            union: frozenset[str] = frozenset[str]().union(*ground_truths)
+            ground_truth_anchors = len(union)
+            score = (
+                max(_paragraph_f1(prediction, ground_truth) for ground_truth in ground_truths)
+                if present
+                else 0.0
+            )
         rows.append(
             QasperQuestionScore(
                 question_id=question.question_id,
                 paper_id=question.paper_id,
                 answerable=question.answerable,
                 prediction_present=present,
-                annotation_references=len(annotation_references),
+                status=status,
+                exclusion_reason=reason,
+                annotation_references=len(annotations),
+                complete_annotations=complete,
+                partial_annotations=partial,
+                unavailable_annotations=unavailable,
+                resolved_references=resolved,
+                ambiguous_references=ambiguous,
+                unmatched_references=unmatched,
+                float_references=floats,
+                ground_truth_anchors=ground_truth_anchors,
                 evidence_f1=score,
             )
         )

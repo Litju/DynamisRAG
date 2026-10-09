@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -20,13 +20,23 @@ from dynamisrag.datasets.errors import (
     DatasetArtifactError,
     DatasetContractError,
 )
+from dynamisrag.datasets.primitives import ordered_ids_sha256
 from dynamisrag.datasets.qasper import (
     ANCHOR_POLICY,
+    ANNOTATION_COMPLETE,
+    ANNOTATION_PARTIAL,
+    ANNOTATION_UNAVAILABLE,
+    EXCLUSION_PARTIAL_RESOLUTION,
+    EXCLUSION_UNAVAILABLE_RESOLUTION,
     METRIC_REVISION,
+    QUESTION_EXCLUDED,
+    QUESTION_SCORABLE,
     TASK_REVISION,
+    QasperAnnotation,
     QasperEvidenceRef,
     QasperSplitExpectation,
     QasperTask,
+    annotation_scorability,
     build_qasper_task_artifacts,
     parse_task,
     read_rankings,
@@ -151,40 +161,353 @@ def _perfect_rankings(task: QasperTask) -> dict[str, tuple[str, ...]]:
     return rankings
 
 
+def _mini_annotation(
+    annotation_id: str, evidence: list[str], *, unanswerable: bool = False
+) -> dict[str, Any]:
+    return {
+        "annotation_id": annotation_id,
+        "worker_id": f"w-{annotation_id}",
+        "answer": {
+            "evidence": evidence,
+            "extractive_spans": [] if unanswerable else ["span"],
+            "free_form_answer": "",
+            "highlighted_evidence": [],
+            "unanswerable": unanswerable,
+            "yes_no": None,
+        },
+    }
+
+
+def _mini_expectation(
+    paragraphs: list[str], annotations: list[dict[str, Any]]
+) -> QasperSplitExpectation:
+    resolved = ambiguous = unmatched = floats = 0
+    unanswerable = 0
+    for annotation in annotations:
+        answer = cast("dict[str, Any]", annotation["answer"])
+        if answer["unanswerable"]:
+            unanswerable += 1
+        for evidence in cast("list[str]", answer["evidence"]):
+            if evidence.startswith("FLOAT SELECTED"):
+                floats += 1
+                continue
+            matches = sum(1 for paragraph in paragraphs if paragraph == evidence)
+            if matches == 0:
+                unmatched += 1
+            elif matches == 1:
+                resolved += 1
+            else:
+                ambiguous += 1
+    return QasperSplitExpectation(
+        papers=1,
+        questions=1,
+        annotations=len(annotations),
+        unanswerable=unanswerable,
+        text_evidence=resolved + ambiguous + unmatched,
+        resolved_evidence=resolved,
+        ambiguous_evidence=ambiguous,
+        unmatched_evidence=unmatched,
+        float_evidence=floats,
+    )
+
+
+def _mini_task(
+    tmp_path: Path, *, paragraphs: list[str], annotations: list[dict[str, Any]]
+) -> QasperTask:
+    """One synthetic paper with one question, pinned by its own counted expectation."""
+    payload = {
+        "p1": {
+            "abstract": "Synthetic abstract.",
+            "full_text": [{"paragraphs": paragraphs, "section_name": "S"}],
+            "qas": [
+                {
+                    "answers": annotations,
+                    "question": "Synthetic question?",
+                    "question_id": _Q1,
+                }
+            ],
+            "title": "Synthetic paper",
+        }
+    }
+    path = tmp_path / "qasper-test-v0.3.json"
+    path.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+    bundle = build_qasper_task_artifacts(
+        source=qasper_source(),
+        split="test",
+        files={"qasper-test-v0.3.json": path},
+        expectations={"test": _mini_expectation(paragraphs, annotations)},
+    )
+    task_path = tmp_path / "mini-task.json"
+    task_path.write_bytes(bundle.payloads["task.json"])
+    return parse_task(task_path)
+
+
+def _row(evaluation: Any, question_id: str) -> Any:
+    return next(item for item in evaluation.per_question if item.question_id == question_id)
+
+
 def test_a_perfect_anchor_selection_scores_one(tmp_path: Path) -> None:
     task = _task(_bundle_for("test"), tmp_path)
     evaluation = score_evidence_selection(task, _perfect_rankings(task))
     assert evaluation.evidence_f1 == 1.0
     assert evaluation.aggregate()["missing_predictions"] == 0
-    assert evaluation.aggregate()["answerable_questions"] == 3
+    assert evaluation.aggregate()["scorable_questions"] == 2
+    assert evaluation.aggregate()["excluded_questions"] == 2
+    assert evaluation.aggregate()["answerable_questions"] == 1
     assert evaluation.aggregate()["unanswerable_questions"] == 1
 
 
-def test_unresolvable_evidence_is_excluded_from_the_anchor_ground_truth(tmp_path: Path) -> None:
-    """q4's only evidence is ambiguous or unmatched, so an empty selection is perfect.
+def test_unresolved_nonempty_gold_is_never_rewarded_as_empty_gold(tmp_path: Path) -> None:
+    """q4's only annotation has ambiguous and unmatched evidence.
 
-    This is the documented divergence from the official string-level evaluator:
-    the anchor projection preserves those strings in the task but cannot score
-    them, because a retriever cannot select a paragraph that the release does not
-    identify.
+    The anchor projection cannot score it, so the question is excluded from the
+    metric denominator: an empty prediction receives no 1.0 and no 0.0 — it
+    receives no score at all, with the reason recorded.
     """
     task = _task(_bundle_for("test"), tmp_path)
     evaluation = score_evidence_selection(task, {_Q4: ()})
-    row = next(item for item in evaluation.per_question if item.question_id == _Q4)
+    row = _row(evaluation, _Q4)
+    assert row.status == QUESTION_EXCLUDED
+    assert row.exclusion_reason == EXCLUSION_UNAVAILABLE_RESOLUTION
+    assert row.evidence_f1 is None
+    assert evaluation.evidence_f1 == 0.0
+
+
+def test_all_unmatched_evidence_excludes_the_question(tmp_path: Path) -> None:
+    task = _mini_task(
+        tmp_path,
+        paragraphs=["Present paragraph."],
+        annotations=[_mini_annotation("a1", ["No such paragraph anywhere."])],
+    )
+    evaluation = score_evidence_selection(task, {_Q1: ()})
+    row = _row(evaluation, _Q1)
+    assert row.status == QUESTION_EXCLUDED
+    assert row.exclusion_reason == EXCLUSION_UNAVAILABLE_RESOLUTION
+    assert row.evidence_f1 is None
+    assert row.unmatched_references == 1
+    coverage = cast("dict[str, int]", evaluation.aggregate()["coverage"])
+    assert coverage["unmatched_references"] == 1
+    assert evaluation.aggregate()["scorable_questions"] == 0
+
+
+def test_all_ambiguous_evidence_excludes_the_question(tmp_path: Path) -> None:
+    task = _mini_task(
+        tmp_path,
+        paragraphs=["Repeated paragraph.", "Repeated paragraph."],
+        annotations=[_mini_annotation("a1", ["Repeated paragraph."])],
+    )
+    evaluation = score_evidence_selection(task, {_Q1: ()})
+    row = _row(evaluation, _Q1)
+    assert row.status == QUESTION_EXCLUDED
+    assert row.ambiguous_references == 1
+    assert row.evidence_f1 is None
+
+
+def test_float_only_evidence_excludes_the_question(tmp_path: Path) -> None:
+    """A figure/table caption is nonempty evidence and never empty gold."""
+    task = _mini_task(
+        tmp_path,
+        paragraphs=["Present paragraph."],
+        annotations=[_mini_annotation("a1", ["FLOAT SELECTED table 1"])],
+    )
+    evaluation = score_evidence_selection(task, {_Q1: ()})
+    row = _row(evaluation, _Q1)
+    assert row.status == QUESTION_EXCLUDED
+    assert row.float_references == 1
+    assert row.evidence_f1 is None
+    assert evaluation.evidence_f1 == 0.0
+
+
+def test_partially_resolved_evidence_excludes_the_question(tmp_path: Path) -> None:
+    """Mixed resolved and unresolved references are never scored as resolved-only."""
+    task = _mini_task(
+        tmp_path,
+        paragraphs=["Present paragraph."],
+        annotations=[_mini_annotation("a1", ["Present paragraph.", "No such paragraph."])],
+    )
+    evaluation = score_evidence_selection(task, {_Q1: ()})
+    row = _row(evaluation, _Q1)
+    assert row.status == QUESTION_EXCLUDED
+    assert row.exclusion_reason == EXCLUSION_PARTIAL_RESOLUTION
+    assert row.resolved_references == 1
+    assert row.unmatched_references == 1
+    assert row.evidence_f1 is None
+
+
+def test_an_unresolved_annotator_cannot_yield_a_perfect_score(tmp_path: Path) -> None:
+    """A second annotator's unresolved positive evidence blocks a false perfect."""
+    task = _mini_task(
+        tmp_path,
+        paragraphs=["Present paragraph."],
+        annotations=[
+            _mini_annotation("a1", ["Present paragraph."]),
+            _mini_annotation("a2", ["No such paragraph anywhere."]),
+        ],
+    )
+    evaluation = score_evidence_selection(task, {_Q1: ()})
+    row = _row(evaluation, _Q1)
+    assert row.status == QUESTION_EXCLUDED
+    assert row.complete_annotations == 1
+    assert row.unavailable_annotations == 1
+    assert row.evidence_f1 is None
+
+
+def test_an_empty_annotator_cannot_mask_an_unresolved_annotator(tmp_path: Path) -> None:
+    """The genuinely empty annotation does not rescue a question with unresolved gold."""
+    task = _mini_task(
+        tmp_path,
+        paragraphs=["Present paragraph."],
+        annotations=[
+            _mini_annotation("a1", [], unanswerable=True),
+            _mini_annotation("a2", ["No such paragraph anywhere."]),
+        ],
+    )
+    evaluation = score_evidence_selection(task, {_Q1: ()})
+    row = _row(evaluation, _Q1)
+    assert row.status == QUESTION_EXCLUDED
+    assert row.evidence_f1 is None
+    assert evaluation.evidence_f1 == 0.0
+
+
+def test_genuinely_empty_gold_scores_one_for_an_explicit_empty_prediction(tmp_path: Path) -> None:
+    task = _mini_task(
+        tmp_path,
+        paragraphs=["Present paragraph."],
+        annotations=[_mini_annotation("a1", [], unanswerable=True)],
+    )
+    evaluation = score_evidence_selection(task, {_Q1: ()})
+    row = _row(evaluation, _Q1)
+    assert row.status == QUESTION_SCORABLE
+    assert row.ground_truth_anchors == 0
     assert row.evidence_f1 == 1.0
+
+
+def test_a_missing_prediction_for_genuinely_empty_gold_scores_zero(tmp_path: Path) -> None:
+    """The official evaluator scores a missing prediction 0.0 even for empty gold."""
+    task = _mini_task(
+        tmp_path,
+        paragraphs=["Present paragraph."],
+        annotations=[_mini_annotation("a1", [], unanswerable=True)],
+    )
+    evaluation = score_evidence_selection(task, {})
+    row = _row(evaluation, _Q1)
+    assert row.status == QUESTION_SCORABLE
+    assert row.prediction_present is False
+    assert row.evidence_f1 == 0.0
+    assert evaluation.aggregate()["missing_predictions"] == 1
+
+
+def test_a_complete_annotation_scores_the_official_f1_shape(tmp_path: Path) -> None:
+    task = _mini_task(
+        tmp_path,
+        paragraphs=["First paragraph.", "Second paragraph."],
+        annotations=[_mini_annotation("a1", ["First paragraph."])],
+    )
+    evaluation = score_evidence_selection(task, {_Q1: ("p1/s0/p0", "p1/s0/p1")})
+    row = _row(evaluation, _Q1)
+    assert row.status == QUESTION_SCORABLE
+    assert row.ground_truth_anchors == 1
+    assert row.evidence_f1 == pytest.approx(2 / 3)
+
+
+def test_annotation_scorability_classifies_every_reference_mix() -> None:
+    def _reference(kind: str, resolution: str, anchor: str | None) -> QasperEvidenceRef:
+        return QasperEvidenceRef(
+            kind=kind,
+            text_sha256="a" * 64,
+            resolution=resolution,
+            anchor=anchor,
+            candidate_anchors=(anchor,) if anchor else (),
+        )
+
+    def _annotation(refs: tuple[QasperEvidenceRef, ...]) -> QasperAnnotation:
+        return QasperAnnotation(
+            question_id=_Q1,
+            annotation_id="a1",
+            worker_id="w1",
+            unanswerable=False,
+            answer_kind="extractive",
+            extractive_spans=("span",),
+            yes_no=None,
+            free_form_answer="",
+            highlighted_evidence=(),
+            evidence=refs,
+        )
+
+    assert (
+        annotation_scorability(_annotation((_reference("text", "unique", "p1/s0/p0"),)))
+        == ANNOTATION_COMPLETE
+    )
+    assert annotation_scorability(_annotation(())) == ANNOTATION_COMPLETE
+    assert (
+        annotation_scorability(
+            _annotation(
+                (
+                    _reference("text", "unique", "p1/s0/p0"),
+                    _reference("text", "unmatched", None),
+                )
+            )
+        )
+        == ANNOTATION_PARTIAL
+    )
+    assert (
+        annotation_scorability(_annotation((_reference("float", "float", None),)))
+        == ANNOTATION_UNAVAILABLE
+    )
+    assert (
+        annotation_scorability(
+            _annotation(
+                (
+                    _reference("text", "ambiguous", None),
+                    _reference("text", "unmatched", None),
+                )
+            )
+        )
+        == ANNOTATION_UNAVAILABLE
+    )
+
+
+def test_coverage_separates_quality_from_resolution(tmp_path: Path) -> None:
+    task = _task(_bundle_for("test"), tmp_path)
+    evaluation = score_evidence_selection(task, _perfect_rankings(task))
+    aggregate = evaluation.aggregate()
+    assert aggregate["denominator"] == "scorable_questions"
+    assert aggregate["coverage"] == {
+        "annotations": 5,
+        "complete_annotations": 3,
+        "partial_annotations": 1,
+        "unavailable_annotations": 1,
+        "evidence_references": 7,
+        "resolved_references": 4,
+        "ambiguous_references": 1,
+        "unmatched_references": 1,
+        "float_references": 1,
+        "scorable_questions": 2,
+        "excluded_questions": 2,
+    }
+    assert aggregate["excluded_question_ids_sha256"] == ordered_ids_sha256([_Q1, _Q4])
+
+
+def test_ranking_an_excluded_question_is_recorded_and_ignored(tmp_path: Path) -> None:
+    task = _task(_bundle_for("test"), tmp_path)
+    evaluation = score_evidence_selection(task, {_Q4: ()})
+    row = _row(evaluation, _Q4)
+    assert row.prediction_present is True
+    assert row.evidence_f1 is None
+    assert evaluation.evidence_f1 == 0.0
 
 
 def test_a_missing_prediction_scores_zero_and_is_counted(tmp_path: Path) -> None:
     task = _task(_bundle_for("test"), tmp_path)
-    evaluation = score_evidence_selection(task, {_Q1: _perfect_rankings(task)[_Q1]})
-    assert evaluation.evidence_f1 == 0.25
-    assert evaluation.aggregate()["missing_predictions"] == 3
+    evaluation = score_evidence_selection(task, {_Q3: _perfect_rankings(task)[_Q3]})
+    assert evaluation.evidence_f1 == 0.5
+    assert evaluation.aggregate()["missing_predictions"] == 1
 
 
 def test_an_empty_prediction_for_an_unanswerable_question_scores_one(tmp_path: Path) -> None:
     task = _task(_bundle_for("test"), tmp_path)
     evaluation = score_evidence_selection(task, {_Q2: ()})
-    row = next(item for item in evaluation.per_question if item.question_id == _Q2)
+    row = _row(evaluation, _Q2)
     assert row.evidence_f1 == 1.0
 
 

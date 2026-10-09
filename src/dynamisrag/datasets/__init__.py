@@ -63,14 +63,22 @@ from dynamisrag.datasets.errors import (
 )
 from dynamisrag.datasets.pipeline import MaterializeRequest, materialize
 from dynamisrag.datasets.qasper import (
+    ANNOTATION_COMPLETE,
+    ANNOTATION_PARTIAL,
+    ANNOTATION_UNAVAILABLE,
+    EVALUATION_REVISION,
     METRIC_REVISION,
     QASPER_EXPECTATIONS,
     QASPER_SPLIT_FILES,
+    QUESTION_EXCLUDED,
+    QUESTION_SCORABLE,
     TASK_REVISION,
     QasperEvidenceEvaluation,
     QasperTask,
+    annotation_scorability,
     build_qasper_task_artifacts,
     parse_task,
+    read_task_bytes,
     score_evidence_selection,
 )
 from dynamisrag.datasets.rights import (
@@ -102,11 +110,17 @@ from dynamisrag.datasets.sources import (
 )
 
 __all__ = [
+    "ANNOTATION_COMPLETE",
+    "ANNOTATION_PARTIAL",
+    "ANNOTATION_UNAVAILABLE",
     "CORPUS_VARIANTS",
+    "EVALUATION_REVISION",
     "METRIC_REVISION",
     "PROJECTION_REVISION",
     "QASPER_EXPECTATIONS",
     "QASPER_SPLIT_FILES",
+    "QUESTION_EXCLUDED",
+    "QUESTION_SCORABLE",
     "R141_BEIR_SHORTLIST",
     "RES141_SOURCES",
     "SCIFACT_BEIR_SPEC",
@@ -137,12 +151,14 @@ __all__ = [
     "SliceReceipt",
     "SourceArtifact",
     "SourceMember",
+    "annotation_scorability",
     "build_beir_artifacts",
     "build_qasper_task_artifacts",
     "build_scifact_open_artifacts",
     "materialize",
     "parse_task",
     "read_beir_split",
+    "read_task_bytes",
     "score_evidence_selection",
     "shortlist_spec",
     "source_by_id",
