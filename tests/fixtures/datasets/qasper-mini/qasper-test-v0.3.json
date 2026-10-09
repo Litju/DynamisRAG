@@ -1,0 +1,146 @@
+{
+  "p1": {
+    "abstract": "Synthetic abstract one.",
+    "full_text": [
+      {
+        "paragraphs": [
+          "Intro zero text.",
+          "Intro one text."
+        ],
+        "section_name": "Introduction"
+      },
+      {
+        "paragraphs": [
+          "Null-section paragraph."
+        ],
+        "section_name": null
+      }
+    ],
+    "qas": [
+      {
+        "answers": [
+          {
+            "annotation_id": "a1",
+            "answer": {
+              "evidence": [
+                "Intro zero text.",
+                "FLOAT SELECTED table 1"
+              ],
+              "extractive_spans": [
+                "finding"
+              ],
+              "free_form_answer": "",
+              "highlighted_evidence": [
+                "finding here"
+              ],
+              "unanswerable": false,
+              "yes_no": null
+            },
+            "worker_id": "w1"
+          },
+          {
+            "annotation_id": "a2",
+            "answer": {
+              "evidence": [
+                "Intro zero text.",
+                "Intro one text."
+              ],
+              "extractive_spans": [],
+              "free_form_answer": "",
+              "highlighted_evidence": [],
+              "unanswerable": false,
+              "yes_no": true
+            },
+            "worker_id": "w2"
+          }
+        ],
+        "question": "What did the study find?",
+        "question_id": "q0000000000000000000000000000000000000001"
+      },
+      {
+        "answers": [
+          {
+            "annotation_id": "a3",
+            "answer": {
+              "evidence": [],
+              "extractive_spans": [],
+              "free_form_answer": "",
+              "highlighted_evidence": [],
+              "unanswerable": true,
+              "yes_no": null
+            },
+            "worker_id": "w3"
+          }
+        ],
+        "question": "Is this unanswerable?",
+        "question_id": "q0000000000000000000000000000000000000002"
+      },
+      {
+        "answers": [
+          {
+            "annotation_id": "a4",
+            "answer": {
+              "evidence": [
+                "Null-section paragraph."
+              ],
+              "extractive_spans": [],
+              "free_form_answer": "free form answer",
+              "highlighted_evidence": [],
+              "unanswerable": false,
+              "yes_no": null
+            },
+            "worker_id": "w4"
+          }
+        ],
+        "question": "What does the null section say?",
+        "question_id": "q0000000000000000000000000000000000000003"
+      }
+    ],
+    "title": "Synthetic paper one"
+  },
+  "p2": {
+    "abstract": "Synthetic abstract two.",
+    "full_text": [
+      {
+        "paragraphs": [
+          "Repeated text.",
+          "Another text."
+        ],
+        "section_name": "Methods"
+      },
+      {
+        "paragraphs": [
+          "Repeated text.",
+          "Unmatched target."
+        ],
+        "section_name": "Results"
+      }
+    ],
+    "qas": [
+      {
+        "answers": [
+          {
+            "annotation_id": "a5",
+            "answer": {
+              "evidence": [
+                "Repeated text.",
+                "No such paragraph anywhere."
+              ],
+              "extractive_spans": [],
+              "free_form_answer": "because",
+              "highlighted_evidence": [
+                "repeat"
+              ],
+              "unanswerable": false,
+              "yes_no": null
+            },
+            "worker_id": "w5"
+          }
+        ],
+        "question": "What repeats?",
+        "question_id": "q0000000000000000000000000000000000000004"
+      }
+    ],
+    "title": "Synthetic paper two"
+  }
+}

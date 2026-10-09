@@ -1,0 +1,2 @@
+{"claim": "Synthetic claim about alpha cells.", "evidence": {"101": {"label": "SUPPORT", "model_ranks": null, "provenance": "citation", "sentences": [1]}, "202": {"label": "CONTRADICT", "model_ranks": {"model_a": 10, "model_b": 3}, "provenance": "pooling", "sentences": [0, 2]}}, "id": 7}
+{"claim": "Synthetic claim with only pooled evidence.", "evidence": {"303": {"label": "SUPPORT", "model_ranks": {"model_a": 1}, "provenance": "pooling", "sentences": [0]}}, "id": 9}
