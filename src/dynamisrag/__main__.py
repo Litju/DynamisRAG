@@ -14,6 +14,10 @@ Command modes, selected by the first argument:
     dynamisrag ir score --inputs <dir> --run-sha256 <sha> --out <dir>
     dynamisrag ir verify <bundle> --run-sha256 <sha>
     dynamisrag ir compare <baseline> <candidate> --out <dir> ...
+    dynamisrag datasets list
+    dynamisrag datasets materialize --source <id> --split <s> --out <dir> [--archive <f> ...]
+    dynamisrag datasets verify <slice>
+    dynamisrag datasets score-evidence --slice <dir> --rankings <file> --out <file>
 
 ``dynamisrag`` with no arguments starts the server. ``search`` and ``retrieve``
 use the same services as their HTTP endpoints. ``benchmark`` manages frozen
@@ -32,6 +36,13 @@ bundle and write an artifact.
 
 The ``ir`` group reads canonical JSON and writes score/comparison artifacts
 without opening a retrieval service.
+
+The ``datasets`` group qualifies frozen third-party distributions (SciFact,
+SciFact-Open, QASPER and the BEIR shortlist), verifies pinned archive and member
+digests offline, and writes sealed slices: canonical RES-140 dataset inputs for
+document retrieval, or a separately versioned within-document evidence-selection
+task for QASPER. It never contacts a network and never opens a retrieval or
+scoring service.
 
 The process exit status is the contract: ``0`` on success, non-zero with one
 safe line on stderr when configuration, the database, the search backend or a
@@ -112,6 +123,11 @@ _IR_SCORE: Final[str] = "score"
 _IR_VERIFY: Final[str] = "verify"
 _IR_COMPARE: Final[str] = "compare"
 _IR_VERIFY_DIFF: Final[str] = "verify-diff"
+_DATASETS: Final[str] = "datasets"
+_DATASETS_LIST: Final[str] = "list"
+_DATASETS_MATERIALIZE: Final[str] = "materialize"
+_DATASETS_VERIFY: Final[str] = "verify"
+_DATASETS_SCORE_EVIDENCE: Final[str] = "score-evidence"
 _RES138_PLAN: Final[str] = "res138-plan"
 _VERIFY_RES138_BUNDLE: Final[str] = "verify-res138-bundle"
 _VERIFY_STAGE_A: Final[str] = "verify-stage-a"
@@ -278,7 +294,67 @@ def build_parser() -> argparse.ArgumentParser:
     ir = commands.add_parser(_IR, help="score and compare sealed RES-140 runs offline")
     _add_ir_commands(ir)
 
+    datasets = commands.add_parser(
+        _DATASETS,
+        help="qualify frozen third-party datasets and write sealed RES-141 slices offline",
+    )
+    _add_datasets_commands(datasets)
+
     return parser
+
+
+def _add_datasets_commands(datasets: argparse.ArgumentParser) -> None:
+    dataset_commands = datasets.add_subparsers(dest="datasets_command", required=True)
+
+    dataset_commands.add_parser(
+        _DATASETS_LIST, help="print the frozen source registry and shortlist as JSON"
+    )
+
+    materialize = dataset_commands.add_parser(
+        _DATASETS_MATERIALIZE,
+        help="verify a frozen source and write one sealed evaluation slice",
+    )
+    materialize.add_argument("--source", required=True, help="registered source id")
+    materialize.add_argument(
+        "--split", required=True, help="the source split to materialize, e.g. train or test"
+    )
+    materialize.add_argument("--out", type=Path, required=True, help="new slice directory")
+    materialize.add_argument(
+        "--archive",
+        type=Path,
+        action="append",
+        default=[],
+        help="a downloaded official archive; repeatable for multi-archive sources",
+    )
+    materialize.add_argument(
+        "--source-dir",
+        type=Path,
+        help="an already-extracted source directory; every read member is re-hashed",
+    )
+    materialize.add_argument(
+        "--corpus-variant",
+        choices=("candidates", "full"),
+        default="candidates",
+        help="SciFact-Open corpus variant (default: candidates)",
+    )
+    materialize.add_argument(
+        "--scratch",
+        type=Path,
+        help="where archive extraction happens; defaults to the system temp directory",
+    )
+
+    verify = dataset_commands.add_parser(
+        _DATASETS_VERIFY, help="verify a materialized slice against its manifest"
+    )
+    verify.add_argument("slice", type=Path, help="the slice directory to verify")
+
+    score = dataset_commands.add_parser(
+        _DATASETS_SCORE_EVIDENCE,
+        help="score paragraph-anchor rankings against a frozen QASPER task",
+    )
+    score.add_argument("--slice", type=Path, required=True, help="a materialized QASPER slice")
+    score.add_argument("--rankings", type=Path, required=True, help="ranking JSON file")
+    score.add_argument("--out", type=Path, required=True, help="new evaluation JSON file")
 
 
 def _add_ir_commands(ir: argparse.ArgumentParser) -> None:
@@ -348,7 +424,83 @@ def main(argv: Sequence[str] | None = None) -> int:  # noqa: PLR0911 - explicit 
         return _benchmark(parsed.benchmark_command, parsed)
     if parsed.command == _IR:
         return _ir(parsed.ir_command, parsed)
+    if parsed.command == _DATASETS:
+        return _datasets(parsed.datasets_command, parsed)
     return _serve()
+
+
+def _datasets(command: str | None, arguments: argparse.Namespace) -> int:
+    """Run one offline dataset operation; never opens a service or a network."""
+    from dynamisrag.datasets.errors import DatasetAdapterError
+
+    try:
+        if command == _DATASETS_LIST:
+            from dynamisrag.datasets.pipeline import registry_summary
+
+            _emit(registry_summary())
+            return _EXIT_SUCCESS
+        if command == _DATASETS_MATERIALIZE:
+            from dynamisrag.datasets.pipeline import MaterializeRequest, materialize
+
+            receipt = materialize(
+                MaterializeRequest(
+                    source_id=arguments.source,
+                    split=arguments.split,
+                    out=arguments.out,
+                    archives=tuple(arguments.archive),
+                    source_dir=arguments.source_dir,
+                    scratch_dir=arguments.scratch,
+                    corpus_variant=arguments.corpus_variant,
+                )
+            )
+            _emit(
+                {
+                    "slice": str(receipt.root),
+                    "source_id": receipt.source_id,
+                    "split": receipt.split,
+                    "manifest_sha256": receipt.manifest_sha256,
+                    "dataset_sha256": receipt.dataset_sha256,
+                    "task_sha256": receipt.task_sha256,
+                }
+            )
+            return _EXIT_SUCCESS
+        if command == _DATASETS_VERIFY:
+            from dynamisrag.datasets.slices import verify_slice
+
+            receipt = verify_slice(arguments.slice)
+            _emit(
+                {
+                    "slice": str(receipt.root),
+                    "source_id": receipt.source_id,
+                    "split": receipt.split,
+                    "manifest_sha256": receipt.manifest_sha256,
+                    "dataset_sha256": receipt.dataset_sha256,
+                    "task_sha256": receipt.task_sha256,
+                }
+            )
+            return _EXIT_SUCCESS
+        if command == _DATASETS_SCORE_EVIDENCE:
+            from dynamisrag.datasets.qasper import (
+                parse_task,
+                read_rankings,
+                score_evidence_selection,
+                write_evaluation,
+            )
+
+            task = parse_task(arguments.slice / "task.json")
+            evaluation = score_evidence_selection(task, read_rankings(arguments.rankings))
+            digest = write_evaluation(arguments.out, evaluation)
+            _emit(
+                {
+                    "evaluation": str(arguments.out),
+                    "sha256": digest,
+                    "aggregate": evaluation.aggregate(),
+                }
+            )
+            return _EXIT_SUCCESS
+        return _fail(f"{_PROGRAM} {_DATASETS}: unknown command {command!r}")
+    except (DatasetAdapterError, OSError, ValueError) as error:
+        return _fail(f"{_PROGRAM} {_DATASETS} {command}: {type(error).__name__}: {error}")
 
 
 def _ir(ir_command: str | None, arguments: argparse.Namespace) -> int:
