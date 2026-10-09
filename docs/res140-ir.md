@@ -122,17 +122,21 @@ provenance fields to the IR input types. `qrel_id_by_canonical_key` below is a
 caller-owned mapping to the document IDs used in that dataset's qrels:
 
 ```python
-mapping = IrPassageMapping(tuple(sorted(
-    (
-        IrPassageMapEntry(
-            hit.passage_key,
-            qrel_id_by_canonical_key[hit.provenance.document_canonical_key],
-            hit.provenance.document_version_key,
+mapping = IrPassageMapping(
+    tuple(
+        sorted(
+            (
+                IrPassageMapEntry(
+                    hit.passage_key,
+                    qrel_id_by_canonical_key[hit.provenance.document_canonical_key],
+                    hit.provenance.document_version_key,
+                )
+                for hit in response.fusion.hits
+            ),
+            key=lambda entry: entry.passage_id,
         )
-        for hit in response.fusion.hits
-    ),
-    key=lambda entry: entry.passage_id,
-)))
+    )
+)
 run = document_run_from_passages(
     dataset=dataset,
     config=config,
