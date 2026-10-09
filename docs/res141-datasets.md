@@ -161,9 +161,21 @@ reference and is superseded by this revision.
 
 **BEIR shortlist.** A fixed set of comparators — NFCorpus and SciDocs
 (scientific), ArguAna and FiQA-2018 (out-of-domain) — each with per-split
-cardinality pins. NFCorpus and FiQA query splits are disjoint; SciDocs and
-ArguAna ship a single test split with explicit zero judgments and a declared
-dangling-qrel exclusion respectively.
+cardinality pins. NFCorpus and FiQA query splits are disjoint; SciDocs ships a
+single test split with explicit zero judgments. ArguAna's queries are themselves
+corpus arguments, so its dataset identity pins the standard BEIR
+`ignore-identical-query-document-ids` protocol
+(`beir-ignore-identical-query-document-ids-v1`) in the dataset revision and in
+the manifest diagnostics, together with the counted, hashed set of query ids
+that occur in the corpus. The reader preserves the self-documents in the corpus
+(removing them would change the corpus identity); instead,
+`validate_run_protocol` refuses a sealed run whose evaluated prefix still
+contains a query's own document as non-comparable to standard BEIR, and
+`exclude_identical_document_hits` applies the reference rule to an untruncated
+candidate list before evaluation depth is chosen. ArguAna's five qrels whose
+documents are absent from the distributed corpus are declared, hashed and
+excluded — the slice explicitly records that its qrel set is **not** the
+original source qrel set (`qrels_are_source_complete: false`).
 
 ## Verification and refusal
 

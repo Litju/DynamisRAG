@@ -1,3 +1,4 @@
 {"_id": "a1", "text": "First argument text.", "title": ""}
 {"_id": "a2", "text": "Second argument text.", "title": ""}
 {"_id": "a3", "text": "Third argument text.", "title": ""}
+{"_id": "t1", "text": "The query argument itself.", "title": ""}

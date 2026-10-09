@@ -29,6 +29,7 @@ from dataclasses import dataclass
 from typing import Final
 
 from dynamisrag.datasets.beir import (
+    IGNORE_IDENTICAL_IDS_POLICY,
     BeirSliceSpec,
     BeirSplitExpectation,
     DanglingQrelPolicy,
@@ -118,7 +119,10 @@ _ARGUANA: Final[BeirSliceSpec] = BeirSliceSpec(
     domain="counter-argument retrieval",
     projection_note=(
         "one relevant counter-argument per query; five qrels whose documents are absent from "
-        "the distributed corpus are declared and excluded rather than invented"
+        "the distributed corpus are declared and excluded rather than invented, so this qrel "
+        "set is not identical to the original source; the dataset identity pins the standard "
+        "BEIR ignore-identical-query-document-ids protocol and runs that retrieve a query's "
+        "own document are refused as non-comparable"
     ),
     splits=(
         (
@@ -136,6 +140,7 @@ _ARGUANA: Final[BeirSliceSpec] = BeirSliceSpec(
             ),
         ),
     ),
+    self_document_policy=IGNORE_IDENTICAL_IDS_POLICY,
 )
 
 _FIQA: Final[BeirSliceSpec] = BeirSliceSpec(

@@ -20,7 +20,7 @@ over the whole corpus.
 from __future__ import annotations
 
 import json
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -34,11 +34,12 @@ from dynamisrag.datasets.slices import (
     build_retrieval_artifacts,
 )
 from dynamisrag.datasets.sources import FrozenDatasetSource
-from dynamisrag.ir.contracts import IrQrel, IrQuery
+from dynamisrag.ir.contracts import IrDataset, IrHit, IrQrel, IrQuery, IrRun
 
 __all__ = [
     "BEIR_QREL_HEADER",
     "DOCUMENT_CONTENT_POLICY",
+    "IGNORE_IDENTICAL_IDS_POLICY",
     "BeirSliceSpec",
     "BeirSplitExpectation",
     "BeirSplitRead",
@@ -46,8 +47,10 @@ __all__ = [
     "SliceDocument",
     "build_beir_artifacts",
     "document_content",
+    "exclude_identical_document_hits",
     "read_beir_split",
     "require_expectations",
+    "validate_run_protocol",
 ]
 
 BEIR_QREL_HEADER: Final[tuple[str, ...]] = ("query-id", "corpus-id", "score")
@@ -63,6 +66,15 @@ DOCUMENT_CONTENT_POLICY: Final[str] = "title-newline-text-utf8-v1"
 It is a *content identity* policy, not an embedding policy: RES-141 records what
 a document is so its corpus digest is reproducible. Retrieval configuration is
 RES-138/RES-139 territory.
+"""
+
+IGNORE_IDENTICAL_IDS_POLICY: Final[str] = "beir-ignore-identical-query-document-ids-v1"
+"""The standard BEIR evaluation rule for datasets whose queries are in the corpus.
+
+The reference evaluator removes every retrieved document whose id equals the
+query id before metrics are computed. ArguAna is the shortlist dataset where
+this matters: its queries are themselves corpus arguments, so an unfiltered run
+is not protocol-comparable.
 """
 
 
@@ -106,6 +118,7 @@ class BeirSplitRead:
     documents_without_text: tuple[str, ...]
     queries_without_judgement: tuple[str, ...]
     dangling_qrels: tuple[IrQrel, ...]
+    self_document_query_ids: tuple[str, ...]
     max_relevance: int
     min_relevance: int
 
@@ -339,6 +352,9 @@ def read_beir_split(
         for document in documents
         if not (document.title or document.text).strip()
     )
+    self_document_query_ids = tuple(
+        query.query_id for query in declared_queries if query.query_id in document_ids
+    )
     relevances = [qrel.relevance for qrel in kept]
     return BeirSplitRead(
         dataset_name=dataset_name,
@@ -351,6 +367,7 @@ def read_beir_split(
         documents_without_text=without_text,
         queries_without_judgement=without_judgement,
         dangling_qrels=tuple(dangling),
+        self_document_query_ids=self_document_query_ids,
         max_relevance=max(relevances) if relevances else 0,
         min_relevance=min(relevances) if relevances else 0,
     )
@@ -379,13 +396,32 @@ class BeirSplitExpectation:
 
 @dataclass(frozen=True)
 class BeirSliceSpec:
-    """One BEIR source's frozen projection policy and per-split pins."""
+    """One BEIR source's frozen projection policy and per-split pins.
+
+    ``self_document_policy`` is part of the dataset identity: when it is set, the
+    dataset revision carries the policy token and a run that retrieves a query's
+    own document can be refused as non-comparable to standard BEIR.
+    """
 
     source_id: str
     role: str
     domain: str
     projection_note: str
     splits: tuple[tuple[str, BeirSplitExpectation], ...]
+    self_document_policy: str | None = None
+
+    def __post_init__(self) -> None:
+        if (
+            self.self_document_policy is not None
+            and self.self_document_policy != IGNORE_IDENTICAL_IDS_POLICY
+        ):
+            raise DatasetContractError(
+                f"the source {self.source_id!r} declares an unknown self-document policy.",
+                operation="validate_beir_spec",
+                source_id=self.source_id,
+                expected=IGNORE_IDENTICAL_IDS_POLICY,
+                observed=self.self_document_policy,
+            )
 
     def expectation(self, split: str) -> BeirSplitExpectation:
         """The pinned expectation for ``split``, or a contract error."""
@@ -524,14 +560,101 @@ def build_beir_artifacts(
         )
         if read.dangling_qrels
         else None,
+        "source_qrels": len(read.qrels) + len(read.dangling_qrels),
+        "qrels_are_source_complete": not read.dangling_qrels,
+        "self_document_policy": spec.self_document_policy,
+        "self_document_queries": len(read.self_document_query_ids),
+        "self_document_queries_ids_sha256": ordered_ids_sha256(read.self_document_query_ids),
     }
+    dataset_revision = f"{source.revision}.{split}"
+    if spec.self_document_policy is not None:
+        dataset_revision = f"{dataset_revision}.{spec.self_document_policy}"
     return build_retrieval_artifacts(
         source=source,
         split=split,
-        dataset_revision=f"{source.revision}.{split}",
+        dataset_revision=dataset_revision,
         corpus=builder.finalize(),
         queries=read.queries,
         qrels=read.qrels,
         diagnostics=diagnostics,
         projection_note=spec.projection_note,
     )
+
+
+def exclude_identical_document_hits(hits: Sequence[IrHit]) -> tuple[IrHit, ...]:
+    """Apply BEIR's ignore-identical-ids rule to an untruncated candidate list.
+
+    Drops every hit whose document id equals its query id and renumbers each
+    query's remaining hits contiguously, exactly as the reference BEIR evaluator
+    removes identical query/document ids. Apply this to the full candidate list
+    *before* evaluation-depth truncation: applying it to an already-truncated
+    run cannot recover the candidate that would have taken the vacated rank.
+    Input hits must be unique and ``(query_id, rank)`` ascending.
+    """
+    ranks: dict[str, int] = {}
+    expected: dict[str, int] = {}
+    kept: list[IrHit] = []
+    for hit in hits:
+        if hit.rank != expected.get(hit.query_id, 0) + 1:
+            raise DatasetContractError(
+                "candidate hits must form a complete one-based prefix per query.",
+                operation="exclude_identical_document_hits",
+                item_id=hit.query_id,
+            )
+        expected[hit.query_id] = hit.rank
+        if hit.document_id == hit.query_id:
+            continue
+        rank = ranks.get(hit.query_id, 0) + 1
+        ranks[hit.query_id] = rank
+        kept.append(
+            IrHit(
+                query_id=hit.query_id,
+                document_id=hit.document_id,
+                rank=rank,
+                raw_score=hit.raw_score,
+                source_passage_id=hit.source_passage_id,
+            )
+        )
+    return tuple(kept)
+
+
+def validate_run_protocol(*, dataset: IrDataset, run: IrRun) -> None:
+    """Refuse a sealed run that cannot be compared under the dataset's protocol.
+
+    The dataset identity declares the applicable policy through its revision
+    suffix. When the ignore-identical-ids policy is declared, a run whose
+    evaluated prefix contains a query's own document is not comparable to the
+    standard BEIR reference protocol and is refused: the reference rule removes
+    identical ids *before* truncation, so a sealed run that still shows one
+    cannot be repaired without silently changing what was evaluated. A run that
+    contains no self-document hit is comparable as it stands, because the
+    reference removal is a no-op on its evaluated prefix.
+    """
+    if run.dataset_sha256 != dataset.sha256:
+        raise DatasetContractError(
+            "the run and dataset identities do not agree.",
+            operation="validate_run_protocol",
+            source_id=dataset.source_id,
+        )
+    declared = {query.query_id for query in dataset.queries}
+    undeclared = {hit.query_id for hit in run.hits if hit.query_id not in declared}
+    if undeclared:
+        raise DatasetContractError(
+            "the run retrieves for a query outside the dataset.",
+            operation="validate_run_protocol",
+            source_id=dataset.source_id,
+            count=len(undeclared),
+            item_id=sorted(undeclared)[0],
+        )
+    if not dataset.source_revision.endswith(f".{IGNORE_IDENTICAL_IDS_POLICY}"):
+        return
+    offenders = [hit for hit in run.hits if hit.document_id == hit.query_id]
+    if offenders:
+        raise DatasetContractError(
+            "the run retrieves a query's own document; it is not comparable to the standard "
+            "BEIR protocol, which excludes identical query/document ids before evaluation.",
+            operation="validate_run_protocol",
+            source_id=dataset.source_id,
+            count=len(offenders),
+            item_id=offenders[0].query_id,
+        )

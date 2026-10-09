@@ -249,6 +249,7 @@ def synthetic_beir_spec(
     splits: Mapping[str, BeirSplitExpectation],
     role: str = "synthetic",
     domain: str = "synthetic retrieval",
+    self_document_policy: str | None = None,
 ) -> BeirSliceSpec:
     return BeirSliceSpec(
         source_id=source_id,
@@ -256,6 +257,7 @@ def synthetic_beir_spec(
         domain=domain,
         projection_note="synthetic fixture projection",
         splits=tuple((split, splits[split]) for split in sorted(splits)),
+        self_document_policy=self_document_policy,
     )
 
 
