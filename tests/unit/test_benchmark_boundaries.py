@@ -19,9 +19,10 @@ the repository rather than by reading the diff.
   below allows that one profile only in the dense retrieval module.
 
 * **CI cannot reach a model.** ``torch``, ``sentence-transformers``,
-  ``transformers``, ``huggingface-hub`` and ``pyarrow`` appear in no dependency
-  group and no project dependency; the Colab requirements file is a file, not an
-  install target.
+  ``transformers`` and ``huggingface-hub`` appear in no dependency group or
+  project dependency. RES-140's ``ir-measures`` and ``pyarrow`` are pinned only
+  in the non-production benchmark group for offline scoring and Parquet output.
+  The Colab requirements file remains a file, not an install target.
 
 * **The benchmark imports torch in exactly one module**, and that module is not
   imported by anything. Otherwise "CI never loads a GPU" would be an intention
@@ -237,12 +238,35 @@ def test_no_dependency_group_can_install_torch_or_a_transformer() -> None:
         "sentence-transformers",
         "transformers",
         "huggingface-hub",
-        "pyarrow",
     ):
         assert not any(
             requirement.split(">")[0].split("=")[0].split("[")[0].strip() == forbidden
             for requirement in declared
         ), f"{forbidden} is installable in normal CI"
+
+
+def test_res140_scoring_dependencies_are_pinned_outside_production() -> None:
+    project = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    production = cast("dict[str, object]", project["project"])
+    production_dependencies = {
+        str(requirement).split(">")[0].split("=")[0].split("[")[0].strip()
+        for requirement in cast("list[object]", production["dependencies"])
+    }
+    groups = cast("dict[str, list[object]]", project["dependency-groups"])
+    benchmark = {str(requirement) for requirement in groups["benchmark"]}
+
+    assert "ir-measures" not in production_dependencies
+    assert "pyarrow" not in production_dependencies
+    assert "ir-measures==0.4.3" in benchmark
+    assert "pyarrow==25.0.1" in benchmark
+    for group_name, requirements in groups.items():
+        if group_name == "benchmark":
+            continue
+        names = {
+            str(requirement).split(">")[0].split("=")[0].split("[")[0].strip()
+            for requirement in requirements
+        }
+        assert not {"ir-measures", "pyarrow"} & names
 
 
 def _dependency_group_requirements(pyproject: dict[str, object]) -> list[str]:
