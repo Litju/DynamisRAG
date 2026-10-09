@@ -94,10 +94,10 @@ _SCIFACT_OPEN_EXPECTATION = ScifactOpenExpectation(
     support_links=2,
     contradict_links=1,
     metadata_records=2,
-    candidate_documents=4,
+    candidate_documents=5,
     pool_pairs=4,
     pool_union_documents=3,
-    full_corpus_documents=5,
+    full_corpus_documents=6,
     evidence_links_in_pool=2,
     evidence_links_outside_pool=1,
 )

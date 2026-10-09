@@ -387,8 +387,11 @@ def _stream_full_corpus(
                 item_id=str(raw_id),
             )
         document_id = str(raw_id)
-        content = _abstract_content(title, [str(sentence) for sentence in abstract])
+        sentences = tuple(str(sentence) for sentence in abstract)
+        content = _abstract_content(title, sentences)
         builder.add(document_id, text_sha256(content))
+        if not (title.strip() or "".join(sentences).strip()):
+            builder.mark_without_text(document_id)
         count += 1
         if document_id in candidates:
             seen_candidates += 1
@@ -628,6 +631,8 @@ def build_scifact_open_artifacts(
         "pool_union_documents": pool_union,
         "evidence_links_in_pool": in_pool,
         "evidence_links_outside_pool": len(links) - in_pool,
+        "documents_without_text": corpus.documents_without_text,
+        "documents_without_text_ids_sha256": corpus.documents_without_text_ids_sha256,
         "evidence_document_ids_sha256": ordered_ids_sha256(evidence_ids),
         "provenance_sidecar_sha256": digest(sidecar_payload),
     }

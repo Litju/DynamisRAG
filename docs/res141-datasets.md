@@ -136,7 +136,11 @@ evidence, not deciding the claim. Evidence provenance (`citation` versus
 `pooling`), sentence highlights and model ranks are preserved verbatim in the
 sidecar. Judgments are `pooled-partial`: documents outside the released pool are
 unjudged, not non-relevant, so any metric here is pooled recall. The corpus
-variant (`candidates` or `full`) is part of the dataset identity.
+variant (`candidates` or `full`) is part of the dataset identity. Documents
+whose title and abstract are empty or whitespace-only keep their corpus slot but
+are counted as missing-text in **both** variants — in the corpus identity and in
+the manifest diagnostics — so the two censuses never disagree about how many
+slots carry no embeddable text.
 
 **QASPER.** `qasper-evidence-selection-v1` is a within-document task: each
 question belongs to one known paper, and the selection unit is one paragraph

@@ -18,7 +18,7 @@ from typing import Any, cast
 import pytest
 
 from dynamisrag.datasets.errors import DatasetContractError, DatasetFormatError
-from dynamisrag.datasets.primitives import digest
+from dynamisrag.datasets.primitives import digest, ordered_ids_sha256
 from dynamisrag.datasets.scifact_open import (
     PROJECTION_REVISION,
     ScifactOpenExpectation,
@@ -50,10 +50,10 @@ _EXPECTATION = ScifactOpenExpectation(
     support_links=2,
     contradict_links=1,
     metadata_records=2,
-    candidate_documents=4,
+    candidate_documents=5,
     pool_pairs=4,
     pool_union_documents=3,
-    full_corpus_documents=5,
+    full_corpus_documents=6,
     evidence_links_in_pool=2,
     evidence_links_outside_pool=1,
 )
@@ -153,10 +153,29 @@ def test_the_full_variant_covers_a_larger_corpus_under_its_own_identity() -> Non
     full_corpus = full.manifest["corpus"]
     assert isinstance(candidates_corpus, dict)
     assert isinstance(full_corpus, dict)
-    assert candidates_corpus["document_count"] == 4
-    assert full_corpus["document_count"] == 5
+    assert candidates_corpus["document_count"] == 5
+    assert full_corpus["document_count"] == 6
     assert candidates.dataset.corpus_sha256 != full.dataset.corpus_sha256
     assert full.dataset.source_revision == "synthetic-v1.test.full"
+
+
+def test_both_variants_mark_missing_text_documents_consistently() -> None:
+    candidates = _artifacts("candidates")
+    full = _artifacts("full")
+    candidates_corpus = candidates.manifest["corpus"]
+    full_corpus = full.manifest["corpus"]
+    assert isinstance(candidates_corpus, dict)
+    assert isinstance(full_corpus, dict)
+    blank_ids_sha256 = ordered_ids_sha256(["707"])
+    assert candidates_corpus["documents_without_text"] == 1
+    assert candidates_corpus["documents_without_text_ids_sha256"] == blank_ids_sha256
+    assert full_corpus["documents_without_text"] == 1
+    assert full_corpus["documents_without_text_ids_sha256"] == blank_ids_sha256
+    for artifacts in (candidates, full):
+        diagnostics = artifacts.manifest["diagnostics"]
+        assert isinstance(diagnostics, dict)
+        assert diagnostics["documents_without_text"] == 1
+        assert diagnostics["documents_without_text_ids_sha256"] == blank_ids_sha256
 
 
 def test_an_unknown_corpus_variant_is_refused() -> None:
