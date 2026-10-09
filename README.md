@@ -384,6 +384,13 @@ dynamisrag benchmark verify-gpu-evidence --bundle <bundle> --code-sha <40-hex> -
 dynamisrag benchmark assemble-qualification --bundle <bundle> --code-sha <40-hex> --work-dir <dir>
 dynamisrag benchmark select --bundle <bundle> --code-sha <40-hex> --work-dir <dir>
 dynamisrag benchmark cleanup-stage-b-indexes --bundle <bundle> --code-sha <40-hex>
+
+dynamisrag ir score --inputs <run-inputs> --run-sha256 <64-hex> --out <bundle>
+dynamisrag ir verify <bundle> --run-sha256 <64-hex>
+dynamisrag ir compare <baseline> <candidate> --baseline-run-sha256 <64-hex> `
+  --candidate-run-sha256 <64-hex> --out <comparison>
+dynamisrag ir verify-diff <comparison> --baseline <bundle> --baseline-run-sha256 <64-hex> `
+  --candidate <bundle> --candidate-run-sha256 <64-hex> --comparison-sha256 <64-hex>
 ```
 
 `dynamisrag search` stays BM25-only and uses the same service and
@@ -391,6 +398,11 @@ dynamisrag benchmark cleanup-stage-b-indexes --bundle <bundle> --code-sha <40-he
 service as `GET /retrieve`. Failures exit non-zero with one safe line on stderr;
 backend and embedding failures use structured summaries, never backend or TEI
 response prose.
+
+The `ir` commands score and compare sealed RES-140 runs from local canonical
+JSON without opening PostgreSQL, OpenSearch, TEI or a model. See the
+[RES-140 evaluation guide](docs/res140-ir.md) for the metric policy, bundle
+formats, PowerShell quickstart and dataset identity assumptions.
 
 ## Configuration
 
