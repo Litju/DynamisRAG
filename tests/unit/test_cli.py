@@ -34,6 +34,7 @@ _PROJECTION_SHA: Final[str] = "c" * 64
 _CHUNKER_REVISION: Final[str] = "structure-v1.1.b19e0939b5de"
 _PASSAGE_KEY: Final[str] = "a" * 64
 _CODE_SHA: Final[str] = "a" * 40
+_RES140_RUN_SHA: Final[str] = "b85b7c334d630ad5b9f7489679a56a257c0038d451d99ea76ecfa464718c714e"
 
 
 def _response(query: str) -> SearchResponse:
@@ -470,6 +471,7 @@ def test_help_describes_both_subcommands(capsys: pytest.CaptureFixture[str]) -> 
     assert "search" in out
     assert "project-passages" in out
     assert "benchmark" in out
+    assert "ir" in out
 
 
 def test_an_unknown_subcommand_is_rejected(capsys: pytest.CaptureFixture[str]) -> None:
@@ -478,6 +480,48 @@ def test_an_unknown_subcommand_is_rejected(capsys: pytest.CaptureFixture[str]) -
 
     assert caught.value.code != 0
     assert "invalid choice" in capsys.readouterr().err
+
+
+def test_ir_score_and_verify_run_offline_from_the_complete_fixture(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    fixture = Path(__file__).resolve().parents[1] / "fixtures" / "ir-res140"
+    destination = tmp_path / "ir-score"
+
+    assert (
+        cli.main(
+            [
+                "ir",
+                "score",
+                "--inputs",
+                str(fixture),
+                "--run-sha256",
+                _RES140_RUN_SHA,
+                "--out",
+                str(destination),
+            ]
+        )
+        == 0
+    )
+    scored = json.loads(capsys.readouterr().out)
+    assert scored["run_sha256"] == _RES140_RUN_SHA
+    assert len(scored["evaluation_sha256"]) == 64
+    assert (destination / "per-query.parquet").is_file()
+
+    assert (
+        cli.main(
+            [
+                "ir",
+                "verify",
+                str(destination),
+                "--run-sha256",
+                _RES140_RUN_SHA,
+            ]
+        )
+        == 0
+    )
+    verified = json.loads(capsys.readouterr().out)
+    assert verified["evaluation_sha256"] == scored["evaluation_sha256"]
 
 
 # ---------------------------------------------------------------------------

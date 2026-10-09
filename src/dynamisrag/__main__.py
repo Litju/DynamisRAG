@@ -1,6 +1,6 @@
 """Console entry point: ``python -m dynamisrag`` / ``dynamisrag``.
 
-Two behaviours, selected by the first argument:
+Command modes, selected by the first argument:
 
     dynamisrag                              start the development server
     dynamisrag search "probiotic exercise"   query the BM25 passage projection
@@ -11,12 +11,13 @@ Two behaviours, selected by the first argument:
     dynamisrag benchmark verify-gpu-evidence --bundle <root> --evidence <file>
     dynamisrag benchmark assemble-qualification --bundle <root> --work-dir <dir>
     dynamisrag benchmark select --bundle <root> --work-dir <dir>
+    dynamisrag ir score --inputs <dir> --run-sha256 <sha> --out <dir>
+    dynamisrag ir verify <bundle> --run-sha256 <sha>
+    dynamisrag ir compare <baseline> <candidate> --out <dir> ...
 
-``dynamisrag`` with no arguments still starts the server, unchanged. The
-subcommands are ``argparse`` over the same services the API uses — the CLI has
-no search implementation of its own, so a result obtained from the terminal and
-one obtained from ``GET /search`` are produced by the same request against the
-same projection.
+``dynamisrag`` with no arguments starts the server. ``search`` and ``retrieve``
+use the same services as their HTTP endpoints. ``benchmark`` manages frozen
+RES-138 artifacts, and ``ir`` scores and compares sealed RES-140 runs.
 
 The ``benchmark`` group is **not** a search implementation. Its Stage A
 subcommands write the frozen RES-138 plan from a code commit and verify a benchmark
@@ -28,6 +29,9 @@ evidence artifact imported from the remote A100, assemble
 ``res138-production-qualification-v1`` and run the frozen selection rule. Only
 ``run-opensearch`` and ``cleanup-stage-b-indexes`` open a service; the rest read a
 bundle and write an artifact.
+
+The ``ir`` group reads canonical JSON and writes score/comparison artifacts
+without opening a retrieval service.
 
 The process exit status is the contract: ``0`` on success, non-zero with one
 safe line on stderr when configuration, the database, the search backend or a
@@ -103,6 +107,11 @@ _SEARCH: Final[str] = "search"
 _RETRIEVE: Final[str] = "retrieve"
 _PROJECT: Final[str] = "project-passages"
 _BENCHMARK: Final[str] = "benchmark"
+_IR: Final[str] = "ir"
+_IR_SCORE: Final[str] = "score"
+_IR_VERIFY: Final[str] = "verify"
+_IR_COMPARE: Final[str] = "compare"
+_IR_VERIFY_DIFF: Final[str] = "verify-diff"
 _RES138_PLAN: Final[str] = "res138-plan"
 _VERIFY_RES138_BUNDLE: Final[str] = "verify-res138-bundle"
 _VERIFY_STAGE_A: Final[str] = "verify-stage-a"
@@ -126,7 +135,8 @@ def build_parser() -> argparse.ArgumentParser:
             "DynamisRAG. With no arguments, serves the HTTP API. "
             "'search' queries the BM25 baseline; 'retrieve' runs hybrid BM25+dense RRF; "
             "'project-passages' rebuilds that projection from canonical PostgreSQL; "
-            "'benchmark' writes the frozen RES-138 plan and verifies benchmark bundles."
+            "'benchmark' handles frozen RES-138 evidence; "
+            "'ir' scores sealed retrieval runs offline."
         ),
     )
     commands = parser.add_subparsers(dest="command")
@@ -264,7 +274,47 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _add_stage_b_arguments(select)
     select.add_argument("--work-dir", required=True, help="where the qualification is read from")
+
+    ir = commands.add_parser(_IR, help="score and compare sealed RES-140 runs offline")
+    _add_ir_commands(ir)
+
     return parser
+
+
+def _add_ir_commands(ir: argparse.ArgumentParser) -> None:
+    ir_commands = ir.add_subparsers(dest="ir_command", required=True)
+
+    score = ir_commands.add_parser(
+        _IR_SCORE, help="score canonical JSON run inputs and write a bundle"
+    )
+    score.add_argument("--inputs", type=Path, required=True, help="closed input directory")
+    score.add_argument("--run-sha256", required=True, help="expected sealed run identity")
+    score.add_argument("--out", type=Path, required=True, help="new result bundle directory")
+
+    verify_ir = ir_commands.add_parser(_IR_VERIFY, help="verify a scored IR bundle")
+    verify_ir.add_argument("bundle", type=Path, help="scored IR bundle directory")
+    verify_ir.add_argument("--run-sha256", required=True, help="expected sealed run identity")
+
+    compare = ir_commands.add_parser(
+        _IR_COMPARE, help="compare two verified bundles on one evaluation boundary"
+    )
+    compare.add_argument("baseline", type=Path)
+    compare.add_argument("candidate", type=Path)
+    compare.add_argument("--baseline-run-sha256", required=True)
+    compare.add_argument("--candidate-run-sha256", required=True)
+    compare.add_argument(
+        "--out", type=Path, required=True, help="new comparison artifact directory"
+    )
+
+    verify_diff = ir_commands.add_parser(
+        _IR_VERIFY_DIFF, help="verify a comparison artifact against both sealed bundles"
+    )
+    verify_diff.add_argument("comparison", type=Path)
+    verify_diff.add_argument("--baseline", type=Path, required=True)
+    verify_diff.add_argument("--baseline-run-sha256", required=True)
+    verify_diff.add_argument("--candidate", type=Path, required=True)
+    verify_diff.add_argument("--candidate-run-sha256", required=True)
+    verify_diff.add_argument("--comparison-sha256", required=True)
 
 
 def _add_stage_b_arguments(parser: argparse.ArgumentParser) -> None:
@@ -280,7 +330,7 @@ def _add_stage_b_arguments(parser: argparse.ArgumentParser) -> None:
 RES138_PLAN_FILENAME: Final[str] = "res138-plan.json"
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def main(argv: Sequence[str] | None = None) -> int:  # noqa: PLR0911 - explicit command dispatch
     """Dispatch one command and return the process exit status."""
     arguments: list[str] = list(sys.argv[1:] if argv is None else argv)
     parser = build_parser()
@@ -296,7 +346,97 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _project(parsed.chunker_revision)
     if parsed.command == _BENCHMARK:
         return _benchmark(parsed.benchmark_command, parsed)
+    if parsed.command == _IR:
+        return _ir(parsed.ir_command, parsed)
     return _serve()
+
+
+def _ir(ir_command: str | None, arguments: argparse.Namespace) -> int:
+    """Run sealed RES-140 operations without importing a retrieval service."""
+    from dynamisrag.ir.contracts import IrContractError
+
+    try:
+        if ir_command == _IR_SCORE:
+            from dynamisrag.ir.experiments import score_ir_inputs
+
+            receipt = score_ir_inputs(
+                arguments.inputs,
+                arguments.out,
+                expected_run_sha256=arguments.run_sha256,
+            )
+            _emit(
+                {
+                    "bundle": str(receipt.root),
+                    "dataset_sha256": receipt.dataset_sha256,
+                    "config_sha256": receipt.config_sha256,
+                    "run_sha256": receipt.run_sha256,
+                    "evaluation_sha256": receipt.evaluation_sha256,
+                    "passage_mapping_sha256": receipt.passage_mapping_sha256,
+                    "manifest_sha256": receipt.manifest_sha256,
+                }
+            )
+            return _EXIT_SUCCESS
+        if ir_command == _IR_VERIFY:
+            from dynamisrag.ir.artifacts import verify_ir_bundle
+
+            receipt = verify_ir_bundle(arguments.bundle, expected_run_sha256=arguments.run_sha256)
+            _emit(
+                {
+                    "bundle": str(receipt.root),
+                    "dataset_sha256": receipt.dataset_sha256,
+                    "config_sha256": receipt.config_sha256,
+                    "run_sha256": receipt.run_sha256,
+                    "evaluation_sha256": receipt.evaluation_sha256,
+                    "passage_mapping_sha256": receipt.passage_mapping_sha256,
+                    "manifest_sha256": receipt.manifest_sha256,
+                }
+            )
+            return _EXIT_SUCCESS
+        if ir_command == _IR_COMPARE:
+            from dynamisrag.ir.experiments import compare_ir_bundles
+
+            receipt = compare_ir_bundles(
+                arguments.baseline,
+                arguments.candidate,
+                arguments.out,
+                baseline_run_sha256=arguments.baseline_run_sha256,
+                candidate_run_sha256=arguments.candidate_run_sha256,
+            )
+            _emit(
+                {
+                    "comparison": str(receipt.root),
+                    "comparison_sha256": receipt.comparison_sha256,
+                    "manifest_sha256": receipt.manifest_sha256,
+                }
+            )
+            return _EXIT_SUCCESS
+        if ir_command == _IR_VERIFY_DIFF:
+            from dynamisrag.ir.artifacts import read_verified_ir_evaluation
+            from dynamisrag.ir.experiments import verify_ir_comparison
+
+            baseline = read_verified_ir_evaluation(
+                arguments.baseline, expected_run_sha256=arguments.baseline_run_sha256
+            )
+            candidate = read_verified_ir_evaluation(
+                arguments.candidate, expected_run_sha256=arguments.candidate_run_sha256
+            )
+            receipt = verify_ir_comparison(
+                arguments.comparison,
+                baseline=baseline,
+                candidate=candidate,
+                expected_comparison_sha256=arguments.comparison_sha256,
+            )
+            _emit(
+                {
+                    "comparison": str(receipt.root),
+                    "comparison_sha256": receipt.comparison_sha256,
+                    "manifest_sha256": receipt.manifest_sha256,
+                }
+            )
+            return _EXIT_SUCCESS
+        return _fail(f"{_PROGRAM} {_IR}: unknown command {ir_command!r}")
+    except (IrContractError, OSError, ValueError) as error:
+        return _fail(f"{_PROGRAM} {_IR} {ir_command}: {type(error).__name__}: {error}")
 
 
 def _serve() -> int:
