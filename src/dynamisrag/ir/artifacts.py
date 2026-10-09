@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any, Final, cast
 
 from dynamisrag.ir.contracts import (
+    IR_CONTRACT_REVISION,
     IrContractError,
     IrDataset,
     IrExperimentConfig,
@@ -149,6 +150,14 @@ def _parse_manifest(data: bytes) -> dict[str, object]:
     manifest = cast("dict[str, object]", value)
     if canonical_ir_json(manifest) != data:
         raise IrContractError("IR manifest bytes are not canonical")
+    if set(manifest) != {
+        "revision",
+        "dataset_sha256",
+        "config_sha256",
+        "run_sha256",
+        "files",
+    }:
+        raise IrContractError("IR manifest fields differ from the closed contract")
     return manifest
 
 
@@ -160,6 +169,8 @@ def _restore_json(payload: object, *, kind: str) -> dict[str, Any]:
 
 def _restore_dataset(raw: object) -> IrDataset:
     data = _restore_json(raw, kind="dataset")
+    if data.get("revision") != IR_CONTRACT_REVISION:
+        raise IrContractError("IR dataset contract revision is incompatible")
     queries = data.get("queries")
     qrels = data.get("qrels")
     if not isinstance(queries, list) or not isinstance(qrels, list):
@@ -177,6 +188,8 @@ def _restore_dataset(raw: object) -> IrDataset:
 
 def _restore_config(raw: object) -> IrExperimentConfig:
     data = _restore_json(raw, kind="configuration")
+    if data.get("revision") != IR_CONTRACT_REVISION:
+        raise IrContractError("IR configuration contract revision is incompatible")
     return IrExperimentConfig(
         dataset_sha256=cast("str", data.get("dataset_sha256")),
         code_sha=cast("str", data.get("code_sha")),
@@ -188,6 +201,8 @@ def _restore_config(raw: object) -> IrExperimentConfig:
 
 def _restore_run(raw: object) -> IrRun:
     data = _restore_json(raw, kind="run")
+    if data.get("revision") != IR_CONTRACT_REVISION:
+        raise IrContractError("IR run contract revision is incompatible")
     hits = data.get("hits")
     query_ids = data.get("query_ids")
     if not isinstance(hits, list) or not isinstance(query_ids, list):
@@ -209,6 +224,8 @@ def _require_closed_inventory(root: Path) -> None:
         raise IrContractError("IR bundle file inventory differs from the closed contract")
     if any((root / name).is_symlink() for name in names):
         raise IrContractError("IR bundle does not permit symbolic links")
+    if any(not (root / name).is_file() for name in names):
+        raise IrContractError("IR bundle entries must be regular files")
 
 
 def _verified_payloads(root: Path, manifest: dict[str, object]) -> dict[str, bytes]:
@@ -221,10 +238,18 @@ def _verified_payloads(root: Path, manifest: dict[str, object]) -> dict[str, byt
     contents: dict[str, bytes] = {}
     for name, entry in zip(_PAYLOAD_NAMES, entries, strict=True):
         info = _restore_json(entry, kind="artifact inventory entry")
+        if set(info) != {"name", "size_bytes", "sha256"}:
+            raise IrContractError("IR bundle inventory entry has unsupported fields")
         if info.get("name") != name:
             raise IrContractError("IR bundle file name or ordering is invalid")
         content = (root / name).read_bytes()
-        if info.get("size_bytes") != len(content) or info.get("sha256") != _sha256(content):
+        size_bytes = info.get("size_bytes")
+        if (
+            isinstance(size_bytes, bool)
+            or not isinstance(size_bytes, int)
+            or size_bytes != len(content)
+            or info.get("sha256") != _sha256(content)
+        ):
             raise IrContractError("IR bundle content disagrees with its manifest")
         contents[name] = content
     return contents

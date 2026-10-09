@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import dataclasses
+import hashlib
+import json
 from pathlib import Path
 
 import pytest
@@ -15,6 +17,7 @@ from dynamisrag.ir import (
     IrQrel,
     IrQuery,
     IrRun,
+    canonical_ir_json,
     verify_ir_bundle,
     write_ir_bundle,
 )
@@ -82,6 +85,59 @@ def test_manifest_and_caller_identity_both_required(tmp_path: Path) -> None:
         verify_ir_bundle(path, expected_run_sha256="f" * 64)
     (path / "rogue.txt").write_text("untracked")
     with pytest.raises(IrContractError, match="inventory"):
+        verify_ir_bundle(path, expected_run_sha256=run.sha256)
+
+
+def _replace_manifested_json(path: Path, name: str, payload: dict[str, object]) -> None:
+    content = canonical_ir_json(payload)
+    (path / name).write_bytes(content)
+    manifest = json.loads((path / "manifest.json").read_bytes())
+    entry = next(item for item in manifest["files"] if item["name"] == name)
+    entry["size_bytes"] = len(content)
+    entry["sha256"] = hashlib.sha256(content).hexdigest()
+    (path / "manifest.json").write_bytes(canonical_ir_json(manifest))
+
+
+@pytest.mark.parametrize("name", ["config.json", "dataset.json", "run.json"])
+def test_bundle_rejects_changed_payload_revision_even_with_resigned_manifest(
+    tmp_path: Path, name: str
+) -> None:
+    dataset, config, run = _inputs()
+    path = tmp_path / "bundle"
+    write_ir_bundle(path, dataset=dataset, config=config, run=run)
+    payload = json.loads((path / name).read_bytes())
+    payload["revision"] = "future-ir-contract"
+    _replace_manifested_json(path, name, payload)
+
+    with pytest.raises(IrContractError):
+        verify_ir_bundle(path, expected_run_sha256=run.sha256)
+
+
+def test_bundle_rejects_unrecognized_manifest_and_inventory_fields(tmp_path: Path) -> None:
+    dataset, config, run = _inputs()
+    path = tmp_path / "bundle"
+    write_ir_bundle(path, dataset=dataset, config=config, run=run)
+    manifest = json.loads((path / "manifest.json").read_bytes())
+    manifest["host"] = "agent-local"
+    (path / "manifest.json").write_bytes(canonical_ir_json(manifest))
+    with pytest.raises(IrContractError, match="manifest fields"):
+        verify_ir_bundle(path, expected_run_sha256=run.sha256)
+
+    del manifest["host"]
+    manifest["files"][0]["path"] = "C:/private/run.json"
+    (path / "manifest.json").write_bytes(canonical_ir_json(manifest))
+    with pytest.raises(IrContractError, match="inventory entry"):
+        verify_ir_bundle(path, expected_run_sha256=run.sha256)
+
+
+def test_bundle_rejects_directory_in_place_of_payload_file(tmp_path: Path) -> None:
+    dataset, config, run = _inputs()
+    path = tmp_path / "bundle"
+    write_ir_bundle(path, dataset=dataset, config=config, run=run)
+    (path / "config.json").unlink()
+    (path / "config.json").mkdir()
+
+    with pytest.raises(IrContractError, match="regular files"):
         verify_ir_bundle(path, expected_run_sha256=run.sha256)
 
 
