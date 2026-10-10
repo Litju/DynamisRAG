@@ -1,0 +1,6 @@
+{"abstract": ["Alpha sentence zero.", "Alpha sentence one."], "doc_id": 101, "metadata": {"paper_id": "101", "s2orc_version": "2019-09-28"}, "scifact_orig": true, "title": "Alpha abstracts"}
+{"abstract": ["Beta zero.", "Beta one.", "Beta two."], "doc_id": 202, "metadata": {"paper_id": "202", "s2orc_version": "2019-09-28"}, "scifact_orig": false, "title": "Beta abstracts"}
+{"abstract": ["Gamma zero."], "doc_id": 303, "metadata": {"paper_id": "303", "s2orc_version": "2019-09-28"}, "scifact_orig": false, "title": "Gamma abstracts"}
+{"abstract": ["Delta zero."], "doc_id": 404, "metadata": {"paper_id": "404", "s2orc_version": "2019-09-28"}, "scifact_orig": false, "title": "Delta abstracts"}
+{"abstract": ["Epsilon zero."], "doc_id": 505, "metadata": {"paper_id": "505", "s2orc_version": "2019-09-28"}, "scifact_orig": false, "title": "Epsilon abstracts"}
+{"abstract": ["\t"], "doc_id": 707, "metadata": {"paper_id": "707", "s2orc_version": "2019-09-28"}, "scifact_orig": false, "title": "   "}

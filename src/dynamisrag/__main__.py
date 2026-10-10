@@ -14,6 +14,10 @@ Command modes, selected by the first argument:
     dynamisrag ir score --inputs <dir> --run-sha256 <sha> --out <dir>
     dynamisrag ir verify <bundle> --run-sha256 <sha>
     dynamisrag ir compare <baseline> <candidate> --out <dir> ...
+    dynamisrag datasets list
+    dynamisrag datasets materialize --source <id> --split <s> --out <dir> [--archive <f> ...]
+    dynamisrag datasets verify <slice>
+    dynamisrag datasets score-evidence --slice <dir> --rankings <file> --out <file>
 
 ``dynamisrag`` with no arguments starts the server. ``search`` and ``retrieve``
 use the same services as their HTTP endpoints. ``benchmark`` manages frozen
@@ -32,6 +36,13 @@ bundle and write an artifact.
 
 The ``ir`` group reads canonical JSON and writes score/comparison artifacts
 without opening a retrieval service.
+
+The ``datasets`` group qualifies frozen third-party distributions (SciFact,
+SciFact-Open, QASPER and the BEIR shortlist), verifies pinned archive and member
+digests offline, and writes sealed slices: canonical RES-140 dataset inputs for
+document retrieval, or a separately versioned within-document evidence-selection
+task for QASPER. It never contacts a network and never opens a retrieval or
+scoring service.
 
 The process exit status is the contract: ``0`` on success, non-zero with one
 safe line on stderr when configuration, the database, the search backend or a
@@ -112,6 +123,12 @@ _IR_SCORE: Final[str] = "score"
 _IR_VERIFY: Final[str] = "verify"
 _IR_COMPARE: Final[str] = "compare"
 _IR_VERIFY_DIFF: Final[str] = "verify-diff"
+_DATASETS: Final[str] = "datasets"
+_DATASETS_LIST: Final[str] = "list"
+_DATASETS_MATERIALIZE: Final[str] = "materialize"
+_DATASETS_VERIFY: Final[str] = "verify"
+_DATASETS_SCORE_EVIDENCE: Final[str] = "score-evidence"
+_DATASETS_SCORE_RETRIEVAL: Final[str] = "score-retrieval"
 _RES138_PLAN: Final[str] = "res138-plan"
 _VERIFY_RES138_BUNDLE: Final[str] = "verify-res138-bundle"
 _VERIFY_STAGE_A: Final[str] = "verify-stage-a"
@@ -278,7 +295,134 @@ def build_parser() -> argparse.ArgumentParser:
     ir = commands.add_parser(_IR, help="score and compare sealed RES-140 runs offline")
     _add_ir_commands(ir)
 
+    datasets = commands.add_parser(
+        _DATASETS,
+        help="qualify frozen third-party datasets and write sealed RES-141 slices offline",
+    )
+    _add_datasets_commands(datasets)
+
     return parser
+
+
+def _add_datasets_commands(datasets: argparse.ArgumentParser) -> None:
+    dataset_commands = datasets.add_subparsers(dest="datasets_command", required=True)
+
+    dataset_commands.add_parser(
+        _DATASETS_LIST, help="print the frozen source registry and shortlist as JSON"
+    )
+
+    materialize = dataset_commands.add_parser(
+        _DATASETS_MATERIALIZE,
+        help="verify a frozen source and write one sealed evaluation slice",
+    )
+    materialize.add_argument("--source", required=True, help="registered source id")
+    materialize.add_argument(
+        "--split", required=True, help="the source split to materialize, e.g. train or test"
+    )
+    materialize.add_argument("--out", type=Path, required=True, help="new slice directory")
+    materialize.add_argument(
+        "--archive",
+        type=Path,
+        action="append",
+        default=[],
+        help="a downloaded official archive; repeatable for multi-archive sources",
+    )
+    materialize.add_argument(
+        "--source-dir",
+        type=Path,
+        help="an already-extracted source directory; every read member is re-hashed",
+    )
+    materialize.add_argument(
+        "--corpus-variant",
+        choices=("candidates", "full"),
+        default="candidates",
+        help="SciFact-Open corpus variant (default: candidates)",
+    )
+    materialize.add_argument(
+        "--scratch",
+        type=Path,
+        help="where archive extraction happens; defaults to the system temp directory",
+    )
+
+    verify = dataset_commands.add_parser(
+        _DATASETS_VERIFY,
+        help="verify a materialized slice against its manifest",
+        description=(
+            "Recompute every claim the sealed bytes can prove. Corpus identity counts and the "
+            "original archive/member pins cannot be recomputed without source bytes and are "
+            "reported as attested; pass --registered-source or --expect-manifest-sha256 for "
+            "qualified verification against a trust anchor."
+        ),
+    )
+    verify.add_argument("slice", type=Path, help="the slice directory to verify")
+    verify.add_argument(
+        "--registered-source",
+        action="store_true",
+        help="require the manifest source to equal the registered frozen source exactly",
+    )
+    verify.add_argument(
+        "--expect-manifest-sha256",
+        help="require the canonical manifest digest to match this out-of-band value",
+    )
+
+    score = dataset_commands.add_parser(
+        _DATASETS_SCORE_EVIDENCE,
+        help="score paragraph-anchor rankings against a verified QASPER slice",
+        description=(
+            "The slice is verified before a single question is scored: closed inventory, "
+            "canonical manifest, generated rights notice, declared counts and the pinned task "
+            "digest must all agree, and the task bytes are re-authenticated against that digest. "
+            "An invalid slice fails closed. Pass --registered-source to authenticate the manifest "
+            "source registry identity, or --expect-manifest-sha256 for the out-of-band trust "
+            "anchor; without one the receipt reports self-consistency only, never provenance."
+        ),
+    )
+    score.add_argument("--slice", type=Path, required=True, help="a materialized QASPER slice")
+    score.add_argument("--rankings", type=Path, required=True, help="ranking JSON file")
+    score.add_argument("--out", type=Path, required=True, help="new evaluation JSON file")
+    score.add_argument(
+        "--registered-source",
+        action="store_true",
+        help="require the manifest source to equal the registered frozen source exactly",
+    )
+    score.add_argument(
+        "--expect-manifest-sha256",
+        help="require the canonical manifest digest to match this out-of-band value",
+    )
+
+    score_retrieval = dataset_commands.add_parser(
+        _DATASETS_SCORE_RETRIEVAL,
+        help="score a run against a verified slice, enforcing its dataset protocol",
+        description=(
+            "The slice is verified first and the run must use that slice's dataset. When the "
+            "dataset declares a benchmark protocol - ArguAna declares the BEIR "
+            "ignore-identical-query-document-ids rule - the run is refused unless the complete "
+            "untruncated candidate prefix is supplied and the sealed evaluated prefix is exactly "
+            "what that rule produces before depth truncation. An unqualified run produces no "
+            "bundle and no evaluation."
+        ),
+    )
+    score_retrieval.add_argument("--slice", type=Path, required=True, help="the verified slice")
+    score_retrieval.add_argument("--inputs", type=Path, required=True, help="closed input dir")
+    score_retrieval.add_argument("--run-sha256", required=True, help="expected sealed run identity")
+    score_retrieval.add_argument("--out", type=Path, required=True, help="new bundle directory")
+    score_retrieval.add_argument(
+        "--candidates",
+        type=Path,
+        help=(
+            "the complete untruncated candidate prefix per query; required for a dataset that "
+            "declares a self-document protocol"
+        ),
+    )
+    score_retrieval.add_argument(
+        "--registered-source",
+        action="store_true",
+        help="require the manifest source to equal the registered frozen source exactly",
+    )
+    score_retrieval.add_argument(
+        "--expect-manifest-sha256",
+        help="require the canonical manifest digest to match this out-of-band value",
+    )
 
 
 def _add_ir_commands(ir: argparse.ArgumentParser) -> None:
@@ -348,17 +492,169 @@ def main(argv: Sequence[str] | None = None) -> int:  # noqa: PLR0911 - explicit 
         return _benchmark(parsed.benchmark_command, parsed)
     if parsed.command == _IR:
         return _ir(parsed.ir_command, parsed)
+    if parsed.command == _DATASETS:
+        return _datasets(parsed.datasets_command, parsed)
     return _serve()
+
+
+def _datasets(  # noqa: PLR0911 - explicit command dispatch
+    command: str | None, arguments: argparse.Namespace
+) -> int:
+    """Run one offline dataset operation; never opens a service or a network."""
+    from dynamisrag.datasets.errors import DatasetAdapterError
+
+    try:
+        if command == _DATASETS_LIST:
+            from dynamisrag.datasets.pipeline import registry_summary
+
+            _emit(registry_summary())
+            return _EXIT_SUCCESS
+        if command == _DATASETS_MATERIALIZE:
+            from dynamisrag.datasets.pipeline import MaterializeRequest, materialize
+
+            receipt = materialize(
+                MaterializeRequest(
+                    source_id=arguments.source,
+                    split=arguments.split,
+                    out=arguments.out,
+                    archives=tuple(arguments.archive),
+                    source_dir=arguments.source_dir,
+                    scratch_dir=arguments.scratch,
+                    corpus_variant=arguments.corpus_variant,
+                )
+            )
+            _emit(
+                {
+                    "slice": str(receipt.root),
+                    "source_id": receipt.source_id,
+                    "split": receipt.split,
+                    "manifest_sha256": receipt.manifest_sha256,
+                    "dataset_sha256": receipt.dataset_sha256,
+                    "task_sha256": receipt.task_sha256,
+                }
+            )
+            return _EXIT_SUCCESS
+        if command == _DATASETS_VERIFY:
+            from dynamisrag.datasets.slices import verify_slice
+
+            receipt = verify_slice(
+                arguments.slice,
+                registered_source=arguments.registered_source,
+                expected_manifest_sha256=arguments.expect_manifest_sha256,
+            )
+            _emit(
+                {
+                    "slice": str(receipt.root),
+                    "source_id": receipt.source_id,
+                    "split": receipt.split,
+                    "manifest_sha256": receipt.manifest_sha256,
+                    "dataset_sha256": receipt.dataset_sha256,
+                    "task_sha256": receipt.task_sha256,
+                    "verification": receipt.verification,
+                    "source_identity_verified": receipt.source_identity_verified,
+                    "derived_artifacts_authenticated": receipt.derived_artifacts_authenticated,
+                    "trusted_source_sha256": receipt.trusted_source_sha256,
+                    "expected_manifest_sha256": receipt.expected_manifest_sha256,
+                    "verified_claims": list(receipt.verified_claims),
+                    "attested_claims": list(receipt.attested_claims),
+                }
+            )
+            return _EXIT_SUCCESS
+        if command == _DATASETS_SCORE_EVIDENCE:
+            from dynamisrag.datasets.qasper import (
+                read_rankings,
+                read_verified_task,
+                score_evidence_selection,
+                write_evaluation,
+            )
+
+            verified = read_verified_task(
+                arguments.slice,
+                registered_source=arguments.registered_source,
+                expected_manifest_sha256=arguments.expect_manifest_sha256,
+            )
+            evaluation = score_evidence_selection(verified.task, read_rankings(arguments.rankings))
+            digest = write_evaluation(arguments.out, evaluation)
+            _emit(
+                {
+                    "evaluation": str(arguments.out),
+                    "sha256": digest,
+                    "aggregate": evaluation.aggregate(),
+                    "slice": str(arguments.slice),
+                    "source_id": verified.receipt.source_id,
+                    "split": verified.receipt.split,
+                    "manifest_sha256": verified.receipt.manifest_sha256,
+                    "task_sha256": verified.receipt.task_sha256,
+                    "verification": verified.receipt.verification,
+                    "source_identity_verified": verified.receipt.source_identity_verified,
+                    "derived_artifacts_authenticated": (
+                        verified.receipt.derived_artifacts_authenticated
+                    ),
+                    "trusted_source_sha256": verified.receipt.trusted_source_sha256,
+                    "expected_manifest_sha256": verified.receipt.expected_manifest_sha256,
+                    "verified_claims": list(verified.receipt.verified_claims),
+                    "attested_claims": list(verified.receipt.attested_claims),
+                }
+            )
+            return _EXIT_SUCCESS
+        if command == _DATASETS_SCORE_RETRIEVAL:
+            from dynamisrag.datasets.protocol import score_verified_dataset_run
+
+            scored = score_verified_dataset_run(
+                slice_root=arguments.slice,
+                inputs_root=arguments.inputs,
+                destination=arguments.out,
+                expected_run_sha256=arguments.run_sha256,
+                candidates=arguments.candidates,
+                registered_source=arguments.registered_source,
+                expected_manifest_sha256=arguments.expect_manifest_sha256,
+            )
+            _emit(
+                {
+                    "bundle": str(scored.bundle.root),
+                    "dataset_sha256": scored.bundle.dataset_sha256,
+                    "config_sha256": scored.bundle.config_sha256,
+                    "run_sha256": scored.bundle.run_sha256,
+                    "evaluation_sha256": scored.bundle.evaluation_sha256,
+                    "passage_mapping_sha256": scored.bundle.passage_mapping_sha256,
+                    "manifest_sha256": scored.bundle.manifest_sha256,
+                    "protocol": scored.qualification.payload(),
+                    "slice_verification": {
+                        "source_id": scored.slice_receipt.source_id,
+                        "split": scored.slice_receipt.split,
+                        "manifest_sha256": scored.slice_receipt.manifest_sha256,
+                        "dataset_sha256": scored.slice_receipt.dataset_sha256,
+                        "verification": scored.slice_receipt.verification,
+                        "source_identity_verified": (scored.slice_receipt.source_identity_verified),
+                        "derived_artifacts_authenticated": (
+                            scored.slice_receipt.derived_artifacts_authenticated
+                        ),
+                        "trusted_source_sha256": scored.slice_receipt.trusted_source_sha256,
+                        "expected_manifest_sha256": scored.slice_receipt.expected_manifest_sha256,
+                        "verified_claims": list(scored.slice_receipt.verified_claims),
+                        "attested_claims": list(scored.slice_receipt.attested_claims),
+                    },
+                }
+            )
+            return _EXIT_SUCCESS
+        return _fail(f"{_PROGRAM} {_DATASETS}: unknown command {command!r}")
+    except (DatasetAdapterError, OSError, ValueError) as error:
+        return _fail(f"{_PROGRAM} {_DATASETS} {command}: {type(error).__name__}: {error}")
 
 
 def _ir(ir_command: str | None, arguments: argparse.Namespace) -> int:
     """Run sealed RES-140 operations without importing a retrieval service."""
+    from dynamisrag.datasets.errors import DatasetAdapterError
     from dynamisrag.ir.contracts import IrContractError
 
     try:
         if ir_command == _IR_SCORE:
+            from dynamisrag.datasets.protocol import require_no_declared_protocol
+            from dynamisrag.ir.artifacts import read_ir_inputs
             from dynamisrag.ir.experiments import score_ir_inputs
 
+            inputs = read_ir_inputs(arguments.inputs, expected_run_sha256=arguments.run_sha256)
+            require_no_declared_protocol(inputs.dataset)
             receipt = score_ir_inputs(
                 arguments.inputs,
                 arguments.out,
@@ -435,7 +731,7 @@ def _ir(ir_command: str | None, arguments: argparse.Namespace) -> int:
             )
             return _EXIT_SUCCESS
         return _fail(f"{_PROGRAM} {_IR}: unknown command {ir_command!r}")
-    except (IrContractError, OSError, ValueError) as error:
+    except (IrContractError, DatasetAdapterError, OSError, ValueError) as error:
         return _fail(f"{_PROGRAM} {_IR} {ir_command}: {type(error).__name__}: {error}")
 
 
