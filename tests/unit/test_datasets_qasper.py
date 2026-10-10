@@ -20,7 +20,7 @@ from dynamisrag.datasets.errors import (
     DatasetArtifactError,
     DatasetContractError,
 )
-from dynamisrag.datasets.primitives import ordered_ids_sha256
+from dynamisrag.datasets.primitives import canonical_bytes, ordered_ids_sha256
 from dynamisrag.datasets.qasper import (
     ANCHOR_POLICY,
     ANNOTATION_COMPLETE,
@@ -257,6 +257,76 @@ def test_a_perfect_anchor_selection_scores_one(tmp_path: Path) -> None:
     assert evaluation.aggregate()["unanswerable_questions"] == 1
 
 
+def test_a_fully_unscorable_task_is_inconclusive_not_a_measured_zero(
+    tmp_path: Path,
+) -> None:
+    """Before: a zero denominator published `evidence_f1 = 0.0` as if it were measured."""
+    task = _mini_task(
+        tmp_path,
+        paragraphs=["Present paragraph."],
+        annotations=[_mini_annotation("a1", ["No such paragraph anywhere."])],
+    )
+    evaluation = score_evidence_selection(task, {_Q1: ()})
+    aggregate = evaluation.aggregate()
+    assert aggregate["scorable_questions"] == 0
+    assert evaluation.evidence_f1 is None
+    assert aggregate["evidence_f1"] is None
+    assert aggregate["evidence_f1_status"] == "undefined-zero-denominator"
+    assert aggregate["questions"] == 1
+    assert aggregate["excluded_questions"] == 1
+
+
+def test_the_evaluation_artifact_serializes_an_undefined_score_as_null(
+    tmp_path: Path,
+) -> None:
+    task = _mini_task(
+        tmp_path,
+        paragraphs=["Present paragraph."],
+        annotations=[_mini_annotation("a1", ["No such paragraph anywhere."])],
+    )
+    evaluation = score_evidence_selection(task, {_Q1: ()})
+    written = canonical_bytes(evaluation.payload())
+    assert b'"evidence_f1":null' in written
+    assert json.loads(written)["aggregate"]["evidence_f1"] is None
+
+
+def test_a_measured_zero_is_preserved_when_the_denominator_is_positive(
+    tmp_path: Path,
+) -> None:
+    """A real 0.0 must survive: the fix distinguishes 'not measured' from 'measured zero'."""
+    task = _mini_task(
+        tmp_path,
+        paragraphs=["Present paragraph."],
+        annotations=[_mini_annotation("a1", ["Present paragraph."])],
+    )
+    evaluation = score_evidence_selection(task, {_Q1: ()})
+    aggregate = evaluation.aggregate()
+    assert aggregate["scorable_questions"] == 1
+    assert evaluation.evidence_f1 == 0.0
+    assert aggregate["evidence_f1"] == 0.0
+    assert aggregate["evidence_f1_status"] == "measured"
+
+
+def test_each_subgroup_mean_is_undefined_on_its_own_denominator(tmp_path: Path) -> None:
+    task = _mini_task(
+        tmp_path,
+        paragraphs=["Present paragraph."],
+        annotations=[_mini_annotation("a1", ["Present paragraph."])],
+    )
+    aggregate = score_evidence_selection(task, {_Q1: ()}).aggregate()
+    assert aggregate["answerable_questions"] == 1
+    assert aggregate["answerable_evidence_f1"] == 0.0
+    assert aggregate["unanswerable_questions"] == 0
+    assert aggregate["unanswerable_evidence_f1"] is None
+
+
+def test_a_measured_task_reports_its_status(tmp_path: Path) -> None:
+    task = _task(_bundle_for("test"), tmp_path)
+    aggregate = score_evidence_selection(task, _perfect_rankings(task)).aggregate()
+    assert aggregate["evidence_f1_status"] == "measured"
+    assert aggregate["evidence_f1"] == 1.0
+
+
 def test_unresolved_nonempty_gold_is_never_rewarded_as_empty_gold(tmp_path: Path) -> None:
     """q4's only annotation has ambiguous and unmatched evidence.
 
@@ -271,6 +341,7 @@ def test_unresolved_nonempty_gold_is_never_rewarded_as_empty_gold(tmp_path: Path
     assert row.exclusion_reason == EXCLUSION_UNAVAILABLE_RESOLUTION
     assert row.evidence_f1 is None
     assert evaluation.evidence_f1 == 0.0
+    assert evaluation.aggregate()["scorable_questions"] == 2
 
 
 def test_all_unmatched_evidence_excludes_the_question(tmp_path: Path) -> None:
@@ -315,7 +386,7 @@ def test_float_only_evidence_excludes_the_question(tmp_path: Path) -> None:
     assert row.status == QUESTION_EXCLUDED
     assert row.float_references == 1
     assert row.evidence_f1 is None
-    assert evaluation.evidence_f1 == 0.0
+    assert evaluation.evidence_f1 is None
 
 
 def test_partially_resolved_evidence_excludes_the_question(tmp_path: Path) -> None:
@@ -366,7 +437,7 @@ def test_an_empty_annotator_cannot_mask_an_unresolved_annotator(tmp_path: Path) 
     row = _row(evaluation, _Q1)
     assert row.status == QUESTION_EXCLUDED
     assert row.evidence_f1 is None
-    assert evaluation.evidence_f1 == 0.0
+    assert evaluation.evidence_f1 is None
 
 
 def test_genuinely_empty_gold_scores_one_for_an_explicit_empty_prediction(tmp_path: Path) -> None:

@@ -210,7 +210,7 @@ with a stable anchor (`paper/section/paragraph`). Every annotation is preserved
 (answer forms, annotation and worker IDs, both evidence fields). Anchors are
 resolved by exact text match and every resolution is recorded as `unique`,
 `ambiguous` or `unmatched`; unresolvable evidence stays in the task. The
-reference metric, `qasper-paragraph-f1-v2`, follows the official evaluator's
+reference metric, `qasper-paragraph-f1-v3`, follows the official evaluator's
 evidence-F1 shape (per-question maximum over annotation references;
 empty-versus-empty is 1.0; a missing prediction scores 0.0 and is counted) over
 anchors instead of strings, and each annotation is classified as `complete`
@@ -222,8 +222,20 @@ reason, and the evaluation reports per-question status, resolution coverage and
 every denominator count. Positive but unresolved evidence — unmatched,
 ambiguous or figure/table (`FLOAT SELECTED`) — is therefore never scored as
 absent gold: an unresolved annotator can no longer yield a false perfect F1.
+
+When that policy leaves **no scorable question at all**, the metric is not zero,
+it is undefined: `evidence_f1`, `answerable_evidence_f1` and
+`unanswerable_evidence_f1` are `null` and `evidence_f1_status` is
+`undefined-zero-denominator`. Publishing `0.0` there would read as a measured
+failure of a ranking that was never measured on anything. A real 0.0 - a
+scorable question scored against a non-matching selection - is still reported as
+`0.0` with `evidence_f1_status: measured`; each subgroup mean is undefined on
+its own denominator, not the whole task's.
+
 `qasper-paragraph-f1-v1` treated an all-unresolved annotation as an empty
-reference and is superseded by this revision.
+reference; `v2` fixed that but reported `0.0` for an empty denominator. Both are
+superseded by this revision, and the evaluation artifact moves with it
+(`res141-qasper-evidence-evaluation-v3`).
 
 **BEIR shortlist.** A fixed set of comparators — NFCorpus and SciDocs
 (scientific), ArguAna and FiQA-2018 (out-of-domain) — each with per-split

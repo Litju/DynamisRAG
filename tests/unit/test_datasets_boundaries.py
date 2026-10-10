@@ -30,7 +30,7 @@ from dynamisrag.datasets.protocol import (
     CANDIDATE_EVIDENCE_REVISION,
     PROTOCOL_REVISION,
 )
-from dynamisrag.datasets.qasper import METRIC_REVISION, TASK_REVISION
+from dynamisrag.datasets.qasper import EVALUATION_REVISION, METRIC_REVISION, TASK_REVISION
 from dynamisrag.datasets.scifact_open import PROJECTION_REVISION
 from dynamisrag.datasets.slices import SLICE_REVISION
 from tests._support import REPO_ROOT
@@ -114,13 +114,14 @@ def test_the_declared_revisions_are_the_mission_versions() -> None:
     assert SLICE_REVISION == "res141-dataset-slice-v1"
     assert PROJECTION_REVISION == "scifact-open-retrieval-projection-v1"
     assert TASK_REVISION == "qasper-evidence-selection-v1"
-    assert METRIC_REVISION == "qasper-paragraph-f1-v2"
+    assert METRIC_REVISION == "qasper-paragraph-f1-v3"
+    assert EVALUATION_REVISION == "res141-qasper-evidence-evaluation-v3"
 
 
 def test_only_declared_res141_revisions_appear_in_the_package() -> None:
     declared = {
         "res141-dataset-slice-v1",
-        "res141-qasper-evidence-evaluation-v2",
+        EVALUATION_REVISION,
         PROTOCOL_REVISION,
         CANDIDATE_EVIDENCE_REVISION,
     }

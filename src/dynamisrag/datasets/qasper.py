@@ -17,7 +17,7 @@ The versioned task, ``qasper-evidence-selection-v1``, preserves:
   ``ambiguous`` or ``unmatched`` — never repaired and never silently dropped;
 * the split (``train``, ``validation``, ``test``).
 
-The reference metric, ``qasper-paragraph-f1-v2``, follows the official
+The reference metric, ``qasper-paragraph-f1-v3``, follows the official
 evaluator's evidence-F1 shape — per-question score is the maximum F1 over that
 question's annotation references; an empty-vs-empty comparison is 1.0; a missing
 prediction scores 0.0 and is counted — but scores paragraph *anchors* rather
@@ -29,9 +29,12 @@ a paragraph anchor). A question is scored only when *every* one of its
 annotations is complete; otherwise it is excluded from the metric denominator
 with a recorded reason and full coverage counts, so an unresolved annotator can
 never be dropped in a way that turns its positive evidence into a scorable empty
-reference. Unresolvable evidence strings (about 8% of the release: section names,
-truncated snippets and figure/table captions) are preserved in the task,
-declared by count and digest, and remain fully present in the task artifact.
+reference. When that leaves no scorable question at all, every mean is ``null``
+with ``evidence_f1_status: undefined-zero-denominator`` rather than a measured
+0.0 — "not measurable" is not "measured as failing". Unresolvable evidence
+strings (about 8% of the release: section names, truncated snippets and
+figure/table captions) are preserved in the task, declared by count and digest,
+and remain fully present in the task artifact.
 """
 
 from __future__ import annotations
@@ -74,6 +77,7 @@ __all__ = [
     "EVALUATION_REVISION",
     "EXCLUSION_PARTIAL_RESOLUTION",
     "EXCLUSION_UNAVAILABLE_RESOLUTION",
+    "MEASURED",
     "METRIC_REVISION",
     "QASPER_EXPECTATIONS",
     "QASPER_SPLIT_FILES",
@@ -81,6 +85,7 @@ __all__ = [
     "QUESTION_SCORABLE",
     "TASK_FILENAME",
     "TASK_REVISION",
+    "UNDEFINED_ZERO_DENOMINATOR",
     "QasperEvidenceEvaluation",
     "QasperSplitExpectation",
     "QasperTask",
@@ -97,10 +102,13 @@ __all__ = [
 ]
 
 TASK_REVISION: Final[str] = "qasper-evidence-selection-v1"
-METRIC_REVISION: Final[str] = "qasper-paragraph-f1-v2"
-EVALUATION_REVISION: Final[str] = "res141-qasper-evidence-evaluation-v2"
+METRIC_REVISION: Final[str] = "qasper-paragraph-f1-v3"
+EVALUATION_REVISION: Final[str] = "res141-qasper-evidence-evaluation-v3"
 ANCHOR_POLICY: Final[str] = "paper/section/paragraph exact-text unique match v1"
 TASK_FILENAME: Final[str] = "task.json"
+
+MEASURED: Final[str] = "measured"
+UNDEFINED_ZERO_DENOMINATOR: Final[str] = "undefined-zero-denominator"
 
 ANNOTATION_COMPLETE: Final[str] = "complete"
 """Every reference resolved to a paragraph anchor, or genuinely no evidence."""
@@ -1145,6 +1153,10 @@ def _build_task(
                 "evidence is never reinterpreted as an empty reference"
             ),
             "missing_prediction": "scores 0.0 and is counted among scorable questions",
+            "zero_denominator": (
+                "a mean over an empty denominator is undefined: the evaluation reports null "
+                "and evidence_f1_status 'undefined-zero-denominator', never a measured 0.0"
+            ),
             "excluded_evidence": (
                 "ambiguous, unmatched and float evidence are preserved in the task but make "
                 "their annotation non-complete; they are never scored as absent gold"
@@ -1335,8 +1347,14 @@ class QasperEvidenceEvaluation:
         return tuple(row for row in self.per_question if row.status == QUESTION_EXCLUDED)
 
     @property
-    def evidence_f1(self) -> float:
-        """Macro mean evidence F1 over the scorable questions only."""
+    def evidence_f1(self) -> float | None:
+        """Macro mean evidence F1 over the scorable questions, or ``None``.
+
+        ``None`` means *not measured*, which is not the same claim as ``0.0``.
+        With no scorable question there is no denominator, so a mean over the
+        empty set says nothing about the ranking; publishing 0.0 would read as a
+        measured failure of every question.
+        """
         return _mean(row.evidence_f1 for row in self.scorable if row.evidence_f1 is not None)
 
     def aggregate(self) -> dict[str, object]:
@@ -1344,13 +1362,16 @@ class QasperEvidenceEvaluation:
 
         Quality metrics are computed over ``scorable_questions``; resolution
         coverage is reported separately so a reader can see how much of the task
-        the metric actually covers.
+        the metric actually covers. Every mean is ``null`` - never 0.0 - when its
+        own denominator is zero, and ``evidence_f1_status`` says which case a
+        reader is looking at.
         """
         scorable = self.scorable
         excluded = self.excluded
         answerable = [row for row in scorable if row.answerable]
         unanswerable = [row for row in scorable if not row.answerable]
         missing = sum(1 for row in scorable if not row.prediction_present)
+        evidence_f1 = self.evidence_f1
         return {
             "revision": METRIC_REVISION,
             "task_sha256": self.task_sha256,
@@ -1362,7 +1383,10 @@ class QasperEvidenceEvaluation:
             "answerable_questions": len(answerable),
             "unanswerable_questions": len(unanswerable),
             "missing_predictions": missing,
-            "evidence_f1": self.evidence_f1,
+            "evidence_f1": evidence_f1,
+            "evidence_f1_status": MEASURED
+            if evidence_f1 is not None
+            else UNDEFINED_ZERO_DENOMINATOR,
             "answerable_evidence_f1": _mean(
                 row.evidence_f1 for row in answerable if row.evidence_f1 is not None
             ),
@@ -1406,9 +1430,14 @@ class QasperEvidenceEvaluation:
         return digest(self.payload())
 
 
-def _mean(values: Iterable[float]) -> float:
+def _mean(values: Iterable[float]) -> float | None:
+    """Macro mean, or ``None`` for an empty denominator.
+
+    An empty denominator is undefined, not zero: no question was measured, so no
+    value was observed.
+    """
     rows = list(values)
-    return sum(rows) / len(rows) if rows else 0.0
+    return sum(rows) / len(rows) if rows else None
 
 
 def _paragraph_f1(prediction: frozenset[str], ground_truth: frozenset[str]) -> float:
