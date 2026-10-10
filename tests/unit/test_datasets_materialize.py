@@ -556,7 +556,7 @@ def test_qualified_verification_with_an_expected_manifest_digest(tmp_path: Path)
     root = _materialize_scifact(tmp_path)
     digest = verify_slice(root).manifest_sha256
     receipt = verify_slice(root, expected_manifest_sha256=digest)
-    assert receipt.verification == "qualified"
+    assert receipt.verification == "artifact-provenance-qualified"
     assert receipt.expected_manifest_sha256 == digest
     with pytest.raises(DatasetArtifactError):
         verify_slice(root, expected_manifest_sha256="0" * 64)
@@ -748,8 +748,9 @@ def test_score_evidence_qualifies_against_a_trusted_manifest_digest(
     out = tmp_path / "evaluation.json"
     assert cli.main(_score_evidence(root, rankings, out, "--expect-manifest-sha256", digest)) == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["verification"] == "qualified"
+    assert payload["verification"] == "artifact-provenance-qualified"
     assert payload["expected_manifest_sha256"] == digest
+    assert payload["derived_artifacts_authenticated"] is True
 
 
 def test_score_evidence_refuses_a_document_retrieval_slice(
@@ -922,6 +923,114 @@ def test_the_closed_inventory_is_a_verified_claim(tmp_path: Path) -> None:
     assert "source-sentence-pointers" in receipt.attested_claims
 
 
+def _registered_fixture_source(
+    source: FrozenDatasetSource, monkeypatch: pytest.MonkeyPatch
+) -> FrozenDatasetSource:
+    """Make a synthetic fixture source *be* the registered one for these tests."""
+
+    def fake_source_by_id(_source_id: str) -> FrozenDatasetSource:
+        return source
+
+    monkeypatch.setattr("dynamisrag.datasets.slices.source_by_id", fake_source_by_id)
+    return source
+
+
+def test_a_registry_pin_authenticates_source_identity_not_derived_artifacts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Before: `--registered-source` alone reported `qualified` for derived bytes."""
+    _registered_fixture_source(_scifact_source(archive=False, tmp_path=tmp_path), monkeypatch)
+    root = _materialize_scifact(tmp_path)
+    receipt = verify_slice(root, registered_source=True)
+    assert receipt.verification == "source-registry-matched"
+    assert receipt.source_identity_verified is True
+    assert receipt.derived_artifacts_authenticated is False
+    assert "source-registry-identity" in receipt.verified_claims
+    assert "derived-artifact-provenance" not in receipt.verified_claims
+    assert "corpus-identity" in receipt.attested_claims
+    assert "source-archive-and-member-pins" in receipt.attested_claims
+
+
+def test_a_forged_derived_dataset_stays_attested_under_a_registry_pin(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Authentic registry metadata says nothing about a forged corpus identity."""
+    _registered_fixture_source(_scifact_source(archive=False, tmp_path=tmp_path), monkeypatch)
+    root = _materialize_scifact(tmp_path)
+    dataset_path = root / "dataset.json"
+    payload: Any = json.loads(dataset_path.read_bytes())
+    forged = "f" * 64
+    payload["corpus_sha256"] = forged
+    dataset_path.write_bytes(canonical_bytes(payload))
+
+    def mutate(manifest: dict[str, Any]) -> None:
+        manifest["corpus"]["sha256"] = forged
+        manifest["dataset_sha256"] = bytes_sha256(dataset_path.read_bytes())
+        _resign_manifest_file(root, manifest, "dataset.json")
+
+    _mutate_manifest(root, mutate)
+    receipt = verify_slice(root, registered_source=True)
+    assert receipt.verification == "source-registry-matched"
+    assert receipt.derived_artifacts_authenticated is False
+    assert "corpus-identity" in receipt.attested_claims
+    assert "typed-dataset-identity" in receipt.verified_claims
+
+
+def test_an_expected_manifest_digest_authenticates_the_derived_artifacts(
+    tmp_path: Path,
+) -> None:
+    root = _materialize_scifact(tmp_path)
+    receipt = verify_slice(root, expected_manifest_sha256=verify_slice(root).manifest_sha256)
+    assert receipt.verification == "artifact-provenance-qualified"
+    assert receipt.derived_artifacts_authenticated is True
+    assert receipt.source_identity_verified is False
+    assert "derived-artifact-provenance" in receipt.verified_claims
+
+
+def test_both_anchors_report_the_stronger_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _registered_fixture_source(_scifact_source(archive=False, tmp_path=tmp_path), monkeypatch)
+    root = _materialize_scifact(tmp_path)
+    receipt = verify_slice(
+        root,
+        registered_source=True,
+        expected_manifest_sha256=verify_slice(root).manifest_sha256,
+    )
+    assert receipt.verification == "artifact-provenance-qualified"
+    assert receipt.source_identity_verified is True
+    assert receipt.derived_artifacts_authenticated is True
+
+
+def test_the_cli_reports_a_registry_match_without_derived_provenance(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _registered_fixture_source(_scifact_source(archive=False, tmp_path=tmp_path), monkeypatch)
+    root = _materialize_scifact(tmp_path)
+    assert cli.main(["datasets", "verify", str(root), "--registered-source"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["verification"] == "source-registry-matched"
+    assert payload["source_identity_verified"] is True
+    assert payload["derived_artifacts_authenticated"] is False
+
+
+def test_score_evidence_reports_registry_match_without_derived_provenance(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _registered_fixture_source(qasper_source(), monkeypatch)
+    root = _materialize_qasper(tmp_path)
+    rankings = _empty_rankings(root, tmp_path)
+    assert (
+        cli.main(
+            _score_evidence(root, rankings, tmp_path / "evaluation.json", "--registered-source")
+        )
+        == 0
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["verification"] == "source-registry-matched"
+    assert payload["derived_artifacts_authenticated"] is False
+
+
 def _materialize_scifact_open(tmp_path: Path) -> Path:
     materialize_source(
         scifact_open_source(),
@@ -973,7 +1082,7 @@ def test_the_cli_verifies_with_a_manifest_digest(
     digest = verify_slice(root).manifest_sha256
     assert cli.main(["datasets", "verify", str(root), "--expect-manifest-sha256", digest]) == 0
     payload = json.loads(capsys.readouterr().out)
-    assert payload["verification"] == "qualified"
+    assert payload["verification"] == "artifact-provenance-qualified"
     assert payload["expected_manifest_sha256"] == digest
 
 

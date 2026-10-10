@@ -551,6 +551,8 @@ def _datasets(  # noqa: PLR0911 - explicit command dispatch
                     "dataset_sha256": receipt.dataset_sha256,
                     "task_sha256": receipt.task_sha256,
                     "verification": receipt.verification,
+                    "source_identity_verified": receipt.source_identity_verified,
+                    "derived_artifacts_authenticated": receipt.derived_artifacts_authenticated,
                     "trusted_source_sha256": receipt.trusted_source_sha256,
                     "expected_manifest_sha256": receipt.expected_manifest_sha256,
                     "verified_claims": list(receipt.verified_claims),
@@ -584,6 +586,10 @@ def _datasets(  # noqa: PLR0911 - explicit command dispatch
                     "manifest_sha256": verified.receipt.manifest_sha256,
                     "task_sha256": verified.receipt.task_sha256,
                     "verification": verified.receipt.verification,
+                    "source_identity_verified": verified.receipt.source_identity_verified,
+                    "derived_artifacts_authenticated": (
+                        verified.receipt.derived_artifacts_authenticated
+                    ),
                     "trusted_source_sha256": verified.receipt.trusted_source_sha256,
                     "expected_manifest_sha256": verified.receipt.expected_manifest_sha256,
                     "verified_claims": list(verified.receipt.verified_claims),
@@ -619,6 +625,10 @@ def _datasets(  # noqa: PLR0911 - explicit command dispatch
                         "manifest_sha256": scored.slice_receipt.manifest_sha256,
                         "dataset_sha256": scored.slice_receipt.dataset_sha256,
                         "verification": scored.slice_receipt.verification,
+                        "source_identity_verified": (scored.slice_receipt.source_identity_verified),
+                        "derived_artifacts_authenticated": (
+                            scored.slice_receipt.derived_artifacts_authenticated
+                        ),
                         "trusted_source_sha256": scored.slice_receipt.trusted_source_sha256,
                         "expected_manifest_sha256": scored.slice_receipt.expected_manifest_sha256,
                         "verified_claims": list(scored.slice_receipt.verified_claims),

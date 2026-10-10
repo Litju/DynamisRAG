@@ -108,9 +108,11 @@ The receipt states what was proven rather than what was hoped for:
 
 Add `--registered-source` to authenticate the manifest's source registry
 identity, or `--expect-manifest-sha256 <hex>` for the out-of-band trust anchor
-that authenticates the whole derived slice. A slice that is only internally
-consistent stays `self-consistency` in the receipt even when it scores: nothing
-about self-consistency says the bytes came from the official distribution.
+that authenticates the whole derived slice. They are not the same promise: the
+first says "these are the registered pins and rights", the second says "these
+derived bytes are the ones I pinned". A slice that is only internally consistent
+stays `self-consistency` in the receipt even when it scores: nothing about
+self-consistency says the bytes came from the official distribution.
 
 ## What a slice contains
 
@@ -289,18 +291,30 @@ ran:
   SciFact-Open provenance-sidecar statistic. A re-signed manifest with a false
   count, a changed rights notice, a changed source description or a mismatched
   split/source refuses.
-- **qualified**: self-consistency plus a caller-supplied trust anchor. Pass
-  `--registered-source` to require the manifest source to equal the registered
-  frozen source exactly, and/or `--expect-manifest-sha256 <hex>` to require the
-  canonical manifest digest to match an out-of-band value.
+- **source-registry-matched**: self-consistency plus `--registered-source`, which
+  requires the manifest source description to equal the registered frozen source
+  exactly. This authenticates the **source identity** — the archive and member
+  pins and the rights decision are the registered ones. It authenticates nothing
+  about the derived bytes: a forged corpus identity, a forged qrel set or a
+  forged evidence sidecar, wrapped in authentic source metadata, still passes and
+  is still reported as attested. The receipt reports
+  `source_identity_verified: true` and `derived_artifacts_authenticated: false`.
+- **artifact-provenance-qualified**: self-consistency plus
+  `--expect-manifest-sha256 <hex>`, a whole-slice digest obtained *outside* this
+  slice. Because that digest covers every derived claim in the manifest, this is
+  the only state in which derived artifacts may be called qualified. Supply both
+  anchors and the receipt reports this stronger state.
 
 Corpus identity counts (`document_count`, `documents_without_text`) and the
-original archive/member digests cannot be recomputed without the source bytes.
-The receipt lists them under `attested_claims` — never as verified — unless a
-trust anchor authenticates the manifest they live in. There is no
-trust-on-first-use: a manifest that matches nothing trusted stays
-self-consistency-only, and the CLI output says so. A synthetic fixture is not
-the registered distribution, so `--registered-source` refuses it by design.
+original archive/member digests cannot be recomputed without the source bytes,
+so they stay under `attested_claims` in **every** mode; what changes is who
+vouches for them. The two booleans `source_identity_verified` and
+`derived_artifacts_authenticated` are printed by both `datasets verify`,
+`datasets score-evidence` and `datasets score-retrieval` so no reader has to
+infer the difference from a single label. There is no trust-on-first-use: a
+manifest that matches nothing trusted stays self-consistency-only, and the CLI
+output says so. A synthetic fixture is not the registered distribution, so
+`--registered-source` refuses it by design.
 
 Materialization refuses an existing output directory, a member that drifted
 after pinning, an archive that matches no pin, a source whose rights decision is

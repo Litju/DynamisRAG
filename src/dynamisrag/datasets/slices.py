@@ -64,8 +64,9 @@ __all__ = [
     "SLICE_REVISION",
     "TASK_DOCUMENT_RETRIEVAL",
     "TASK_EVIDENCE_SELECTION",
-    "VERIFICATION_QUALIFIED",
+    "VERIFICATION_ARTIFACT_PROVENANCE_QUALIFIED",
     "VERIFICATION_SELF_CONSISTENCY",
+    "VERIFICATION_SOURCE_REGISTRY_MATCHED",
     "CorpusIdentity",
     "CorpusIdentityBuilder",
     "RetrievalArtifacts",
@@ -89,9 +90,18 @@ VERIFICATION_SELF_CONSISTENCY: Final[str] = "self-consistency"
 """Everything recomputable from the sealed bytes was recomputed; the corpus
 identity and the source archive/member pins cannot be recomputed without the
 original bytes and are reported as attested, not verified."""
-VERIFICATION_QUALIFIED: Final[str] = "qualified"
-"""Self-consistency plus a caller-supplied trust anchor: a registry source pin,
-an out-of-band expected manifest digest, or both."""
+VERIFICATION_SOURCE_REGISTRY_MATCHED: Final[str] = "source-registry-matched"
+"""Self-consistency plus a registry source pin. This authenticates the *source
+identity* - the archive and member digests and the rights decision the manifest
+declares are the registered ones. It says nothing about the derived bytes: a
+forged corpus identity or a forged qrel set, wrapped in authentic source
+metadata, still passes, and is still reported as attested."""
+VERIFICATION_ARTIFACT_PROVENANCE_QUALIFIED: Final[str] = "artifact-provenance-qualified"
+"""Self-consistency plus an out-of-band expected whole-slice manifest digest, so
+every derived claim in that manifest - corpus identity, dataset, judgments,
+rights notice, provenance sidecar - is authenticated against a value the caller
+obtained outside this slice. This is the only state in which derived artifacts
+may be called qualified."""
 
 ATTESTED_SOURCE_PINS: Final[str] = "source-archive-and-member-pins"
 ATTESTED_CORPUS_IDENTITY: Final[str] = "corpus-identity"
@@ -110,6 +120,8 @@ _CLAIM_SOURCE_SPLIT_IDENTITY: Final[str] = "source-split-identity"
 _CLAIM_TASK_IDENTITY: Final[str] = "qasper-task-identity"
 _CLAIM_TASK_STATISTICS: Final[str] = "qasper-task-statistics"
 _CLAIM_PROVENANCE_SIDECAR: Final[str] = "scifact-open-provenance-sidecar"
+_VERIFIED_SOURCE_REGISTRY_IDENTITY: Final[str] = "source-registry-identity"
+_VERIFIED_DERIVED_ARTIFACT_PROVENANCE: Final[str] = "derived-artifact-provenance"
 _SCIFACT_OPEN_SIDECAR: Final[str] = "evidence-provenance.json"
 
 
@@ -187,9 +199,18 @@ class SliceReceipt:
     """The verified identities and claim status of one materialized slice.
 
     ``verified_claims`` were recomputed from the sealed bytes. ``attested_claims``
-    cannot be recomputed without the original corpus bytes and are only
-    authenticated when a trust anchor was supplied (``verification ==
-    "qualified"``): a registry source pin, an expected manifest digest, or both.
+    cannot be recomputed without the original corpus bytes and stay attested in
+    every mode - what changes is *who vouches for them*:
+
+    * ``source_identity_verified`` - a registry source pin matched, so the
+      declared archive/member digests and rights decision are the registered
+      ones. It authenticates the source identity only.
+    * ``derived_artifacts_authenticated`` - an out-of-band expected manifest
+      digest matched, so every derived claim in that manifest is pinned by a
+      value obtained outside this slice.
+
+    Neither is implied by the other, and neither is implied by
+    ``verification == self-consistency``.
     """
 
     root: Path
@@ -199,6 +220,8 @@ class SliceReceipt:
     dataset_sha256: str | None
     task_sha256: str | None
     verification: str
+    source_identity_verified: bool
+    derived_artifacts_authenticated: bool
     trusted_source_sha256: str | None
     expected_manifest_sha256: str | None
     verified_claims: tuple[str, ...]
@@ -1288,6 +1311,63 @@ def _verify_qasper(
     return task.sha256
 
 
+def _registry_anchor(
+    source: FrozenDatasetSource,
+    *,
+    source_id: str,
+    split: str,
+    trusted_source: FrozenDatasetSource | None,
+    verified: list[str],
+) -> FrozenDatasetSource | None:
+    """Apply the source-registry trust anchor, authenticating the source identity only.
+
+    Returns the trusted source so the receipt can report its digest. A registry
+    match says the manifest describes the registered distribution's pins and
+    rights decision; it says nothing about the derived bytes, so the derived
+    artifacts stay attested and the receipt is ``source-registry-matched``.
+    """
+    if trusted_source is None:
+        return None
+    if trusted_source.source_id != source_id or trusted_source.payload() != source.payload():
+        raise DatasetArtifactError(
+            "the slice manifest source does not match the caller-trusted source identity.",
+            operation="verify_slice",
+            source_id=source_id,
+            split=split,
+        )
+    verified.append(_VERIFIED_SOURCE_REGISTRY_IDENTITY)
+    return trusted_source
+
+
+def _manifest_anchor(
+    manifest_bytes: bytes,
+    *,
+    source_id: str,
+    split: str,
+    expected_manifest_sha256: str | None,
+    verified: list[str],
+) -> str | None:
+    """Apply the out-of-band whole-slice digest anchor, or return ``None``.
+
+    The digest covers every derived claim in the manifest, so a match is the only
+    state in which the derived artifacts may be called qualified.
+    """
+    if expected_manifest_sha256 is None:
+        return None
+    observed = bytes_sha256(manifest_bytes)
+    if observed != expected_manifest_sha256:
+        raise DatasetArtifactError(
+            "the slice manifest does not match the caller-supplied expected digest.",
+            operation="verify_slice",
+            source_id=source_id,
+            split=split,
+            expected=expected_manifest_sha256,
+            observed=observed,
+        )
+    verified.append(_VERIFIED_DERIVED_ARTIFACT_PROVENANCE)
+    return expected_manifest_sha256
+
+
 def verify_slice(
     root: Path,
     *,
@@ -1304,13 +1384,23 @@ def verify_slice(
     original archive/member pins cannot be recomputed without the source bytes
     and are returned as *attested*, never as verified.
 
-    Qualified verification supplies a trust anchor: ``trusted_source`` (or
-    ``registered_source`` to resolve the registry pin by the manifest's own
-    source id) requires the manifest source description to equal the trusted
-    source exactly, and ``expected_manifest_sha256`` requires the canonical
-    manifest digest to match an out-of-band value. There is no
-    trust-on-first-use: a manifest that matches nothing trusted stays
-    self-consistency-only, and the receipt says so.
+    Two trust anchors are supported and they authenticate different things:
+
+    * ``trusted_source`` (or ``registered_source`` to resolve the registry pin by
+      the manifest's own source id) requires the manifest source description to
+      equal the trusted source exactly, and reports
+      ``source-registry-matched``. That authenticates the **source identity** -
+      the archive and member pins and the rights decision. It authenticates
+      nothing about the derived corpus identity, judgments or evidence, which
+      stay attested, so it must never be reported as qualified derived data.
+    * ``expected_manifest_sha256`` requires the canonical manifest digest to
+      match an out-of-band value and reports ``artifact-provenance-qualified``.
+      Because the digest covers every derived claim in the manifest, this is the
+      state in which derived artifacts may be called qualified.
+
+    There is no trust-on-first-use: a manifest that matches nothing trusted stays
+    self-consistency-only, and the receipt says exactly which of the two anchors
+    was used.
     """
     manifest_bytes, manifest = _load_manifest(root)
     source_id, split = _manifest_identity(manifest)
@@ -1328,28 +1418,20 @@ def verify_slice(
     task = str(manifest.get("task"))
     listed = _verify_inventory(root, manifest, source=source, task=task, split=split)
     verified.extend((_CLAIM_INVENTORY, _CLAIM_CLOSED_INVENTORY))
-    if trusted_source is not None and (
-        trusted_source.source_id != source_id or trusted_source.payload() != source.payload()
-    ):
-        raise DatasetArtifactError(
-            "the slice manifest source does not match the caller-trusted source identity.",
-            operation="verify_slice",
-            source_id=source_id,
-            split=split,
-        )
-    expected_manifest: str | None = None
-    if expected_manifest_sha256 is not None:
-        observed = bytes_sha256(manifest_bytes)
-        if observed != expected_manifest_sha256:
-            raise DatasetArtifactError(
-                "the slice manifest does not match the caller-supplied expected digest.",
-                operation="verify_slice",
-                source_id=source_id,
-                split=split,
-                expected=expected_manifest_sha256,
-                observed=observed,
-            )
-        expected_manifest = expected_manifest_sha256
+    trusted_source = _registry_anchor(
+        source,
+        source_id=source_id,
+        split=split,
+        trusted_source=trusted_source,
+        verified=verified,
+    )
+    expected_manifest = _manifest_anchor(
+        manifest_bytes,
+        source_id=source_id,
+        split=split,
+        expected_manifest_sha256=expected_manifest_sha256,
+        verified=verified,
+    )
     if (root / RIGHTS_FILENAME).read_bytes() != rights_notice(source):
         raise DatasetArtifactError(
             "the slice rights notice is not the notice generated from the manifest source.",
@@ -1392,7 +1474,12 @@ def verify_slice(
             split=split,
             observed=task,
         )
-    qualified = trusted_source is not None or expected_manifest_sha256 is not None
+    if expected_manifest is not None:
+        verification = VERIFICATION_ARTIFACT_PROVENANCE_QUALIFIED
+    elif trusted_source is not None:
+        verification = VERIFICATION_SOURCE_REGISTRY_MATCHED
+    else:
+        verification = VERIFICATION_SELF_CONSISTENCY
     return SliceReceipt(
         root=root,
         source_id=source_id,
@@ -1400,7 +1487,9 @@ def verify_slice(
         manifest_sha256=bytes_sha256(manifest_bytes),
         dataset_sha256=dataset_sha256,
         task_sha256=task_sha256,
-        verification=VERIFICATION_QUALIFIED if qualified else VERIFICATION_SELF_CONSISTENCY,
+        verification=verification,
+        source_identity_verified=trusted_source is not None,
+        derived_artifacts_authenticated=expected_manifest is not None,
         trusted_source_sha256=trusted_source.sha256 if trusted_source is not None else None,
         expected_manifest_sha256=expected_manifest,
         verified_claims=tuple(verified),
