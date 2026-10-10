@@ -35,6 +35,13 @@ with ``evidence_f1_status: undefined-zero-denominator`` rather than a measured
 strings (about 8% of the release: section names, truncated snippets and
 figure/table captions) are preserved in the task, declared by count and digest,
 and remain fully present in the task artifact.
+
+The metric is version-locked: the task carries exactly one frozen
+``SCORING_POLICY`` block, and both the typed task loader and
+:func:`score_evidence_selection` require that exact revision and those exact
+fields. Superseded ``qasper-paragraph-f1-v1``/``v2`` slices fail closed instead
+of being silently reinterpreted under v3 rules; migration, if ever wanted, has
+to be explicit.
 """
 
 from __future__ import annotations
@@ -83,6 +90,7 @@ __all__ = [
     "QASPER_SPLIT_FILES",
     "QUESTION_EXCLUDED",
     "QUESTION_SCORABLE",
+    "SCORING_POLICY",
     "TASK_FILENAME",
     "TASK_REVISION",
     "UNDEFINED_ZERO_DENOMINATOR",
@@ -106,6 +114,43 @@ METRIC_REVISION: Final[str] = "qasper-paragraph-f1-v3"
 EVALUATION_REVISION: Final[str] = "res141-qasper-evidence-evaluation-v3"
 ANCHOR_POLICY: Final[str] = "paper/section/paragraph exact-text unique match v1"
 TASK_FILENAME: Final[str] = "task.json"
+
+SCORING_POLICY: Final[dict[str, str]] = {
+    "revision": METRIC_REVISION,
+    "ground_truth": "unique-resolved paragraph anchors, unioned per annotation reference",
+    "annotation_status": (
+        "complete (every reference resolved, or genuinely no evidence), partial (resolved "
+        "and unresolved references mixed), unavailable (nonempty evidence with no "
+        "resolved paragraph anchor)"
+    ),
+    "question_policy": (
+        "a question is scorable only when every annotation is complete; otherwise it is "
+        "excluded from the metric denominator with a recorded reason"
+    ),
+    "question_score": "maximum evidence F1 over the question's complete annotation references",
+    "empty_semantics": (
+        "an empty prediction against a genuinely empty reference scores 1.0; unresolved "
+        "evidence is never reinterpreted as an empty reference"
+    ),
+    "missing_prediction": "scores 0.0 and is counted among scorable questions",
+    "zero_denominator": (
+        "a mean over an empty denominator is undefined: the evaluation reports null "
+        "and evidence_f1_status 'undefined-zero-denominator', never a measured 0.0"
+    ),
+    "excluded_evidence": (
+        "ambiguous, unmatched and float evidence are preserved in the task but make "
+        "their annotation non-complete; they are never scored as absent gold"
+    ),
+}
+"""The one frozen ``qasper-paragraph-f1-v3`` scoring policy.
+
+Task construction writes exactly this block, the typed task loader requires
+exactly this block, and :func:`score_evidence_selection` re-checks it before
+scoring. A sealed task that declares any other revision - including the
+superseded ``qasper-paragraph-f1-v1``/``v2`` policies - or that adds, drops or
+alters a field under this revision is refused rather than silently
+reinterpreted under current semantics.
+"""
 
 MEASURED: Final[str] = "measured"
 UNDEFINED_ZERO_DENOMINATOR: Final[str] = "undefined-zero-denominator"
@@ -631,6 +676,64 @@ def _task_list(value: object, *, field: str, item_id: str | None = None) -> list
     return cast("list[object]", value)
 
 
+def _require_scoring_policy(
+    value: object,
+    *,
+    operation: str,
+    error: type[DatasetAdapterError],
+) -> dict[str, object]:
+    """Require exactly the frozen v3 scoring policy, or fail closed.
+
+    The policy is a closed set of load-bearing semantic fields, not descriptive
+    prose: a task that declares another revision is refused because this runtime
+    implements only v3, and a v3-revision policy that adds, drops or alters any
+    field is refused too. Returning the caller's mapping unchanged is
+    deliberate - the check never rewrites what the task declared.
+    """
+    if not isinstance(value, Mapping):
+        raise error(
+            "the QASPER task scoring policy must be an object.",
+            operation=operation,
+            item_id="scoring",
+        )
+    policy = {str(key): item for key, item in cast("Mapping[object, object]", value).items()}
+    revision = policy.get("revision")
+    if revision != METRIC_REVISION:
+        raise error(
+            "the QASPER task declares a scoring policy revision this runtime does not implement.",
+            operation=operation,
+            item_id="scoring",
+            expected=METRIC_REVISION,
+            observed=str(revision),
+        )
+    expected: dict[str, object] = dict(SCORING_POLICY)
+    unexpected = sorted(set(policy) - set(expected))
+    if unexpected:
+        raise error(
+            "the QASPER task scoring policy carries a field outside the frozen v3 revision.",
+            operation=operation,
+            item_id="scoring",
+            observed=unexpected[0],
+        )
+    missing = sorted(set(expected) - set(policy))
+    if missing:
+        raise error(
+            "the QASPER task scoring policy omits a frozen v3 field.",
+            operation=operation,
+            item_id="scoring",
+            observed=missing[0],
+        )
+    altered = sorted(key for key, frozen in expected.items() if policy[key] != frozen)
+    if altered:
+        raise error(
+            "the QASPER task scoring policy alters a frozen v3 semantic field.",
+            operation=operation,
+            item_id="scoring",
+            observed=altered[0],
+        )
+    return policy
+
+
 def _papers_from_payload(raw_papers: list[object]) -> tuple[QasperPaper, ...]:
     papers: list[QasperPaper] = []
     for raw_entry in raw_papers:
@@ -755,7 +858,11 @@ def _annotations_from_payload(raw_annotations: list[object]) -> tuple[QasperAnno
 
 
 def _task_from_payload(payload: Mapping[str, object], *, expected_sha256: str | None) -> QasperTask:
-    """Rebuild and validate a typed task from a canonical payload."""
+    """Rebuild and validate a typed task from a canonical payload.
+
+    The scoring policy must be exactly the frozen v3 block: any other revision,
+    or an added, dropped or altered field, is refused here.
+    """
     if payload.get("artifact_revision") != TASK_REVISION:
         raise DatasetArtifactError(
             "the QASPER task artifact revision is incompatible.",
@@ -775,7 +882,11 @@ def _task_from_payload(payload: Mapping[str, object], *, expected_sha256: str | 
     raw_papers = _task_list(payload.get("papers"), field="papers")
     raw_annotations = _task_list(payload.get("annotations"), field="annotations")
     expected = _task_object(payload.get("expected"), field="expected")
-    scoring = _task_object(payload.get("scoring"), field="scoring")
+    scoring = _require_scoring_policy(
+        payload.get("scoring"),
+        operation="verify_qasper_task",
+        error=DatasetArtifactError,
+    )
     expected_counts: dict[str, int] = {}
     for key, value in expected.items():
         expected_counts[str(key)] = _require_task_int(value, field=str(key))
@@ -920,6 +1031,10 @@ def parse_task(path: Path) -> QasperTask:
     It exists so a reader can look at a task's annotations without a slice; it
     must never be the path that turns unverified bytes into a published score.
     Use :func:`read_verified_task` for that.
+
+    The typed task is the v3 contract, so the frozen scoring policy is required
+    here too: a historical v1/v2 task is refused rather than parsed into a shape
+    that this runtime would score under v3 rules.
     """
     try:
         content = path.read_bytes()
@@ -976,10 +1091,12 @@ def read_verified_task(
 
     Verification runs first and in full: the closed inventory, the canonical
     manifest, the rights notice generated from the declared source, the manifest's
-    counts/expectations/scoring policy and the pinned task digest must all agree
-    before any question is scored. The bytes handed back are then re-authenticated
-    against the digest the verified manifest recorded, so a task that is stale,
-    swapped or replaced between verification and scoring cannot reach the metric.
+    counts/expectations and the task's exact frozen scoring policy, and the pinned
+    task digest must all agree before any question is scored. The bytes handed
+    back are then re-authenticated against the digest the verified manifest
+    recorded, so a task that is stale, swapped or replaced between verification
+    and scoring cannot reach the metric. A task sealed under a superseded
+    scoring-policy revision is refused here, not silently scored under v3 rules.
 
     Self-consistency is all a slice can prove on its own. Pass
     ``registered_source`` to authenticate the manifest's source registry identity,
@@ -1133,35 +1250,7 @@ def _build_task(
             sorted(annotations, key=lambda item: (item.question_id, item.annotation_id))
         ),
         expected=expectation.payload(),
-        scoring={
-            "revision": METRIC_REVISION,
-            "ground_truth": "unique-resolved paragraph anchors, unioned per annotation reference",
-            "annotation_status": (
-                "complete (every reference resolved, or genuinely no evidence), partial (resolved "
-                "and unresolved references mixed), unavailable (nonempty evidence with no "
-                "resolved paragraph anchor)"
-            ),
-            "question_policy": (
-                "a question is scorable only when every annotation is complete; otherwise it is "
-                "excluded from the metric denominator with a recorded reason"
-            ),
-            "question_score": (
-                "maximum evidence F1 over the question's complete annotation references"
-            ),
-            "empty_semantics": (
-                "an empty prediction against a genuinely empty reference scores 1.0; unresolved "
-                "evidence is never reinterpreted as an empty reference"
-            ),
-            "missing_prediction": "scores 0.0 and is counted among scorable questions",
-            "zero_denominator": (
-                "a mean over an empty denominator is undefined: the evaluation reports null "
-                "and evidence_f1_status 'undefined-zero-denominator', never a measured 0.0"
-            ),
-            "excluded_evidence": (
-                "ambiguous, unmatched and float evidence are preserved in the task but make "
-                "their annotation non-complete; they are never scored as absent gold"
-            ),
-        },
+        scoring=dict(SCORING_POLICY),
     )
 
 
@@ -1468,11 +1557,42 @@ def _reference_counts(annotation: QasperAnnotation) -> tuple[int, int, int, int]
     return resolved, ambiguous, unmatched, floats
 
 
+def _validated_prediction(
+    question: QasperQuestion,
+    raw_ranking: Sequence[str],
+    anchor_sets: Mapping[str, frozenset[str]],
+) -> frozenset[str]:
+    """Validate one question's ranking against its paper's paragraph anchors."""
+    anchors = anchor_sets[question.paper_id]
+    seen: set[str] = set()
+    for anchor in raw_ranking:
+        if anchor not in anchors:
+            raise DatasetContractError(
+                f"a ranking for question {question.question_id!r} names an anchor "
+                f"outside paper {question.paper_id!r}: {anchor!r}.",
+                operation="score_qasper_evidence_selection",
+                item_id=question.question_id,
+            )
+        if anchor in seen:
+            raise DatasetContractError(
+                f"a ranking for question {question.question_id!r} repeats an anchor.",
+                operation="score_qasper_evidence_selection",
+                item_id=question.question_id,
+            )
+        seen.add(anchor)
+    return frozenset(seen)
+
+
 def score_evidence_selection(
     task: QasperTask,
     rankings: Mapping[str, Sequence[str]],
 ) -> QasperEvidenceEvaluation:
     """Score paragraph-anchor rankings against the frozen task.
+
+    The typed task's scoring policy is checked first: it must be exactly the
+    frozen ``qasper-paragraph-f1-v3`` block, so a caller cannot hand this
+    function a task that declares older or altered semantics and have it
+    silently scored under v3 rules.
 
     Fail-closed validations: every ranked question must belong to the task, every
     anchor must belong to that question's paper, and no ranking may repeat an
@@ -1482,6 +1602,11 @@ def score_evidence_selection(
     annotator is never dropped in a way that would turn its positive evidence
     into a scorable empty reference.
     """
+    _require_scoring_policy(
+        task.scoring,
+        operation="score_qasper_evidence_selection",
+        error=DatasetContractError,
+    )
     anchor_sets: dict[str, frozenset[str]] = {
         paper.paper_id: frozenset(paragraph.anchor for paragraph in paper.paragraphs)
         for paper in task.papers
@@ -1493,24 +1618,9 @@ def score_evidence_selection(
     for question in task.questions:
         annotations = annotations_by_question.get(question.question_id, [])
         if question.question_id in rankings:
-            raw_ranking = rankings[question.question_id]
-            seen: set[str] = set()
-            for anchor in raw_ranking:
-                if anchor not in anchor_sets[question.paper_id]:
-                    raise DatasetContractError(
-                        f"a ranking for question {question.question_id!r} names an anchor "
-                        f"outside paper {question.paper_id!r}: {anchor!r}.",
-                        operation="score_qasper_evidence_selection",
-                        item_id=question.question_id,
-                    )
-                if anchor in seen:
-                    raise DatasetContractError(
-                        f"a ranking for question {question.question_id!r} repeats an anchor.",
-                        operation="score_qasper_evidence_selection",
-                        item_id=question.question_id,
-                    )
-                seen.add(anchor)
-            prediction = frozenset(seen)
+            prediction = _validated_prediction(
+                question, rankings[question.question_id], anchor_sets
+            )
             present = True
         else:
             prediction = frozenset[str]()

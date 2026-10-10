@@ -10,6 +10,8 @@ answers, and the reference metric's official shape.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
 
@@ -40,9 +42,10 @@ from dynamisrag.datasets.qasper import (
     build_qasper_task_artifacts,
     parse_task,
     read_rankings,
+    read_task_bytes,
     score_evidence_selection,
 )
-from dynamisrag.datasets.slices import SliceBundle, verify_slice, write_slice_bundle
+from dynamisrag.datasets.slices import SliceBundle, bytes_sha256, verify_slice, write_slice_bundle
 from dynamisrag.datasets.sources import FAMILY_QASPER, FrozenDatasetSource
 from tests.unit.dataset_support import DATASET_FIXTURES, dataset_source, qasper_source
 
@@ -63,6 +66,39 @@ _Q1 = "q0000000000000000000000000000000000000001"
 _Q2 = "q0000000000000000000000000000000000000002"
 _Q3 = "q0000000000000000000000000000000000000003"
 _Q4 = "q0000000000000000000000000000000000000004"
+
+_FROZEN_V3_POLICY: dict[str, object] = {
+    "revision": METRIC_REVISION,
+    "ground_truth": "unique-resolved paragraph anchors, unioned per annotation reference",
+    "annotation_status": (
+        "complete (every reference resolved, or genuinely no evidence), partial (resolved "
+        "and unresolved references mixed), unavailable (nonempty evidence with no "
+        "resolved paragraph anchor)"
+    ),
+    "question_policy": (
+        "a question is scorable only when every annotation is complete; otherwise it is "
+        "excluded from the metric denominator with a recorded reason"
+    ),
+    "question_score": "maximum evidence F1 over the question's complete annotation references",
+    "empty_semantics": (
+        "an empty prediction against a genuinely empty reference scores 1.0; unresolved "
+        "evidence is never reinterpreted as an empty reference"
+    ),
+    "missing_prediction": "scores 0.0 and is counted among scorable questions",
+    "zero_denominator": (
+        "a mean over an empty denominator is undefined: the evaluation reports null "
+        "and evidence_f1_status 'undefined-zero-denominator', never a measured 0.0"
+    ),
+    "excluded_evidence": (
+        "ambiguous, unmatched and float evidence are preserved in the task but make "
+        "their annotation non-complete; they are never scored as absent gold"
+    ),
+}
+"""The one frozen ``qasper-paragraph-f1-v3`` policy, pinned independently here.
+
+This is a golden copy, deliberately not imported from production: if the frozen
+definition drifts, this test fails rather than agreeing with the drift.
+"""
 
 
 def _files(split: str) -> dict[str, Path]:
@@ -102,6 +138,90 @@ def test_the_task_artifact_is_the_versioned_evidence_selection_contract(tmp_path
     assert payload["anchor_policy"] == ANCHOR_POLICY
     assert payload["scoring"]["revision"] == METRIC_REVISION
     assert bundle.manifest["counts"] == _EXPECTATION.payload()
+
+
+def test_the_built_task_declares_exactly_the_frozen_v3_scoring_policy() -> None:
+    """Task construction and the manifest carry the one canonical policy, field for field."""
+    bundle = _bundle_for("test")
+    payload: Any = json.loads(bundle.payloads["task.json"])
+    assert payload["scoring"] == _FROZEN_V3_POLICY
+    assert bundle.manifest["scoring"] == _FROZEN_V3_POLICY
+
+
+def _resigned_task_bytes(bundle: SliceBundle, mutate: Callable[[dict[str, Any]], None]) -> bytes:
+    """Canonical bytes of a task whose scoring block has been rewritten.
+
+    Callers pass the resulting digest as ``expected_sha256``, so the task is
+    authenticated at every digest boundary and only the scoring-policy
+    compatibility check can refuse it.
+    """
+    payload: Any = json.loads(bundle.payloads["task.json"])
+    mutate(cast("dict[str, Any]", payload["scoring"]))
+    return canonical_bytes(payload)
+
+
+def _assert_task_bytes_refused(content: bytes, *, fragment: str) -> None:
+    with pytest.raises(DatasetArtifactError) as raised:
+        read_task_bytes(
+            content,
+            expected_sha256=bytes_sha256(content),
+            source_id="qasper",
+            split="test",
+        )
+    assert fragment in str(raised.value)
+
+
+def test_the_loader_refuses_a_historical_v2_scoring_policy() -> None:
+    """Before: `_task_from_payload` restored any scoring object; v1/v2 was accepted.
+
+    The superseded policies must fail closed: the v3 runtime never silently
+    reinterprets evidence scored under older semantics.
+    """
+    content = _resigned_task_bytes(
+        _bundle_for("test"),
+        lambda scoring: scoring.update(revision="qasper-paragraph-f1-v2"),
+    )
+    _assert_task_bytes_refused(content, fragment="revision")
+
+
+def test_the_loader_refuses_a_spoofed_v3_revision_with_an_altered_semantic_field() -> None:
+    content = _resigned_task_bytes(
+        _bundle_for("test"),
+        lambda scoring: scoring.update(zero_denominator="an empty denominator is 0.0"),
+    )
+    _assert_task_bytes_refused(content, fragment="semantic")
+
+
+def test_the_loader_refuses_an_unknown_scoring_policy_key() -> None:
+    content = _resigned_task_bytes(
+        _bundle_for("test"),
+        lambda scoring: scoring.update(future_metric="not part of v3"),
+    )
+    _assert_task_bytes_refused(content, fragment="outside")
+
+
+def test_the_loader_refuses_a_missing_scoring_policy_field() -> None:
+    content = _resigned_task_bytes(
+        _bundle_for("test"),
+        lambda scoring: scoring.pop("missing_prediction"),
+    )
+    _assert_task_bytes_refused(content, fragment="omits")
+
+
+def test_a_valid_v3_task_round_trips_through_the_policy_check() -> None:
+    bundle = _bundle_for("test")
+    content = bundle.payloads["task.json"]
+    task = read_task_bytes(
+        content,
+        expected_sha256=bytes_sha256(content),
+        source_id="qasper",
+        split="test",
+    )
+    assert dict(task.scoring) == _FROZEN_V3_POLICY
+    assert task.sha256 == bundle.manifest["task_sha256"]
+    evaluation = score_evidence_selection(task, _perfect_rankings(task))
+    assert evaluation.evidence_f1 == 1.0
+    assert evaluation.aggregate()["evidence_f1_status"] == "measured"
 
 
 def test_answers_from_every_annotator_are_preserved(tmp_path: Path) -> None:
@@ -592,6 +712,29 @@ def test_a_repeated_anchor_is_refused(tmp_path: Path) -> None:
     task = _task(_bundle_for("test"), tmp_path)
     with pytest.raises(DatasetContractError):
         score_evidence_selection(task, {_Q1: ("p1/s0/p0", "p1/s0/p0")})
+
+
+def test_direct_scoring_refuses_a_task_with_a_historical_policy(tmp_path: Path) -> None:
+    """Before: scoring ran v3 rules on any typed task, ignoring its declared policy.
+
+    The typed Python API boundary must enforce the frozen policy even when a
+    caller bypassed the loader and built a task with a v2 scoring block.
+    """
+    task = _task(_bundle_for("test"), tmp_path)
+    incompatible = replace(
+        task, scoring={**dict(task.scoring), "revision": "qasper-paragraph-f1-v2"}
+    )
+    with pytest.raises(DatasetContractError):
+        score_evidence_selection(incompatible, _perfect_rankings(task))
+
+
+def test_direct_scoring_refuses_a_task_with_an_altered_v3_field(tmp_path: Path) -> None:
+    task = _task(_bundle_for("test"), tmp_path)
+    incompatible = replace(
+        task, scoring={**dict(task.scoring), "question_policy": "every question is scored"}
+    )
+    with pytest.raises(DatasetContractError):
+        score_evidence_selection(incompatible, _perfect_rankings(task))
 
 
 def test_a_ranking_for_an_undeclared_question_is_refused(tmp_path: Path) -> None:

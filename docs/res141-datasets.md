@@ -237,6 +237,17 @@ reference; `v2` fixed that but reported `0.0` for an empty denominator. Both are
 superseded by this revision, and the evaluation artifact moves with it
 (`res141-qasper-evidence-evaluation-v3`).
 
+The scoring policy itself is version-locked. The task carries one frozen policy
+block (`SCORING_POLICY`) and the typed task loader requires it exactly: the
+revision must be `qasper-paragraph-f1-v3`, and no field may be added, dropped or
+altered. Both `datasets score-evidence` (through `read_verified_task`) and the
+direct Python `score_evidence_selection(task, rankings)` API refuse a task
+sealed under the superseded v1/v2 policies — even a fully re-signed,
+self-consistent historical slice carrying a trusted manifest digest — instead
+of silently reinterpreting its evidence under v3 rules. No implicit migration
+exists: an older slice must be re-materialized from its source under the current
+adapter.
+
 **BEIR shortlist.** A fixed set of comparators — NFCorpus and SciDocs
 (scientific), ArguAna and FiQA-2018 (out-of-domain) — each with per-split
 cardinality pins. NFCorpus and FiQA query splits are disjoint; SciDocs ships a

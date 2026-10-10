@@ -753,6 +753,87 @@ def test_score_evidence_qualifies_against_a_trusted_manifest_digest(
     assert payload["derived_artifacts_authenticated"] is True
 
 
+def _resign_rewritten_task(root: Path, task: dict[str, Any]) -> str:
+    """Re-seal a rewritten task: task bytes, file inventory and manifest digest.
+
+    Every digest boundary is regenerated, so the slice is fully self-consistent;
+    the returned manifest digest is the out-of-band anchor that authenticates it.
+    """
+    task_bytes = canonical_bytes(task)
+    (root / "task.json").write_bytes(task_bytes)
+
+    def mutate(payload: dict[str, Any]) -> None:
+        payload["task_sha256"] = bytes_sha256(task_bytes)
+        payload["scoring"] = task["scoring"]
+        _resign_manifest_file(root, payload, "task.json")
+
+    _mutate_manifest(root, mutate)
+    return bytes_sha256((root / "manifest.json").read_bytes())
+
+
+def test_score_evidence_refuses_a_resigned_historical_scoring_policy(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Before: a fully re-signed v2 slice was scored under v3 without any notice.
+
+    The task declares the superseded ``qasper-paragraph-f1-v2`` policy and every
+    digest - task content, file inventory, manifest - is regenerated, with the
+    manifest digest supplied as the trusted out-of-band anchor. Scoring must
+    refuse before publication: the v3 runtime never silently reinterprets a
+    task that declares older semantics.
+    """
+    root = _materialize_qasper(tmp_path)
+    rankings = _empty_rankings(root, tmp_path)
+    task: Any = json.loads((root / "task.json").read_bytes())
+    task["scoring"]["revision"] = "qasper-paragraph-f1-v2"
+    task["scoring"]["zero_denominator"] = "an empty denominator is 0.0"
+    manifest_digest = _resign_rewritten_task(root, task)
+    out = tmp_path / "evaluation.json"
+    assert (
+        cli.main(_score_evidence(root, rankings, out, "--expect-manifest-sha256", manifest_digest))
+        == 1
+    )
+    assert "DatasetArtifactError" in capsys.readouterr().err
+    assert not out.exists()
+
+
+def test_score_evidence_refuses_an_altered_v3_policy_field_even_when_resigned(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A spoofed v3 revision with one altered semantic field is still incompatible."""
+    root = _materialize_qasper(tmp_path)
+    rankings = _empty_rankings(root, tmp_path)
+    task: Any = json.loads((root / "task.json").read_bytes())
+    assert task["scoring"]["revision"] == "qasper-paragraph-f1-v3"
+    task["scoring"]["question_policy"] = "every question is scored on its resolved anchors"
+    manifest_digest = _resign_rewritten_task(root, task)
+    out = tmp_path / "evaluation.json"
+    assert (
+        cli.main(_score_evidence(root, rankings, out, "--expect-manifest-sha256", manifest_digest))
+        == 1
+    )
+    assert "DatasetArtifactError" in capsys.readouterr().err
+    assert not out.exists()
+
+
+def test_score_evidence_refuses_an_unknown_scoring_key_even_when_resigned(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An unexpected scoring key under the current revision is not forward-compatible."""
+    root = _materialize_qasper(tmp_path)
+    rankings = _empty_rankings(root, tmp_path)
+    task: Any = json.loads((root / "task.json").read_bytes())
+    task["scoring"]["future_metric"] = "not part of v3"
+    manifest_digest = _resign_rewritten_task(root, task)
+    out = tmp_path / "evaluation.json"
+    assert (
+        cli.main(_score_evidence(root, rankings, out, "--expect-manifest-sha256", manifest_digest))
+        == 1
+    )
+    assert "DatasetArtifactError" in capsys.readouterr().err
+    assert not out.exists()
+
+
 def test_score_evidence_refuses_a_document_retrieval_slice(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
