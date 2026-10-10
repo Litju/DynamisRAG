@@ -59,8 +59,10 @@ from dynamisrag.datasets.slices import (
     SLICE_REVISION,
     TASK_EVIDENCE_SELECTION,
     SliceBundle,
+    SliceReceipt,
     bytes_sha256,
     rights_notice,
+    verify_slice,
 )
 from dynamisrag.datasets.sources import FrozenDatasetSource
 
@@ -82,11 +84,13 @@ __all__ = [
     "QasperEvidenceEvaluation",
     "QasperSplitExpectation",
     "QasperTask",
+    "VerifiedEvidenceTask",
     "annotation_scorability",
     "build_qasper_task_artifacts",
     "parse_task",
     "read_rankings",
     "read_task_bytes",
+    "read_verified_task",
     "score_evidence_selection",
     "verify_task_bytes",
     "write_evaluation",
@@ -902,7 +906,13 @@ def verify_task_bytes(
 
 
 def parse_task(path: Path) -> QasperTask:
-    """Load a materialized task artifact for scoring."""
+    """Load a materialized task artifact for *inspection only*.
+
+    This authenticates nothing: no manifest, no inventory, no expected digest.
+    It exists so a reader can look at a task's annotations without a slice; it
+    must never be the path that turns unverified bytes into a published score.
+    Use :func:`read_verified_task` for that.
+    """
     try:
         content = path.read_bytes()
     except OSError as error:
@@ -933,6 +943,70 @@ def parse_task(path: Path) -> QasperTask:
             item_id=path.name,
         )
     return _task_from_payload(document, expected_sha256=None)
+
+
+@dataclass(frozen=True)
+class VerifiedEvidenceTask:
+    """A task together with the verification receipt that authenticated its bytes."""
+
+    task: QasperTask
+    receipt: SliceReceipt
+
+    @property
+    def task_sha256(self) -> str:
+        """The task identity the verified manifest pinned."""
+        return self.task.sha256
+
+
+def read_verified_task(
+    root: Path,
+    *,
+    registered_source: bool = False,
+    expected_manifest_sha256: str | None = None,
+) -> VerifiedEvidenceTask:
+    """Verify a sealed QASPER slice and hand back only the task bytes it pins.
+
+    Verification runs first and in full: the closed inventory, the canonical
+    manifest, the rights notice generated from the declared source, the manifest's
+    counts/expectations/scoring policy and the pinned task digest must all agree
+    before any question is scored. The bytes handed back are then re-authenticated
+    against the digest the verified manifest recorded, so a task that is stale,
+    swapped or replaced between verification and scoring cannot reach the metric.
+
+    Self-consistency is all a slice can prove on its own. Pass
+    ``registered_source`` to authenticate the manifest's source registry identity,
+    or ``expected_manifest_sha256`` for the out-of-band trust anchor that
+    authenticates the whole derived slice; the returned receipt says which
+    applies, and self-consistency is never reported as provenance.
+    """
+    receipt = verify_slice(
+        root,
+        registered_source=registered_source,
+        expected_manifest_sha256=expected_manifest_sha256,
+    )
+    if receipt.task_sha256 is None:
+        raise DatasetArtifactError(
+            "the verified slice is not a within-document evidence-selection task.",
+            operation="read_verified_qasper_task",
+            source_id=receipt.source_id,
+            split=receipt.split,
+        )
+    try:
+        content = (root / TASK_FILENAME).read_bytes()
+    except OSError as error:
+        raise DatasetArtifactError(
+            f"the verified QASPER task could not be re-read ({type(error).__name__}).",
+            operation="read_verified_qasper_task",
+            source_id=receipt.source_id,
+            split=receipt.split,
+        ) from None
+    task = read_task_bytes(
+        content,
+        expected_sha256=receipt.task_sha256,
+        source_id=receipt.source_id,
+        split=receipt.split,
+    )
+    return VerifiedEvidenceTask(task=task, receipt=receipt)
 
 
 def _counts(

@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -581,6 +581,188 @@ def test_verification_refuses_a_resigned_false_qasper_manifest_count(tmp_path: P
     _mutate_manifest(root, mutate)
     with pytest.raises(DatasetArtifactError):
         verify_slice(root)
+
+
+def _materialize_qasper(tmp_path: Path, name: str = "qasper-slice") -> Path:
+    materialize_source(
+        qasper_source(),
+        MaterializeRequest(
+            source_id="qasper",
+            split="test",
+            out=tmp_path / name,
+            source_dir=DATASET_FIXTURES / "qasper-mini",
+        ),
+        overrides=AdapterOverrides(qasper_expectations={"test": _QASPER_EXPECTATION}),
+    )
+    return tmp_path / name
+
+
+def _empty_rankings(root: Path, work: Path) -> Path:
+    """Rank every question with no anchor; scoring still runs and still fails closed."""
+    task: Any = json.loads((root / "task.json").read_bytes())
+    questions = cast("list[dict[str, Any]]", task["questions"])
+    rankings: dict[str, list[str]] = {str(question["question_id"]): [] for question in questions}
+    path = work / "rankings.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(canonical_bytes(rankings))
+    return path
+
+
+def _score_evidence(root: Path, rankings: Path, out: Path, *extra: str) -> list[str]:
+    return [
+        "datasets",
+        "score-evidence",
+        "--slice",
+        str(root),
+        "--rankings",
+        str(rankings),
+        "--out",
+        str(out),
+        *extra,
+    ]
+
+
+def test_score_evidence_reports_the_verified_slice_identity(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _materialize_qasper(tmp_path)
+    receipt = verify_slice(root)
+    out = tmp_path / "evaluation.json"
+    assert cli.main(_score_evidence(root, _empty_rankings(root, tmp_path), out)) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["verification"] == "self-consistency"
+    assert payload["source_id"] == "qasper"
+    assert payload["split"] == "test"
+    assert payload["task_sha256"] == receipt.task_sha256
+    assert payload["manifest_sha256"] == receipt.manifest_sha256
+    assert payload["trusted_source_sha256"] is None
+    assert payload["expected_manifest_sha256"] is None
+    assert "qasper-task-identity" in payload["verified_claims"]
+    assert json.loads(out.read_bytes())["aggregate"]["task_sha256"] == receipt.task_sha256
+
+
+def test_score_evidence_refuses_a_tampered_task_with_an_unchanged_manifest(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Before: the command parsed task.json directly, so rewritten gold scored cleanly."""
+    root = _materialize_qasper(tmp_path)
+    rankings = _empty_rankings(root, tmp_path)
+    task_path = root / "task.json"
+    task: Any = json.loads(task_path.read_bytes())
+    task["questions"][0]["question"] = "a rewritten question that never existed"
+    task_path.write_bytes(canonical_bytes(task))
+    out = tmp_path / "evaluation.json"
+    assert cli.main(_score_evidence(root, rankings, out)) == 1
+    assert "DatasetArtifactError" in capsys.readouterr().err
+    assert not out.exists()
+
+
+def test_score_evidence_refuses_a_missing_manifest(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _materialize_qasper(tmp_path)
+    rankings = _empty_rankings(root, tmp_path)
+    (root / "manifest.json").unlink()
+    out = tmp_path / "evaluation.json"
+    assert cli.main(_score_evidence(root, rankings, out)) == 1
+    assert "DatasetArtifactError" in capsys.readouterr().err
+    assert not out.exists()
+
+
+def test_score_evidence_refuses_a_rogue_payload_file(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _materialize_qasper(tmp_path)
+    rankings = _empty_rankings(root, tmp_path)
+    (root / "extra.json").write_bytes(b"{}")
+    out = tmp_path / "evaluation.json"
+    assert cli.main(_score_evidence(root, rankings, out)) == 1
+    assert "DatasetArtifactError" in capsys.readouterr().err
+    assert not out.exists()
+
+
+def test_score_evidence_refuses_a_symlinked_task(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _materialize_qasper(tmp_path)
+    rankings = _empty_rankings(root, tmp_path)
+    elsewhere = tmp_path / "swapped.json"
+    elsewhere.write_bytes((root / "task.json").read_bytes())
+    task_path = root / "task.json"
+    task_path.unlink()
+    try:
+        task_path.symlink_to(elsewhere)
+    except (OSError, NotImplementedError) as error:
+        pytest.skip(f"symlinks are unavailable on this platform: {type(error).__name__}")
+    out = tmp_path / "evaluation.json"
+    assert cli.main(_score_evidence(root, rankings, out)) == 1
+    assert "DatasetArtifactError" in capsys.readouterr().err
+    assert not out.exists()
+
+
+def test_a_resigned_task_forgery_scores_only_as_self_consistent(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A re-signed forgery is internally consistent; only a trust anchor can reject it.
+
+    The command must therefore never describe such a result as qualified.
+    """
+    root = _materialize_qasper(tmp_path)
+    rankings = _empty_rankings(root, tmp_path)
+    task_path = root / "task.json"
+    task: Any = json.loads(task_path.read_bytes())
+    task["questions"][0]["question"] = "a rewritten question that never existed"
+    task_path.write_bytes(canonical_bytes(task))
+
+    def mutate(payload: dict[str, Any]) -> None:
+        payload["task_sha256"] = bytes_sha256(task_path.read_bytes())
+        _resign_manifest_file(root, payload, "task.json")
+
+    _mutate_manifest(root, mutate)
+    out = tmp_path / "evaluation.json"
+    assert cli.main(_score_evidence(root, rankings, out)) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["verification"] == "self-consistency"
+    assert payload["trusted_source_sha256"] is None
+    assert payload["expected_manifest_sha256"] is None
+    assert "corpus-identity" not in payload["verified_claims"]
+
+
+def test_score_evidence_refuses_a_wrong_expected_manifest_digest(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _materialize_qasper(tmp_path)
+    rankings = _empty_rankings(root, tmp_path)
+    out = tmp_path / "evaluation.json"
+    assert cli.main(_score_evidence(root, rankings, out, "--expect-manifest-sha256", "0" * 64)) == 1
+    assert "DatasetArtifactError" in capsys.readouterr().err
+    assert not out.exists()
+
+
+def test_score_evidence_qualifies_against_a_trusted_manifest_digest(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _materialize_qasper(tmp_path)
+    rankings = _empty_rankings(root, tmp_path)
+    digest = verify_slice(root).manifest_sha256
+    out = tmp_path / "evaluation.json"
+    assert cli.main(_score_evidence(root, rankings, out, "--expect-manifest-sha256", digest)) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["verification"] == "qualified"
+    assert payload["expected_manifest_sha256"] == digest
+
+
+def test_score_evidence_refuses_a_document_retrieval_slice(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A retrieval slice has no evidence-selection task; it is not a scoring input."""
+    root = _materialize_scifact(tmp_path)
+    rankings = tmp_path / "rankings.json"
+    rankings.write_bytes(canonical_bytes({"q1": []}))
+    out = tmp_path / "evaluation.json"
+    assert cli.main(_score_evidence(root, rankings, out)) == 1
+    assert "DatasetArtifactError" in capsys.readouterr().err
+    assert not out.exists()
 
 
 def _materialize_scifact_open(tmp_path: Path) -> Path:

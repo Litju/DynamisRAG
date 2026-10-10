@@ -83,6 +83,35 @@ uv run dynamisrag datasets score-evidence `
   --out .tmp/qasper-evidence.json
 ```
 
+Scoring **verifies the slice first** and fails closed. Before a single question
+is scored the command recomputes the closed inventory, the canonical manifest,
+the generated rights notice, the declared counts/expectations/scoring policy and
+the manifest's pinned task digest, then re-authenticates the exact task bytes it
+hands to the metric. A tampered, swapped, stale, re-signed-with-a-wrong-digest,
+rogue-file or symlinked slice scores nothing and writes no artifact.
+
+The receipt states what was proven rather than what was hoped for:
+
+```json
+{
+  "source_id": "qasper",
+  "split": "test",
+  "manifest_sha256": "...",
+  "task_sha256": "...",
+  "verification": "self-consistency",
+  "trusted_source_sha256": null,
+  "expected_manifest_sha256": null,
+  "verified_claims": ["manifest-file-inventory", "generated-rights-notice", "..."],
+  "attested_claims": ["source-archive-and-member-pins"]
+}
+```
+
+Add `--registered-source` to authenticate the manifest's source registry
+identity, or `--expect-manifest-sha256 <hex>` for the out-of-band trust anchor
+that authenticates the whole derived slice. A slice that is only internally
+consistent stays `self-consistency` in the receipt even when it scores: nothing
+about self-consistency says the bytes came from the official distribution.
+
 ## What a slice contains
 
 A document-retrieval slice (`dataset.json` plus a manifest, a rights notice and

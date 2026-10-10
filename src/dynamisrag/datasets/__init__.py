@@ -75,10 +75,12 @@ from dynamisrag.datasets.qasper import (
     TASK_REVISION,
     QasperEvidenceEvaluation,
     QasperTask,
+    VerifiedEvidenceTask,
     annotation_scorability,
     build_qasper_task_artifacts,
     parse_task,
     read_task_bytes,
+    read_verified_task,
     score_evidence_selection,
 )
 from dynamisrag.datasets.rights import (
@@ -151,6 +153,7 @@ __all__ = [
     "SliceReceipt",
     "SourceArtifact",
     "SourceMember",
+    "VerifiedEvidenceTask",
     "annotation_scorability",
     "build_beir_artifacts",
     "build_qasper_task_artifacts",
@@ -159,6 +162,7 @@ __all__ = [
     "parse_task",
     "read_beir_split",
     "read_task_bytes",
+    "read_verified_task",
     "score_evidence_selection",
     "shortlist_spec",
     "source_by_id",

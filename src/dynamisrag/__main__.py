@@ -366,11 +366,28 @@ def _add_datasets_commands(datasets: argparse.ArgumentParser) -> None:
 
     score = dataset_commands.add_parser(
         _DATASETS_SCORE_EVIDENCE,
-        help="score paragraph-anchor rankings against a frozen QASPER task",
+        help="score paragraph-anchor rankings against a verified QASPER slice",
+        description=(
+            "The slice is verified before a single question is scored: closed inventory, "
+            "canonical manifest, generated rights notice, declared counts and the pinned task "
+            "digest must all agree, and the task bytes are re-authenticated against that digest. "
+            "An invalid slice fails closed. Pass --registered-source to authenticate the manifest "
+            "source registry identity, or --expect-manifest-sha256 for the out-of-band trust "
+            "anchor; without one the receipt reports self-consistency only, never provenance."
+        ),
     )
     score.add_argument("--slice", type=Path, required=True, help="a materialized QASPER slice")
     score.add_argument("--rankings", type=Path, required=True, help="ranking JSON file")
     score.add_argument("--out", type=Path, required=True, help="new evaluation JSON file")
+    score.add_argument(
+        "--registered-source",
+        action="store_true",
+        help="require the manifest source to equal the registered frozen source exactly",
+    )
+    score.add_argument(
+        "--expect-manifest-sha256",
+        help="require the canonical manifest digest to match this out-of-band value",
+    )
 
 
 def _add_ir_commands(ir: argparse.ArgumentParser) -> None:
@@ -506,20 +523,34 @@ def _datasets(command: str | None, arguments: argparse.Namespace) -> int:
             return _EXIT_SUCCESS
         if command == _DATASETS_SCORE_EVIDENCE:
             from dynamisrag.datasets.qasper import (
-                parse_task,
                 read_rankings,
+                read_verified_task,
                 score_evidence_selection,
                 write_evaluation,
             )
 
-            task = parse_task(arguments.slice / "task.json")
-            evaluation = score_evidence_selection(task, read_rankings(arguments.rankings))
+            verified = read_verified_task(
+                arguments.slice,
+                registered_source=arguments.registered_source,
+                expected_manifest_sha256=arguments.expect_manifest_sha256,
+            )
+            evaluation = score_evidence_selection(verified.task, read_rankings(arguments.rankings))
             digest = write_evaluation(arguments.out, evaluation)
             _emit(
                 {
                     "evaluation": str(arguments.out),
                     "sha256": digest,
                     "aggregate": evaluation.aggregate(),
+                    "slice": str(arguments.slice),
+                    "source_id": verified.receipt.source_id,
+                    "split": verified.receipt.split,
+                    "manifest_sha256": verified.receipt.manifest_sha256,
+                    "task_sha256": verified.receipt.task_sha256,
+                    "verification": verified.receipt.verification,
+                    "trusted_source_sha256": verified.receipt.trusted_source_sha256,
+                    "expected_manifest_sha256": verified.receipt.expected_manifest_sha256,
+                    "verified_claims": list(verified.receipt.verified_claims),
+                    "attested_claims": list(verified.receipt.attested_claims),
                 }
             )
             return _EXIT_SUCCESS
