@@ -37,6 +37,11 @@ The layers:
     The separately versioned within-document evidence-selection task, paragraph
     anchors, and its reference metric.
 
+``protocol``
+    Dataset-aware eligibility at the public IR evaluation boundary: what it
+    takes before a run on a dataset with a declared retrieval protocol (ArguAna's
+    BEIR ignore-identical-ids rule) may be called protocol-comparable.
+
 ``materialize``
     The facade: rights gate, verified resolution, family dispatch, sealed write.
 
@@ -62,6 +67,16 @@ from dynamisrag.datasets.errors import (
     DatasetSourceError,
 )
 from dynamisrag.datasets.pipeline import MaterializeRequest, materialize
+from dynamisrag.datasets.protocol import (
+    ELIGIBILITY_NOT_APPLICABLE,
+    ELIGIBILITY_QUALIFIED,
+    ELIGIBILITY_UNQUALIFIED,
+    CandidateEvidence,
+    ProtocolQualification,
+    QualifiedDatasetRun,
+    read_candidate_evidence,
+    score_verified_dataset_run,
+)
 from dynamisrag.datasets.qasper import (
     ANNOTATION_COMPLETE,
     ANNOTATION_PARTIAL,
@@ -116,6 +131,9 @@ __all__ = [
     "ANNOTATION_PARTIAL",
     "ANNOTATION_UNAVAILABLE",
     "CORPUS_VARIANTS",
+    "ELIGIBILITY_NOT_APPLICABLE",
+    "ELIGIBILITY_QUALIFIED",
+    "ELIGIBILITY_UNQUALIFIED",
     "EVALUATION_REVISION",
     "METRIC_REVISION",
     "PROJECTION_REVISION",
@@ -132,6 +150,7 @@ __all__ = [
     "BeirSliceSpec",
     "BeirSplitExpectation",
     "BeirSplitRead",
+    "CandidateEvidence",
     "CorpusIdentity",
     "DanglingQrelPolicy",
     "DatasetAdapterError",
@@ -143,8 +162,10 @@ __all__ = [
     "FrozenDatasetSource",
     "LicenseScope",
     "MaterializeRequest",
+    "ProtocolQualification",
     "QasperEvidenceEvaluation",
     "QasperTask",
+    "QualifiedDatasetRun",
     "Redistribution",
     "RightsDecision",
     "RightsOutcome",
@@ -161,9 +182,11 @@ __all__ = [
     "materialize",
     "parse_task",
     "read_beir_split",
+    "read_candidate_evidence",
     "read_task_bytes",
     "read_verified_task",
     "score_evidence_selection",
+    "score_verified_dataset_run",
     "shortlist_spec",
     "source_by_id",
     "verify_slice",

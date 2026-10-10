@@ -26,6 +26,10 @@ from typing import Final
 
 import pytest
 
+from dynamisrag.datasets.protocol import (
+    CANDIDATE_EVIDENCE_REVISION,
+    PROTOCOL_REVISION,
+)
 from dynamisrag.datasets.qasper import METRIC_REVISION, TASK_REVISION
 from dynamisrag.datasets.scifact_open import PROJECTION_REVISION
 from dynamisrag.datasets.slices import SLICE_REVISION
@@ -114,7 +118,12 @@ def test_the_declared_revisions_are_the_mission_versions() -> None:
 
 
 def test_only_declared_res141_revisions_appear_in_the_package() -> None:
-    declared = {"res141-dataset-slice-v1", "res141-qasper-evidence-evaluation-v2"}
+    declared = {
+        "res141-dataset-slice-v1",
+        "res141-qasper-evidence-evaluation-v2",
+        PROTOCOL_REVISION,
+        CANDIDATE_EVIDENCE_REVISION,
+    }
     found: set[str] = set()
     for path in _python_files(_DATASETS):
         tree = ast.parse(path.read_text(encoding="utf-8"))

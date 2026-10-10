@@ -128,6 +128,7 @@ _DATASETS_LIST: Final[str] = "list"
 _DATASETS_MATERIALIZE: Final[str] = "materialize"
 _DATASETS_VERIFY: Final[str] = "verify"
 _DATASETS_SCORE_EVIDENCE: Final[str] = "score-evidence"
+_DATASETS_SCORE_RETRIEVAL: Final[str] = "score-retrieval"
 _RES138_PLAN: Final[str] = "res138-plan"
 _VERIFY_RES138_BUNDLE: Final[str] = "verify-res138-bundle"
 _VERIFY_STAGE_A: Final[str] = "verify-stage-a"
@@ -389,6 +390,40 @@ def _add_datasets_commands(datasets: argparse.ArgumentParser) -> None:
         help="require the canonical manifest digest to match this out-of-band value",
     )
 
+    score_retrieval = dataset_commands.add_parser(
+        _DATASETS_SCORE_RETRIEVAL,
+        help="score a run against a verified slice, enforcing its dataset protocol",
+        description=(
+            "The slice is verified first and the run must use that slice's dataset. When the "
+            "dataset declares a benchmark protocol - ArguAna declares the BEIR "
+            "ignore-identical-query-document-ids rule - the run is refused unless the complete "
+            "untruncated candidate prefix is supplied and the sealed evaluated prefix is exactly "
+            "what that rule produces before depth truncation. An unqualified run produces no "
+            "bundle and no evaluation."
+        ),
+    )
+    score_retrieval.add_argument("--slice", type=Path, required=True, help="the verified slice")
+    score_retrieval.add_argument("--inputs", type=Path, required=True, help="closed input dir")
+    score_retrieval.add_argument("--run-sha256", required=True, help="expected sealed run identity")
+    score_retrieval.add_argument("--out", type=Path, required=True, help="new bundle directory")
+    score_retrieval.add_argument(
+        "--candidates",
+        type=Path,
+        help=(
+            "the complete untruncated candidate prefix per query; required for a dataset that "
+            "declares a self-document protocol"
+        ),
+    )
+    score_retrieval.add_argument(
+        "--registered-source",
+        action="store_true",
+        help="require the manifest source to equal the registered frozen source exactly",
+    )
+    score_retrieval.add_argument(
+        "--expect-manifest-sha256",
+        help="require the canonical manifest digest to match this out-of-band value",
+    )
+
 
 def _add_ir_commands(ir: argparse.ArgumentParser) -> None:
     ir_commands = ir.add_subparsers(dest="ir_command", required=True)
@@ -462,7 +497,9 @@ def main(argv: Sequence[str] | None = None) -> int:  # noqa: PLR0911 - explicit 
     return _serve()
 
 
-def _datasets(command: str | None, arguments: argparse.Namespace) -> int:
+def _datasets(  # noqa: PLR0911 - explicit command dispatch
+    command: str | None, arguments: argparse.Namespace
+) -> int:
     """Run one offline dataset operation; never opens a service or a network."""
     from dynamisrag.datasets.errors import DatasetAdapterError
 
@@ -554,6 +591,42 @@ def _datasets(command: str | None, arguments: argparse.Namespace) -> int:
                 }
             )
             return _EXIT_SUCCESS
+        if command == _DATASETS_SCORE_RETRIEVAL:
+            from dynamisrag.datasets.protocol import score_verified_dataset_run
+
+            scored = score_verified_dataset_run(
+                slice_root=arguments.slice,
+                inputs_root=arguments.inputs,
+                destination=arguments.out,
+                expected_run_sha256=arguments.run_sha256,
+                candidates=arguments.candidates,
+                registered_source=arguments.registered_source,
+                expected_manifest_sha256=arguments.expect_manifest_sha256,
+            )
+            _emit(
+                {
+                    "bundle": str(scored.bundle.root),
+                    "dataset_sha256": scored.bundle.dataset_sha256,
+                    "config_sha256": scored.bundle.config_sha256,
+                    "run_sha256": scored.bundle.run_sha256,
+                    "evaluation_sha256": scored.bundle.evaluation_sha256,
+                    "passage_mapping_sha256": scored.bundle.passage_mapping_sha256,
+                    "manifest_sha256": scored.bundle.manifest_sha256,
+                    "protocol": scored.qualification.payload(),
+                    "slice_verification": {
+                        "source_id": scored.slice_receipt.source_id,
+                        "split": scored.slice_receipt.split,
+                        "manifest_sha256": scored.slice_receipt.manifest_sha256,
+                        "dataset_sha256": scored.slice_receipt.dataset_sha256,
+                        "verification": scored.slice_receipt.verification,
+                        "trusted_source_sha256": scored.slice_receipt.trusted_source_sha256,
+                        "expected_manifest_sha256": scored.slice_receipt.expected_manifest_sha256,
+                        "verified_claims": list(scored.slice_receipt.verified_claims),
+                        "attested_claims": list(scored.slice_receipt.attested_claims),
+                    },
+                }
+            )
+            return _EXIT_SUCCESS
         return _fail(f"{_PROGRAM} {_DATASETS}: unknown command {command!r}")
     except (DatasetAdapterError, OSError, ValueError) as error:
         return _fail(f"{_PROGRAM} {_DATASETS} {command}: {type(error).__name__}: {error}")
@@ -561,12 +634,17 @@ def _datasets(command: str | None, arguments: argparse.Namespace) -> int:
 
 def _ir(ir_command: str | None, arguments: argparse.Namespace) -> int:
     """Run sealed RES-140 operations without importing a retrieval service."""
+    from dynamisrag.datasets.errors import DatasetAdapterError
     from dynamisrag.ir.contracts import IrContractError
 
     try:
         if ir_command == _IR_SCORE:
+            from dynamisrag.datasets.protocol import require_no_declared_protocol
+            from dynamisrag.ir.artifacts import read_ir_inputs
             from dynamisrag.ir.experiments import score_ir_inputs
 
+            inputs = read_ir_inputs(arguments.inputs, expected_run_sha256=arguments.run_sha256)
+            require_no_declared_protocol(inputs.dataset)
             receipt = score_ir_inputs(
                 arguments.inputs,
                 arguments.out,
@@ -643,7 +721,7 @@ def _ir(ir_command: str | None, arguments: argparse.Namespace) -> int:
             )
             return _EXIT_SUCCESS
         return _fail(f"{_PROGRAM} {_IR}: unknown command {ir_command!r}")
-    except (IrContractError, OSError, ValueError) as error:
+    except (IrContractError, DatasetAdapterError, OSError, ValueError) as error:
         return _fail(f"{_PROGRAM} {_IR} {ir_command}: {type(error).__name__}: {error}")
 
 

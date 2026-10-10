@@ -238,8 +238,44 @@ contains a query's own document as non-comparable to standard BEIR, and
 `exclude_identical_document_hits` applies the reference rule to an untruncated
 candidate list before evaluation depth is chosen. ArguAna's five qrels whose
 documents are absent from the distributed corpus are declared, hashed and
-excluded — the slice explicitly records that its qrel set is **not** the
+excluded - the slice explicitly records that its qrel set is **not** the
 original source qrel set (`qrels_are_source_complete: false`).
+
+### The protocol is enforced where results are published
+
+A validator nothing calls is not an enforcement. `datasets score-retrieval`
+verifies the slice, requires the run to use *that* slice's dataset, and then
+qualifies the run before RES-140's untouched scoring path runs. A run is
+`beir-protocol-comparable` only when all three hold:
+
+1. the sealed evaluated prefix is exactly `exclude_identical_document_hits` of
+   the supplied candidates, truncated at the run's evaluation depth;
+2. no sealed hit is a query's own document;
+3. every query where the rule actually bit supplied candidates that cross the
+   truncation boundary, or the run declares that query source exhausted.
+
+Point 3 is the one that cannot be waved through. Truncate to the depth first,
+drop the self-document second, and the result is indistinguishable from doing it
+in the right order - while having silently lost the candidate that should have
+taken the vacated rank. The complete untruncated prefix is therefore evidence,
+not decoration, and its SHA-256 is recorded in the receipt:
+
+```powershell
+uv run dynamisrag datasets score-retrieval `
+  --slice .tmp/arguana-test `
+  --inputs .tmp/ir-inputs `
+  --run-sha256 <sealed run sha> `
+  --candidates .tmp/candidates.json `
+  --out .tmp/arguana-scored
+```
+
+`candidates.json` is canonical JSON naming the policy it was collected under, the
+dataset identity, the evaluation depth, and the ranked documents per query. Any
+unqualified run produces **no bundle, no manifest and no evaluation** - only a
+refusal naming the reason. `ir score` refuses outright for any dataset whose
+revision declares a protocol, because the generic path has no way to establish a
+candidate rule; every other dataset is scored exactly as before. Datasets that
+declare no protocol report `no-declared-protocol` and are unaffected.
 
 ## Verification and refusal
 

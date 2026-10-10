@@ -9,6 +9,10 @@ pinned by the RES-141 source registry is stored here.
   three to four invented documents. They exercise the SciFact adapter and the
   heterogeneous shortlist: graded judgments (NFCorpus), explicit zero judgments
   (SciDocs), a dangling qrel (ArguAna) and a blank document (FiQA).
+  ``beir-arguana-deep-mini/`` is the same shape with fourteen documents, so a
+  candidate prefix can cross the depth-10 truncation boundary and the
+  ignore-identical-ids protocol can be exercised on a run that was *not* source
+  exhausted.
 * ``scifact-open-mini/`` mirrors the official SciFact-Open tarball layout
   (``data/``, ``prediction/``) with invented claims, abstracts and retrievals,
   including one evidence link outside the released pool.
