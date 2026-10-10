@@ -31,7 +31,7 @@ from dynamisrag.datasets.pipeline import (
     materialize,
     materialize_source,
 )
-from dynamisrag.datasets.primitives import canonical_bytes
+from dynamisrag.datasets.primitives import canonical_bytes, digest
 from dynamisrag.datasets.qasper import QasperSplitExpectation
 from dynamisrag.datasets.rights import RightsOutcome
 from dynamisrag.datasets.scifact_open import ScifactOpenExpectation
@@ -763,6 +763,163 @@ def test_score_evidence_refuses_a_document_retrieval_slice(
     assert cli.main(_score_evidence(root, rankings, out)) == 1
     assert "DatasetArtifactError" in capsys.readouterr().err
     assert not out.exists()
+
+
+def _resign_sidecar(root: Path, payload: dict[str, Any]) -> None:
+    """Re-sign a mutated sidecar: its file entry and the digest the manifest declares."""
+    sidecar = root / "evidence-provenance.json"
+    sidecar.write_bytes(canonical_bytes(payload))
+
+    def mutate(manifest: dict[str, Any]) -> None:
+        _resign_manifest_file(root, manifest, sidecar.name)
+        manifest["diagnostics"]["provenance_sidecar_sha256"] = digest(payload)
+
+    _mutate_manifest(root, mutate)
+
+
+def _link_mutations() -> tuple[tuple[str, Callable[[dict[str, Any]], None]], ...]:
+    """Every link field whose shape the sidecar must enforce, and a violation of it.
+
+    ``sentences`` and ``model_ranks`` were previously accepted in any shape, so
+    most of these are the defect itself rather than a guard.
+    """
+
+    def _first(payload: dict[str, Any]) -> dict[str, Any]:
+        links = cast("list[dict[str, Any]]", payload["links"])
+        return links[0]
+
+    def _second(payload: dict[str, Any]) -> dict[str, Any]:
+        return cast("list[dict[str, Any]]", payload["links"])[1]
+
+    return (
+        ("descending-sentences", lambda payload: _first(payload).update(sentences=[1, 0])),
+        ("negative-sentence", lambda payload: _first(payload).update(sentences=[-1])),
+        ("repeated-sentence", lambda payload: _first(payload).update(sentences=[0, 0])),
+        ("non-integer-sentence", lambda payload: _first(payload).update(sentences=["0"])),
+        ("boolean-sentence", lambda payload: _first(payload).update(sentences=[True])),
+        ("missing-sentences", lambda payload: _first(payload).pop("sentences")),
+        ("citation-with-model-ranks", lambda payload: _first(payload).update(model_ranks={"m": 1})),
+        ("pooling-without-model-ranks", lambda payload: _second(payload).update(model_ranks=None)),
+        ("pooling-with-empty-model-ranks", lambda payload: _second(payload).update(model_ranks={})),
+        (
+            "negative-model-rank",
+            lambda payload: _second(payload).update(model_ranks={"model_a": -1, "model_b": 3}),
+        ),
+        (
+            "non-integer-model-rank",
+            lambda payload: _second(payload).update(model_ranks={"model_a": "1", "model_b": 3}),
+        ),
+        (
+            "blank-model-key",
+            lambda payload: _second(payload).update(model_ranks={"": 1, "model_b": 3}),
+        ),
+        (
+            "non-boolean-pool-membership",
+            lambda payload: _first(payload).update(in_released_pool="yes"),
+        ),
+        ("non-binary-relevance", lambda payload: _first(payload).update(relevance=2)),
+        ("unknown-provenance", lambda payload: _first(payload).update(provenance="crowd")),
+    )
+
+
+@pytest.mark.parametrize(("case", "mutate"), _link_mutations(), ids=lambda value: str(value)[:40])
+def test_verification_refuses_a_malformed_sidecar_link(
+    tmp_path: Path, case: str, mutate: Callable[[dict[str, Any]], None]
+) -> None:
+    root = _materialize_scifact_open(tmp_path)
+    payload: Any = json.loads((root / "evidence-provenance.json").read_bytes())
+    mutate(cast("dict[str, Any]", payload))
+    _resign_sidecar(root, cast("dict[str, Any]", payload))
+    with pytest.raises(DatasetArtifactError):
+        verify_slice(root)
+
+
+def test_the_scifact_open_sidecar_is_mandatory_even_when_resigned(
+    tmp_path: Path,
+) -> None:
+    """Before: deleting the sidecar and its manifest entry passed verification."""
+    root = _materialize_scifact_open(tmp_path)
+    (root / "evidence-provenance.json").unlink()
+
+    def mutate(payload: dict[str, Any]) -> None:
+        payload["files"] = [
+            entry for entry in payload["files"] if entry["name"] != "evidence-provenance.json"
+        ]
+
+    _mutate_manifest(root, mutate)
+    with pytest.raises(DatasetArtifactError) as raised:
+        verify_slice(root)
+    assert "evidence-provenance.json" in str(raised.value.expected)
+    assert "evidence-provenance.json" not in str(raised.value.observed)
+
+
+def test_the_scifact_open_sidecar_is_mandatory_for_both_corpus_variants(
+    tmp_path: Path,
+) -> None:
+    root = materialize_source(
+        scifact_open_source(),
+        MaterializeRequest(
+            source_id="scifact-open",
+            split="test",
+            out=tmp_path / "open-full",
+            source_dir=DATASET_FIXTURES / "scifact-open-mini",
+            corpus_variant="full",
+        ),
+        overrides=AdapterOverrides(scifact_open_expectation=_SCIFACT_OPEN_EXPECTATION),
+    ).root
+    assert (root / "evidence-provenance.json").is_file()
+    (root / "evidence-provenance.json").unlink()
+
+    def mutate(payload: dict[str, Any]) -> None:
+        payload["files"] = [
+            entry for entry in payload["files"] if entry["name"] != "evidence-provenance.json"
+        ]
+
+    _mutate_manifest(root, mutate)
+    with pytest.raises(DatasetArtifactError):
+        verify_slice(root)
+
+
+def test_a_beir_slice_refuses_a_foreign_provenance_sidecar(tmp_path: Path) -> None:
+    root = _materialize_scifact(tmp_path)
+    sidecar = root / "evidence-provenance.json"
+    sidecar.write_bytes(canonical_bytes({"artifact_revision": "foreign"}))
+
+    def mutate(payload: dict[str, Any]) -> None:
+        content = sidecar.read_bytes()
+        payload["files"] = [
+            *payload["files"],
+            {"name": sidecar.name, "size_bytes": len(content), "sha256": bytes_sha256(content)},
+        ]
+
+    _mutate_manifest(root, mutate)
+    with pytest.raises(DatasetArtifactError) as raised:
+        verify_slice(root)
+    assert "evidence-provenance.json" in str(raised.value.observed)
+
+
+def test_a_qasper_slice_refuses_a_foreign_provenance_sidecar(tmp_path: Path) -> None:
+    root = _materialize_qasper(tmp_path)
+    sidecar = root / "evidence-provenance.json"
+    sidecar.write_bytes(canonical_bytes({"artifact_revision": "foreign"}))
+
+    def mutate(payload: dict[str, Any]) -> None:
+        content = sidecar.read_bytes()
+        payload["files"] = [
+            *payload["files"],
+            {"name": sidecar.name, "size_bytes": len(content), "sha256": bytes_sha256(content)},
+        ]
+
+    _mutate_manifest(root, mutate)
+    with pytest.raises(DatasetArtifactError):
+        verify_slice(root)
+
+
+def test_the_closed_inventory_is_a_verified_claim(tmp_path: Path) -> None:
+    receipt = verify_slice(_materialize_scifact_open(tmp_path))
+    assert "source-family-closed-inventory" in receipt.verified_claims
+    assert "scifact-open-provenance-sidecar" in receipt.verified_claims
+    assert "source-sentence-pointers" in receipt.attested_claims
 
 
 def _materialize_scifact_open(tmp_path: Path) -> Path:

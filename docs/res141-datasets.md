@@ -132,6 +132,37 @@ A QASPER slice is deliberately **not** a document-retrieval dataset. It contains
 annotation is not a document qrel, and inventing one would be the exact
 conflation the mission forbids.
 
+### The inventory is closed per source family
+
+A manifest that lists its own files cannot decide what *should* be there — a
+required file could be deleted and the manifest re-signed. Verification therefore
+derives the expected inventory from the declared source family and task and
+refuses in both directions:
+
+| Family | Task | Required payload |
+| --- | --- | --- |
+| SciFact-Open | document retrieval | `dataset.json`, `rights.txt`, `evidence-provenance.json` (both corpus variants) |
+| BEIR | document retrieval | `dataset.json`, `rights.txt` |
+| QASPER | evidence selection | `task.json`, `rights.txt` |
+
+A foreign sidecar on a BEIR or QASPER slice is a refusal, not an extra file. The
+family is itself part of what the manifest declares, so this closes the inventory
+relative to that declaration; `--registered-source` or
+`--expect-manifest-sha256` is what authenticates the declaration.
+
+The SciFact-Open sidecar is validated link by link, not just counted: canonical
+ascending unique `(claim, document)` pairs, binary evidence-presence relevance,
+`SUPPORT`/`CONTRADICT` labels, `citation`/`pooling` provenance, boolean pool
+membership, strictly ascending unique non-negative sentence indexes, and model
+ranks that are `null` for `citation` evidence and a non-empty mapping of named
+models to non-negative integers for `pooling` evidence. What the sidecar counts
+must equal what its links say, the links must equal the dataset qrels exactly, and
+the manifest diagnostics must equal both.
+
+Whether *sentence 3 of document 101* really exists in the S2ORC abstract cannot be
+recomputed without the source corpus, so that claim is returned under
+`attested_claims` as `source-sentence-pointers`, never as verified.
+
 ## Source qualification
 
 Every source in `dynamisrag.datasets.sources` pins the official distribution

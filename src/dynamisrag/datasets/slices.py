@@ -23,6 +23,7 @@ import shutil
 import tempfile
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from itertools import pairwise
 from pathlib import Path
 from typing import Final, cast
 
@@ -44,6 +45,7 @@ from dynamisrag.datasets.rights import (
     RightsOutcome,
 )
 from dynamisrag.datasets.sources import (
+    FAMILY_SCIFACT_OPEN,
     FrozenDatasetSource,
     SourceArtifact,
     SourceFormat,
@@ -54,6 +56,7 @@ from dynamisrag.ir.contracts import IrDataset, IrQrel, IrQuery
 
 __all__ = [
     "ATTESTED_CORPUS_IDENTITY",
+    "ATTESTED_SENTENCE_POINTERS",
     "ATTESTED_SOURCE_PINS",
     "DATASET_FILENAME",
     "MANIFEST_FILENAME",
@@ -92,8 +95,13 @@ an out-of-band expected manifest digest, or both."""
 
 ATTESTED_SOURCE_PINS: Final[str] = "source-archive-and-member-pins"
 ATTESTED_CORPUS_IDENTITY: Final[str] = "corpus-identity"
+ATTESTED_SENTENCE_POINTERS: Final[str] = "source-sentence-pointers"
+"""SciFact-Open sentence indexes and model ranks are checked for *shape* only.
+Whether sentence 3 of document 101 really exists in the S2ORC abstract cannot be
+recomputed without the source corpus, so the claim is attested, never verified."""
 
 _CLAIM_INVENTORY: Final[str] = "manifest-file-inventory"
+_CLAIM_CLOSED_INVENTORY: Final[str] = "source-family-closed-inventory"
 _CLAIM_RIGHTS_NOTICE: Final[str] = "generated-rights-notice"
 _CLAIM_DATASET_IDENTITY: Final[str] = "typed-dataset-identity"
 _CLAIM_QUERY_STATISTICS: Final[str] = "query-statistics"
@@ -554,9 +562,47 @@ def _manifest_identity(manifest: dict[str, object]) -> tuple[str, str]:
     return source_id, str(manifest.get("split"))
 
 
+def required_payload_names(source: FrozenDatasetSource, *, task: str) -> tuple[str, ...]:
+    """The closed payload inventory one source family and task must carry.
+
+    A manifest that lists its own inventory cannot decide what *should* be there:
+    deleting a required file and re-signing the manifest would otherwise pass,
+    which is exactly how a provenance sidecar could disappear from a SciFact-Open
+    slice. The inventory is therefore a function of the declared source family
+    and the declared task, and it is closed in both directions - a missing
+    required file and a foreign extra file are both refusals.
+
+    The family is itself part of what the manifest declares, so this closes the
+    inventory *relative to that declaration*; authenticating the declaration
+    itself is what ``--registered-source`` and ``--expect-manifest-sha256`` are
+    for.
+    """
+    if task == TASK_DOCUMENT_RETRIEVAL:
+        names = {DATASET_FILENAME, RIGHTS_FILENAME}
+        if source.family == FAMILY_SCIFACT_OPEN:
+            names.add(_SCIFACT_OPEN_SIDECAR)
+        return tuple(sorted(names))
+    if task == TASK_EVIDENCE_SELECTION:
+        from dynamisrag.datasets.qasper import TASK_FILENAME
+
+        return (TASK_FILENAME, RIGHTS_FILENAME)
+    raise DatasetArtifactError(
+        f"the slice declares an unknown task {task!r}.",
+        operation="verify_slice",
+        source_id=source.source_id,
+        observed=task,
+    )
+
+
 def _verify_inventory(
-    root: Path, manifest: dict[str, object], *, source_id: str, split: str
+    root: Path,
+    manifest: dict[str, object],
+    *,
+    source: FrozenDatasetSource,
+    task: str,
+    split: str,
 ) -> list[dict[str, object]]:
+    source_id = source.source_id
     raw_entries = manifest.get("files")
     if not isinstance(raw_entries, list):
         raise DatasetArtifactError(
@@ -574,6 +620,17 @@ def _verify_inventory(
             operation="verify_slice",
             source_id=source_id,
             split=split,
+        )
+    required = set(required_payload_names(source, task=task))
+    if set(names) != required:
+        raise DatasetArtifactError(
+            "the slice payload inventory is not the closed inventory this source family "
+            "and task require.",
+            operation="verify_slice",
+            source_id=source_id,
+            split=split,
+            expected=str(sorted(required)),
+            observed=str(sorted(names)),
         )
     expected_names = {MANIFEST_FILENAME, *names}
     actual_names = {path.name for path in root.iterdir()}
@@ -891,6 +948,87 @@ class _SidecarStats:
     in_pool: int
 
 
+def _sidecar_sentences(raw: object, *, source_id: str, split: str) -> tuple[int, ...]:
+    """Validate one link's sentence indexes: non-negative, ascending, unique.
+
+    Shape only. That sentence N of this abstract exists is a source fact no
+    sealed slice can prove, and the receipt says so through
+    :data:`ATTESTED_SENTENCE_POINTERS`.
+    """
+    if not isinstance(raw, list):
+        raise DatasetArtifactError(
+            "a SciFact-Open provenance link has a non-list sentences field.",
+            operation="verify_slice",
+            source_id=source_id,
+            split=split,
+        )
+    indexes: list[int] = []
+    for value in cast("list[object]", raw):
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise DatasetArtifactError(
+                "a SciFact-Open provenance sentence index is not a non-negative integer.",
+                operation="verify_slice",
+                source_id=source_id,
+                split=split,
+            )
+        indexes.append(value)
+    if any(later <= earlier for earlier, later in pairwise(indexes)):
+        raise DatasetArtifactError(
+            "a SciFact-Open provenance link lists its sentence indexes out of order or twice.",
+            operation="verify_slice",
+            source_id=source_id,
+            split=split,
+        )
+    return tuple(indexes)
+
+
+def _sidecar_model_ranks(
+    raw: object, *, provenance: str, source_id: str, split: str
+) -> tuple[tuple[str, int], ...] | None:
+    """Validate one link's model ranks against its declared provenance.
+
+    ``citation`` evidence was written by a human and carries no model rank;
+    ``pooling`` evidence came from a retrieval model and must carry one per
+    judging model. Empty, negative, non-integer and unnamed ranks are refusals,
+    because a pooling link without ranks cannot be interpreted as pooled
+    evidence at all.
+    """
+    if provenance == "citation":
+        if raw is not None:
+            raise DatasetArtifactError(
+                "SciFact-Open citation evidence must carry null model ranks.",
+                operation="verify_slice",
+                source_id=source_id,
+                split=split,
+            )
+        return None
+    if not isinstance(raw, dict) or not raw:
+        raise DatasetArtifactError(
+            "SciFact-Open pooling evidence must carry model ranks.",
+            operation="verify_slice",
+            source_id=source_id,
+            split=split,
+        )
+    pairs: list[tuple[str, int]] = []
+    for model, rank in cast("dict[object, object]", raw).items():
+        if (
+            not isinstance(model, str)
+            or not model.strip()
+            or isinstance(rank, bool)
+            or not isinstance(rank, int)
+            or rank < 0
+        ):
+            raise DatasetArtifactError(
+                "a SciFact-Open model rank is not a non-negative integer under a named model.",
+                operation="verify_slice",
+                source_id=source_id,
+                split=split,
+                item_id=str(model),
+            )
+        pairs.append((model, rank))
+    return tuple(sorted(pairs))
+
+
 def _parse_sidecar_links(raw_links: list[object], *, source_id: str, split: str) -> _SidecarStats:
     """Validate every sidecar link and recompute its statistics, or refuse."""
     pairs: list[tuple[str, str]] = []
@@ -928,6 +1066,13 @@ def _parse_sidecar_links(raw_links: list[object], *, source_id: str, split: str)
                 source_id=source_id,
                 split=split,
             )
+        _sidecar_sentences(link.get("sentences"), source_id=source_id, split=split)
+        _sidecar_model_ranks(
+            link.get("model_ranks"),
+            provenance=cast("str", provenance),
+            source_id=source_id,
+            split=split,
+        )
         pair = (query_id, document_id)
         if pairs and pair <= pairs[-1]:
             raise DatasetArtifactError(
@@ -1180,8 +1325,9 @@ def verify_slice(
             )
         trusted_source = source_by_id(source_id)
     verified: list[str] = []
-    listed = _verify_inventory(root, manifest, source_id=source_id, split=split)
-    verified.append(_CLAIM_INVENTORY)
+    task = str(manifest.get("task"))
+    listed = _verify_inventory(root, manifest, source=source, task=task, split=split)
+    verified.extend((_CLAIM_INVENTORY, _CLAIM_CLOSED_INVENTORY))
     if trusted_source is not None and (
         trusted_source.source_id != source_id or trusted_source.payload() != source.payload()
     ):
@@ -1213,7 +1359,6 @@ def verify_slice(
         )
     verified.append(_CLAIM_RIGHTS_NOTICE)
     attested: list[str] = [ATTESTED_SOURCE_PINS]
-    task = str(manifest.get("task"))
     dataset_sha256: str | None = None
     task_sha256: str | None = None
     if task == TASK_DOCUMENT_RETRIEVAL:
@@ -1230,12 +1375,12 @@ def verify_slice(
             )
         )
         attested.append(ATTESTED_CORPUS_IDENTITY)
-        names = {str(entry.get("name")) for entry in listed}
-        if _SCIFACT_OPEN_SIDECAR in names:
+        if _SCIFACT_OPEN_SIDECAR in {str(entry.get("name")) for entry in listed}:
             _verify_scifact_open_sidecar(
                 root, manifest, dataset, source=source, source_id=source_id, split=split
             )
             verified.append(_CLAIM_PROVENANCE_SIDECAR)
+            attested.append(ATTESTED_SENTENCE_POINTERS)
     elif task == TASK_EVIDENCE_SELECTION:
         task_sha256 = _verify_qasper(root, manifest, source_id=source_id, split=split)
         verified.extend((_CLAIM_TASK_IDENTITY, _CLAIM_TASK_STATISTICS))
