@@ -32,3 +32,9 @@ passages with the canonical chunker configuration.
 
 No embedding is ever generated from any document in this directory. The vectors
 used against them are synthetic test values, labelled as such at every use.
+
+## `datasets/`
+
+Synthetic fixtures for the RES-141 dataset adapters. Nothing in that directory
+is third-party content; see `datasets/README.md` for what each miniature mirrors
+and which adapter it exercises.
