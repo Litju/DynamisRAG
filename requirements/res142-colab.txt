@@ -1,0 +1,17 @@
+# RES-142 direct constraints for the candidate inference profile
+# (Linux x86_64, Python 3.12, manylinux/glibc 2.31 floor).
+# The resolved, hash-locked candidate is requirements/res142-colab.lock.txt.
+# Resolution used uv 0.12.4 with --python-version 3.12,
+# --python-platform x86_64-manylinux_2_31, --only-binary=:all:,
+# --generate-hashes, PyPI, and the cu129 PyTorch backend.
+# This file is not an install instruction. GPU setup still requires a separate
+# browser-only inspection and explicit approval naming the available SKU and CU cap.
+vllm @ https://github.com/vllm-project/vllm/releases/download/v0.31.0/vllm-0.31.0%2Bcu129-cp38-abi3-manylinux_2_28_x86_64.whl#sha256=5176ab746f4e736c4a354a11d0620abf0a941de287cad937ac34039293ca6f5f
+numba==0.65.0
+torch==2.13.0
+torchvision==0.28.0
+torchaudio==2.11.0
+transformers==5.10.4
+huggingface-hub==1.31.0
+tokenizers==0.22.1
+safetensors==0.6.2
