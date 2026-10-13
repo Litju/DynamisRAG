@@ -7,6 +7,7 @@ import hashlib
 import json
 import signal
 import subprocess
+import sys
 import zipfile
 from collections.abc import Callable
 from pathlib import Path
@@ -42,6 +43,46 @@ def test_every_notebook_code_cell_compiles_and_is_unexecuted() -> None:
         compile(source, f"{_NOTEBOOK.name}:cell-{index}", "exec")
         assert cell.get("execution_count") is None
         assert cell.get("outputs") == []
+
+
+def test_first_code_cell_imports_subprocess() -> None:
+    first_cell = ast.parse(_cells("code")[0])
+    assert any(
+        isinstance(statement, ast.Import)
+        and any(alias.name == "subprocess" for alias in statement.names)
+        for statement in first_cell.body
+    )
+
+
+def test_sequential_notebook_source_has_no_unresolved_global_names() -> None:
+    # Ruff skips .ipynb files, so run F821 over the cells as one module in execution order.
+    source = "\n\n".join(
+        f"# Executable notebook cell {index}\n{cell}" for index, cell in enumerate(_cells("code"))
+    )
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "ruff",
+            "check",
+            "--isolated",
+            "--select",
+            "F821",
+            "--output-format",
+            "concise",
+            "--stdin-filename",
+            "res142_qwen3_reranker_colab.py",
+            "-",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        input=source,
+    )
+    assert result.returncode == 0, (
+        f"Ruff F821 found unresolved notebook globals:\n{result.stdout}{result.stderr}"
+    )
 
 
 def test_notebook_template_is_the_uploaded_file_byte_for_byte() -> None:

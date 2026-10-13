@@ -170,7 +170,7 @@ These are the actual local artifacts, not summaries or generated placeholders:
 
 | Artifact (canonical Git LF bytes) | Bytes | SHA-256 |
 |---|---:|---|
-| `notebooks/res142_qwen3_reranker_colab.ipynb` | 54,855 | `24d5b60f69ff7978aad4bd22479f9ebf233c35c4b9d20c7679a28d2d7e230399` |
+| `notebooks/res142_qwen3_reranker_colab.ipynb` | 54,882 | `98ff40bcd3dfaf448ac7f76d66852929a7a9c8f99e79c20c6e7901767f2c8418` |
 | `requirements/res142-colab.txt` | 891 | `3df83a1da185da638bc96bc7b78bf3469df5a771448e549c844b139cd8de5193` |
 | `requirements/res142-colab.lock.txt` | 407,840 | `d8a87ad2f1f2a7faccfb96fee9fa859995f61caa7b8a7b845e268888c4c111dc` |
 | `notebooks/res142_qwen3_reranker.jinja` | 684 | `bf7b104801a4e4ad6a147d732e2d5a837a36f708cdbd1b871b864979d3e10acd` |
