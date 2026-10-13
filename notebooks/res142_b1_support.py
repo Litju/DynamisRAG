@@ -12,7 +12,7 @@ import time
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import suppress
 from pathlib import Path
-from typing import Any
+from typing import cast
 
 _PROCESS_KILL_SIGNAL = getattr(signal, "SIGKILL", 9)
 
@@ -59,6 +59,7 @@ def build_execution_provenance(
     *,
     preparation_commit_sha: str,
     notebook_sha256: str,
+    support_sha256: str,
     template_sha256: str,
     lock_sha256: str,
 ) -> dict[str, str]:
@@ -67,6 +68,7 @@ def build_execution_provenance(
         raise ValueError("Preparation commit must be a full 40-character Git SHA.")
     for label, digest in (
         ("Notebook", notebook_sha256),
+        ("Support helper", support_sha256),
         ("Template", template_sha256),
         ("Lock", lock_sha256),
     ):
@@ -75,6 +77,7 @@ def build_execution_provenance(
     return {
         "preparation_commit_sha": preparation_commit_sha.lower(),
         "notebook_sha256": notebook_sha256.lower(),
+        "support_sha256": support_sha256.lower(),
         "template_sha256": template_sha256.lower(),
         "lock_sha256": lock_sha256.lower(),
     }
@@ -112,6 +115,7 @@ def terminate_process_group(
     *,
     term_timeout_seconds: float = 5,
     kill_timeout_seconds: float = 5,
+    deadline: float | None = None,
     killpg: Callable[[int, int], object] | None = None,
     monotonic: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
@@ -126,6 +130,8 @@ def terminate_process_group(
         send_signal(process_group_id, signal.SIGTERM)
 
     term_deadline = monotonic() + term_timeout_seconds
+    if deadline is not None:
+        term_deadline = min(term_deadline, deadline)
     while process_group_exists(process_group_id, killpg=send_signal):
         remaining = term_deadline - monotonic()
         if remaining <= 0:
@@ -139,6 +145,8 @@ def terminate_process_group(
             send_signal(process_group_id, _PROCESS_KILL_SIGNAL)
 
     kill_deadline = monotonic() + kill_timeout_seconds
+    if deadline is not None:
+        kill_deadline = min(kill_deadline, deadline)
     while process_group_exists(process_group_id, killpg=send_signal):
         remaining = kill_deadline - monotonic()
         if remaining <= 0:
@@ -148,7 +156,7 @@ def terminate_process_group(
         sleep(min(0.1, remaining))
 
     try:
-        process.wait(timeout=max(0.1, kill_deadline - monotonic()))
+        process.wait(timeout=max(0.0, kill_deadline - monotonic()))
     except subprocess.TimeoutExpired as exc:
         raise RuntimeError("The process leader did not exit after process-group cleanup.") from exc
 
@@ -161,7 +169,7 @@ def run_subprocess(
     env: Mapping[str, str] | None = None,
     cwd: str | Path | None = None,
     check: bool = False,
-    popen: Callable[..., Any] | None = None,
+    popen: Callable[..., subprocess.Popen[str]] | None = None,
     killpg: Callable[[int, int], object] | None = None,
     monotonic: Callable[[], float] = time.monotonic,
     sleep: Callable[[float], None] = time.sleep,
@@ -169,8 +177,15 @@ def run_subprocess(
     """Run a child group with a timeout bounded by the remaining B1 deadline."""
     if timeout_seconds <= 0:
         raise ValueError("Subprocess timeout must be positive.")
-    timeout = min(timeout_seconds, remaining_seconds(deadline, monotonic=monotonic))
-    spawn = popen if popen is not None else subprocess.Popen
+    remaining = remaining_seconds(deadline, monotonic=monotonic)
+    # Reserve the bounded TERM/KILL window so a blocked child cannot consume
+    # the entire notebook deadline before cleanup starts.
+    timeout = min(timeout_seconds, remaining - 10.0)
+    if timeout <= 0:
+        raise TimeoutError("Insufficient B1 time remains to start a bounded subprocess.")
+    spawn: Callable[..., subprocess.Popen[str]] = (
+        popen if popen is not None else cast(Callable[..., subprocess.Popen[str]], subprocess.Popen)
+    )
     process = spawn(
         list(command),
         cwd=cwd,
@@ -187,20 +202,19 @@ def run_subprocess(
         try:
             terminate_process_group(
                 process,
+                deadline=deadline,
                 killpg=killpg,
                 monotonic=monotonic,
                 sleep=sleep,
             )
         except Exception as cleanup_error:
-            raise cleanup_error from timeout_error
-        stdout, stderr = process.communicate()
-        timeout_error.output = stdout or timeout_error.output
-        timeout_error.stderr = stderr or timeout_error.stderr
+            raise timeout_error from cleanup_error
         raise
 
     if process_group_exists(int(process.pid), killpg=killpg):
         terminate_process_group(
             process,
+            deadline=deadline,
             killpg=killpg,
             monotonic=monotonic,
             sleep=sleep,
@@ -242,10 +256,16 @@ def build_failure_manifest(
         "manifest_revision": "res142-colab-b1-v2",
         "phase": "B1_SYNTHETIC_SMOKE",
         "status": "failed",
+        "preparation_base_git_sha": "67edcc785af2084e2cc4d8c27b08bea43a5f4bd3",
+        "res142_implementation_git_sha": None,
+        "evaluation_code_sha": None,
         "failure": {
             "stage": stage,
             "error_type": type(error).__name__,
-            "message": sanitize_output(str(error), limit=2_000),
+            "message": sanitize_output(
+                f"{error}\nCaused by: {error.__cause__}" if error.__cause__ else str(error),
+                limit=2_000,
+            ),
             "stderr_tail": sanitize_output(error_output),
         },
         "execution_provenance": dict(execution_provenance),
