@@ -135,7 +135,7 @@ def build_configuration(
         max_runtime_seconds=45 * 60,
     )
     configuration: dict[str, object] = {
-        "schema": "res142-colab-b1-preflight-v1",
+        "schema": "res142-colab-b1-preflight-v2",
         "approvals": {
             "setup": setup_authorization,
             "rate_inspection": rate_inspection_authorization,

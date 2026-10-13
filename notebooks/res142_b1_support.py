@@ -9,12 +9,14 @@ import re
 import signal
 import subprocess
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping, MutableMapping, Sequence
 from contextlib import suppress
 from pathlib import Path
 from typing import cast
 
 _PROCESS_KILL_SIGNAL = getattr(signal, "SIGKILL", 9)
+COLAB_RUNTIME_VERSION_REQUIRED = "2026.04"
+COLAB_RUNTIME_VERSION_VERIFICATION = "operator_confirms_in_colab_ui_before_first_cell"
 
 
 def _positive_number(value: object, label: str) -> float:
@@ -80,6 +82,8 @@ def build_execution_provenance(
         "support_sha256": support_sha256.lower(),
         "template_sha256": template_sha256.lower(),
         "lock_sha256": lock_sha256.lower(),
+        "required_colab_runtime_version": COLAB_RUNTIME_VERSION_REQUIRED,
+        "runtime_version_verification": COLAB_RUNTIME_VERSION_VERIFICATION,
     }
 
 
@@ -228,6 +232,78 @@ def run_subprocess(
     return result
 
 
+def verify_uv_version(
+    executable: str | Path,
+    *,
+    expected_version: str,
+    deadline: float,
+    runner: Callable[..., subprocess.CompletedProcess[str]] = run_subprocess,
+    evidence: MutableMapping[str, object] | None = None,
+) -> dict[str, object]:
+    """Capture both uv banners and fail closed unless each reports the pinned version."""
+    if not re.fullmatch(r"\d+\.\d+\.\d+", expected_version):
+        raise ValueError("Expected uv version must be an exact numeric semantic version.")
+
+    invocation_errors: list[str] = []
+    observed: dict[str, object] = {
+        "expected_version": expected_version,
+        "short_banner": None,
+        "full_banner": None,
+        "short_returncode": None,
+        "full_returncode": None,
+        "invocation_errors": invocation_errors,
+    }
+    if evidence is not None:
+        evidence.update(observed)
+
+    for label, flag in (("short", "-V"), ("full", "--version")):
+        try:
+            result = runner([str(executable), flag], deadline=deadline, timeout_seconds=30)
+        except Exception as exc:
+            invocation_errors.append(
+                f"{flag} raised {type(exc).__name__}: {sanitize_output(exc, limit=1_000)}"
+            )
+        else:
+            banner = sanitize_output(result.stdout.strip(), limit=500)
+            observed[f"{label}_banner"] = banner
+            observed[f"{label}_returncode"] = result.returncode
+            if result.returncode != 0:
+                invocation_errors.append(
+                    f"{flag} exited {result.returncode}: stdout={banner!r}, "
+                    f"stderr={sanitize_output(result.stderr, limit=1_000)!r}"
+                )
+        if evidence is not None:
+            evidence.update(observed)
+
+    expected_banner = f"uv {expected_version}"
+    short_banner = str(observed["short_banner"] or "")
+    full_banner = str(observed["full_banner"] or "")
+    if invocation_errors:
+        raise RuntimeError(
+            f"uv version command failed: expected {expected_banner!r}; "
+            f"observed short={short_banner!r}, full={full_banner!r}; "
+            f"errors={invocation_errors!r}"
+        )
+    if short_banner != expected_banner:
+        raise RuntimeError(
+            f"uv version mismatch: expected short banner {expected_banner!r}; "
+            f"observed short={short_banner!r}, full={full_banner!r}"
+        )
+
+    match = re.fullmatch(r"uv (\d+\.\d+\.\d+)(?: \([^\r\n()]+\))?", full_banner)
+    if match is None:
+        raise RuntimeError(
+            f"Malformed uv --version banner: expected version {expected_version!r}; "
+            f"observed short={short_banner!r}, full={full_banner!r}"
+        )
+    if match.group(1) != expected_version:
+        raise RuntimeError(
+            f"uv version mismatch: expected {expected_version!r}; "
+            f"observed short={short_banner!r}, full={full_banner!r}"
+        )
+    return observed
+
+
 def sanitize_output(value: object, *, limit: int = 12_000) -> str:
     text = value.decode("utf-8", errors="replace") if isinstance(value, bytes) else str(value or "")
     patterns = (
@@ -253,7 +329,7 @@ def build_failure_manifest(
     if not stage.strip():
         raise ValueError("Failure stage must not be blank.")
     return {
-        "manifest_revision": "res142-colab-b1-v2",
+        "manifest_revision": "res142-colab-b1-v3",
         "phase": "B1_SYNTHETIC_SMOKE",
         "status": "failed",
         "preparation_base_git_sha": "67edcc785af2084e2cc4d8c27b08bea43a5f4bd3",

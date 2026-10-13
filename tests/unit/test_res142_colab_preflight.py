@@ -34,6 +34,26 @@ def _cells(cell_type: str) -> list[str]:
     ]
 
 
+def _uv_result(
+    flag: str, banner: str, *, returncode: int = 0, stderr: str = ""
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.CompletedProcess(["uv", flag], returncode, banner, stderr)
+
+
+def _uv_runner(
+    results: dict[str, subprocess.CompletedProcess[str] | Exception], calls: list[str]
+) -> Callable[..., subprocess.CompletedProcess[str]]:
+    def run(command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        flag = command[-1]
+        calls.append(flag)
+        result = results[flag]
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    return run
+
+
 def test_every_notebook_code_cell_compiles_and_is_unexecuted() -> None:
     notebook = _notebook()
     for index, cell in enumerate(notebook["cells"]):
@@ -210,6 +230,8 @@ def test_execution_provenance_requires_exact_commit_and_artifact_digests() -> No
         "support_sha256": "e" * 64,
         "template_sha256": "c" * 64,
         "lock_sha256": "d" * 64,
+        "required_colab_runtime_version": "2026.04",
+        "runtime_version_verification": "operator_confirms_in_colab_ui_before_first_cell",
     }
     with pytest.raises(ValueError, match="full 40-character"):
         support.build_execution_provenance(
@@ -219,6 +241,153 @@ def test_execution_provenance_requires_exact_commit_and_artifact_digests() -> No
             template_sha256="c" * 64,
             lock_sha256="d" * 64,
         )
+
+
+def test_uv_version_check_accepts_the_exact_short_banner() -> None:
+    calls: list[str] = []
+    evidence: dict[str, object] = {}
+    observed = support.verify_uv_version(
+        "/tmp/uv",
+        expected_version="0.12.4",
+        deadline=100,
+        runner=_uv_runner(
+            {
+                "-V": _uv_result("-V", "uv 0.12.4\n"),
+                "--version": _uv_result("--version", "uv 0.12.4\n"),
+            },
+            calls,
+        ),
+        evidence=evidence,
+    )
+    assert calls == ["-V", "--version"]
+    assert observed["short_banner"] == "uv 0.12.4"
+    assert observed["full_banner"] == "uv 0.12.4"
+    assert evidence == observed
+
+
+def test_uv_version_check_accepts_verbose_build_metadata() -> None:
+    calls: list[str] = []
+    observed = support.verify_uv_version(
+        "/tmp/uv",
+        expected_version="0.12.4",
+        deadline=100,
+        runner=_uv_runner(
+            {
+                "-V": _uv_result("-V", "uv 0.12.4\n"),
+                "--version": _uv_result(
+                    "--version", "uv 0.12.4 (77803aa22 2026-08-13 x86_64-unknown-linux-gnu)\n"
+                ),
+            },
+            calls,
+        ),
+    )
+    assert calls == ["-V", "--version"]
+    assert observed["full_banner"] == ("uv 0.12.4 (77803aa22 2026-08-13 x86_64-unknown-linux-gnu)")
+
+
+@pytest.mark.parametrize("version", ["0.12.5", "0.12.40"])
+def test_uv_version_check_rejects_different_and_prefix_collision_versions(version: str) -> None:
+    calls: list[str] = []
+    banner = f"uv {version}"
+    with pytest.raises(RuntimeError, match=r"expected.*0.12.4.*observed"):
+        support.verify_uv_version(
+            "/tmp/uv",
+            expected_version="0.12.4",
+            deadline=100,
+            runner=_uv_runner(
+                {
+                    "-V": _uv_result("-V", banner),
+                    "--version": _uv_result("--version", f"{banner} (build metadata)"),
+                },
+                calls,
+            ),
+        )
+    assert calls == ["-V", "--version"]
+
+
+@pytest.mark.parametrize(
+    ("short_banner", "full_banner"),
+    [
+        ("uv 0.12.4-dev", "uv 0.12.4 (build metadata)"),
+        ("uv 0.12.4", "uv 0.12.4 build metadata"),
+    ],
+)
+def test_uv_version_check_rejects_malformed_banners(short_banner: str, full_banner: str) -> None:
+    with pytest.raises(RuntimeError, match=r"expected.*observed"):
+        support.verify_uv_version(
+            "/tmp/uv",
+            expected_version="0.12.4",
+            deadline=100,
+            runner=_uv_runner(
+                {
+                    "-V": _uv_result("-V", short_banner),
+                    "--version": _uv_result("--version", full_banner),
+                },
+                [],
+            ),
+        )
+
+
+def test_uv_version_check_fails_closed_on_nonzero_subprocess_and_records_banners() -> None:
+    evidence: dict[str, object] = {}
+    calls: list[str] = []
+    with pytest.raises(RuntimeError, match=r"returncode|exited|version command failed") as exc_info:
+        support.verify_uv_version(
+            "/tmp/uv",
+            expected_version="0.12.4",
+            deadline=100,
+            runner=_uv_runner(
+                {
+                    "-V": _uv_result("-V", "uv 0.12.4"),
+                    "--version": _uv_result(
+                        "--version", "uv 0.12.4 (diagnostic)", returncode=1, stderr="failed"
+                    ),
+                },
+                calls,
+            ),
+            evidence=evidence,
+        )
+    assert "uv 0.12.4 (diagnostic)" in str(exc_info.value)
+    assert evidence["short_banner"] == "uv 0.12.4"
+    assert evidence["full_banner"] == "uv 0.12.4 (diagnostic)"
+    assert evidence["full_returncode"] == 1
+    assert calls == ["-V", "--version"]
+
+
+def test_uv_version_check_fails_closed_when_a_subprocess_cannot_start() -> None:
+    evidence: dict[str, object] = {}
+    with pytest.raises(RuntimeError, match="uv version command failed") as exc_info:
+        support.verify_uv_version(
+            "/tmp/uv",
+            expected_version="0.12.4",
+            deadline=100,
+            runner=_uv_runner(
+                {
+                    "-V": OSError("missing executable"),
+                    "--version": _uv_result("--version", "uv 0.12.4 (build metadata)"),
+                },
+                [],
+            ),
+            evidence=evidence,
+        )
+    assert "OSError" in str(exc_info.value)
+    assert "uv 0.12.4" in str(exc_info.value)
+    assert evidence["short_banner"] is None
+    assert evidence["full_banner"] == "uv 0.12.4 (build metadata)"
+
+
+def test_runtime_version_requirement_is_documented_and_in_bundle_provenance() -> None:
+    docs = (_ROOT / "docs" / "res142-colab-preflight.md").read_text(encoding="utf-8")
+    notebook_markdown = "\n".join(_cells("markdown"))
+    assert support.COLAB_RUNTIME_VERSION_REQUIRED == "2026.04"
+    assert "2026.04" in docs and "Latest" in docs
+    assert "operator" in docs.lower() and "visually verify" in docs.lower()
+    assert "2026.04" in notebook_markdown and "Latest" in notebook_markdown
+    assert "before running **any** cell" in notebook_markdown.lower()
+    code = "\n".join(_cells("code"))
+    assert "verify_uv_version(" in code
+    assert '"uv_version_evidence": UV_VERSION_EVIDENCE' in code
+    assert '"uv_version_evidence": globals().get("UV_VERSION_EVIDENCE")' in code
 
 
 @pytest.mark.parametrize(
@@ -489,7 +658,9 @@ def test_preconnection_bundle_pins_exact_local_commit_and_artifacts(tmp_path: Pa
             "res142-colab.lock.txt",
         }
         saved = json.loads(bundle.read("res142_b1_config.json"))
+        assert saved["schema"] == "res142-colab-b1-preflight-v2"
         assert saved["execution_provenance"]["preparation_commit_sha"] == commit
+        assert saved["execution_provenance"]["required_colab_runtime_version"] == "2026.04"
         assert (
             saved["execution_provenance"]["notebook_sha256"]
             == hashlib.sha256(b"notebook").hexdigest()
