@@ -13,7 +13,14 @@ import zipfile
 from pathlib import Path
 from uuid import uuid4
 
-from notebooks.res142_b1_support import build_execution_provenance, validate_setup_authorization
+from notebooks.res142_b1_support import (
+    COLAB_DRIVE_MIN_FREE_BYTES,
+    COLAB_DRIVE_MOUNTPOINT,
+    COLAB_DRIVE_ROOT,
+    build_execution_provenance,
+    validate_drive_storage_authorization,
+    validate_setup_authorization,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CONFIG_FILENAME = "res142_b1_config.json"
@@ -104,6 +111,8 @@ def build_configuration(
     current_commit_sha: str,
     setup_authorization: str,
     rate_inspection_authorization: str,
+    drive_authorization: str,
+    drive_destination_confirmation: str,
     gpu: str,
     rate_inspection_max_compute_units: float,
     observed_compute_units_per_hour: float,
@@ -111,6 +120,10 @@ def build_configuration(
 ) -> tuple[dict[str, object], dict[str, bytes]]:
     if branch != EXPECTED_BRANCH:
         raise ValueError(f"Prepare the bundle only from {EXPECTED_BRANCH}.")
+    drive_storage = validate_drive_storage_authorization(
+        authorization=drive_authorization,
+        destination_confirmation=drive_destination_confirmation,
+    )
 
     artifacts = {
         name: (repo_root / relative_path).read_bytes().replace(b"\r\n", b"\n")
@@ -135,7 +148,7 @@ def build_configuration(
         max_runtime_seconds=45 * 60,
     )
     configuration: dict[str, object] = {
-        "schema": "res142-colab-b1-preflight-v2",
+        "schema": "res142-colab-b1-preflight-v3",
         "approvals": {
             "setup": setup_authorization,
             "rate_inspection": rate_inspection_authorization,
@@ -150,6 +163,13 @@ def build_configuration(
             "max_runtime_seconds": 45 * 60,
             "server_startup_seconds": 15 * 60,
             "synthetic_pairs": 2,
+        },
+        "drive_storage": {
+            **drive_storage,
+            "mountpoint": COLAB_DRIVE_MOUNTPOINT.as_posix(),
+            "required_root": COLAB_DRIVE_ROOT.as_posix(),
+            "minimum_free_bytes": COLAB_DRIVE_MIN_FREE_BYTES,
+            "scope": "b1-synthetic-only",
         },
         "execution_provenance": execution_provenance,
         "res142_implementation_git_sha": None,
@@ -196,6 +216,8 @@ def prepare_bundle(
     output_path: Path,
     setup_authorization: str,
     rate_inspection_authorization: str,
+    drive_authorization: str,
+    drive_destination_confirmation: str,
     gpu: str,
     rate_inspection_max_compute_units: float,
     observed_compute_units_per_hour: float,
@@ -214,6 +236,8 @@ def prepare_bundle(
         current_commit_sha=current_commit_sha,
         setup_authorization=setup_authorization,
         rate_inspection_authorization=rate_inspection_authorization,
+        drive_authorization=drive_authorization,
+        drive_destination_confirmation=drive_destination_confirmation,
         gpu=gpu,
         rate_inspection_max_compute_units=rate_inspection_max_compute_units,
         observed_compute_units_per_hour=observed_compute_units_per_hour,
@@ -226,7 +250,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--setup-authorization", required=True)
     parser.add_argument("--rate-inspection-authorization", required=True)
-    parser.add_argument("--gpu", choices=("G4", "A100"), required=True)
+    parser.add_argument("--drive-authorization", required=True)
+    parser.add_argument("--drive-destination-confirmation", required=True)
+    parser.add_argument("--gpu", choices=("G4",), required=True)
     parser.add_argument("--rate-inspection-max-cu", type=float, required=True)
     parser.add_argument("--observed-cu-per-hour", type=float, required=True)
     parser.add_argument("--approved-max-cu", type=float, required=True)
@@ -238,6 +264,8 @@ def main() -> int:
         output_path=arguments.output,
         setup_authorization=arguments.setup_authorization,
         rate_inspection_authorization=arguments.rate_inspection_authorization,
+        drive_authorization=arguments.drive_authorization,
+        drive_destination_confirmation=arguments.drive_destination_confirmation,
         gpu=arguments.gpu,
         rate_inspection_max_compute_units=arguments.rate_inspection_max_cu,
         observed_compute_units_per_hour=arguments.observed_cu_per_hour,

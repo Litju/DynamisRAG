@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
@@ -11,12 +12,25 @@ import subprocess
 import time
 from collections.abc import Callable, Mapping, MutableMapping, Sequence
 from contextlib import suppress
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import cast
+from uuid import uuid4
 
 _PROCESS_KILL_SIGNAL = getattr(signal, "SIGKILL", 9)
 COLAB_RUNTIME_VERSION_REQUIRED = "2026.04"
 COLAB_RUNTIME_VERSION_VERIFICATION = "operator_confirms_in_colab_ui_before_first_cell"
+COLAB_DRIVE_AUTHORIZATION_REQUIRED = "APPROVE COLAB DRIVE STORAGE"
+COLAB_DRIVE_MOUNTPOINT = Path("/content/drive")
+COLAB_DRIVE_ROOT = COLAB_DRIVE_MOUNTPOINT / "MyDrive" / "DynamisRAG" / "RES-142"
+COLAB_DRIVE_MIN_FREE_BYTES = 16 * 1024 * 1024
+MAX_DURABLE_ARTIFACT_BYTES = 16 * 1024 * 1024
+DRIVE_IO_CHUNK_BYTES = 64 * 1024
+
+
+class DriveStorageError(RuntimeError):
+    def __init__(self, message: str, state: Mapping[str, object]) -> None:
+        super().__init__(message)
+        self.state = dict(state)
 
 
 def _positive_number(value: object, label: str) -> float:
@@ -44,8 +58,10 @@ def validate_setup_authorization(
         raise PermissionError("B1 is locked until APPROVE COLAB SETUP is entered.")
     if rate_inspection_authorization != "APPROVE COLAB RATE INSPECTION":
         raise PermissionError("A separately approved CU-rate inspection is required.")
-    if target_gpu not in {"G4", "A100"} or rate_inspection_gpu != target_gpu:
-        raise PermissionError("B1 GPU must match the separately approved rate-inspection GPU.")
+    if target_gpu != "G4" or rate_inspection_gpu != target_gpu:
+        raise PermissionError(
+            "RES-142 B1 requires G4 matching the separately approved rate inspection."
+        )
 
     _positive_number(rate_inspection_max_compute_units, "Rate-inspection CU maximum")
     rate = _positive_number(observed_compute_units_per_hour, "Observed CU/hour rate")
@@ -84,7 +100,480 @@ def build_execution_provenance(
         "lock_sha256": lock_sha256.lower(),
         "required_colab_runtime_version": COLAB_RUNTIME_VERSION_REQUIRED,
         "runtime_version_verification": COLAB_RUNTIME_VERSION_VERIFICATION,
+        "required_drive_storage_backend": "google_drive",
+        "required_drive_root": COLAB_DRIVE_ROOT.as_posix(),
+        "drive_mount_authorization": COLAB_DRIVE_AUTHORIZATION_REQUIRED,
     }
+
+
+def validate_drive_storage_authorization(
+    *, authorization: str, destination_confirmation: str
+) -> dict[str, str]:
+    if authorization != COLAB_DRIVE_AUTHORIZATION_REQUIRED:
+        raise PermissionError(
+            "Google Drive storage requires explicit COLAB DRIVE STORAGE authorization."
+        )
+    if destination_confirmation.rstrip("/") != COLAB_DRIVE_ROOT.as_posix():
+        raise PermissionError(
+            f"Google Drive destination must be confirmed as {COLAB_DRIVE_ROOT.as_posix()!r}."
+        )
+    return {
+        "backend": "google_drive",
+        "authorization": authorization,
+        "destination_confirmation": destination_confirmation.rstrip("/"),
+        "required_root": COLAB_DRIVE_ROOT.as_posix(),
+        "mountpoint": COLAB_DRIVE_MOUNTPOINT.as_posix(),
+        "minimum_free_bytes": str(COLAB_DRIVE_MIN_FREE_BYTES),
+    }
+
+
+def new_drive_run_id() -> str:
+    return f"{time.time_ns()}-{uuid4().hex}"
+
+
+def is_colab_drive_mounted(mountpoint: Path = COLAB_DRIVE_MOUNTPOINT) -> bool:
+    try:
+        mount_lines = Path("/proc/mounts").read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return False
+    expected_mountpoint = str(mountpoint)
+    return any(
+        len(fields := line.split()) >= 3
+        and fields[1].replace(r"\040", " ") == expected_mountpoint
+        and fields[2] == "fuse.drive"
+        for line in mount_lines
+    )
+
+
+def _mkdir_path(path: Path, *, parents: bool, exist_ok: bool) -> None:
+    path.mkdir(parents=parents, exist_ok=exist_ok)
+
+
+def _drive_available_bytes(path: Path) -> int:
+    return int(shutil.disk_usage(path).free)
+
+
+def _drive_sha256_file(path: Path, *, deadline: float | None = None) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        while True:
+            if deadline is not None:
+                remaining_seconds(deadline)
+            block = handle.read(DRIVE_IO_CHUNK_BYTES)
+            if not block:
+                break
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def _copy_file_exclusive(source: Path, destination: Path, *, deadline: float | None = None) -> None:
+    with source.open("rb") as source_handle, destination.open("xb") as destination_handle:
+        while True:
+            if deadline is not None:
+                remaining_seconds(deadline)
+            block = source_handle.read(DRIVE_IO_CHUNK_BYTES)
+            if not block:
+                break
+            destination_handle.write(block)
+        destination_handle.flush()
+        os.fsync(destination_handle.fileno())
+
+
+def _record_drive_error(
+    state: MutableMapping[str, object], *, stage: str, error: BaseException
+) -> None:
+    state["persistence_status"] = "incomplete"
+    errors = state.get("errors")
+    if not isinstance(errors, list):
+        errors = []
+        state["errors"] = errors
+    errors.append(
+        {
+            "stage": stage,
+            "error_type": type(error).__name__,
+            "message": sanitize_output(error, limit=2_000),
+        }
+    )
+
+
+def initialize_drive_run(
+    *,
+    mountpoint: Path,
+    drive_root: Path,
+    run_id: str,
+    local_staging_dir: Path,
+    state: dict[str, object],
+    mount_check: Callable[[Path], bool] | None = None,
+    free_bytes: Callable[[Path], int] | None = None,
+    mkdir: Callable[..., None] | None = None,
+    minimum_free_bytes: int = COLAB_DRIVE_MIN_FREE_BYTES,
+    deadline: float | None = None,
+) -> dict[str, object]:
+    state.update(
+        {
+            "backend": "google_drive",
+            "run_id": run_id,
+            "mountpoint": str(mountpoint),
+            "required_root": str(drive_root),
+            "minimum_free_bytes": minimum_free_bytes,
+            "free_space_probe_method": "shutil.disk_usage_on_drivefs_mount_best_effort",
+            "mount_verified": False,
+            "persistence_status": "preflight",
+            "persisted_artifacts": {},
+            "checkpoints": [],
+            "errors": [],
+        }
+    )
+    selected_mount_check = mount_check if mount_check is not None else is_colab_drive_mounted
+    selected_free_bytes = free_bytes if free_bytes is not None else _drive_available_bytes
+    selected_mkdir = mkdir if mkdir is not None else _mkdir_path
+    try:
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,79}", run_id):
+            raise ValueError("Drive run ID contains unsupported characters or is too long.")
+        if isinstance(minimum_free_bytes, bool) or minimum_free_bytes <= 0:
+            raise ValueError("Drive minimum free bytes must be positive.")
+        if not selected_mount_check(mountpoint):
+            raise RuntimeError(f"Google Drive is not mounted at {str(mountpoint)!r}.")
+        state["mount_verified"] = True
+        my_drive = mountpoint / "MyDrive"
+        if not my_drive.is_dir():
+            raise RuntimeError(
+                f"Mounted Drive does not expose the account MyDrive folder at {my_drive}."
+            )
+        if drive_root != my_drive / "DynamisRAG" / "RES-142":
+            raise ValueError("Drive destination does not match the reviewed RES-142 root.")
+        if (
+            my_drive.is_symlink()
+            or (my_drive / "DynamisRAG").is_symlink()
+            or drive_root.is_symlink()
+        ):
+            raise ValueError("Drive mount destination must not use symlinked path components.")
+        if not drive_root.exists():
+            selected_mkdir(drive_root, parents=True, exist_ok=True)
+        elif not drive_root.is_dir():
+            raise NotADirectoryError(f"Drive destination is not a directory: {drive_root}")
+        if not drive_root.resolve().is_relative_to(my_drive.resolve()):
+            raise ValueError("Drive destination resolves outside the mounted account MyDrive.")
+        runs_root = drive_root / "b1" / "runs"
+        selected_mkdir(runs_root, parents=True, exist_ok=True)
+        if runs_root.is_symlink() or not runs_root.resolve().is_relative_to(drive_root.resolve()):
+            raise ValueError("B1 run storage path resolves outside the reviewed Drive root.")
+        run_dir = runs_root / run_id
+        selected_mkdir(run_dir, parents=False, exist_ok=False)
+        selected_mkdir(local_staging_dir, parents=True, exist_ok=True)
+        state.update(
+            {
+                "run_dir": str(run_dir),
+                "local_staging_dir": str(local_staging_dir),
+                "persistence_status": "preflight",
+            }
+        )
+        available_bytes = selected_free_bytes(drive_root)
+        state["available_bytes_observed"] = available_bytes
+        if available_bytes < minimum_free_bytes:
+            raise OSError(
+                f"Drive reports {available_bytes} free bytes; at least {minimum_free_bytes} are required."
+            )
+        sentinel = (
+            json.dumps(
+                {
+                    "run_id": run_id,
+                    "kind": "drive-storage-readback-sentinel",
+                    "sha256_self_check": "sha256-readback-required",
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+            + b"\n"
+        )
+        persist_drive_bytes(
+            state,
+            local_staging_dir,
+            "checkpoints/storage-sentinel.json",
+            sentinel,
+            deadline=deadline,
+        )
+        if state.get("persistence_status") == "incomplete":
+            raise DriveStorageError("Drive sentinel write/read-back was incomplete.", state)
+        state["persistence_status"] = "verified"
+        state["preflight_verified"] = True
+        return state
+    except Exception as exc:
+        _record_drive_error(state, stage="storage_preflight", error=exc)
+        run_dir_value = state.get("run_dir")
+        if isinstance(run_dir_value, str) and Path(run_dir_value).is_dir():
+            state["preflight_failure_manifest_attempted"] = True
+            failure = {
+                "status": "failed",
+                "stage": "storage_preflight",
+                "failure_type": type(exc).__name__,
+                "message": sanitize_output(exc, limit=2_000),
+                "drive_storage": dict(state),
+            }
+            try:
+                persist_drive_json(
+                    state,
+                    local_staging_dir,
+                    f"failures/storage-preflight-{uuid4().hex}.json",
+                    failure,
+                    deadline=deadline,
+                )
+                state["preflight_failure_manifest_persisted"] = True
+            except Exception as persistence_error:
+                state["preflight_failure_manifest_persisted"] = False
+                _record_drive_error(
+                    state, stage="storage_preflight_failure_manifest", error=persistence_error
+                )
+        raise DriveStorageError(
+            f"Google Drive storage preflight failed: {sanitize_output(exc, limit=2_000)}", state
+        ) from exc
+
+
+def persist_drive_bytes(
+    state: MutableMapping[str, object],
+    local_staging_dir: Path,
+    relative_path: str,
+    data: bytes,
+    *,
+    deadline: float | None = None,
+) -> dict[str, object]:
+    run_dir_value = state.get("run_dir")
+    if not isinstance(run_dir_value, str):
+        raise DriveStorageError("Drive run directory has not been initialized.", state)
+    if len(data) > MAX_DURABLE_ARTIFACT_BYTES:
+        raise ValueError(f"Durable artifact exceeds {MAX_DURABLE_ARTIFACT_BYTES} bytes.")
+    relative = PurePosixPath(relative_path)
+    if relative.is_absolute() or not relative.parts or ".." in relative.parts:
+        raise ValueError("Drive artifact path must be relative to the unique run directory.")
+    if any(not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", part) for part in relative.parts):
+        raise ValueError("Drive artifact path contains an unsupported path component.")
+    run_dir = Path(run_dir_value)
+    destination = run_dir.joinpath(*relative.parts)
+    if not destination.resolve().is_relative_to(run_dir.resolve()):
+        raise ValueError("Drive artifact path resolves outside the unique run directory.")
+    expected_sha256 = hashlib.sha256(data).hexdigest()
+    staging_name = f"{uuid4().hex}-{relative.name}.tmp"
+    local_staging_path = local_staging_dir / staging_name
+    try:
+        _mkdir_path(local_staging_dir, parents=True, exist_ok=True)
+        with local_staging_path.open("xb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        _mkdir_path(destination.parent, parents=True, exist_ok=True)
+        if destination.exists() or destination.is_symlink():
+            raise FileExistsError(
+                f"Refusing to overwrite durable Drive artifact: {relative.as_posix()}"
+            )
+        _copy_file_exclusive(local_staging_path, destination, deadline=deadline)
+        observed_sha256 = _drive_sha256_file(destination, deadline=deadline)
+        if observed_sha256 != expected_sha256:
+            raise OSError(
+                f"Drive read-back SHA-256 mismatch for {relative.as_posix()}: "
+                f"expected {expected_sha256}, observed {observed_sha256}."
+            )
+        record: dict[str, object] = {
+            "path": relative.as_posix(),
+            "size_bytes": len(data),
+            "sha256": expected_sha256,
+            "readback_sha256": observed_sha256,
+            "status": "verified",
+        }
+        artifacts = state.get("persisted_artifacts")
+        if not isinstance(artifacts, dict):
+            artifacts = {}
+            state["persisted_artifacts"] = artifacts
+        artifacts[relative.as_posix()] = record
+        if state.get("persistence_status") not in {"incomplete", "complete"}:
+            state["persistence_status"] = "verified"
+        return record
+    except Exception as exc:
+        _record_drive_error(state, stage=f"write:{relative.as_posix()}", error=exc)
+        raise DriveStorageError(
+            f"Drive persistence failed for {relative.as_posix()}: {sanitize_output(exc, limit=2_000)}",
+            state,
+        ) from exc
+
+
+def persist_drive_file(
+    state: MutableMapping[str, object],
+    local_staging_dir: Path,
+    source_path: Path,
+    relative_path: str,
+    *,
+    deadline: float | None = None,
+) -> dict[str, object]:
+    size = source_path.stat().st_size
+    if size > MAX_DURABLE_ARTIFACT_BYTES:
+        raise ValueError(
+            f"Durable artifact exceeds {MAX_DURABLE_ARTIFACT_BYTES} bytes: {source_path.name}"
+        )
+    return persist_drive_bytes(
+        state,
+        local_staging_dir,
+        relative_path,
+        source_path.read_bytes(),
+        deadline=deadline,
+    )
+
+
+def persist_drive_json(
+    state: MutableMapping[str, object],
+    local_staging_dir: Path,
+    relative_path: str,
+    payload: Mapping[str, object],
+    *,
+    deadline: float | None = None,
+) -> dict[str, object]:
+    data = (
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
+            "utf-8"
+        )
+        + b"\n"
+    )
+    return persist_drive_bytes(state, local_staging_dir, relative_path, data, deadline=deadline)
+
+
+def persist_drive_checkpoint(
+    state: MutableMapping[str, object],
+    local_staging_dir: Path,
+    stage: str,
+    payload: Mapping[str, object],
+    *,
+    deadline: float | None = None,
+) -> dict[str, object]:
+    if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", stage):
+        raise ValueError("Drive checkpoint stage contains unsupported characters.")
+    checkpoint_number = int(state.get("checkpoint_count", 0)) + 1
+    checkpoint = {
+        "run_id": state.get("run_id"),
+        "checkpoint": checkpoint_number,
+        "stage": stage,
+        "created_at_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "payload": dict(payload),
+        "persistence_status": state.get("persistence_status"),
+        "persisted_artifacts": dict(state.get("persisted_artifacts", {})),
+    }
+    relative_path = f"checkpoints/{checkpoint_number:04d}-{stage}-{uuid4().hex}.json"
+    record = persist_drive_json(
+        state, local_staging_dir, relative_path, checkpoint, deadline=deadline
+    )
+    state["checkpoint_count"] = checkpoint_number
+    checkpoints = state.get("checkpoints")
+    if not isinstance(checkpoints, list):
+        checkpoints = []
+        state["checkpoints"] = checkpoints
+    checkpoints.append(record)
+    return record
+
+
+def persist_drive_failure_evidence(
+    state: MutableMapping[str, object],
+    local_staging_dir: Path,
+    *,
+    stage: str,
+    failure_manifest: Mapping[str, object],
+    local_files: Mapping[str, Path],
+    deadline: float | None = None,
+) -> dict[str, object]:
+    preexisting_incomplete = state.get("persistence_status") == "incomplete"
+    run_id = str(state.get("run_id") or "unknown")
+    suffix = uuid4().hex
+    persisted: list[dict[str, object]] = []
+    errors: list[dict[str, str]] = []
+    failure_path = f"failures/{suffix}-{stage}-manifest.json"
+    try:
+        persisted.append(
+            persist_drive_json(
+                state, local_staging_dir, failure_path, failure_manifest, deadline=deadline
+            )
+        )
+    except Exception as exc:
+        errors.append({"artifact": failure_path, "error": sanitize_output(exc, limit=1_000)})
+    for label, path in local_files.items():
+        if not path.is_file():
+            continue
+        safe_label = re.sub(r"[^A-Za-z0-9._-]", "_", Path(label).name)
+        relative_path = f"failures/{suffix}-{safe_label}"
+        try:
+            persisted.append(
+                persist_drive_file(state, local_staging_dir, path, relative_path, deadline=deadline)
+            )
+        except Exception as exc:
+            errors.append({"artifact": relative_path, "error": sanitize_output(exc, limit=1_000)})
+    outcome: dict[str, object] = {
+        "run_id": run_id,
+        "failure_stage": stage,
+        "persistence_status": "incomplete" if errors else "complete",
+        "persisted": persisted,
+        "errors": errors,
+    }
+    if errors or preexisting_incomplete or state.get("drive_flush_status") == "incomplete":
+        state["persistence_status"] = "incomplete"
+        outcome["persistence_status"] = "incomplete"
+    else:
+        state["persistence_status"] = "complete"
+    try:
+        persist_drive_checkpoint(
+            state,
+            local_staging_dir,
+            f"failure-{stage}",
+            outcome,
+            deadline=deadline,
+        )
+    except Exception as exc:
+        outcome["persistence_status"] = "incomplete"
+        errors.append(
+            {
+                "artifact": "failure-persistence-checkpoint",
+                "error": sanitize_output(exc, limit=1_000),
+            }
+        )
+        state["persistence_status"] = "incomplete"
+    return outcome
+
+
+def persist_drive_outcome(
+    state: MutableMapping[str, object],
+    local_staging_dir: Path,
+    *,
+    manifest_path: Path,
+    archive_path: Path,
+    deadline: float | None = None,
+) -> dict[str, object]:
+    persisted: list[dict[str, object]] = []
+    errors: list[dict[str, str]] = []
+    for source, relative in (
+        (manifest_path, "manifest-final.json"),
+        (archive_path, "evidence.zip"),
+    ):
+        try:
+            persisted.append(
+                persist_drive_file(state, local_staging_dir, source, relative, deadline=deadline)
+            )
+        except Exception as exc:
+            errors.append({"artifact": relative, "error": sanitize_output(exc, limit=1_000)})
+    outcome: dict[str, object] = {
+        "run_id": state.get("run_id"),
+        "persistence_status": "incomplete" if errors else "complete",
+        "persisted": persisted,
+        "errors": errors,
+    }
+    if errors:
+        state["persistence_status"] = "incomplete"
+    try:
+        persist_drive_checkpoint(
+            state, local_staging_dir, "final-outcome", outcome, deadline=deadline
+        )
+    except Exception as exc:
+        outcome["persistence_status"] = "incomplete"
+        errors.append(
+            {"artifact": "final-outcome-checkpoint", "error": sanitize_output(exc, limit=1_000)}
+        )
+        state["persistence_status"] = "incomplete"
+    if not outcome["errors"]:
+        state["persistence_status"] = "complete"
+    return outcome
 
 
 def remaining_seconds(deadline: float, *, monotonic: Callable[[], float] = time.monotonic) -> float:
@@ -329,7 +818,7 @@ def build_failure_manifest(
     if not stage.strip():
         raise ValueError("Failure stage must not be blank.")
     return {
-        "manifest_revision": "res142-colab-b1-v3",
+        "manifest_revision": "res142-colab-b1-v4",
         "phase": "B1_SYNTHETIC_SMOKE",
         "status": "failed",
         "preparation_base_git_sha": "67edcc785af2084e2cc4d8c27b08bea43a5f4bd3",

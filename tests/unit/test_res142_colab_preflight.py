@@ -22,6 +22,8 @@ _NOTEBOOK = _ROOT / "notebooks" / "res142_qwen3_reranker_colab.ipynb"
 _TEMPLATE = _ROOT / "notebooks" / "res142_qwen3_reranker.jinja"
 _LOCK = _ROOT / "requirements" / "res142-colab.lock.txt"
 _LOCK_SHA256 = "d8a87ad2f1f2a7faccfb96fee9fa859995f61caa7b8a7b845e268888c4c111dc"
+_DRIVE_AUTHORIZATION = support.COLAB_DRIVE_AUTHORIZATION_REQUIRED
+_DRIVE_DESTINATION = support.COLAB_DRIVE_ROOT.as_posix()
 
 
 def _notebook() -> dict[str, Any]:
@@ -52,6 +54,31 @@ def _uv_runner(
         return result
 
     return run
+
+
+def _mock_drive_paths(tmp_path: Path) -> tuple[Path, Path, Path]:
+    mountpoint = tmp_path / "mount"
+    my_drive = mountpoint / "MyDrive"
+    my_drive.mkdir(parents=True)
+    drive_root = my_drive / "DynamisRAG" / "RES-142"
+    staging = tmp_path / "content" / "drive-staging"
+    return mountpoint, drive_root, staging
+
+
+def _initialize_mock_drive(
+    tmp_path: Path, *, run_id: str = "run-001", free_bytes: int = 32 * 1024 * 1024
+) -> dict[str, object]:
+    mountpoint, drive_root, staging = _mock_drive_paths(tmp_path)
+    return support.initialize_drive_run(
+        mountpoint=mountpoint,
+        drive_root=drive_root,
+        run_id=run_id,
+        local_staging_dir=staging,
+        state={},
+        mount_check=lambda _: True,
+        free_bytes=lambda _: free_bytes,
+        minimum_free_bytes=16 * 1024 * 1024,
+    )
 
 
 def test_every_notebook_code_cell_compiles_and_is_unexecuted() -> None:
@@ -164,7 +191,7 @@ def test_setup_authorization_is_closed_without_both_approvals() -> None:
     assert 'parser.add_argument("--rate-inspection-authorization", required=True)' in builder
 
 
-@pytest.mark.parametrize("gpu", ["G4", "A100"])
+@pytest.mark.parametrize("gpu", ["G4"])
 def test_setup_requires_an_approved_gpu_and_observed_rate(gpu: str) -> None:
     result = support.validate_setup_authorization(
         setup_authorization="APPROVE COLAB SETUP",
@@ -182,8 +209,9 @@ def test_setup_requires_an_approved_gpu_and_observed_rate(gpu: str) -> None:
 @pytest.mark.parametrize(
     ("field", "value", "match"),
     [
-        ("target_gpu", "T4", "GPU"),
-        ("rate_inspection_gpu", "A100", "GPU"),
+        ("target_gpu", "T4", "G4"),
+        ("target_gpu", "A100", "G4"),
+        ("rate_inspection_gpu", "A100", "G4"),
         ("observed_compute_units_per_hour", None, "Observed CU/hour"),
         ("observed_compute_units_per_hour", 0, "Observed CU/hour"),
         ("approved_max_compute_units", None, "Approved B1 CU"),
@@ -232,6 +260,9 @@ def test_execution_provenance_requires_exact_commit_and_artifact_digests() -> No
         "lock_sha256": "d" * 64,
         "required_colab_runtime_version": "2026.04",
         "runtime_version_verification": "operator_confirms_in_colab_ui_before_first_cell",
+        "required_drive_storage_backend": "google_drive",
+        "required_drive_root": support.COLAB_DRIVE_ROOT.as_posix(),
+        "drive_mount_authorization": support.COLAB_DRIVE_AUTHORIZATION_REQUIRED,
     }
     with pytest.raises(ValueError, match="full 40-character"):
         support.build_execution_provenance(
@@ -388,6 +419,259 @@ def test_runtime_version_requirement_is_documented_and_in_bundle_provenance() ->
     assert "verify_uv_version(" in code
     assert '"uv_version_evidence": UV_VERSION_EVIDENCE' in code
     assert '"uv_version_evidence": globals().get("UV_VERSION_EVIDENCE")' in code
+
+
+def test_notebook_mounts_and_verifies_drive_before_install_or_model_download() -> None:
+    code = "\n".join(_cells("code"))
+    first_cell = _cells("code")[0]
+    scoring_cell = next(cell for cell in _cells("code") if "before-model-download" in cell)
+    assert "from google.colab import drive as colab_drive" in first_cell
+    assert "colab_drive.mount(str(COLAB_DRIVE_MOUNTPOINT)" in first_cell
+    assert "APPROVE COLAB DRIVE STORAGE" in first_cell
+    assert '"/content/drive/MyDrive/DynamisRAG/RES-142"' in first_cell or (
+        "COLAB_DRIVE_ROOT.as_posix()" in first_cell
+    )
+    assert 'CONFIG.get("schema") != "res142-colab-b1-preflight-v3"' in first_cell
+    assert first_cell.index("initialize_drive_run(") < first_cell.index(
+        'persist_drive_bytes(DRIVE_STORAGE, DRIVE_STAGING_DIR, "execution-bundle.zip"'
+    )
+    assert first_cell.index('"manifest-initial.json"') < first_cell.index(
+        "persist_drive_checkpoint("
+    )
+    assert code.index("colab_drive.mount(") < code.index('"pip", "install"')
+    assert code.index('"manifest-initial.json"') < code.index('"pip", "install"')
+    assert scoring_cell.index('"before-model-download"') < scoring_cell.index("subprocess.Popen")
+    assert "persist_drive_failure_evidence(" in code
+    assert "persist_drive_outcome(" in code
+    assert "colab_drive.flush_and_unmount(" in code
+    assert 'HF_HOME = ROOT / "hf-home"' in code
+    assert 'drive.mount("/content/drive", force_remount=True)' not in code
+
+
+def test_drive_mount_requires_explicit_authorization_and_exact_destination() -> None:
+    settings = support.validate_drive_storage_authorization(
+        authorization=_DRIVE_AUTHORIZATION,
+        destination_confirmation=_DRIVE_DESTINATION + "/",
+    )
+    assert settings["backend"] == "google_drive"
+    assert settings["required_root"] == _DRIVE_DESTINATION
+    with pytest.raises(PermissionError, match="explicit"):
+        support.validate_drive_storage_authorization(
+            authorization="",
+            destination_confirmation=_DRIVE_DESTINATION,
+        )
+    with pytest.raises(PermissionError, match="destination"):
+        support.validate_drive_storage_authorization(
+            authorization=_DRIVE_AUTHORIZATION,
+            destination_confirmation="/content/drive/MyDrive/Other",
+        )
+
+
+def test_drive_run_id_is_unique_and_path_safe() -> None:
+    run_ids = {support.new_drive_run_id(), support.new_drive_run_id()}
+    assert len(run_ids) == 2
+    assert all("/" not in run_id and "\\" not in run_id for run_id in run_ids)
+
+
+def test_drive_preflight_validates_mount_and_creates_unique_run_with_readback(
+    tmp_path: Path,
+) -> None:
+    session = _initialize_mock_drive(tmp_path)
+    run_dir = Path(str(session["run_dir"]))
+    sentinel = run_dir / "checkpoints" / "storage-sentinel.json"
+    artifacts = cast(dict[str, object], session["persisted_artifacts"])
+    record = cast(dict[str, object], artifacts["checkpoints/storage-sentinel.json"])
+    assert session["mount_verified"] is True
+    assert session["persistence_status"] == "verified"
+    assert run_dir.parts[-3:] == ("b1", "runs", "run-001")
+    assert sentinel.is_file()
+    assert record["sha256"] == record["readback_sha256"]
+    assert hashlib.sha256(sentinel.read_bytes()).hexdigest() == record["sha256"]
+
+
+def test_drive_preflight_fails_closed_when_mount_is_absent(tmp_path: Path) -> None:
+    mountpoint, drive_root, staging = _mock_drive_paths(tmp_path)
+    state: dict[str, object] = {}
+    with pytest.raises(support.DriveStorageError, match="not mounted"):
+        support.initialize_drive_run(
+            mountpoint=mountpoint,
+            drive_root=drive_root,
+            run_id="run-002",
+            local_staging_dir=staging,
+            state=state,
+            mount_check=lambda _: False,
+            minimum_free_bytes=1,
+        )
+    assert state["mount_verified"] is False
+    assert state["persistence_status"] == "incomplete"
+    assert not (drive_root / "b1" / "runs" / "run-002").exists()
+
+
+def test_drive_preflight_fails_closed_on_permission_denial(tmp_path: Path) -> None:
+    mountpoint, drive_root, staging = _mock_drive_paths(tmp_path)
+    state: dict[str, object] = {}
+    original_mkdir = Path.mkdir
+
+    def denied(path: Path, *, parents: bool, exist_ok: bool) -> None:
+        if path == drive_root:
+            raise PermissionError("simulated Drive permission denial")
+        original_mkdir(path, parents=parents, exist_ok=exist_ok)
+
+    with pytest.raises(support.DriveStorageError, match="permission denial"):
+        support.initialize_drive_run(
+            mountpoint=mountpoint,
+            drive_root=drive_root,
+            run_id="run-denied",
+            local_staging_dir=staging,
+            state=state,
+            mount_check=lambda _: True,
+            free_bytes=lambda _: 64 * 1024 * 1024,
+            mkdir=denied,
+        )
+    assert state["persistence_status"] == "incomplete"
+    errors = cast(list[dict[str, object]], state["errors"])
+    assert "PermissionError" in str(errors[0]["error_type"])
+
+
+def test_drive_preflight_stops_when_reported_free_space_is_insufficient(tmp_path: Path) -> None:
+    mountpoint, drive_root, staging = _mock_drive_paths(tmp_path)
+    state: dict[str, object] = {}
+    with pytest.raises(support.DriveStorageError, match="free bytes"):
+        support.initialize_drive_run(
+            mountpoint=mountpoint,
+            drive_root=drive_root,
+            run_id="run-full",
+            local_staging_dir=staging,
+            state=state,
+            mount_check=lambda _: True,
+            free_bytes=lambda _: 1,
+        )
+    assert state["available_bytes_observed"] == 1
+    run_dir = drive_root / "b1" / "runs" / "run-full"
+    assert run_dir.is_dir()
+    assert state["preflight_failure_manifest_persisted"] is True
+    failure_manifests = list((run_dir / "failures").glob("storage-preflight-*.json"))
+    assert len(failure_manifests) == 1
+    failure_manifest = json.loads(failure_manifests[0].read_text(encoding="utf-8"))
+    assert failure_manifest["stage"] == "storage_preflight"
+
+
+def test_drive_run_id_collision_fails_without_overwriting_prior_run(tmp_path: Path) -> None:
+    first = _initialize_mock_drive(tmp_path, run_id="run-duplicate")
+    sentinel = Path(str(first["run_dir"])) / "checkpoints" / "storage-sentinel.json"
+    original = sentinel.read_bytes()
+    mountpoint = Path(str(first["mountpoint"]))
+    drive_root = Path(str(first["required_root"]))
+    with pytest.raises(support.DriveStorageError, match=r"already exists|File exists"):
+        support.initialize_drive_run(
+            mountpoint=mountpoint,
+            drive_root=drive_root,
+            run_id="run-duplicate",
+            local_staging_dir=Path(str(first["local_staging_dir"])),
+            state={},
+            mount_check=lambda _: True,
+            free_bytes=lambda _: 64 * 1024 * 1024,
+            minimum_free_bytes=1,
+        )
+    assert sentinel.read_bytes() == original
+
+
+def test_drive_write_interruption_and_checksum_mismatch_fail_without_retry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    session = _initialize_mock_drive(tmp_path)
+    run_dir = Path(str(session["run_dir"]))
+    calls = 0
+
+    def interrupted(source: Path, destination: Path, *, deadline: float | None = None) -> None:
+        nonlocal calls
+        calls += 1
+        with destination.open("xb") as handle:
+            handle.write(b"partial")
+        raise OSError("simulated interrupted write")
+
+    monkeypatch.setattr(support, "_copy_file_exclusive", interrupted)
+    with pytest.raises(support.DriveStorageError, match="interrupted write"):
+        support.persist_drive_bytes(
+            session,
+            Path(str(session["local_staging_dir"])),
+            "outputs/interrupted.bin",
+            b"complete payload",
+        )
+    assert calls == 1
+    assert (run_dir / "outputs" / "interrupted.bin").read_bytes() == b"partial"
+    assert session["persistence_status"] == "incomplete"
+
+    monkeypatch.undo()
+    checksum_session = _initialize_mock_drive(tmp_path / "checksum")
+
+    def wrong_hash(path: Path, *, deadline: float | None = None) -> str:
+        return "0" * 64
+
+    monkeypatch.setattr(support, "_drive_sha256_file", wrong_hash)
+    with pytest.raises(support.DriveStorageError, match="SHA-256 mismatch"):
+        support.persist_drive_bytes(
+            checksum_session,
+            Path(str(checksum_session["local_staging_dir"])),
+            "outputs/checksum.bin",
+            b"payload",
+        )
+    assert checksum_session["persistence_status"] == "incomplete"
+
+
+def test_drive_failure_evidence_is_persisted_with_hash_verified_files(tmp_path: Path) -> None:
+    session = _initialize_mock_drive(tmp_path)
+    local_log = tmp_path / "local" / "vllm.log"
+    local_log.parent.mkdir()
+    local_log.write_text("sanitized log tail\n", encoding="utf-8")
+    outcome = support.persist_drive_failure_evidence(
+        session,
+        Path(str(session["local_staging_dir"])),
+        stage="bootstrap",
+        failure_manifest={
+            "status": "failed",
+            "failure": {"stage": "bootstrap", "error_type": "RuntimeError"},
+            "observations": {"gpu": {"name": "mock-gpu"}},
+        },
+        local_files={"vllm.log": local_log},
+    )
+    assert outcome["persistence_status"] == "complete"
+    records = cast(list[dict[str, object]], outcome["persisted"])
+    assert len(records) == 2
+    for record in records:
+        assert record["sha256"] == record["readback_sha256"]
+    manifest_record = next(
+        record for record in records if str(record["path"]).endswith("manifest.json")
+    )
+    saved_manifest = json.loads(
+        (Path(str(session["run_dir"])) / str(manifest_record["path"])).read_text()
+    )
+    assert saved_manifest["failure"]["stage"] == "bootstrap"
+    assert saved_manifest["observations"]["gpu"]["name"] == "mock-gpu"
+    saved_log = next(record for record in records if str(record["path"]).endswith("vllm.log"))
+    assert (
+        Path(str(session["run_dir"])) / str(saved_log["path"])
+    ).read_bytes() == local_log.read_bytes()
+
+
+def test_drive_success_outcome_is_durable_and_checksum_verified(tmp_path: Path) -> None:
+    session = _initialize_mock_drive(tmp_path)
+    local_dir = tmp_path / "local-output"
+    local_dir.mkdir()
+    manifest = local_dir / "manifest.json"
+    archive = local_dir / "evidence.zip"
+    manifest.write_text('{"status":"success"}\n', encoding="utf-8")
+    archive.write_bytes(b"mock evidence")
+    outcome = support.persist_drive_outcome(
+        session,
+        Path(str(session["local_staging_dir"])),
+        manifest_path=manifest,
+        archive_path=archive,
+    )
+    assert outcome["persistence_status"] == "complete"
+    assert session["persistence_status"] == "complete"
+    records = cast(list[dict[str, object]], outcome["persisted"])
+    assert all(record["sha256"] == record["readback_sha256"] for record in records)
 
 
 @pytest.mark.parametrize(
@@ -642,6 +926,8 @@ def test_preconnection_bundle_pins_exact_local_commit_and_artifacts(tmp_path: Pa
         current_commit_sha=commit,
         setup_authorization="APPROVE COLAB SETUP",
         rate_inspection_authorization="APPROVE COLAB RATE INSPECTION",
+        drive_authorization=_DRIVE_AUTHORIZATION,
+        drive_destination_confirmation=_DRIVE_DESTINATION,
         gpu="G4",
         rate_inspection_max_compute_units=2,
         observed_compute_units_per_hour=1,
@@ -658,7 +944,10 @@ def test_preconnection_bundle_pins_exact_local_commit_and_artifacts(tmp_path: Pa
             "res142-colab.lock.txt",
         }
         saved = json.loads(bundle.read("res142_b1_config.json"))
-        assert saved["schema"] == "res142-colab-b1-preflight-v2"
+        assert saved["schema"] == "res142-colab-b1-preflight-v3"
+        assert saved["drive_storage"]["backend"] == "google_drive"
+        assert saved["drive_storage"]["required_root"] == _DRIVE_DESTINATION
+        assert saved["drive_storage"]["authorization"] == _DRIVE_AUTHORIZATION
         assert saved["execution_provenance"]["preparation_commit_sha"] == commit
         assert saved["execution_provenance"]["required_colab_runtime_version"] == "2026.04"
         assert (
@@ -689,13 +978,19 @@ def test_preconnection_bundle_rejects_missing_approval_and_bad_branch(tmp_path: 
     ):
         (repo / relative).write_bytes(b"fixture")
 
-    def build(setup_authorization: str, branch: str = "res-142-colab-preflight") -> object:
+    def build(
+        setup_authorization: str,
+        branch: str = "res-142-colab-preflight",
+        drive_authorization: str = _DRIVE_AUTHORIZATION,
+    ) -> object:
         return prepare.build_configuration(
             repo,
             branch=branch,
             current_commit_sha="a" * 40,
             setup_authorization=setup_authorization,
             rate_inspection_authorization="APPROVE COLAB RATE INSPECTION",
+            drive_authorization=drive_authorization,
+            drive_destination_confirmation=_DRIVE_DESTINATION,
             gpu="G4",
             rate_inspection_max_compute_units=2,
             observed_compute_units_per_hour=1,
@@ -704,6 +999,8 @@ def test_preconnection_bundle_rejects_missing_approval_and_bad_branch(tmp_path: 
 
     with pytest.raises(PermissionError, match="APPROVE COLAB SETUP"):
         build("")
+    with pytest.raises(PermissionError, match="explicit"):
+        build("APPROVE COLAB SETUP", drive_authorization="")
     with pytest.raises(ValueError, match="res-142-colab-preflight"):
         build("APPROVE COLAB SETUP", branch="main")
 
@@ -726,7 +1023,9 @@ def test_preconnection_bundle_refuses_artifact_drift_and_overwrite(tmp_path: Pat
         current_commit_sha=commit,
         setup_authorization="APPROVE COLAB SETUP",
         rate_inspection_authorization="APPROVE COLAB RATE INSPECTION",
-        gpu="A100",
+        drive_authorization=_DRIVE_AUTHORIZATION,
+        drive_destination_confirmation=_DRIVE_DESTINATION,
+        gpu="G4",
         rate_inspection_max_compute_units=2,
         observed_compute_units_per_hour=1,
         approved_max_compute_units=1,
@@ -741,7 +1040,9 @@ def test_preconnection_bundle_refuses_artifact_drift_and_overwrite(tmp_path: Pat
         current_commit_sha=commit,
         setup_authorization="APPROVE COLAB SETUP",
         rate_inspection_authorization="APPROVE COLAB RATE INSPECTION",
-        gpu="A100",
+        drive_authorization=_DRIVE_AUTHORIZATION,
+        drive_destination_confirmation=_DRIVE_DESTINATION,
+        gpu="G4",
         rate_inspection_max_compute_units=2,
         observed_compute_units_per_hour=1,
         approved_max_compute_units=1,
@@ -782,6 +1083,8 @@ def test_preconnection_bundle_records_verified_git_tip_not_operator_hash(
         output_path=tmp_path / "reviewed.zip",
         setup_authorization="APPROVE COLAB SETUP",
         rate_inspection_authorization="APPROVE COLAB RATE INSPECTION",
+        drive_authorization=_DRIVE_AUTHORIZATION,
+        drive_destination_confirmation=_DRIVE_DESTINATION,
         gpu="G4",
         rate_inspection_max_compute_units=2,
         observed_compute_units_per_hour=1,
@@ -805,6 +1108,8 @@ def test_preconnection_bundle_records_verified_git_tip_not_operator_hash(
             output_path=tmp_path / "unreviewed.zip",
             setup_authorization="APPROVE COLAB SETUP",
             rate_inspection_authorization="APPROVE COLAB RATE INSPECTION",
+            drive_authorization=_DRIVE_AUTHORIZATION,
+            drive_destination_confirmation=_DRIVE_DESTINATION,
             gpu="G4",
             rate_inspection_max_compute_units=2,
             observed_compute_units_per_hour=1,
@@ -828,6 +1133,8 @@ def test_preconnection_bundle_hashes_canonical_git_line_endings(tmp_path: Path) 
         current_commit_sha="a" * 40,
         setup_authorization="APPROVE COLAB SETUP",
         rate_inspection_authorization="APPROVE COLAB RATE INSPECTION",
+        drive_authorization=_DRIVE_AUTHORIZATION,
+        drive_destination_confirmation=_DRIVE_DESTINATION,
         gpu="G4",
         rate_inspection_max_compute_units=2,
         observed_compute_units_per_hour=1,
