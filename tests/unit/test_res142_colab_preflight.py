@@ -132,6 +132,32 @@ def test_sequential_notebook_source_has_no_unresolved_global_names() -> None:
     )
 
 
+def test_notebook_helpers_have_no_unresolved_global_names() -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "ruff",
+            "check",
+            "--isolated",
+            "--select",
+            "F821",
+            "--output-format",
+            "concise",
+            "notebooks/res142_b1_support.py",
+            "notebooks/res142_b1_prepare.py",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        cwd=_ROOT,
+    )
+    assert result.returncode == 0, (
+        f"Ruff F821 found unresolved helper globals:\n{result.stdout}{result.stderr}"
+    )
+
+
 def test_notebook_template_is_the_uploaded_file_byte_for_byte() -> None:
     template_bytes = _TEMPLATE.read_bytes()
     expected = hashlib.sha256(template_bytes).hexdigest()
@@ -489,6 +515,22 @@ def test_drive_preflight_validates_mount_and_creates_unique_run_with_readback(
     assert hashlib.sha256(sentinel.read_bytes()).hexdigest() == record["sha256"]
 
 
+def test_drive_preflight_uses_default_local_free_space_probe(tmp_path: Path) -> None:
+    mountpoint, drive_root, staging = _mock_drive_paths(tmp_path)
+    state: dict[str, object] = {}
+    session = support.initialize_drive_run(
+        mountpoint=mountpoint,
+        drive_root=drive_root,
+        run_id="run-default-space-probe",
+        local_staging_dir=staging,
+        state=state,
+        mount_check=lambda _: True,
+        minimum_free_bytes=1,
+    )
+    assert cast(int, session["available_bytes_observed"]) > 0
+    assert session["persistence_status"] == "verified"
+
+
 def test_drive_preflight_fails_closed_when_mount_is_absent(tmp_path: Path) -> None:
     mountpoint, drive_root, staging = _mock_drive_paths(tmp_path)
     state: dict[str, object] = {}
@@ -672,6 +714,107 @@ def test_drive_success_outcome_is_durable_and_checksum_verified(tmp_path: Path) 
     assert session["persistence_status"] == "complete"
     records = cast(list[dict[str, object]], outcome["persisted"])
     assert all(record["sha256"] == record["readback_sha256"] for record in records)
+    checkpoints = cast(list[dict[str, object]], session["checkpoints"])
+    final_checkpoint_record = checkpoints[-1]
+    final_checkpoint = json.loads(
+        (Path(str(session["run_dir"])) / str(final_checkpoint_record["path"])).read_text(
+            encoding="utf-8"
+        )
+    )
+    assert final_checkpoint["payload"]["persistence_status"] == "complete"
+
+
+def test_prior_incomplete_status_stays_incomplete_after_successful_final_copies(
+    tmp_path: Path,
+) -> None:
+    session = _initialize_mock_drive(tmp_path)
+    session["persistence_status"] = "incomplete"
+    local_dir = tmp_path / "local-output"
+    local_dir.mkdir()
+    manifest = local_dir / "manifest.json"
+    archive = local_dir / "evidence.zip"
+    manifest.write_text('{"status":"success"}\n', encoding="utf-8")
+    archive.write_bytes(b"mock evidence")
+
+    outcome = support.persist_drive_outcome(
+        session,
+        Path(str(session["local_staging_dir"])),
+        manifest_path=manifest,
+        archive_path=archive,
+    )
+
+    assert len(cast(list[dict[str, object]], outcome["persisted"])) == 2
+    assert outcome["errors"] == []
+    assert outcome["persistence_status"] == "incomplete"
+    assert session["persistence_status"] == "incomplete"
+
+
+def test_successful_final_copies_do_not_erase_an_earlier_write_failure(
+    tmp_path: Path,
+) -> None:
+    session = _initialize_mock_drive(tmp_path)
+    prior_destination = Path(str(session["run_dir"])) / "outputs" / "partial.bin"
+    prior_destination.parent.mkdir(parents=True)
+    prior_destination.write_bytes(b"partial prior artifact")
+    with pytest.raises(support.DriveStorageError, match="Refusing to overwrite"):
+        support.persist_drive_bytes(
+            session,
+            Path(str(session["local_staging_dir"])),
+            "outputs/partial.bin",
+            b"complete prior artifact",
+        )
+    prior_errors = list(cast(list[dict[str, object]], session["errors"]))
+
+    local_dir = tmp_path / "local-output"
+    local_dir.mkdir()
+    manifest = local_dir / "manifest.json"
+    archive = local_dir / "evidence.zip"
+    manifest.write_text('{"status":"success"}\n', encoding="utf-8")
+    archive.write_bytes(b"mock evidence")
+    outcome = support.persist_drive_outcome(
+        session,
+        Path(str(session["local_staging_dir"])),
+        manifest_path=manifest,
+        archive_path=archive,
+    )
+
+    records = cast(list[dict[str, object]], outcome["persisted"])
+    assert len(records) == 2
+    assert all(record["sha256"] == record["readback_sha256"] for record in records)
+    assert outcome["errors"] == []
+    assert outcome["persistence_status"] == "incomplete"
+    assert session["persistence_status"] == "incomplete"
+    assert session["errors"] == prior_errors
+
+
+def test_final_outcome_checkpoint_failure_is_reported_as_incomplete(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    session = _initialize_mock_drive(tmp_path)
+    local_dir = tmp_path / "local-output"
+    local_dir.mkdir()
+    manifest = local_dir / "manifest.json"
+    archive = local_dir / "evidence.zip"
+    manifest.write_text('{"status":"success"}\n', encoding="utf-8")
+    archive.write_bytes(b"mock evidence")
+
+    def fail_checkpoint(*_: object, **__: object) -> None:
+        raise OSError("simulated final checkpoint failure")
+
+    monkeypatch.setattr(support, "persist_drive_checkpoint", fail_checkpoint)
+    outcome = support.persist_drive_outcome(
+        session,
+        Path(str(session["local_staging_dir"])),
+        manifest_path=manifest,
+        archive_path=archive,
+    )
+
+    assert len(cast(list[dict[str, object]], outcome["persisted"])) == 2
+    assert outcome["persistence_status"] == "incomplete"
+    errors = cast(list[dict[str, str]], outcome["errors"])
+    assert errors[-1]["artifact"] == "final-outcome-checkpoint"
+    assert "simulated final checkpoint failure" in errors[-1]["error"]
+    assert session["persistence_status"] == "incomplete"
 
 
 @pytest.mark.parametrize(

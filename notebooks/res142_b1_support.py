@@ -7,6 +7,7 @@ import json
 import math
 import os
 import re
+import shutil
 import signal
 import subprocess
 import time
@@ -541,6 +542,10 @@ def persist_drive_outcome(
     archive_path: Path,
     deadline: float | None = None,
 ) -> dict[str, object]:
+    preexisting_incomplete = (
+        state.get("persistence_status") == "incomplete"
+        or state.get("drive_flush_status") == "incomplete"
+    )
     persisted: list[dict[str, object]] = []
     errors: list[dict[str, str]] = []
     for source, relative in (
@@ -555,11 +560,11 @@ def persist_drive_outcome(
             errors.append({"artifact": relative, "error": sanitize_output(exc, limit=1_000)})
     outcome: dict[str, object] = {
         "run_id": state.get("run_id"),
-        "persistence_status": "incomplete" if errors else "complete",
+        "persistence_status": "incomplete" if errors or preexisting_incomplete else "complete",
         "persisted": persisted,
         "errors": errors,
     }
-    if errors:
+    if outcome["persistence_status"] == "incomplete":
         state["persistence_status"] = "incomplete"
     try:
         persist_drive_checkpoint(
@@ -571,7 +576,7 @@ def persist_drive_outcome(
             {"artifact": "final-outcome-checkpoint", "error": sanitize_output(exc, limit=1_000)}
         )
         state["persistence_status"] = "incomplete"
-    if not outcome["errors"]:
+    if outcome["persistence_status"] == "complete":
         state["persistence_status"] = "complete"
     return outcome
 
