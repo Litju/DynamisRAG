@@ -1,8 +1,8 @@
 """Local Qwen3 reranking for a frozen SciFact hybrid-retrieval snapshot.
 
-The adapter consumes saved ``HybridRetrievalResponse`` objects. It never
-calls BM25, dense retrieval, or RRF; every output row carries the original
-candidate identity and lane ranks/scores alongside the reranked position.
+The adapter consumes saved ``HybridRetrievalResponse`` objects. It never calls
+BM25 or dense retrieval; it rebuilds pure RRF from the saved lanes only to
+validate the fused top-50. Every output row carries its original retrieval identity.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ from dynamisrag.ir.contracts import (
     canonical_ir_json,
     document_run_from_passages,
 )
-from dynamisrag.search.bm25 import SearchHit
+from dynamisrag.search.bm25 import BM25_QUERY_REVISION, SearchHit
 from dynamisrag.search.retrieval import (
     DENSE_MODEL_ID,
     DENSE_MODEL_REVISION,
@@ -36,8 +36,8 @@ from dynamisrag.search.retrieval import (
     DenseCandidate,
     FusedHit,
     HybridRetrievalResponse,
-    PassageProvenance,
     RrfLaneTrace,
+    reciprocal_rank_fusion,
 )
 
 __all__ = [
@@ -47,14 +47,17 @@ __all__ = [
     "SCIFACT_PILOT_CANDIDATE_COUNT",
     "SCIFACT_PILOT_QUERY_COUNT",
     "SCIFACT_PILOT_REVISION",
+    "SCIFACT_PILOT_SESSION_LIMIT_SECONDS",
     "Qwen3RerankerAdapter",
     "QwenRerankedCandidate",
     "QwenRerankedQuery",
+    "QwenScoringCandidate",
     "SciFactCandidateSnapshot",
     "build_scifact_candidate_snapshot",
     "frozen_hybrid_passage_hits",
     "qwen3_reranker_config",
     "qwen3_reranker_run",
+    "qwen_scoring_candidates",
     "ranked_passage_hits",
     "scifact_candidate_snapshot_sha256",
     "select_scifact_pilot_dataset",
@@ -65,6 +68,7 @@ SCIFACT_SOURCE_ID: Final[str] = "beir.scifact"
 SCIFACT_TEST_QUERY_COUNT: Final[int] = 300
 SCIFACT_PILOT_QUERY_COUNT: Final[int] = 20
 SCIFACT_PILOT_CANDIDATE_COUNT: Final[int] = 50
+SCIFACT_PILOT_SESSION_LIMIT_SECONDS: Final[int] = 25 * 60
 SCIFACT_PILOT_REVISION: Final[str] = "res142-sf-pilot-v1"
 _PILOT_QUERY_PREFIX: Final[bytes] = b"res142-sf-pilot-v1\0"
 
@@ -104,6 +108,18 @@ def _finite_score(value: object, *, field: str) -> float:
     if not math.isfinite(score):
         raise IrContractError(f"{field} must be a finite numeric value")
     return 0.0 if score == 0.0 else score
+
+
+def _nonblank_text(value: object, *, field: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise IrContractError(f"{field} must be non-empty text")
+    return value
+
+
+def _positive_rank(value: object, *, field: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise IrContractError(f"{field} must be a positive integer rank")
+    return value
 
 
 def _lane_payload(lane: RrfLaneTrace) -> dict[str, object]:
@@ -172,6 +188,50 @@ class QwenRerankedCandidate:
             rank=self.reranked_rank,
             raw_score=self.reranker_score,
         )
+
+
+@dataclass(frozen=True, slots=True)
+class QwenScoringCandidate:
+    """One locally validated fused candidate prepared for minimal B2 transfer."""
+
+    query_id: str
+    passage_id: str
+    original_rrf_rank: int
+    candidate_text_sha256: str
+    text: str
+    original_retrieval_json: str
+
+    def __post_init__(self) -> None:
+        _nonblank_text(self.query_id, field="Qwen scoring query ID")
+        _nonblank_text(self.passage_id, field="Qwen scoring passage ID")
+        _nonblank_text(self.text, field="Qwen scoring candidate text")
+        _nonblank_text(self.candidate_text_sha256, field="Qwen candidate text SHA-256")
+        original_rank = _positive_rank(self.original_rrf_rank, field="original RRF")
+        if (
+            len(self.candidate_text_sha256) != 64
+            or any(character not in "0123456789abcdef" for character in self.candidate_text_sha256)
+            or _sha256_text(self.text) != self.candidate_text_sha256
+        ):
+            raise IrContractError("Qwen scoring candidate rank or text digest is invalid")
+        _nonblank_text(self.original_retrieval_json, field="Qwen scoring candidate identity")
+        try:
+            identity_value: object = json.loads(self.original_retrieval_json)
+        except ValueError as error:
+            raise IrContractError("Qwen scoring candidate identity must be valid JSON") from error
+        if not isinstance(identity_value, dict):
+            raise IrContractError("Qwen scoring candidate identity must be a JSON object")
+        identity = cast("dict[str, object]", identity_value)
+        if canonical_ir_json(identity).decode("utf-8").rstrip("\n") != self.original_retrieval_json:
+            raise IrContractError("Qwen scoring candidate identity must use canonical JSON")
+        if (
+            identity.get("passage_key") != self.passage_id
+            or identity.get("original_rrf_rank") != original_rank
+            or identity.get("candidate_text_sha256") != self.candidate_text_sha256
+        ):
+            raise IrContractError(
+                "Qwen scoring candidate differs from its frozen retrieval identity"
+            )
+        _finite_score(identity.get("original_rrf_score"), field="original RRF score")
 
 
 @dataclass(frozen=True, slots=True)
@@ -330,21 +390,16 @@ def _validated_response_candidates(
     response: HybridRetrievalResponse,
 ) -> tuple[dict[str, object], ...]:
     _validate_hybrid_response(query, response)
-    fusion = response.fusion
-    if (
-        fusion.revision != "rrf-v1"
-        or fusion.k != 60
-        or fusion.candidate_window != SCIFACT_PILOT_CANDIDATE_COUNT
-    ):
-        raise IrContractError("frozen response does not use the approved top-50 RRF contract")
-    if len(fusion.hits) > SCIFACT_PILOT_CANDIDATE_COUNT:
-        raise IrContractError("frozen response exceeds the approved 50-candidate window")
-    if tuple(hit.final_rank for hit in fusion.hits) != tuple(range(1, len(fusion.hits) + 1)):
-        raise IrContractError("frozen RRF ranks must be the original contiguous prefix")
-    passage_ids = tuple(hit.passage_key for hit in fusion.hits)
-    if len(passage_ids) != len(set(passage_ids)):
-        raise IrContractError("frozen response contains duplicate passage identities")
-    return tuple(_candidate_identity(hit) for hit in fusion.hits)
+    expected_fusion = reciprocal_rank_fusion(
+        lexical=response.lexical.hits,
+        dense=response.dense.candidates,
+        limit=SCIFACT_PILOT_CANDIDATE_COUNT,
+    )
+    if response.fusion != expected_fusion:
+        raise IrContractError(
+            "frozen fused candidates differ from the complete deterministic RRF top-50"
+        )
+    return tuple(_candidate_identity(hit) for hit in expected_fusion.hits)
 
 
 def _validate_bm25_prefix(hits: Sequence[SearchHit]) -> dict[str, SearchHit]:
@@ -375,9 +430,12 @@ def _validate_hybrid_response(query: IrQuery, response: HybridRetrievalResponse)
         raise IrContractError("frozen hybrid response query text differs from its query ID")
     if response.retrieval_revision != "hybrid-rrf-v1":
         raise IrContractError("frozen response does not use the approved hybrid retrieval")
+    if response.lexical.query_revision != BM25_QUERY_REVISION:
+        raise IrContractError("frozen response does not use the pinned BM25 query revision")
     if (
         response.lexical.query != query.text
         or response.dense.query != query.text
+        or response.lexical.query_revision != BM25_QUERY_REVISION
         or response.lexical.projection_sha256 != response.dense.projection_sha256
         or response.lexical.index_schema_revision != response.dense.projection_schema_revision
         or response.lexical.chunker_revision != response.dense.chunker_revision
@@ -392,65 +450,14 @@ def _validate_hybrid_response(query: IrQuery, response: HybridRetrievalResponse)
 
     lexical = _validate_bm25_prefix(response.lexical.hits)
     dense = _validate_dense_prefix(response.dense.candidates)
+    if len(lexical) != min(SCIFACT_PILOT_CANDIDATE_COUNT, response.lexical.total):
+        raise IrContractError("frozen BM25 lane is incomplete for its declared hit count")
     if len(lexical) > SCIFACT_PILOT_CANDIDATE_COUNT or len(dense) > SCIFACT_PILOT_CANDIDATE_COUNT:
         raise IrContractError("frozen retrieval lane exceeds its 50-candidate window")
 
-    for hit in response.fusion.hits:
-        lexical_hit = lexical.get(hit.passage_key)
-        dense_hit = dense.get(hit.passage_key)
-        if hit.lexical.present != (lexical_hit is not None):
-            raise IrContractError("frozen RRF trace disagrees with BM25 candidate membership")
-        if hit.dense.present != (dense_hit is not None):
-            raise IrContractError("frozen RRF trace disagrees with dense candidate membership")
-        expected_lexical = _lane_contribution(
-            lexical_hit, hit.lexical.rank, hit.lexical.rrf_contribution
-        )
-        expected_dense = _lane_contribution(dense_hit, hit.dense.rank, hit.dense.rrf_contribution)
-        if _finite_score(hit.rrf_score, field="RRF score") != expected_lexical + expected_dense:
-            raise IrContractError("frozen RRF score disagrees with its lane ranks")
-        if lexical_hit is not None and (
-            hit.lexical.rank != lexical_hit.rank
-            or hit.lexical.raw_score != lexical_hit.score
-            or hit.provenance.model_dump()
-            != PassageProvenance.model_validate(
-                lexical_hit.model_dump(exclude={"rank", "score"})
-            ).model_dump()
-        ):
-            raise IrContractError("frozen RRF trace disagrees with its BM25 result")
-        if dense_hit is not None and (
-            hit.dense.rank != dense_hit.rank
-            or hit.dense.raw_score != dense_hit.raw_score
-            or hit.provenance.model_dump() != dense_hit.provenance.model_dump()
-        ):
-            raise IrContractError("frozen RRF trace disagrees with its dense result")
 
-
-def _lane_contribution(
-    hit: SearchHit | DenseCandidate | None,
-    rank: int | None,
-    contribution: float | None,
-) -> float:
-    if hit is None:
-        if rank is not None or contribution is not None:
-            raise IrContractError("absent frozen retrieval lane has rank or contribution")
-        return 0.0
-    if rank != hit.rank:
-        raise IrContractError("frozen RRF lane rank disagrees with its retrieval result")
-    expected = 1.0 / (60 + hit.rank)
-    if contribution != expected:
-        raise IrContractError("frozen RRF contribution disagrees with its retrieval rank")
-    return expected
-
-
-def _response_snapshot_sha256(
-    query: IrQuery,
-    response: HybridRetrievalResponse,
-    candidate_identities: Sequence[dict[str, object]],
-) -> str:
-    payload = {
-        "schema_revision": _CANDIDATE_SNAPSHOT_REVISION,
-        "query_id": query.query_id,
-        "query_text_sha256": _sha256_text(query.text),
+def _retrieval_identity(response: HybridRetrievalResponse) -> dict[str, object]:
+    return {
         "retrieval_revision": response.retrieval_revision,
         "physical_index": response.physical_index,
         "lexical": {
@@ -475,14 +482,71 @@ def _response_snapshot_sha256(
             "embedding_profile_status": response.dense.embedding_profile_status,
             "candidate_window": response.dense.candidate_window,
         },
-        "embedding_profile": response.embedding_profile,
-        "embedding_profile_status": response.embedding_profile_status,
         "fusion": {
             "revision": response.fusion.revision,
             "k": response.fusion.k,
             "candidate_window": response.fusion.candidate_window,
         },
-        "candidates": list(candidate_identities),
+    }
+
+
+def _lane_candidate_identity(
+    *,
+    passage_key: str,
+    rank: int,
+    raw_score: float,
+    text: str,
+    provenance: dict[str, object],
+) -> dict[str, object]:
+    return {
+        "passage_key": passage_key,
+        "rank": rank,
+        "raw_score": _finite_score(raw_score, field="source-lane raw score"),
+        "candidate_text_sha256": _sha256_text(text),
+        "provenance": provenance,
+    }
+
+
+def _source_lane_candidates(
+    response: HybridRetrievalResponse,
+) -> dict[str, list[dict[str, object]]]:
+    return {
+        "bm25": [
+            _lane_candidate_identity(
+                passage_key=hit.passage_key,
+                rank=hit.rank,
+                raw_score=hit.score,
+                text=hit.text,
+                provenance=hit.model_dump(exclude={"rank", "score", "text"}),
+            )
+            for hit in response.lexical.hits
+        ],
+        "dense": [
+            _lane_candidate_identity(
+                passage_key=candidate.passage_key,
+                rank=candidate.rank,
+                raw_score=candidate.raw_score,
+                text=candidate.provenance.text,
+                provenance=candidate.provenance.model_dump(exclude={"text"}),
+            )
+            for candidate in response.dense.candidates
+        ],
+    }
+
+
+def _response_snapshot_sha256(
+    query: IrQuery,
+    response: HybridRetrievalResponse,
+    candidate_identities: Sequence[dict[str, object]],
+) -> str:
+    payload = {
+        "schema_revision": _CANDIDATE_SNAPSHOT_REVISION,
+        "query_id": query.query_id,
+        "query_text_sha256": _sha256_text(query.text),
+        "retrieval_identity": _retrieval_identity(response),
+        "bm25_total": response.lexical.total,
+        "source_lane_candidates": _source_lane_candidates(response),
+        "fused_candidates": list(candidate_identities),
     }
     return hashlib.sha256(canonical_ir_json(payload)).hexdigest()
 
@@ -497,16 +561,30 @@ def build_scifact_candidate_snapshot(
     if set(frozen_responses) != set(selected_ids):
         raise IrContractError("frozen responses must cover exactly the selected pilot query IDs")
     queries = {query.query_id: query for query in pilot_dataset.queries}
-    projections = {response.dense.projection_sha256 for response in frozen_responses.values()}
-    if len(projections) != 1:
-        raise IrContractError("frozen candidate responses must share one physical projection")
-    projection_sha256 = next(iter(projections))
     mapped_passages = {entry.passage_id: entry for entry in passage_mapping.entries}
     response_payloads: list[dict[str, object]] = []
     response_sha256: list[tuple[str, str]] = []
+    identity_sha256: set[bytes] = set()
     for query_id in selected_ids:
         response = frozen_responses[query_id]
         identities = _validated_response_candidates(queries[query_id], response)
+        identity_sha256.add(
+            hashlib.sha256(canonical_ir_json(_retrieval_identity(response))).digest()
+        )
+        for hit in response.lexical.hits:
+            entry = mapped_passages.get(hit.passage_key)
+            if entry is None or (
+                entry.document_id != hit.document_canonical_key
+                or entry.document_version_id != hit.document_version_key
+            ):
+                raise IrContractError("BM25 source candidate disagrees with the full passage map")
+        for candidate in response.dense.candidates:
+            entry = mapped_passages.get(candidate.passage_key)
+            if entry is None or (
+                entry.document_id != candidate.provenance.document_canonical_key
+                or entry.document_version_id != candidate.provenance.document_version_key
+            ):
+                raise IrContractError("dense source candidate disagrees with the full passage map")
         for hit, identity in zip(response.fusion.hits, identities, strict=True):
             entry = mapped_passages.get(hit.passage_key)
             if entry is None:
@@ -527,16 +605,23 @@ def build_scifact_candidate_snapshot(
                 "query_id": query_id,
                 "query_text_sha256": _sha256_text(queries[query_id].text),
                 "retrieval_response_sha256": response_digest,
+                "bm25_total": response.lexical.total,
                 "candidate_count": len(identities),
+                "source_lane_candidates": _source_lane_candidates(response),
                 "candidates": list(identities),
             }
         )
+    if len(identity_sha256) != 1:
+        raise IrContractError("frozen candidate queries mix retrieval/index/embedding identities")
+    retrieval_identity = _retrieval_identity(frozen_responses[selected_ids[0]])
+    projection_sha256 = frozen_responses[selected_ids[0]].dense.projection_sha256
     payload = {
         "schema_revision": _PILOT_SNAPSHOT_REVISION,
         "source_id": pilot_dataset.source_id,
         "source_revision": pilot_dataset.source_revision,
         "corpus_sha256": pilot_dataset.corpus_sha256,
         "dataset_sha256": pilot_dataset.sha256,
+        "retrieval_identity": retrieval_identity,
         "projection_sha256": projection_sha256,
         "passage_mapping_sha256": passage_mapping.sha256,
         "query_ids_in_selection_order": list(selected_ids),
@@ -594,13 +679,20 @@ def _require_snapshot_inputs(
 class Qwen3RerankerAdapter:
     """Call the pinned local vLLM ``/score`` service in fixed-size batches."""
 
-    def __init__(self, *, timeout_seconds: float = 120.0) -> None:
+    def __init__(
+        self,
+        *,
+        session_deadline_monotonic: float,
+        timeout_seconds: float = 120.0,
+    ) -> None:
         if (
             isinstance(timeout_seconds, bool)
             or not math.isfinite(timeout_seconds)
             or timeout_seconds <= 0
         ):
             raise IrContractError("score timeout must be a finite positive number")
+        if not math.isfinite(session_deadline_monotonic):
+            raise IrContractError("pilot session deadline must be finite")
         parsed = urlsplit(_SCORE_ENDPOINT)
         if (
             parsed.scheme != "http"
@@ -612,6 +704,13 @@ class Qwen3RerankerAdapter:
         ):
             raise IrContractError("Qwen scoring endpoint must remain loopback-only")
         self._timeout_seconds = timeout_seconds
+        self._session_deadline_monotonic = session_deadline_monotonic
+
+    def _request_timeout(self) -> float:
+        remaining = self._session_deadline_monotonic - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("the global SciFact pilot session deadline expired")
+        return min(self._timeout_seconds, remaining)
 
     def _score_batch(self, query_text: str, documents: Sequence[str]) -> tuple[float, ...]:
         payload = {
@@ -630,7 +729,7 @@ class Qwen3RerankerAdapter:
             method="POST",
         )
         with urllib.request.urlopen(  # noqa: S310
-            request, timeout=self._timeout_seconds
+            request, timeout=self._request_timeout()
         ) as response:
             response_payload: object = json.loads(response.read().decode("utf-8"))
         if not isinstance(response_payload, dict):
@@ -664,50 +763,112 @@ class Qwen3RerankerAdapter:
             raise IrContractError("Qwen /score response indices do not cover the request")
         return tuple(indexed_scores[index] for index in range(len(documents)))
 
-    def rerank(self, query: IrQuery, response: HybridRetrievalResponse) -> QwenRerankedQuery:
-        """Score only a saved hybrid response; never invokes a retrieval lane."""
-        fusion = response.fusion
-        identities = _validated_response_candidates(query, response)
-        snapshot_sha256 = _response_snapshot_sha256(query, response, identities)
+    def rerank_frozen_candidates(
+        self,
+        query: IrQuery,
+        *,
+        retrieval_response_sha256: str,
+        projection_sha256: str,
+        candidates: Sequence[QwenScoringCandidate],
+    ) -> QwenRerankedQuery:
+        """Score only a locally validated minimal B2 candidate transfer record."""
+        if any(
+            len(digest) != 64 or any(character not in "0123456789abcdef" for character in digest)
+            for digest in (retrieval_response_sha256, projection_sha256)
+        ):
+            raise IrContractError("frozen scoring response and projection need SHA-256 identities")
+        passage_ids = tuple(candidate.passage_id for candidate in candidates)
+        ranks = tuple(candidate.original_rrf_rank for candidate in candidates)
+        if (
+            len(candidates) > SCIFACT_PILOT_CANDIDATE_COUNT
+            or len(passage_ids) != len(set(passage_ids))
+            or ranks != tuple(range(1, len(ranks) + 1))
+            or any(candidate.query_id != query.query_id for candidate in candidates)
+        ):
+            raise IrContractError(
+                "frozen scoring candidates must be a unique contiguous query prefix"
+            )
+        self._request_timeout()
         query_sha256 = _sha256_text(query.text)
         scores: list[float] = []
         request_count = 0
         started = time.perf_counter()
-        for start in range(0, len(fusion.hits), _SCORE_BATCH_SIZE):
-            batch = fusion.hits[start : start + _SCORE_BATCH_SIZE]
+        for start in range(0, len(candidates), _SCORE_BATCH_SIZE):
+            batch = candidates[start : start + _SCORE_BATCH_SIZE]
             scores.extend(
-                self._score_batch(query.text, tuple(hit.provenance.text for hit in batch))
+                self._score_batch(query.text, tuple(candidate.text for candidate in batch))
             )
             request_count += 1
+            self._request_timeout()
         elapsed_ms = (time.perf_counter() - started) * 1000.0
         if not math.isfinite(elapsed_ms):
             raise IrContractError("reranker elapsed time is non-finite")
 
         scored = sorted(
-            zip(fusion.hits, identities, scores, strict=True),
-            key=lambda item: (-item[2], item[0].final_rank),
+            zip(candidates, scores, strict=True),
+            key=lambda item: (-item[1], item[0].original_rrf_rank),
         )
         ranked = tuple(
             QwenRerankedCandidate(
                 query_id=query.query_id,
-                passage_id=hit.passage_key,
-                original_rrf_rank=hit.final_rank,
+                passage_id=candidate.passage_id,
+                original_rrf_rank=candidate.original_rrf_rank,
                 reranked_rank=rank,
                 reranker_score=score,
-                original_retrieval_json=canonical_ir_json(identity).decode("utf-8").rstrip("\n"),
+                original_retrieval_json=candidate.original_retrieval_json,
             )
-            for rank, (hit, identity, score) in enumerate(scored, start=1)
+            for rank, (candidate, score) in enumerate(scored, start=1)
         )
         return QwenRerankedQuery(
             query_id=query.query_id,
             query_text_sha256=query_sha256,
-            retrieval_response_sha256=snapshot_sha256,
-            projection_sha256=response.dense.projection_sha256,
-            candidate_count=len(fusion.hits),
+            retrieval_response_sha256=retrieval_response_sha256,
+            projection_sha256=projection_sha256,
+            candidate_count=len(candidates),
             request_count=request_count,
             elapsed_ms=elapsed_ms,
             candidates=ranked,
         )
+
+    def rerank(self, query: IrQuery, response: HybridRetrievalResponse) -> QwenRerankedQuery:
+        """Validate saved source lanes, then score the reconstructed fused top-50."""
+        identities = _validated_response_candidates(query, response)
+        return self.rerank_frozen_candidates(
+            query,
+            retrieval_response_sha256=_response_snapshot_sha256(query, response, identities),
+            projection_sha256=response.dense.projection_sha256,
+            candidates=_scoring_candidates(query, response, identities),
+        )
+
+
+def _scoring_candidates(
+    query: IrQuery,
+    response: HybridRetrievalResponse,
+    identities: Sequence[dict[str, object]],
+) -> tuple[QwenScoringCandidate, ...]:
+    """Keep only the selected fused passage text in the B2 transfer payload."""
+    return tuple(
+        QwenScoringCandidate(
+            query_id=query.query_id,
+            passage_id=hit.passage_key,
+            original_rrf_rank=hit.final_rank,
+            candidate_text_sha256=_sha256_text(hit.provenance.text),
+            text=hit.provenance.text,
+            original_retrieval_json=canonical_ir_json(identity).decode("utf-8").rstrip("\n"),
+        )
+        for hit, identity in zip(response.fusion.hits, identities, strict=True)
+    )
+
+
+def qwen_scoring_candidates(
+    query: IrQuery, response: HybridRetrievalResponse
+) -> tuple[QwenScoringCandidate, ...]:
+    """Validate full retrieval lanes and export only fused top-50 text for B2."""
+    return _scoring_candidates(
+        query,
+        response,
+        _validated_response_candidates(query, response),
+    )
 
 
 def frozen_hybrid_passage_hits(
