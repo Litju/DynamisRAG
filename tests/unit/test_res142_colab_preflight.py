@@ -837,6 +837,23 @@ def test_uv_version_check_accepts_the_exact_short_banner() -> None:
     assert evidence == observed
 
 
+def test_uv_version_check_accepts_platform_suffix_in_short_banner() -> None:
+    observed = support.verify_uv_version(
+        "/tmp/uv",
+        expected_version="0.12.4",
+        deadline=100,
+        runner=_uv_runner(
+            {
+                "-V": _uv_result("-V", "uv 0.12.4 (x86_64-unknown-linux-gnu)\n"),
+                "--version": _uv_result("--version", "uv 0.12.4 (x86_64-unknown-linux-gnu)\n"),
+            },
+            [],
+        ),
+    )
+    assert observed["short_banner"] == "uv 0.12.4 (x86_64-unknown-linux-gnu)"
+    assert observed["full_banner"] == "uv 0.12.4 (x86_64-unknown-linux-gnu)"
+
+
 def test_uv_version_check_accepts_verbose_build_metadata() -> None:
     calls: list[str] = []
     observed = support.verify_uv_version(

@@ -778,7 +778,8 @@ def verify_uv_version(
             f"observed short={short_banner!r}, full={full_banner!r}; "
             f"errors={invocation_errors!r}"
         )
-    if short_banner != expected_banner:
+    short_match = re.fullmatch(r"uv (\d+\.\d+\.\d+)(?: \([^\r\n()]+\))?", short_banner)
+    if short_match is None or short_match.group(1) != expected_version:
         raise RuntimeError(
             f"uv version mismatch: expected short banner {expected_banner!r}; "
             f"observed short={short_banner!r}, full={full_banner!r}"
