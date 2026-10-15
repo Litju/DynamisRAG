@@ -16,8 +16,8 @@ Colab's retained output reports `/content/res142/b1-synthetic-smoke/manifest.jso
 | Python 3.12 / Linux x86_64 / manylinux 2.31 dependency resolution | **RESOLVED — candidate only** | Hash-locked candidate at `requirements/res142-colab.lock.txt`; metadata resolution succeeded with pinned direct constraints. No packages were installed. Runtime installability remains unverified. |
 | Non-3.12 notebook kernel | **RESOLVED IN DESIGN** | The notebook kernel is an orchestrator only. A separate managed Python 3.12 interpreter and venv run uv, vLLM, probes, and scoring. Colab-side behavior remains unverified. |
 | Prepared artifacts | **REPAIRED LOCALLY** | Notebook, support helper, direct requirements, transitive candidate lock, Jinja template, and local bundle builder are separate reviewable files. Notebook cells remain unexecuted. |
-| Colab availability, CU rate, and budget | **RATE OBSERVED; B1 STOPPED** | A separately approved G4 rate inspection observed approximately 8.9 CU/hour. The later G4 / 2026.04 B1 attempt passed hardware preflight and stopped at uv bootstrap. Approximately 1.7 CU was reported as used, but the exact debit was not reconciled. The runtime is disconnected; another B1 run requires fresh approval. |
-| Durable B1 artifacts | **REQUIRED BY AMENDMENT; NOT EXERCISED** | B1 evidence must be persisted and read-back verified in the explicitly authorized Google Drive root `/content/drive/MyDrive/DynamisRAG/RES-142/`. This code-only repair did not mount Drive or authorize account access. |
+| Colab availability, CU rate, and budget | **RATE OBSERVED; B1 FAILED AT BOOTSTRAP** | The 2026-10-15 G4 / 2026.04 attempt passed hardware preflight, then stopped because `uv -V` printed `uv 0.12.4 (x86_64-unknown-linux-gnu)`, which the helper rejected. The live rate was 8.9 CU/hour and the account displayed 301.29 CU; the notebook timer recorded 187.467 seconds. No pairs were scored, and the exact CU debit was not reconciled. The runtime was deleted; this attempt was not retried. |
+| Durable B1 artifacts | **EXERCISED; READ-BACK VERIFIED** | The schema-v3 bundle and failure evidence were persisted under `/content/drive/MyDrive/DynamisRAG/RES-142/b1/runs/1792041304886465764-fbde0dae50ad4c84ab5b75e48f29ec78/`. Drive read-back verified every artifact and `flush_and_unmount` returned `flushed`. The failure manifest SHA-256 is `7d0c0f48f8ffe7aea1d3cf7b7946f4da8d296116ed31e8780f4e62f0383e1fb0`; the evidence ZIP SHA-256 is `60e148f8f1e722a5c0e539f20c0f41f6ba1bdec59a694c89db65a4d023f3848d`. |
 | B2 pilot | **REDESIGNED; NOT RUN** | A deterministic 20-query SciFact test-split pilot precedes the separately gated 300-query evaluation. Frozen candidates, mapping, rights, and budget remain required. |
 
 ## Authority and local state
@@ -134,7 +134,7 @@ export UV_PYTHON_PREFERENCE=only-managed
 
 The kernel interpreter is not used for model/runtime imports or scoring. uv-managed Python is selected explicitly, and the notebook records its exact patch version. Bootstrap package source is PyPI (`uv==0.12.4`). uv-managed CPython 3.12 is fetched by uv's Python distribution manager (python-build-standalone artifacts) and kept under `/content/res142/managed-python`; the inference lock's package sources are documented above.
 
-The notebook captures the exact runtime Python patch, both uv version banners (`uv -V` and `uv --version`), `uv pip freeze`, `uv pip check`, torch/CUDA, and vLLM versions into the B1 manifest. The short banner must equal `uv 0.12.4`; the full banner is parsed and checked against the same exact semantic version while allowing its documented build metadata. Neither the candidate lock nor its successful resolution qualifies a remote runtime or authorizes package installation.
+The notebook captures the exact runtime Python patch, both uv version banners (`uv -V` and `uv --version`), `uv pip freeze`, `uv pip check`, torch/CUDA, and vLLM versions into the B1 manifest. Both banners are parsed and checked against the exact semantic version; a platform suffix such as `(x86_64-unknown-linux-gnu)` is accepted. Neither the candidate lock nor its successful resolution qualifies a remote runtime or authorizes package installation.
 
 ## Model identity, scoring template, and serving contract
 
@@ -184,7 +184,7 @@ These are the actual local artifacts, not summaries or generated placeholders:
 | `requirements/res142-colab.txt` | 891 | `3df83a1da185da638bc96bc7b78bf3469df5a771448e549c844b139cd8de5193` |
 | `requirements/res142-colab.lock.txt` | 407,840 | `d8a87ad2f1f2a7faccfb96fee9fa859995f61caa7b8a7b845e268888c4c111dc` |
 | `notebooks/res142_qwen3_reranker.jinja` | 684 | `bf7b104801a4e4ad6a147d732e2d5a837a36f708cdbd1b871b864979d3e10acd` |
-| `notebooks/res142_b1_support.py` | 34,065 | `264ff767ee3f6d22fa295a48281201b3f52834f55f958b688758e09d8f569200` |
+| `notebooks/res142_b1_support.py` | 34,185 | `d98f7ea12d1df559f11c8be132cc033befb66bebfa13af56e630c870130feedc` |
 | `notebooks/res142_b1_prepare.py` | 11,146 | `c503e533784ddb32630f8486eba7ee175fc3b728de7c056709b68f1229e80819` |
 
 The local bundle configuration records the exact preparation commit and four execution-artifact hashes. Model revision SHA: `e61197ed45024b0ed8a2d74b80b4d909f1255473`. vLLM release wheel SHA-256: `5176ab746f4e736c4a354a11d0620abf0a941de287cad937ac34039293ca6f5f`.
