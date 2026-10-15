@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import re
 import signal
 import subprocess
 import sys
@@ -19,6 +20,7 @@ from notebooks import res142_b1_support as support
 
 _ROOT = Path(__file__).parents[2]
 _NOTEBOOK = _ROOT / "notebooks" / "res142_qwen3_reranker_colab.ipynb"
+_QUALIFICATION_NOTEBOOK = _ROOT / "notebooks" / "res142_drive_storage_qualification_colab.ipynb"
 _TEMPLATE = _ROOT / "notebooks" / "res142_qwen3_reranker.jinja"
 _LOCK = _ROOT / "requirements" / "res142-colab.lock.txt"
 _LOCK_SHA256 = "d8a87ad2f1f2a7faccfb96fee9fa859995f61caa7b8a7b845e268888c4c111dc"
@@ -33,6 +35,18 @@ def _notebook() -> dict[str, Any]:
 def _cells(cell_type: str) -> list[str]:
     return [
         "".join(cell["source"]) for cell in _notebook()["cells"] if cell["cell_type"] == cell_type
+    ]
+
+
+def _qualification_notebook() -> dict[str, Any]:
+    return json.loads(_QUALIFICATION_NOTEBOOK.read_text(encoding="utf-8"))
+
+
+def _qualification_cells(cell_type: str) -> list[str]:
+    return [
+        "".join(cell["source"])
+        for cell in _qualification_notebook()["cells"]
+        if cell["cell_type"] == cell_type
     ]
 
 
@@ -79,6 +93,97 @@ def _initialize_mock_drive(
         free_bytes=lambda _: free_bytes,
         minimum_free_bytes=16 * 1024 * 1024,
     )
+
+
+def _run_mock_cpu_drive_qualification(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    events: list[str] | None = None,
+    fail_stage: str | None = None,
+    qualification_authorization: str = "APPROVE RES-142 CPU-ONLY DRIVE QUALIFICATION",
+    drive_authorization: str = _DRIVE_AUTHORIZATION,
+    destination_confirmation: str | None = None,
+    runtime_confirmation: str = "2026.04",
+    accelerator_confirmation: str = "CPU",
+) -> tuple[dict[str, object], list[str], Path]:
+    mountpoint = tmp_path / "mount"
+    drive_root = mountpoint / "MyDrive" / "DynamisRAG" / "RES-142"
+    monkeypatch.setattr(support, "COLAB_DRIVE_MOUNTPOINT", mountpoint)
+    monkeypatch.setattr(support, "COLAB_DRIVE_ROOT", drive_root)
+    recorded_events = events if events is not None else []
+    mounted = {"value": False}
+
+    function_source = _qualification_cells("code")[1]
+    namespace: dict[str, object] = {"support": support}
+    exec(  # noqa: S102 -- runs only the checked-in function-definition cell under local mocks.
+        compile(function_source, "qualification_notebook:function", "exec"), namespace
+    )
+    run_qualification = cast(
+        Callable[..., dict[str, object]], namespace["run_drive_storage_qualification"]
+    )
+
+    def drive_mount(path: str) -> None:
+        recorded_events.append("mount")
+        if Path(path) != mountpoint:
+            raise AssertionError(f"unexpected mountpoint: {path}")
+        (mountpoint / "MyDrive").mkdir(parents=True, exist_ok=True)
+        mounted["value"] = True
+
+    def drive_is_mounted(path: Path) -> bool:
+        return mounted["value"] and path == mountpoint
+
+    def drive_flush_and_unmount(*, timeout_ms: int) -> None:
+        recorded_events.append("flush")
+        assert timeout_ms == 30_000
+        if fail_stage == "flush":
+            raise OSError("simulated flush failure")
+        mounted["value"] = False
+
+    def verify_in_drive_ui(
+        run_directory: str, expected_hashes: dict[str, str]
+    ) -> dict[str, object]:
+        recorded_events.append("ui")
+        if fail_stage == "ui":
+            return {"files_visible": True, "sentinel.json_sha256": "0" * 64}
+        run_path = Path(run_directory)
+        observed = {
+            name: hashlib.sha256((run_path / name).read_bytes()).hexdigest()
+            for name in expected_hashes
+        }
+        return {
+            "files_visible": True,
+            **{f"{name}_sha256": digest for name, digest in observed.items()},
+        }
+
+    if fail_stage == "sentinel":
+
+        def fail_sentinel(*_: object, **__: object) -> dict[str, object]:
+            raise OSError("simulated sentinel write failure")
+
+        monkeypatch.setattr(support, "persist_drive_bytes", fail_sentinel)
+    elif fail_stage == "manifest":
+
+        def fail_manifest(*_: object, **__: object) -> dict[str, object]:
+            raise OSError("simulated manifest write failure")
+
+        monkeypatch.setattr(support, "persist_drive_json", fail_manifest)
+
+    report = run_qualification(
+        runtime_confirmation=runtime_confirmation,
+        accelerator_confirmation=accelerator_confirmation,
+        qualification_authorization=qualification_authorization,
+        drive_authorization=drive_authorization,
+        destination_confirmation=destination_confirmation or drive_root.as_posix(),
+        mountpoint=mountpoint,
+        drive_root=drive_root,
+        local_staging_root=tmp_path / "local-staging",
+        drive_mount=drive_mount,
+        drive_is_mounted=drive_is_mounted,
+        drive_flush_and_unmount=drive_flush_and_unmount,
+        verify_in_drive_ui=verify_in_drive_ui,
+    )
+    return report, recorded_events, Path(str(report["run_directory"]))
 
 
 def test_every_notebook_code_cell_compiles_and_is_unexecuted() -> None:
@@ -156,6 +261,218 @@ def test_notebook_helpers_have_no_unresolved_global_names() -> None:
     assert result.returncode == 0, (
         f"Ruff F821 found unresolved helper globals:\n{result.stdout}{result.stderr}"
     )
+
+
+def test_documented_support_digest_matches_canonical_bundle_bytes() -> None:
+    _, artifacts = prepare.build_configuration(
+        _ROOT,
+        branch=prepare.EXPECTED_BRANCH,
+        current_commit_sha="a" * 40,
+        setup_authorization="APPROVE COLAB SETUP",
+        rate_inspection_authorization="APPROVE COLAB RATE INSPECTION",
+        drive_authorization=_DRIVE_AUTHORIZATION,
+        drive_destination_confirmation=_DRIVE_DESTINATION,
+        gpu="G4",
+        rate_inspection_max_compute_units=1,
+        observed_compute_units_per_hour=1,
+        approved_max_compute_units=1,
+    )
+    canonical_bytes = artifacts["support"]
+    expected_sha256 = hashlib.sha256(canonical_bytes).hexdigest()
+    docs = (_ROOT / "docs" / "res142-colab-preflight.md").read_text(encoding="utf-8")
+    row = re.search(
+        r"^\| `notebooks/res142_b1_support\.py` \| ([\d,]+) \| `([0-9a-f]{64})` \|$",
+        docs,
+        re.MULTILINE,
+    )
+    assert row is not None, "the support-helper digest row is missing from the preflight docs"
+    assert int(row.group(1).replace(",", "")) == len(canonical_bytes)
+    assert row.group(2) == expected_sha256
+    upload_source = _qualification_cells("code")[0]
+    assert f"EXPECTED_SUPPORT_BYTES = {len(canonical_bytes)}" in upload_source
+    assert f'EXPECTED_SUPPORT_SHA256 = "{expected_sha256}"' in upload_source
+
+
+def test_cpu_drive_qualification_notebook_is_unexecuted_and_fail_closed() -> None:
+    notebook = _qualification_notebook()
+    for index, cell in enumerate(notebook["cells"]):
+        if cell["cell_type"] != "code":
+            continue
+        compile("".join(cell["source"]), f"{_QUALIFICATION_NOTEBOOK.name}:cell-{index}", "exec")
+        assert cell.get("execution_count") is None
+        assert cell.get("outputs") == []
+
+    metadata = notebook["metadata"]
+    markdown = "\n".join(_qualification_cells("markdown"))
+    code_cells = _qualification_cells("code")
+    function_source = code_cells[1]
+    run_source = code_cells[2]
+    code = "\n".join(code_cells)
+    assert metadata["colab"]["gpuType"] == ""
+    assert "2026.04" in markdown and "CPU / no accelerator" in markdown
+    assert "drive-qualifications/<unique_run_id>" in markdown
+    assert "same account" in markdown
+    assert (
+        'CPU_QUALIFICATION_AUTHORIZATION_REQUIRED = "APPROVE RES-142 CPU-ONLY DRIVE QUALIFICATION"'
+        in function_source
+    )
+    assert function_source.index(
+        "runtime_confirmation != support.COLAB_RUNTIME_VERSION_REQUIRED"
+    ) < function_source.index("drive_mount(str(mountpoint))")
+    assert function_source.index('accelerator_confirmation != "CPU"') < function_source.index(
+        "drive_mount(str(mountpoint))"
+    )
+    assert function_source.index(
+        "support.validate_drive_storage_authorization("
+    ) < function_source.index("drive_mount(str(mountpoint))")
+    assert "support.persist_drive_bytes(" in function_source
+    assert "support.persist_drive_json(" in function_source
+    assert "drive_flush_and_unmount(timeout_ms=DRIVE_FLUSH_TIMEOUT_MS)" in function_source
+    assert "verify_in_drive_ui(str(run_dir), expected_hashes)" in function_source
+    assert "qualification_authorization = input(" in run_source
+    assert run_source.index("qualification_authorization = input(") < run_source.index(
+        "run_drive_storage_qualification("
+    )
+    assert "DRIVE UI VERIFIED" in run_source
+    assert all(token not in code.lower() for token in ("torch", "cuda", "vllm", "model"))
+    assert not any(
+        token in function_source for token in (".iterdir(", ".glob(", ".rglob(", "os.walk(")
+    )
+
+
+def test_cpu_drive_qualification_notebook_has_no_unresolved_globals() -> None:
+    source = "\n\n".join(
+        f"# Qualification notebook code cell {index}\n{cell}"
+        for index, cell in enumerate(_qualification_cells("code"))
+    )
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "ruff",
+            "check",
+            "--isolated",
+            "--select",
+            "F821",
+            "--output-format",
+            "concise",
+            "--stdin-filename",
+            "res142_drive_storage_qualification_colab.py",
+            "-",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        input=source,
+    )
+    assert result.returncode == 0, (
+        f"Ruff F821 found unresolved qualification globals:\n{result.stdout}{result.stderr}"
+    )
+
+
+def test_cpu_drive_qualification_writes_flushes_and_ui_verifies_unique_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first, events, first_run = _run_mock_cpu_drive_qualification(tmp_path, monkeypatch)
+    second, second_events, second_run = _run_mock_cpu_drive_qualification(tmp_path, monkeypatch)
+
+    assert first["status"] == second["status"] == "complete"
+    assert first_run != second_run
+    assert first_run.parent.name == "drive-qualifications"
+    assert first_run.parent.parent == Path(str(first["drive_root"]))
+    assert {path.name for path in first_run.iterdir()} == {
+        "sentinel.json",
+        "qualification-manifest.json",
+    }
+    manifest = json.loads((first_run / "qualification-manifest.json").read_text(encoding="utf-8"))
+    sentinel = json.loads((first_run / "sentinel.json").read_text(encoding="utf-8"))
+    assert manifest["qualification_id"] == sentinel["qualification_id"] == first["qualification_id"]
+    assert manifest["sentinel"]["sha256"] == manifest["sentinel"]["readback_sha256"]
+    assert first["drive_flush_status"] == "flushed"
+    assert first["drive_ui_verification_status"] == "verified"
+    assert events == second_events == ["mount", "flush", "ui"]
+
+
+@pytest.mark.parametrize(
+    ("runtime_confirmation", "accelerator_confirmation"),
+    [("Latest", "CPU"), ("2026.04", "GPU")],
+)
+def test_cpu_drive_qualification_refuses_wrong_runtime_before_mount(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    runtime_confirmation: str,
+    accelerator_confirmation: str,
+) -> None:
+    events: list[str] = []
+    with pytest.raises(PermissionError):
+        _run_mock_cpu_drive_qualification(
+            tmp_path,
+            monkeypatch,
+            events=events,
+            runtime_confirmation=runtime_confirmation,
+            accelerator_confirmation=accelerator_confirmation,
+        )
+    assert events == []
+
+
+def test_cpu_drive_qualification_requires_scope_authorization_before_mount(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    events: list[str] = []
+    with pytest.raises(PermissionError, match="separate explicit authorization"):
+        _run_mock_cpu_drive_qualification(
+            tmp_path,
+            monkeypatch,
+            events=events,
+            qualification_authorization="",
+        )
+    assert events == []
+
+
+@pytest.mark.parametrize(
+    ("drive_authorization", "destination_confirmation"),
+    [("", None), (_DRIVE_AUTHORIZATION, "/content/drive/MyDrive/Other")],
+)
+def test_cpu_drive_qualification_requires_drive_authorization_and_exact_root_before_mount(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    drive_authorization: str,
+    destination_confirmation: str | None,
+) -> None:
+    events: list[str] = []
+    with pytest.raises(PermissionError):
+        _run_mock_cpu_drive_qualification(
+            tmp_path,
+            monkeypatch,
+            events=events,
+            drive_authorization=drive_authorization,
+            destination_confirmation=destination_confirmation,
+        )
+    assert events == []
+
+
+@pytest.mark.parametrize("fail_stage", ["sentinel", "manifest", "flush", "ui"])
+def test_cpu_drive_qualification_reports_incomplete_and_fails_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fail_stage: str
+) -> None:
+    report, events, _ = _run_mock_cpu_drive_qualification(
+        tmp_path, monkeypatch, fail_stage=fail_stage
+    )
+
+    assert report["status"] == "incomplete"
+    assert report["persistence_status"] == "incomplete"
+    assert "flush" in events
+    if fail_stage == "ui":
+        assert events == ["mount", "flush", "ui"]
+    else:
+        assert "ui" not in events
+    errors = cast(list[dict[str, str]], report["errors"])
+    assert errors
+    if fail_stage == "manifest":
+        persisted_files = cast(dict[str, dict[str, object]], report["files"])
+        assert report["write_readback_status"] == "sentinel-verified"
+        assert set(persisted_files) == {"sentinel.json"}
 
 
 def test_notebook_template_is_the_uploaded_file_byte_for_byte() -> None:

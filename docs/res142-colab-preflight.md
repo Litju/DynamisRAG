@@ -184,10 +184,16 @@ These are the actual local artifacts, not summaries or generated placeholders:
 | `requirements/res142-colab.txt` | 891 | `3df83a1da185da638bc96bc7b78bf3469df5a771448e549c844b139cd8de5193` |
 | `requirements/res142-colab.lock.txt` | 407,840 | `d8a87ad2f1f2a7faccfb96fee9fa859995f61caa7b8a7b845e268888c4c111dc` |
 | `notebooks/res142_qwen3_reranker.jinja` | 684 | `bf7b104801a4e4ad6a147d732e2d5a837a36f708cdbd1b871b864979d3e10acd` |
-| `notebooks/res142_b1_support.py` | 33,812 | `471412cfc9dcb6e3296c873999d9833d60539c07f1a7606ac54a456d52ba5bbd` |
+| `notebooks/res142_b1_support.py` | 34,065 | `264ff767ee3f6d22fa295a48281201b3f52834f55f958b688758e09d8f569200` |
 | `notebooks/res142_b1_prepare.py` | 11,146 | `c503e533784ddb32630f8486eba7ee175fc3b728de7c056709b68f1229e80819` |
 
 The local bundle configuration records the exact preparation commit and four execution-artifact hashes. Model revision SHA: `e61197ed45024b0ed8a2d74b80b4d909f1255473`. vLLM release wheel SHA-256: `5176ab746f4e736c4a354a11d0620abf0a941de287cad937ac34039293ca6f5f`.
+
+## Separate CPU-only Drive storage qualification
+
+[`notebooks/res142_drive_storage_qualification_colab.ipynb`](../notebooks/res142_drive_storage_qualification_colab.ipynb) is a separate, unexecuted Colab probe; it is not part of the G4-locked B1 notebook or its bundle. Before running any cell, the operator must visually select runtime **2026.04** and **CPU / no accelerator**. The probe requires both `APPROVE RES-142 CPU-ONLY DRIVE QUALIFICATION` and the existing `APPROVE COLAB DRIVE STORAGE`, plus confirmation of the exact `/content/drive/MyDrive/DynamisRAG/RES-142` root, before it calls `drive.mount()`. Confirm the intended Google account before accepting Colab's mount prompt, then use the same account for the independent Drive UI check.
+
+The probe creates only `drive-qualifications/<unique_run_id>/sentinel.json` and `qualification-manifest.json` beneath that root, using the reviewed helper's create-only write/read-back functions. It then calls Colab's official Drive flush/unmount and requires the operator to download exactly those two files from the independent Drive UI; the notebook compares their uploaded SHA-256 values to the helper's read-back hashes. Any write, flush, or UI verification failure is reported as `incomplete` and stops qualification. The code does not list or read unrelated Drive files, install packages, access a GPU, or load a model. This notebook documents a future qualification workflow and does not authorize connecting Colab or mounting Drive.
 
 ## Notebook sequence and gates
 
