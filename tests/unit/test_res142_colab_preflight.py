@@ -95,6 +95,22 @@ def _initialize_mock_drive(
     )
 
 
+def _qualification_function_namespace() -> dict[str, object]:
+    helper_bytes = (
+        (_ROOT / "notebooks" / "res142_b1_support.py").read_bytes().replace(b"\r\n", b"\n")
+    )
+    namespace: dict[str, object] = {
+        "support": support,
+        "EXPECTED_SUPPORT_BYTES": len(helper_bytes),
+        "EXPECTED_SUPPORT_SHA256": hashlib.sha256(helper_bytes).hexdigest(),
+    }
+    source = _qualification_cells("code")[1]
+    exec(  # noqa: S102 -- executes checked-in function definitions with local mock dependencies.
+        compile(source, "qualification_notebook:function", "exec"), namespace
+    )
+    return namespace
+
+
 def _run_mock_cpu_drive_qualification(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -106,6 +122,9 @@ def _run_mock_cpu_drive_qualification(
     destination_confirmation: str | None = None,
     runtime_confirmation: str = "2026.04",
     accelerator_confirmation: str = "CPU",
+    reviewed_source_commit_sha: str = "a" * 40,
+    available_bytes: int | None = None,
+    handoff_target: str = "LINEAR:RES-142",
 ) -> tuple[dict[str, object], list[str], Path]:
     mountpoint = tmp_path / "mount"
     drive_root = mountpoint / "MyDrive" / "DynamisRAG" / "RES-142"
@@ -114,11 +133,7 @@ def _run_mock_cpu_drive_qualification(
     recorded_events = events if events is not None else []
     mounted = {"value": False}
 
-    function_source = _qualification_cells("code")[1]
-    namespace: dict[str, object] = {"support": support}
-    exec(  # noqa: S102 -- runs only the checked-in function-definition cell under local mocks.
-        compile(function_source, "qualification_notebook:function", "exec"), namespace
-    )
+    namespace = _qualification_function_namespace()
     run_qualification = cast(
         Callable[..., dict[str, object]], namespace["run_drive_storage_qualification"]
     )
@@ -132,6 +147,20 @@ def _run_mock_cpu_drive_qualification(
 
     def drive_is_mounted(path: Path) -> bool:
         return mounted["value"] and path == mountpoint
+
+    def drive_free_bytes(path: Path) -> int:
+        recorded_events.append("free-space")
+        if path != drive_root:
+            raise AssertionError(f"unexpected DriveFS free-space path: {path}")
+        if fail_stage == "free_space_error":
+            raise OSError("simulated DriveFS free-space callback failure")
+        if fail_stage == "free_space":
+            return support.COLAB_DRIVE_MIN_FREE_BYTES - 1
+        return (
+            available_bytes
+            if available_bytes is not None
+            else support.COLAB_DRIVE_MIN_FREE_BYTES + 1024
+        )
 
     def drive_flush_and_unmount(*, timeout_ms: int) -> None:
         recorded_events.append("flush")
@@ -168,13 +197,20 @@ def _run_mock_cpu_drive_qualification(
             raise OSError("simulated manifest write failure")
 
         monkeypatch.setattr(support, "persist_drive_json", fail_manifest)
+    monkeypatch.setattr(support, "_drive_available_bytes", drive_free_bytes)
 
     report = run_qualification(
         runtime_confirmation=runtime_confirmation,
         accelerator_confirmation=accelerator_confirmation,
+        reviewed_source_commit_sha=reviewed_source_commit_sha,
+        support_helper_sha256=str(namespace["EXPECTED_SUPPORT_SHA256"]),
+        support_helper_size_bytes=len(
+            (_ROOT / "notebooks" / "res142_b1_support.py").read_bytes().replace(b"\r\n", b"\n")
+        ),
         qualification_authorization=qualification_authorization,
         drive_authorization=drive_authorization,
         destination_confirmation=destination_confirmation or drive_root.as_posix(),
+        handoff_target=handoff_target,
         mountpoint=mountpoint,
         drive_root=drive_root,
         local_staging_root=tmp_path / "local-staging",
@@ -334,6 +370,12 @@ def test_cpu_drive_qualification_notebook_is_unexecuted_and_fail_closed() -> Non
         "run_drive_storage_qualification("
     )
     assert "DRIVE UI VERIFIED" in run_source
+    assert (
+        run_source.index("run_drive_storage_qualification(")
+        < run_source.index("write_final_qualification_receipt(")
+        < run_source.index('files.download(receipt_info["path"])')
+        < run_source.index("confirm_final_receipt_handoff(")
+    )
     assert all(token not in code.lower() for token in ("torch", "cuda", "vllm", "model"))
     assert not any(
         token in function_source for token in (".iterdir(", ".glob(", ".rglob(", "os.walk(")
@@ -388,10 +430,152 @@ def test_cpu_drive_qualification_writes_flushes_and_ui_verifies_unique_files(
     manifest = json.loads((first_run / "qualification-manifest.json").read_text(encoding="utf-8"))
     sentinel = json.loads((first_run / "sentinel.json").read_text(encoding="utf-8"))
     assert manifest["qualification_id"] == sentinel["qualification_id"] == first["qualification_id"]
+    assert manifest["drive_flush_status"] == "pending"
+    assert manifest["drive_ui_verification_status"] == "pending"
     assert manifest["sentinel"]["sha256"] == manifest["sentinel"]["readback_sha256"]
+    free_space = cast(dict[str, object], first["drive_free_space"])
+    assert (
+        free_space["method"]
+        == "support._drive_available_bytes (shutil.disk_usage on mounted DriveFS)"
+    )
+    assert free_space["available_bytes_observed"] == support.COLAB_DRIVE_MIN_FREE_BYTES + 1024
+    assert free_space["minimum_free_bytes_required"] == 16 * 1024 * 1024
+    assert free_space["authoritative_google_account_quota"] is False
+    assert manifest["drive_free_space"] == free_space
     assert first["drive_flush_status"] == "flushed"
     assert first["drive_ui_verification_status"] == "verified"
-    assert events == second_events == ["mount", "flush", "ui"]
+    assert events == second_events == ["mount", "free-space", "flush", "ui"]
+
+
+def test_cpu_drive_qualification_final_receipt_is_write_once_and_preserves_manifest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    report, _, run_dir = _run_mock_cpu_drive_qualification(tmp_path, monkeypatch)
+    manifest_path = run_dir / "qualification-manifest.json"
+    original_manifest = manifest_path.read_bytes()
+    namespace = _qualification_function_namespace()
+    write_receipt = cast(
+        Callable[..., dict[str, object]], namespace["write_final_qualification_receipt"]
+    )
+
+    receipt_info = write_receipt(report, receipt_root=tmp_path / "audit-receipts")
+    receipt_path = Path(str(receipt_info["path"]))
+    receipt_bytes = receipt_path.read_bytes()
+    receipt = json.loads(receipt_bytes)
+
+    assert receipt["schema"] == "res142-cpu-drive-qualification-result-v1"
+    assert receipt["run_id"] == report["qualification_id"]
+    assert receipt["qualification_id"] == report["qualification_id"]
+    assert receipt["reviewed_source_identity"]["reviewed_head_commit_sha"] == "a" * 40
+    assert receipt["support_helper_sha256"] == str(namespace["EXPECTED_SUPPORT_SHA256"])
+    assert receipt["sentinel_sha256"] == receipt["sentinel_readback_sha256"]
+    assert receipt["manifest_sha256"] == receipt["manifest_readback_sha256"]
+    assert receipt["manifest_sha256"] == hashlib.sha256(original_manifest).hexdigest()
+    assert receipt["drive_flush_outcome"] == "flushed"
+    assert receipt["remote_ui_verification_outcome"]["status"] == "verified"
+    assert receipt["final_status"] == "complete"
+    assert receipt["pre_flush_manifest"]["preserved_without_overwrite"] is True
+    assert receipt["handoff_target"] == "LINEAR:RES-142"
+    assert (
+        receipt["remote_ui_verification_outcome"]["sha256"]["sentinel.json"]
+        == receipt["sentinel_sha256"]
+    )
+    assert (
+        receipt["remote_ui_verification_outcome"]["sha256"]["qualification-manifest.json"]
+        == receipt["manifest_sha256"]
+    )
+    assert receipt_info["sha256"] == hashlib.sha256(receipt_bytes).hexdigest()
+    assert manifest_path.read_bytes() == original_manifest
+    with pytest.raises(FileExistsError):
+        write_receipt(report, receipt_root=tmp_path / "audit-receipts")
+
+
+@pytest.mark.parametrize(
+    ("target", "reference"),
+    [
+        (
+            "LINEAR:RES-142",
+            "https://linear.app/alignerr-cmj/issue/RES-142/storage-qualification#comment-abc",
+        ),
+        ("AUDIT:E:/audit/res142/receipt.json", "E:/audit/res142/receipt.json"),
+    ],
+)
+def test_final_receipt_handoff_requires_expected_target_and_exact_receipt_digest(
+    target: str, reference: str
+) -> None:
+    namespace = _qualification_function_namespace()
+    confirm_handoff = cast(
+        Callable[..., dict[str, str]], namespace["confirm_final_receipt_handoff"]
+    )
+    receipt_sha256 = "b" * 64
+
+    handoff = confirm_handoff(
+        handoff_target=target,
+        handoff_reference=reference,
+        confirmed_receipt_sha256=receipt_sha256,
+        expected_receipt_sha256=receipt_sha256,
+    )
+
+    assert handoff == {
+        "status": "operator-confirmed",
+        "target": target,
+        "reference": reference,
+        "sha256": receipt_sha256,
+    }
+
+
+@pytest.mark.parametrize(
+    ("target", "reference", "confirmed_sha256"),
+    [
+        (
+            "LINEAR:RES-142",
+            "https://linear.app/alignerr-cmj/issue/RES-141/wrong#comment-1",
+            "b" * 64,
+        ),
+        ("LINEAR:RES-142", "https://example.com/issue/RES-142/comment-1", "b" * 64),
+        ("AUDIT:E:/audit/res142/receipt.json", "E:/audit/other.json", "b" * 64),
+        ("AUDIT:E:/audit/res142/receipt.json", "E:/audit/res142/receipt.json", "c" * 64),
+    ],
+)
+def test_final_receipt_handoff_fails_closed_for_wrong_reference_or_digest(
+    target: str, reference: str, confirmed_sha256: str
+) -> None:
+    namespace = _qualification_function_namespace()
+    confirm_handoff = cast(
+        Callable[..., dict[str, str]], namespace["confirm_final_receipt_handoff"]
+    )
+
+    with pytest.raises(ValueError):
+        confirm_handoff(
+            handoff_target=target,
+            handoff_reference=reference,
+            confirmed_receipt_sha256=confirmed_sha256,
+            expected_receipt_sha256="b" * 64,
+        )
+
+
+def test_incomplete_free_space_probe_is_recorded_and_receipted_fail_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    report, events, run_dir = _run_mock_cpu_drive_qualification(
+        tmp_path, monkeypatch, fail_stage="free_space"
+    )
+    free_space = cast(dict[str, object], report["drive_free_space"])
+    assert report["status"] == "incomplete"
+    assert free_space["status"] == "below-minimum"
+    assert free_space["available_bytes_observed"] == support.COLAB_DRIVE_MIN_FREE_BYTES - 1
+    assert events == ["mount", "free-space", "flush"]
+    assert not run_dir.exists()
+
+    namespace = _qualification_function_namespace()
+    write_receipt = cast(
+        Callable[..., dict[str, object]], namespace["write_final_qualification_receipt"]
+    )
+    receipt_info = write_receipt(report, receipt_root=tmp_path / "incomplete-receipts")
+    receipt = json.loads(Path(str(receipt_info["path"])).read_text(encoding="utf-8"))
+    assert receipt["final_status"] == "incomplete"
+    assert receipt["drive_free_space"]["authoritative_google_account_quota"] is False
+    assert receipt["pre_flush_manifest"]["written_before_drive_flush"] is False
 
 
 @pytest.mark.parametrize(
@@ -452,7 +636,9 @@ def test_cpu_drive_qualification_requires_drive_authorization_and_exact_root_bef
     assert events == []
 
 
-@pytest.mark.parametrize("fail_stage", ["sentinel", "manifest", "flush", "ui"])
+@pytest.mark.parametrize(
+    "fail_stage", ["free_space", "free_space_error", "sentinel", "manifest", "flush", "ui"]
+)
 def test_cpu_drive_qualification_reports_incomplete_and_fails_closed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fail_stage: str
 ) -> None:
@@ -464,15 +650,27 @@ def test_cpu_drive_qualification_reports_incomplete_and_fails_closed(
     assert report["persistence_status"] == "incomplete"
     assert "flush" in events
     if fail_stage == "ui":
-        assert events == ["mount", "flush", "ui"]
+        assert events == ["mount", "free-space", "flush", "ui"]
     else:
         assert "ui" not in events
+        assert events == ["mount", "free-space", "flush"]
     errors = cast(list[dict[str, str]], report["errors"])
     assert errors
+    namespace = _qualification_function_namespace()
+    write_receipt = cast(
+        Callable[..., dict[str, object]], namespace["write_final_qualification_receipt"]
+    )
+    receipt_info = write_receipt(report, receipt_root=tmp_path / "failure-receipts")
+    receipt = json.loads(Path(str(receipt_info["path"])).read_text(encoding="utf-8"))
+    assert receipt["final_status"] == "incomplete"
     if fail_stage == "manifest":
         persisted_files = cast(dict[str, dict[str, object]], report["files"])
         assert report["write_readback_status"] == "sentinel-verified"
         assert set(persisted_files) == {"sentinel.json"}
+    if fail_stage == "free_space_error":
+        free_space = cast(dict[str, object], receipt["drive_free_space"])
+        assert free_space["status"] == "failed"
+        assert free_space["available_bytes_observed"] is None
 
 
 def test_notebook_template_is_the_uploaded_file_byte_for_byte() -> None:
