@@ -23,6 +23,7 @@ from dynamisrag.ir.contracts import (
     IrPassageMapping,
     IrQrel,
     IrQuery,
+    canonical_ir_json,
     document_run_from_passages,
 )
 from dynamisrag.ir.experiments import compare_ir_evaluations
@@ -34,11 +35,13 @@ from dynamisrag.ir.qwen3_reranker import (
     QwenScoringCandidate,
     SciFactCandidateSnapshot,
     build_scifact_candidate_snapshot,
+    canonical_scifact_evaluation_dataset,
     frozen_hybrid_passage_hits,
     qwen3_reranker_config,
     qwen3_reranker_run,
     qwen_scoring_candidates,
     ranked_passage_hits,
+    scifact_qrel_identity_mapping_sha256,
     select_scifact_pilot_dataset,
     select_scifact_pilot_query_ids,
 )
@@ -299,15 +302,33 @@ def _responses_from_scores(rows: object) -> io.BytesIO:
     return io.BytesIO(json.dumps({"model": QWEN3_RERANKER_MODEL_ID, "data": rows}).encode())
 
 
-def _baseline_config(dataset: IrDataset, mapping: IrPassageMapping) -> IrExperimentConfig:
+def _baseline_config(
+    dataset: IrDataset,
+    mapping: IrPassageMapping,
+    *,
+    source_dataset: IrDataset | None = None,
+    qrel_identity_mapping_sha256: str | None = None,
+) -> IrExperimentConfig:
+    parameters: dict[str, object] = {
+        "candidate_window": 50,
+        "passage_mapping_sha256": mapping.sha256,
+        "rrf_k": 60,
+    }
+    if source_dataset is not None:
+        source_pilot, _ = select_scifact_pilot_dataset(source_dataset)
+        parameters.update(
+            {
+                "source_dataset_sha256": source_dataset.sha256,
+                "source_pilot_dataset_sha256": source_pilot.sha256,
+                "qrel_identity_mapping_sha256": qrel_identity_mapping_sha256,
+            }
+        )
     return IrExperimentConfig(
         dataset_sha256=dataset.sha256,
         code_sha=_CODE_SHA,
         retrieval_revision="hybrid-rrf-v1",
         projection_sha256=_PROJECTION_SHA,
-        parameters_json='{"candidate_window":50,"passage_mapping_sha256":"'
-        + mapping.sha256
-        + '","rrf_k":60}',
+        parameters_json=canonical_ir_json(parameters).decode("utf-8").rstrip("\n"),
     )
 
 
@@ -319,6 +340,49 @@ def test_selection_is_deterministic_from_the_complete_query_id_universe() -> Non
     assert len(selected) == 20
     assert selected == select_scifact_pilot_query_ids(tuple(reversed(query_ids)))
     assert selected == select_scifact_pilot_dataset(dataset)[1]
+
+
+def test_canonical_qrel_dataset_preserves_source_judgments_and_binds_the_id_map() -> None:
+    dataset = _dataset()
+    pilot, _selected_ids = select_scifact_pilot_dataset(dataset)
+    identity_map = {
+        source_id: f"canonical:{source_id}"
+        for source_id in {qrel.document_id for qrel in pilot.qrels}
+    }
+    source_sha = dataset.sha256
+    pilot_sha = pilot.sha256
+
+    evaluation = canonical_scifact_evaluation_dataset(dataset, identity_map)
+
+    assert dataset.sha256 == source_sha
+    assert pilot.sha256 == pilot_sha
+    assert evaluation.source_revision == f"{pilot.source_revision}.canonical-qrels-v1"
+    assert evaluation.corpus_sha256 == pilot.corpus_sha256
+    assert evaluation.queries == pilot.queries
+    assert len(evaluation.qrels) == len(pilot.qrels)
+    expected_qrels = tuple(
+        sorted(
+            (
+                IrQrel(
+                    query_id=qrel.query_id,
+                    document_id=identity_map[qrel.document_id],
+                    relevance=qrel.relevance,
+                )
+                for qrel in pilot.qrels
+            ),
+            key=lambda qrel: (qrel.query_id, qrel.document_id),
+        )
+    )
+    assert evaluation.qrels == expected_qrels
+    identity_sha256 = scifact_qrel_identity_mapping_sha256(dataset, identity_map)
+    assert len(identity_sha256) == 64
+    assert identity_sha256 == scifact_qrel_identity_mapping_sha256(dataset, identity_map)
+    changed_map = {**identity_map, next(iter(identity_map)): "changed-canonical-document"}
+    assert scifact_qrel_identity_mapping_sha256(dataset, changed_map) != (
+        scifact_qrel_identity_mapping_sha256(dataset, identity_map)
+    )
+    with pytest.raises(IrContractError, match="misses source IDs"):
+        canonical_scifact_evaluation_dataset(dataset, dict(list(identity_map.items())[1:]))
 
 
 def test_adapter_scores_all_frozen_top_50_candidates_and_preserves_retrieval_trace(
@@ -729,6 +793,27 @@ def test_response_rejects_an_unpinned_bm25_query_revision() -> None:
         _adapter().rerank(query, changed)
 
 
+def test_canonical_qwen_config_requires_the_complete_source_document_map() -> None:
+    dataset, _pilot, _selected_ids, _responses, mapping, snapshot = _inputs(candidate_count=4)
+    source_document_map = {entry.document_id: entry.document_id for entry in mapping.entries}
+    omitted = next(
+        document_id for document_id in source_document_map if document_id.endswith("-01")
+    )
+    incomplete_map = {key: value for key, value in source_document_map.items() if key != omitted}
+    evaluation_dataset = canonical_scifact_evaluation_dataset(dataset, incomplete_map)
+
+    with pytest.raises(IrContractError, match="complete passage mapping"):
+        qwen3_reranker_config(
+            dataset,
+            code_sha=_CODE_SHA,
+            projection_sha256=snapshot.projection_sha256,
+            candidate_snapshot=snapshot,
+            passage_mapping=mapping,
+            evaluation_dataset=evaluation_dataset,
+            source_document_to_canonical_document=incomplete_map,
+        )
+
+
 @pytest.mark.parametrize(
     ("lane", "dense_only_key"),
     (("bm25", "000-dense-only"), ("dense", "zzz-dense-only")),
@@ -877,27 +962,54 @@ def test_frozen_baseline_and_reranked_results_use_res140_and_pair_cleanly(
         candidate_count=24,
         zero_hit_query_ids=frozenset({select_scifact_pilot_dataset(_dataset())[1][0]}),
     )
+    mapped_documents = {entry.document_id for entry in mapping.entries}
+    additional_entries = tuple(
+        IrPassageMapEntry(
+            passage_id=f"qrel-only-{qrel.document_id}",
+            document_id=qrel.document_id,
+            document_version_id=f"{qrel.document_id}@qrel-source",
+        )
+        for qrel in pilot.qrels
+        if qrel.document_id not in mapped_documents
+    )
+    if additional_entries:
+        mapping = IrPassageMapping(
+            tuple(
+                sorted((*mapping.entries, *additional_entries), key=lambda entry: entry.passage_id)
+            )
+        )
+        snapshot = build_scifact_candidate_snapshot(dataset, responses, mapping)
+    source_document_map = {entry.document_id: entry.document_id for entry in mapping.entries}
+    evaluation_dataset = canonical_scifact_evaluation_dataset(dataset, source_document_map)
+    identity_map_sha256 = scifact_qrel_identity_mapping_sha256(dataset, source_document_map)
     baseline_hits = frozen_hybrid_passage_hits(dataset, responses, mapping, snapshot)
     assert len(baseline_hits) == 19 * 24
     assert baseline_hits[0].raw_score == pytest.approx(2 / 61)
 
-    baseline_config = _baseline_config(pilot, mapping)
+    baseline_config = _baseline_config(
+        evaluation_dataset,
+        mapping,
+        source_dataset=dataset,
+        qrel_identity_mapping_sha256=identity_map_sha256,
+    )
     baseline_run = document_run_from_passages(
-        dataset=pilot,
+        dataset=evaluation_dataset,
         config=baseline_config,
         passage_mapping=mapping,
         hits=baseline_hits,
         evaluation_depth=50,
     )
-    assert baseline_run.query_ids == tuple(query.query_id for query in pilot.queries)
+    assert baseline_run.query_ids == tuple(query.query_id for query in evaluation_dataset.queries)
     assert len(baseline_run.hits) == 19 * 12
 
     reranker_config = qwen3_reranker_config(
-        pilot,
+        dataset,
         code_sha=_CODE_SHA,
         projection_sha256=snapshot.projection_sha256,
         candidate_snapshot=snapshot,
         passage_mapping=mapping,
+        evaluation_dataset=evaluation_dataset,
+        source_document_to_canonical_document=source_document_map,
     )
     _patch_score(monkeypatch, lambda documents: tuple(1.0 for _ in documents))
     queries = {query.query_id: query for query in dataset.queries}
@@ -907,7 +1019,15 @@ def test_frozen_baseline_and_reranked_results_use_res140_and_pair_cleanly(
     )
     assert len(ranked_passage_hits(pilot, results, snapshot)) == 19 * 24
 
-    candidate_run = qwen3_reranker_run(pilot, reranker_config, mapping, snapshot, results)
+    candidate_run = qwen3_reranker_run(
+        dataset,
+        reranker_config,
+        mapping,
+        snapshot,
+        results,
+        evaluation_dataset=evaluation_dataset,
+        source_document_to_canonical_document=source_document_map,
+    )
     assert candidate_run.query_ids == baseline_run.query_ids
     assert len(candidate_run.hits) == 19 * 12
     assert len({(hit.query_id, hit.document_id) for hit in candidate_run.hits}) == len(
@@ -916,10 +1036,10 @@ def test_frozen_baseline_and_reranked_results_use_res140_and_pair_cleanly(
     assert all(hit.source_passage_id is not None for hit in candidate_run.hits)
 
     baseline_evaluation = evaluate_ir_run(
-        pilot, baseline_config, baseline_run, passage_mapping=mapping
+        evaluation_dataset, baseline_config, baseline_run, passage_mapping=mapping
     )
     candidate_evaluation = evaluate_ir_run(
-        pilot, reranker_config, candidate_run, passage_mapping=mapping
+        evaluation_dataset, reranker_config, candidate_run, passage_mapping=mapping
     )
     comparison = compare_ir_evaluations(baseline_evaluation, candidate_evaluation)
     assert len(comparison.per_query) == 20 * 4

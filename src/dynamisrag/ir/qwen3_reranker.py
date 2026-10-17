@@ -23,6 +23,7 @@ from dynamisrag.ir.contracts import (
     IrExperimentConfig,
     IrPassageHit,
     IrPassageMapping,
+    IrQrel,
     IrQuery,
     IrRun,
     canonical_ir_json,
@@ -54,12 +55,14 @@ __all__ = [
     "QwenScoringCandidate",
     "SciFactCandidateSnapshot",
     "build_scifact_candidate_snapshot",
+    "canonical_scifact_evaluation_dataset",
     "frozen_hybrid_passage_hits",
     "qwen3_reranker_config",
     "qwen3_reranker_run",
     "qwen_scoring_candidates",
     "ranked_passage_hits",
     "scifact_candidate_snapshot_sha256",
+    "scifact_qrel_identity_mapping_sha256",
     "select_scifact_pilot_dataset",
     "select_scifact_pilot_query_ids",
 ]
@@ -90,6 +93,7 @@ QWEN3_RERANKER_INSTRUCTION_SHA256: Final[str] = hashlib.sha256(
 _ADAPTER_REVISION: Final[str] = "qwen3-reranker-adapter-v1"
 _CANDIDATE_SNAPSHOT_REVISION: Final[str] = "res142-frozen-retrieval-query-v1"
 _PILOT_SNAPSHOT_REVISION: Final[str] = "res142-scifact-pilot-candidates-v1"
+_CANONICAL_QREL_REVISION: Final[str] = "canonical-qrels-v1"
 _SCORE_ENDPOINT: Final[str] = "http://127.0.0.1:8000/score"
 _SCORE_BATCH_SIZE: Final[int] = 8
 _PILOT_EVALUATION_DEPTH: Final[int] = SCIFACT_PILOT_CANDIDATE_COUNT
@@ -385,6 +389,100 @@ def select_scifact_pilot_dataset(dataset: IrDataset) -> tuple[IrDataset, tuple[s
     return pilot, selected_ids
 
 
+def _source_pilot_dataset(dataset: IrDataset) -> IrDataset:
+    if dataset.source_id != SCIFACT_SOURCE_ID:
+        raise IrContractError("candidate snapshot must belong to the SciFact source")
+    if dataset.source_revision.endswith(".test"):
+        return select_scifact_pilot_dataset(dataset)[0]
+    if dataset.source_revision.endswith(f".test.{SCIFACT_PILOT_REVISION}"):
+        if len(dataset.queries) != SCIFACT_PILOT_QUERY_COUNT:
+            raise IrContractError("selected SciFact pilot dataset must contain 20 queries")
+        return dataset
+    raise IrContractError("candidate snapshot requires SciFact BEIR test or its pilot")
+
+
+def canonical_scifact_evaluation_dataset(
+    source_dataset: IrDataset,
+    source_document_to_canonical_document: Mapping[str, str],
+) -> IrDataset:
+    """Project unchanged BEIR qrels onto the canonical IDs used by passage runs."""
+    pilot = _source_pilot_dataset(source_dataset)
+    if not source_document_to_canonical_document:
+        raise IrContractError("SciFact qrel identity mapping must not be empty")
+    untyped_mapping = cast("Mapping[object, object]", source_document_to_canonical_document)
+    if any(
+        not isinstance(source_id, str)
+        or not source_id.strip()
+        or not isinstance(canonical_id, str)
+        or not canonical_id.strip()
+        for source_id, canonical_id in untyped_mapping.items()
+    ):
+        raise IrContractError("SciFact qrel identity mapping contains a blank document ID")
+    missing = sorted(
+        {qrel.document_id for qrel in pilot.qrels} - source_document_to_canonical_document.keys()
+    )
+    if missing:
+        raise IrContractError(f"SciFact qrel identity mapping misses source IDs: {missing[:3]}")
+    qrels = tuple(
+        sorted(
+            (
+                IrQrel(
+                    query_id=qrel.query_id,
+                    document_id=source_document_to_canonical_document[qrel.document_id],
+                    relevance=qrel.relevance,
+                )
+                for qrel in pilot.qrels
+            ),
+            key=lambda qrel: (qrel.query_id, qrel.document_id),
+        )
+    )
+    if len({(qrel.query_id, qrel.document_id) for qrel in qrels}) != len(qrels):
+        raise IrContractError("SciFact qrel identity mapping collapses distinct judgments")
+    return IrDataset(
+        source_id=pilot.source_id,
+        source_revision=f"{pilot.source_revision}.{_CANONICAL_QREL_REVISION}",
+        corpus_sha256=pilot.corpus_sha256,
+        queries=pilot.queries,
+        qrels=qrels,
+    )
+
+
+def scifact_qrel_identity_mapping_sha256(
+    source_dataset: IrDataset,
+    source_document_to_canonical_document: Mapping[str, str],
+) -> str:
+    """Seal source and canonical document IDs without changing source qrels."""
+    pilot = _source_pilot_dataset(source_dataset)
+    # Validate qrel coverage and injectivity within each query before sealing.
+    canonical_scifact_evaluation_dataset(source_dataset, source_document_to_canonical_document)
+    payload = {
+        "schema_revision": "res142-scifact-source-document-identity-map-v1",
+        "source_id": source_dataset.source_id,
+        "source_revision": source_dataset.source_revision,
+        "corpus_sha256": source_dataset.corpus_sha256,
+        "source_dataset_sha256": source_dataset.sha256,
+        "source_pilot_dataset_sha256": pilot.sha256,
+        "entries": [
+            {
+                "source_document_id": source_id,
+                "canonical_document_id": canonical_id,
+            }
+            for source_id, canonical_id in sorted(source_document_to_canonical_document.items())
+        ],
+    }
+    return hashlib.sha256(canonical_ir_json(payload)).hexdigest()
+
+
+def _require_complete_source_document_mapping(
+    passage_mapping: IrPassageMapping,
+    source_document_to_canonical_document: Mapping[str, str],
+) -> None:
+    passage_documents = {entry.document_id for entry in passage_mapping.entries}
+    source_documents = set(source_document_to_canonical_document.values())
+    if not passage_documents or source_documents != passage_documents:
+        raise IrContractError("SciFact source document map must cover the complete passage mapping")
+
+
 def _validated_response_candidates(
     query: IrQuery,
     response: HybridRetrievalResponse,
@@ -649,17 +747,8 @@ def scifact_candidate_snapshot_sha256(
 
 
 def _require_snapshot_dataset(dataset: IrDataset, snapshot: SciFactCandidateSnapshot) -> None:
-    if dataset.source_id != SCIFACT_SOURCE_ID:
-        raise IrContractError("candidate snapshot must belong to the SciFact source")
-    if dataset.source_revision.endswith(".test"):
-        pilot_dataset, selected_ids = select_scifact_pilot_dataset(dataset)
-    elif dataset.source_revision.endswith(f".test.{SCIFACT_PILOT_REVISION}"):
-        if len(dataset.queries) != SCIFACT_PILOT_QUERY_COUNT:
-            raise IrContractError("selected SciFact pilot dataset must contain 20 queries")
-        pilot_dataset = dataset
-        selected_ids = tuple(query.query_id for query in dataset.queries)
-    else:
-        raise IrContractError("candidate snapshot requires SciFact BEIR test or its pilot")
+    pilot_dataset = _source_pilot_dataset(dataset)
+    selected_ids = tuple(query.query_id for query in pilot_dataset.queries)
     if snapshot.dataset_sha256 != pilot_dataset.sha256 or set(snapshot.query_ids) != set(
         selected_ids
     ):
@@ -955,12 +1044,39 @@ def qwen3_reranker_run(
     snapshot: SciFactCandidateSnapshot,
     results: Sequence[QwenRerankedQuery],
     *,
+    evaluation_dataset: IrDataset | None = None,
+    source_document_to_canonical_document: Mapping[str, str] | None = None,
     source_exhausted_query_ids: tuple[str, ...] = (),
 ) -> IrRun:
     """Build the candidate run through RES-140's canonical document collapse."""
     _require_snapshot_inputs(dataset, passage_mapping, snapshot)
+    source_pilot = _source_pilot_dataset(dataset)
+    run_dataset = evaluation_dataset or dataset
+    qrel_identity_sha256: str | None = None
+    if evaluation_dataset is None:
+        if (
+            dataset.sha256 != source_pilot.sha256
+            or source_document_to_canonical_document is not None
+        ):
+            raise IrContractError(
+                "Qwen run without canonical qrel projection requires the selected source pilot"
+            )
+    else:
+        if source_document_to_canonical_document is None:
+            raise IrContractError("canonical qrel evaluation requires its source document map")
+        expected_evaluation = canonical_scifact_evaluation_dataset(
+            dataset, source_document_to_canonical_document
+        )
+        if evaluation_dataset != expected_evaluation:
+            raise IrContractError("Qwen evaluation dataset differs from the canonical source qrels")
+        _require_complete_source_document_mapping(
+            passage_mapping, source_document_to_canonical_document
+        )
+        qrel_identity_sha256 = scifact_qrel_identity_mapping_sha256(
+            dataset, source_document_to_canonical_document
+        )
     if (
-        config.dataset_sha256 != dataset.sha256
+        config.dataset_sha256 != run_dataset.sha256
         or config.projection_sha256 != snapshot.projection_sha256
     ):
         raise IrContractError("reranker config and candidate snapshot identities differ")
@@ -973,8 +1089,15 @@ def qwen3_reranker_run(
         or parameters.get("passage_mapping_sha256") != passage_mapping.sha256
     ):
         raise IrContractError("reranker config does not bind its candidate snapshot and mapping")
+    if evaluation_dataset is not None and (
+        parameters.get("source_dataset_sha256") != dataset.sha256
+        or parameters.get("source_pilot_dataset_sha256") != source_pilot.sha256
+        or parameters.get("evaluation_dataset_sha256") != run_dataset.sha256
+        or parameters.get("qrel_identity_mapping_sha256") != qrel_identity_sha256
+    ):
+        raise IrContractError("reranker config does not bind the source qrel identity projection")
     return document_run_from_passages(
-        dataset=dataset,
+        dataset=run_dataset,
         config=config,
         passage_mapping=passage_mapping,
         hits=ranked_passage_hits(dataset, results, snapshot),
@@ -990,15 +1113,38 @@ def qwen3_reranker_config(
     projection_sha256: str,
     candidate_snapshot: SciFactCandidateSnapshot,
     passage_mapping: IrPassageMapping,
+    evaluation_dataset: IrDataset | None = None,
+    source_document_to_canonical_document: Mapping[str, str] | None = None,
 ) -> IrExperimentConfig:
     """Build the semantic IR config for the frozen SciFact pilot treatment."""
-    if dataset.source_id != SCIFACT_SOURCE_ID or not dataset.source_revision.endswith(
-        f".{SCIFACT_PILOT_REVISION}"
-    ):
-        raise IrContractError("Qwen config requires the selected SciFact pilot dataset")
     _require_snapshot_inputs(dataset, passage_mapping, candidate_snapshot)
     if projection_sha256 != candidate_snapshot.projection_sha256:
         raise IrContractError("reranker projection differs from the candidate snapshot")
+    source_pilot = _source_pilot_dataset(dataset)
+    config_dataset = evaluation_dataset or dataset
+    qrel_identity_sha256: str | None = None
+    if evaluation_dataset is None:
+        if (
+            dataset.sha256 != source_pilot.sha256
+            or source_document_to_canonical_document is not None
+        ):
+            raise IrContractError(
+                "Qwen config without canonical qrel projection requires the selected source pilot"
+            )
+    else:
+        if source_document_to_canonical_document is None:
+            raise IrContractError("canonical qrel evaluation requires its source document map")
+        expected_evaluation = canonical_scifact_evaluation_dataset(
+            dataset, source_document_to_canonical_document
+        )
+        if evaluation_dataset != expected_evaluation:
+            raise IrContractError("Qwen evaluation dataset differs from the canonical source qrels")
+        _require_complete_source_document_mapping(
+            passage_mapping, source_document_to_canonical_document
+        )
+        qrel_identity_sha256 = scifact_qrel_identity_mapping_sha256(
+            dataset, source_document_to_canonical_document
+        )
     parameters: dict[str, object] = {
         "adapter_revision": _ADAPTER_REVISION,
         "baseline_retrieval_revision": "hybrid-rrf-v1",
@@ -1020,8 +1166,17 @@ def qwen3_reranker_config(
         "use_activation": True,
         "vllm_version": QWEN3_RERANKER_VLLM_VERSION,
     }
+    if evaluation_dataset is not None:
+        parameters.update(
+            {
+                "evaluation_dataset_sha256": config_dataset.sha256,
+                "qrel_identity_mapping_sha256": qrel_identity_sha256,
+                "source_dataset_sha256": dataset.sha256,
+                "source_pilot_dataset_sha256": source_pilot.sha256,
+            }
+        )
     return IrExperimentConfig(
-        dataset_sha256=dataset.sha256,
+        dataset_sha256=config_dataset.sha256,
         code_sha=code_sha,
         retrieval_revision="hybrid-rrf-v1-qwen3-rerank-v1",
         projection_sha256=projection_sha256,
