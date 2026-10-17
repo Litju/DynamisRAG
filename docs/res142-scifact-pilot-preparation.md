@@ -58,7 +58,7 @@ Each query digest binds every BM25 and dense lane row, including non-fused rows,
 
 The Qwen treatment is pinned to `Qwen/Qwen3-Reranker-0.6B` revision `e61197ed45024b0ed8a2d74b80b4d909f1255473`, the same tokenizer revision, B1-verified template SHA-256 `bf7b104801a4e4ad6a147d732e2d5a837a36f708cdbd1b871b864979d3e10acd`, BF16, and the fixed claim-retrieval instruction. The model revision, template, instruction, batch size, and snapshot/map digests are bound into `IrExperimentConfig`.
 
-Qualification record for code head `b748cfcf3c3f6aff9c8aa167864d80fa34f4be1a`: 35 focused adapter/qrel-identity tests pass; full Ruff check and format pass; strict Pyright reports zero errors; the full unit suite passes 2,313 tests; live PostgreSQL/OpenSearch integration passes 166 tests. Exact-head GitHub Actions run [38993320241](https://github.com/Litju/DynamisRAG/actions/runs/38993320241) completed successfully, 3/3 jobs. These checks qualify source contracts; they do not claim reranker inference or paired reranking gains.
+Qualification record: code commit `b748cfcf3c3f6aff9c8aa167864d80fa34f4be1a`, followed by documentation commit `a4c984c8498d1633056a9f08336998295e529ee5`. The current head passes 35 focused adapter/qrel-identity tests, the full Ruff check and format, strict Pyright with zero errors, 2,313 unit tests, and 166 live PostgreSQL/OpenSearch integration tests. Exact-head GitHub Actions run [38993561388](https://github.com/Litju/DynamisRAG/actions/runs/38993561388) completed successfully, 3/3 jobs; code-only head run [38993320241](https://github.com/Litju/DynamisRAG/actions/runs/38993320241) also passed 3/3. These checks qualify source contracts; they do not claim reranker inference or paired reranking gains.
 
 ## Rights and transfer status
 
