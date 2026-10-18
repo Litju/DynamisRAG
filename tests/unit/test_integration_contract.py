@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import tempfile
 from typing import Final
 
 from tests._support import REPO_ROOT
@@ -36,27 +37,29 @@ def _run_pytest(*args: str) -> subprocess.CompletedProcess[str]:
     environment.update(_BROKEN_INTEGRATION_ENVIRONMENT)
     temporary_root = REPO_ROOT / ".tmp"
     temporary_root.mkdir(parents=True, exist_ok=True)
-    base_temp = temporary_root / "pytest-integration-contract"
-    return subprocess.run(  # noqa: S603 - the command is fully static: no untrusted input reaches it
-        [
-            sys.executable,
-            "-m",
-            "pytest",
-            f"--basetemp={base_temp}",
-            # The guard excludes itself: without this the subprocess would run
-            # the contract test too, which would spawn another subprocess, and
-            # so on until the timeout.
-            "--ignore=tests/unit/test_integration_contract.py",
-            *args,
-        ],
-        cwd=REPO_ROOT,
-        env=environment,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        timeout=_SUBPROCESS_TIMEOUT_SECONDS,
-        check=False,
-    )
+    with tempfile.TemporaryDirectory(
+        prefix="pytest-integration-contract-", dir=temporary_root
+    ) as base_temp:
+        return subprocess.run(  # noqa: S603 - the command is fully static: no untrusted input reaches it
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                f"--basetemp={base_temp}",
+                # The guard excludes itself: without this the subprocess would run
+                # the contract test too, which would spawn another subprocess, and
+                # so on until the timeout.
+                "--ignore=tests/unit/test_integration_contract.py",
+                *args,
+            ],
+            cwd=REPO_ROOT,
+            env=environment,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=_SUBPROCESS_TIMEOUT_SECONDS,
+            check=False,
+        )
 
 
 def test_default_run_stays_green_without_integration_configuration() -> None:
