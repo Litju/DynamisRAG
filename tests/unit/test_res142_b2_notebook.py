@@ -31,6 +31,7 @@ def test_b2_colab_notebook_is_unexecuted_and_all_code_cells_compile() -> None:
     assert "SESSION_LIMIT_SECONDS = 25 * 60" in source
     assert "WORK_LIMIT_SECONDS = 23 * 60" in source
     assert "files.upload()" in source
+    assert 'data = data.replace(b"\\r\\n", b"\\n")' in source
     assert "res142-b2-candidate-input-v3.zip" in source
     assert "rights-confirmation-v3.json" in source
     pinned_files = {
@@ -42,7 +43,8 @@ def test_b2_colab_notebook_is_unexecuted_and_all_code_cells_compile() -> None:
         "res142_qwen3_reranker.jinja": root / "notebooks" / "res142_qwen3_reranker.jinja",
     }
     for filename, artifact_path in pinned_files.items():
-        digest = hashlib.sha256(artifact_path.read_bytes()).hexdigest()
+        normalized = artifact_path.read_bytes().replace(b"\r\n", b"\n")
+        digest = hashlib.sha256(normalized).hexdigest()
         assert f'"{filename}": "{digest}"' in source
 
 
