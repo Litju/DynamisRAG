@@ -55,6 +55,9 @@ jobs:
       - name: Ruff lint
         run: uv run ruff check --output-format=github .
 
+      - name: Ruff lint B2 notebook helpers
+        run: uv run ruff check --select F821 --output-format=github notebooks/res142_b2_colab.py notebooks/res142_b2_runner.py
+
       - name: Pyright (strict)
         run: uv run pyright
 

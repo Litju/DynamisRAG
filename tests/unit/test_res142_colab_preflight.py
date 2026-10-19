@@ -738,13 +738,13 @@ def test_setup_requires_an_approved_gpu_and_observed_rate(gpu: str) -> None:
         setup_authorization="APPROVE COLAB SETUP",
         rate_inspection_authorization="APPROVE COLAB RATE INSPECTION",
         rate_inspection_gpu=gpu,
-        rate_inspection_max_compute_units=5,
+        rate_inspection_max_compute_units=0.5,
         target_gpu=gpu,
-        observed_compute_units_per_hour=20,
-        approved_max_compute_units=20,
-        max_runtime_seconds=45 * 60,
+        observed_compute_units_per_hour=8.9,
+        approved_max_compute_units=4,
+        max_runtime_seconds=25 * 60,
     )
-    assert result == 15
+    assert result == pytest.approx(8.9 * 25 / 60)
 
 
 @pytest.mark.parametrize(

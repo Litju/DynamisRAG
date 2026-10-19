@@ -4,7 +4,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import runpy
+import subprocess
+import sys
+import time
+import types
+import urllib.error
+import urllib.request
+import zipfile
 from pathlib import Path
 from typing import Any, cast
 
@@ -65,3 +73,353 @@ def test_b2_colab_runtime_helpers_compile_without_running_colab() -> None:
         orchestrator["B2_RUNNER_SHA256"]
         == hashlib.sha256((root / "notebooks" / "res142_b2_runner.py").read_bytes()).hexdigest()
     )
+
+
+def test_rate_inspection_cap_does_not_limit_the_scoring_budget() -> None:
+    root = Path(__file__).parents[2]
+    notebook = cast(
+        "dict[str, Any]",
+        json.loads((root / "notebooks" / "res142_b2_qwen3_colab.ipynb").read_text()),
+    )
+    cells = cast("list[dict[str, Any]]", notebook["cells"])
+    source = "".join(
+        cast("list[str]", next(cell["source"] for cell in cells if cell["cell_type"] == "code"))
+    )
+    assert "RATE_INSPECTION_MAX_CU = 0.0" in source
+    assert "if projected_cu > approved_max:" in source
+    assert "projected_cu > rate_limit" not in source
+
+
+def _mock_b2_orchestrator(  # noqa: PLR0915
+    monkeypatch: Any,
+    tmp_path: Path,
+    *,
+    flush_fails: bool = False,
+    omit_query_checkpoint: int | None = None,
+) -> tuple[dict[str, object] | None, BaseException | None, list[Path], Path]:
+    root = Path(__file__).parents[2]
+    orchestrator_path = root / "notebooks" / "res142_b2_colab.py"
+    orchestrator = runpy.run_path(str(orchestrator_path))
+    main_globals = orchestrator["main"].__globals__
+
+    def mapped_path(value: str | os.PathLike[str]) -> Path:
+        text = os.fspath(value)
+        if text == "/content":
+            return tmp_path / "content"
+        if text.startswith("/content/"):
+            return tmp_path / "content" / text.removeprefix("/content/")
+        return Path(text)
+
+    monkeypatch.setitem(main_globals, "Path", mapped_path)
+    query_ids = [f"q{index:02d}" for index in range(20)]
+    input_identity: dict[str, object] = {
+        "candidate_zip_sha256": "a" * 64,
+        "query_ids_in_selection_order": query_ids,
+        "query_count": 20,
+        "candidate_count": 1000,
+    }
+
+    def verify_input(_archive: Path, _sidecar: Path) -> dict[str, object]:
+        return input_identity
+
+    monkeypatch.setitem(main_globals, "_verify_input", verify_input)
+
+    upload_dir = tmp_path / "upload"
+    upload_dir.mkdir()
+    artifact_bytes = {
+        "res142_b2_colab.py": orchestrator_path.read_bytes().replace(b"\r\n", b"\n"),
+        "res142_b1_support.py": b"mock support",
+        "res142-colab.lock.txt": b"mock lock",
+        "res142_qwen3_reranker.jinja": b"mock template",
+        "res142-b2-candidate-input-v3.zip": b"mock candidate input",
+        "rights-confirmation-v3.json": b"mock rights confirmation",
+        "b2_execution.py": b"mock B2 execution helper",
+        "res142_b2_runner.py": b"mock B2 runner",
+    }
+    for name, data in artifact_bytes.items():
+        (upload_dir / name).write_bytes(data)
+
+    def digest(name: str) -> str:
+        return hashlib.sha256(artifact_bytes[name]).hexdigest()
+
+    for constant, filename in (
+        ("SUPPORT_SHA256", "res142_b1_support.py"),
+        ("LOCK_SHA256", "res142-colab.lock.txt"),
+        ("TEMPLATE_SHA256", "res142_qwen3_reranker.jinja"),
+        ("CANDIDATE_SHA256", "res142-b2-candidate-input-v3.zip"),
+        ("RIGHTS_SHA256", "rights-confirmation-v3.json"),
+        ("B2_HELPER_SHA256", "b2_execution.py"),
+        ("B2_RUNNER_SHA256", "res142_b2_runner.py"),
+    ):
+        monkeypatch.setitem(main_globals, constant, digest(filename))
+    monkeypatch.setitem(main_globals, "_LAST_COMMAND", [])
+
+    support = runpy.run_path(str(root / "notebooks" / "res142_b1_support.py"))
+
+    def is_drive_mounted(_path: Path) -> bool:
+        return True
+
+    def process_group_exists(_pid: int) -> bool:
+        return False
+
+    def terminate_process_group_mock(
+        _process: subprocess.Popen[str], *, deadline: float | None = None
+    ) -> None:
+        del deadline
+
+    monkeypatch.setitem(support, "is_colab_drive_mounted", is_drive_mounted)
+    monkeypatch.setitem(support, "process_group_exists", process_group_exists)
+    monkeypatch.setitem(support, "terminate_process_group", terminate_process_group_mock)
+
+    def run_subprocess(
+        command: list[str], *, deadline: float, timeout_seconds: float, env: object = None
+    ) -> subprocess.CompletedProcess[str]:
+        del deadline, timeout_seconds, env
+        stdout = "uv 0.12.4" if command[-1:] in (["-V"], ["--version"]) else "100, 98304, 20"
+        return subprocess.CompletedProcess(command, 0, stdout, "")
+
+    monkeypatch.setitem(support, "run_subprocess", run_subprocess)
+    support_module = types.ModuleType("res142_b1_support")
+    support_module.__dict__.update(support)
+
+    def import_support(_name: str) -> types.ModuleType:
+        return support_module
+
+    monkeypatch.setitem(
+        main_globals,
+        "importlib",
+        types.SimpleNamespace(import_module=import_support),
+    )
+
+    source_commit = cast("str", orchestrator["SOURCE_COMMIT"])
+    gpu_name = "NVIDIA RTX PRO 6000 Blackwell Server Edition"
+    software = {
+        "packages": {
+            "vllm": "0.31.0",
+            "numba": "0.65.0",
+            "torch": "2.13.0+cu129",
+            "torchvision": "0.28.0",
+            "torchaudio": "2.11.0",
+            "transformers": "5.10.4",
+            "huggingface-hub": "1.31.0",
+            "tokenizers": "0.22.1",
+            "safetensors": "0.6.2",
+        },
+        "cuda_runtime": "12.9",
+        "gpu_name": gpu_name,
+        "compute_capability": [12, 0],
+        "bf16_supported": True,
+    }
+    model: dict[str, object] = {"snapshot_commit": orchestrator["MODEL_REVISION"], "files": []}
+    downloads: list[Path] = []
+
+    def mocked_run(
+        _support: object,
+        command: list[str],
+        *,
+        deadline: float,
+        timeout: float,
+        env: dict[str, str] | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        del deadline, timeout, env
+        stdout = ""
+        if command[0] == "git" and "clone" in command:
+            (Path(command[-1]) / "src" / "dynamisrag" / "ir").mkdir(parents=True)
+        elif command[0] == "git" and "rev-parse" in command:
+            stdout = source_commit
+        elif command[0] == "nvidia-smi":
+            stdout = f"{gpu_name}, 12.0, 98304, 575.57.8"
+        elif "-c" in command and "import importlib.metadata" in command[-1]:
+            stdout = json.dumps(software)
+        elif "-c" in command and "snapshot_download" in command[-1]:
+            stdout = json.dumps(model)
+        elif "freeze" in command:
+            stdout = "mock-package==1.0\n"
+        return subprocess.CompletedProcess(command, 0, stdout, "")
+
+    monkeypatch.setitem(main_globals, "_run", mocked_run)
+    monkeypatch.setitem(
+        main_globals,
+        "platform",
+        types.SimpleNamespace(
+            system=lambda: "Linux",
+            machine=lambda: "x86_64",
+            libc_ver=lambda: ("glibc", "2.36"),
+        ),
+    )
+
+    class FakeHealthResponse:
+        status = 200
+
+        def __enter__(self) -> FakeHealthResponse:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+    class FakeProcess:
+        def __init__(self, command: list[str], **_kwargs: object) -> None:
+            self.command = command
+            is_scorer = any("res142_b2_runner.py" in part for part in command)
+            self.pid = 101 if is_scorer else 100
+            self.returncode = 0 if self.pid == 101 else None
+            if self.pid == 101:
+                options = dict(zip(command[2::2], command[3::2], strict=True))
+                output_dir = mapped_path(options["--output-dir"])
+                output_dir.mkdir(parents=True)
+                state_path = mapped_path(options["--drive-state"])
+                staging = mapped_path(options["--staging-dir"])
+                state = cast("dict[str, object]", json.loads(state_path.read_text()))
+                for index, query_id in enumerate(query_ids, start=1):
+                    if index == omit_query_checkpoint:
+                        continue
+                    payload = json.dumps({"query_id": query_id, "candidate_count": 50}).encode()
+                    support["persist_drive_bytes"](
+                        state,
+                        staging,
+                        f"queries/{index:02d}-{query_id}.json",
+                        payload,
+                        deadline=float(options["--work-deadline-monotonic"]),
+                    )
+                    support["persist_drive_checkpoint"](
+                        state,
+                        staging,
+                        f"query-{index:02d}",
+                        {"query_id": query_id, "candidate_count": 50},
+                        deadline=float(options["--work-deadline-monotonic"]),
+                    )
+                results = json.dumps({"queries": query_ids}).encode()
+                (output_dir / "results.json").write_bytes(results)
+                support["persist_drive_bytes"](
+                    state,
+                    staging,
+                    "scores/results.json",
+                    results,
+                    deadline=float(options["--work-deadline-monotonic"]),
+                )
+                support["persist_drive_checkpoint"](
+                    state,
+                    staging,
+                    "all-queries-complete",
+                    {"query_count": 20, "candidate_count": 1000},
+                    deadline=float(options["--work-deadline-monotonic"]),
+                )
+                state_path.write_text(json.dumps(state))
+
+        def poll(self) -> int | None:
+            return self.returncode
+
+        def communicate(self, *, timeout: float) -> tuple[bytes, None]:
+            del timeout
+            return b'{"status":"complete","query_count":20}', None
+
+    monkeypatch.setitem(
+        main_globals,
+        "subprocess",
+        types.SimpleNamespace(Popen=FakeProcess, STDOUT=subprocess.STDOUT, PIPE=subprocess.PIPE),
+    )
+    run_id = cast("str", orchestrator["RUN_ID"])
+    drive_root = mapped_path("/content/drive")
+    run_base = drive_root / "MyDrive" / "DynamisRAG" / "RES-142" / "retrieval" / "runs" / run_id
+
+    def mount(_mountpoint: str, **_kwargs: object) -> None:
+        run_base.mkdir(parents=True)
+
+    def flush_and_unmount(*, timeout_ms: int) -> None:
+        assert timeout_ms > 0
+        if flush_fails:
+            raise OSError("mock Drive flush failure")
+
+    def download(value: str) -> None:
+        downloads.append(Path(value))
+
+    files = types.SimpleNamespace(download=download)
+    drive = types.SimpleNamespace(mount=mount, flush_and_unmount=flush_and_unmount)
+    colab = types.ModuleType("google.colab")
+    colab.drive = drive  # type: ignore[attr-defined]
+    colab.files = files  # type: ignore[attr-defined]
+    google = types.ModuleType("google")
+    google.colab = colab  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "google", google)
+    monkeypatch.setitem(sys.modules, "google.colab", colab)
+
+    def urlopen(_url: str | urllib.request.Request, *, timeout: float) -> FakeHealthResponse:
+        del timeout
+        return FakeHealthResponse()
+
+    monkeypatch.setitem(
+        main_globals,
+        "urllib",
+        types.SimpleNamespace(
+            error=urllib.error,
+            request=types.SimpleNamespace(urlopen=urlopen),
+        ),
+    )
+
+    approvals: dict[str, object] = {
+        "setup": "APPROVE COLAB SETUP",
+        "rate_inspection": "APPROVE COLAB RATE INSPECTION",
+        "rate_inspection_gpu": "G4",
+        "rate_inspection_max_compute_units": 0.5,
+        "gpu": "G4",
+        "observed_compute_units_per_hour": 8.9,
+        "approved_max_compute_units": 4.0,
+        "drive": "APPROVE COLAB DRIVE STORAGE",
+        "drive_destination_confirmation": "/content/drive/MyDrive/DynamisRAG/RES-142",
+        "colab_orchestrator_sha256": digest("res142_b2_colab.py"),
+    }
+    try:
+        result_raw = orchestrator["main"](
+            upload_dir=upload_dir,
+            approvals=approvals,
+            run_started=time.monotonic(),
+            runtime_version_confirmed="2026.04",
+        )
+    except BaseException as error:
+        return None, error, downloads, mapped_path("/content/res142-b2/output")
+    return (
+        cast("dict[str, object]", result_raw),
+        None,
+        downloads,
+        mapped_path("/content/res142-b2/output"),
+    )
+
+
+def test_b2_orchestrator_returns_incomplete_after_successful_scoring_and_failed_flush(
+    monkeypatch: Any, tmp_path: Path
+) -> None:
+    result, error, downloads, _output = _mock_b2_orchestrator(
+        monkeypatch, tmp_path, flush_fails=True
+    )
+
+    assert error is None
+    assert result is not None
+    assert result["status"] == "incomplete"
+    assert result["drive_flush"] == "incomplete"
+    assert len(downloads) == 1
+    with zipfile.ZipFile(downloads[0]) as archive:
+        outcome = json.loads(archive.read("post-flush-outcome.json"))
+    assert outcome["status"] == "incomplete"
+    assert outcome["drive_flush"]["drive_flush_status"] == "incomplete"
+
+
+def test_b2_orchestrator_rejects_missing_required_score_evidence_with_traceback(
+    monkeypatch: Any, tmp_path: Path
+) -> None:
+    result, error, downloads, _output = _mock_b2_orchestrator(
+        monkeypatch, tmp_path, omit_query_checkpoint=7
+    )
+
+    assert result is None
+    assert isinstance(error, RuntimeError)
+    assert "Drive evidence persistence incomplete" in str(error)
+    assert len(downloads) == 1
+    with zipfile.ZipFile(downloads[0]) as archive:
+        manifest_name = next(
+            name
+            for name in archive.namelist()
+            if name.startswith("failure-") and name.endswith(".json")
+        )
+        manifest = json.loads(archive.read(manifest_name))
+    assert "Traceback (most recent call last)" in manifest["traceback"]
+    assert "res142_b2_colab.py" in manifest["traceback"]

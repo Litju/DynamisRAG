@@ -12,7 +12,6 @@ import subprocess
 import sys
 import time
 import traceback
-import traceback
 import urllib.error
 import urllib.request
 import zipfile
@@ -189,6 +188,52 @@ def _gpu_sample(support: Any, deadline: float) -> dict[str, int]:
     return sample
 
 
+def _drive_evidence_is_verified(state: dict[str, object], query_ids: object) -> bool:
+    if not isinstance(query_ids, list) or any(
+        not isinstance(query_id, str) for query_id in query_ids
+    ):
+        return False
+    artifacts = state.get("persisted_artifacts")
+    if not isinstance(artifacts, dict):
+        return False
+
+    def verified(path: str) -> bool:
+        record = artifacts.get(path)
+        return (
+            isinstance(record, dict)
+            and record.get("path") == path
+            and record.get("status") == "verified"
+            and isinstance(record.get("sha256"), str)
+            and record.get("sha256") == record.get("readback_sha256")
+        )
+
+    required_paths = [
+        "scores/results.json",
+        "manifest-final.json",
+        "evidence.zip",
+        *(
+            f"queries/{index:02d}-{query_id}.json"
+            for index, query_id in enumerate(query_ids, start=1)
+        ),
+    ]
+    required_stages = [
+        "all-queries-complete",
+        "b2-results-complete",
+        "final-outcome",
+        *(f"query-{index:02d}" for index in range(1, len(query_ids) + 1)),
+    ]
+    return all(verified(path) for path in required_paths) and all(
+        any(
+            isinstance(path, str)
+            and path.startswith("checkpoints/")
+            and f"-{stage}-" in path
+            and verified(path)
+            for path in artifacts
+        )
+        for stage in required_stages
+    )
+
+
 def main(
     *,
     upload_dir: Path,
@@ -304,65 +349,14 @@ def main(
     model_files: list[dict[str, object]] = []
     resource_samples: list[dict[str, int]] = []
     command_output = ""
-    runner_state_path = root / "drive-state.json"
+    success_archive_path = root / "res142-b2-evidence.zip"
     error: BaseException | None = None
+    completion_status = "incomplete"
     candidate_meta = input_identity
     server_args: list[str] = []
 
     def persist_json(path: str, payload: object, deadline: float) -> None:
         support.persist_drive_bytes(state, staging, path, _json_bytes(payload), deadline=deadline)
-
-    def failure_report(failure: BaseException) -> None:
-        failure_path = output / f"failure-{time.time_ns()}.json"
-        manifest = {
-            "schema_revision": "res142-colab-b2-failure-v1",
-            "status": "failed",
-            "stage": stage,
-            "error_type": type(failure).__name__,
-            "message": support.sanitize_output(failure, limit=2000),
-            "command_output": support.sanitize_output(command_output, limit=12000),
-            "runtime_seconds": time.monotonic() - run_started,
-            "session_limit_seconds": MAX_SESSION_SECONDS,
-            "work_deadline_seconds": WORK_SECONDS,
-            "gpu": gpu,
-            "software": software,
-            "resource_samples": resource_samples,
-            "input_identity": input_identity,
-            "artifact_sha256": artifact_hashes,
-            "drive_storage": state,
-        }
-        failure_path.write_bytes(_json_bytes(manifest))
-        archive_path = root / f"res142-b2-failure-{uuid4().hex}.zip"
-        try:
-            with zipfile.ZipFile(archive_path, "x", compression=zipfile.ZIP_DEFLATED) as archive:
-                for path in sorted(output.rglob("*")):
-                    if path.is_file():
-                        archive.write(path, path.relative_to(output).as_posix())
-            if state.get("mount_verified"):
-                local_files = {path.name: path for path in output.iterdir() if path.is_file()}
-                local_files[archive_path.name] = archive_path
-                support.persist_drive_failure_evidence(
-                    state,
-                    staging,
-                    stage=stage.replace("_", "-")[:64],
-                    failure_manifest=manifest,
-                    local_files=local_files,
-                    deadline=session_deadline,
-                )
-        except Exception as persist_error:
-            state["persistence_status"] = "incomplete"
-            print(
-                f"Failure evidence persistence incomplete: {support.sanitize_output(persist_error)}"
-            )
-        flush = flush_drive()
-        print(json.dumps({"failure_manifest": str(failure_path), "drive_flush": flush}))
-        print(
-            "Disconnect and delete the runtime manually within the 25-minute connection-to-delete limit."
-        )
-        try:
-            files.download(str(archive_path if archive_path.is_file() else failure_path))
-        except Exception as download_error:
-            print(f"Local failure download unavailable: {support.sanitize_output(download_error)}")
 
     try:
         stage = "drive_storage_preflight"
@@ -910,9 +904,6 @@ print(json.dumps({{"snapshot_dir": str(root), "snapshot_commit": root.name, "fil
                 try:
                     final_path = output / "manifest-final.json"
                     final_path.write_bytes(_json_bytes(final))
-                    support.persist_drive_file(
-                        state, staging, final_path, "manifest-final.json", deadline=session_deadline
-                    )
                     support.persist_drive_checkpoint(
                         state,
                         staging,
@@ -924,6 +915,27 @@ print(json.dumps({{"snapshot_dir": str(root), "snapshot_commit": root.name, "fil
                         },
                         deadline=session_deadline,
                     )
+                    with zipfile.ZipFile(
+                        success_archive_path, "x", compression=zipfile.ZIP_DEFLATED
+                    ) as archive:
+                        for path in sorted(output.rglob("*")):
+                            if path.is_file():
+                                archive.write(path, path.relative_to(output).as_posix())
+                    persistence = support.persist_drive_outcome(
+                        state,
+                        staging,
+                        manifest_path=final_path,
+                        archive_path=success_archive_path,
+                        deadline=session_deadline,
+                    )
+                    if (
+                        persistence.get("persistence_status") != "complete"
+                        or state.get("persistence_status") != "complete"
+                        or not _drive_evidence_is_verified(
+                            state, candidate_meta.get("query_ids_in_selection_order")
+                        )
+                    ):
+                        raise RuntimeError(f"Drive evidence persistence incomplete: {persistence}.")
                 except BaseException as persist_error:
                     error = persist_error
         if error is not None:
@@ -934,7 +946,10 @@ print(json.dumps({{"snapshot_dir": str(root), "snapshot_commit": root.name, "fil
                 "stage": stage,
                 "error_type": type(error).__name__,
                 "message": support.sanitize_output(error, limit=2000),
-                "traceback": support.sanitize_output(traceback.format_exc(), limit=12000),
+                "traceback": support.sanitize_output(
+                    "".join(traceback.format_exception(type(error), error, error.__traceback__)),
+                    limit=12000,
+                ),
                 "failed_command": _LAST_COMMAND,
                 "command_output": support.sanitize_output(command_output, limit=12000),
                 "runtime_seconds": time.monotonic() - run_started,
@@ -983,23 +998,29 @@ print(json.dumps({{"snapshot_dir": str(root), "snapshot_commit": root.name, "fil
                 )
         else:
             flush = flush_drive()
-            outcome = {
-                "status": "complete"
+            completion_status = (
+                "complete"
                 if flush.get("drive_flush_status") == "flushed"
-                else "incomplete",
+                and flush.get("persistence_status") == "complete"
+                else "incomplete"
+            )
+            outcome = {
+                "status": completion_status,
                 "drive_flush": flush,
                 "drive_storage": state,
             }
             (output / "post-flush-outcome.json").write_bytes(_json_bytes(outcome))
-            archive_path = root / "res142-b2-evidence.zip"
-            with zipfile.ZipFile(archive_path, "x", compression=zipfile.ZIP_DEFLATED) as archive:
+            download_archive_path = root / "res142-b2-evidence-download.zip"
+            with zipfile.ZipFile(
+                download_archive_path, "x", compression=zipfile.ZIP_DEFLATED
+            ) as archive:
                 for path in sorted(output.rglob("*")):
                     if path.is_file():
                         archive.write(path, path.relative_to(output).as_posix())
             print(json.dumps(outcome, sort_keys=True))
             print("Disconnect and delete the runtime manually within the 25-minute limit.")
             try:
-                files.download(str(archive_path))
+                files.download(str(download_archive_path))
             except Exception as download_error:
                 print(
                     f"Local evidence download unavailable: {support.sanitize_output(download_error)}"
@@ -1008,7 +1029,7 @@ print(json.dumps({{"snapshot_dir": str(root), "snapshot_commit": root.name, "fil
     if error is not None:
         raise error
     return {
-        "status": "complete",
+        "status": completion_status,
         "candidate_zip_sha256": CANDIDATE_SHA256,
         "results_sha256": sha256_bytes((output / "scores" / "results.json").read_bytes()),
         "drive_flush": state.get("drive_flush_status"),
