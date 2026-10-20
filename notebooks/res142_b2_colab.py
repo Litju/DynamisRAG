@@ -22,15 +22,16 @@ from uuid import uuid4
 COLAB_VERSION = "2026.04"
 SOURCE_COMMIT = "85024771215947e0315f37a6dd67d1e8d0575eff"
 RUN_ID = "20261016-10bce56f6ea04d949355af34fba2698c"
+DRIVE_ATTEMPT_ID = "b2-attempt-20261019-import-smoke-repair"
 MODEL_ID = "Qwen/Qwen3-Reranker-0.6B"
 MODEL_REVISION = "e61197ed45024b0ed8a2d74b80b4d909f1255473"
 TEMPLATE_SHA256 = "bf7b104801a4e4ad6a147d732e2d5a837a36f708cdbd1b871b864979d3e10acd"
 CANDIDATE_SHA256 = "c98d26a7aaf38f35b66203f0d27a73f618800218b1a90c4e322a02ab2c4100ac"
 RIGHTS_SHA256 = "65980a1e19e6a01444193df55e98fd90a941b4c14b4c83efbd32db3564449d92"
 SUPPORT_SHA256 = "d98f7ea12d1df559f11c8be132cc033befb66bebfa13af56e630c870130feedc"
-LOCK_SHA256 = "d8a87ad2f1f2a7faccfb96fee9fa859995f61caa7b8a7b845e268888c4c111dc"
+LOCK_SHA256 = "8b360f4533eb616eac38469e450d3df1a516f155afba464929036eada7d80e16"
 B2_HELPER_SHA256 = "2dc3ddd0a5a8aa9044d4eea38106e3920b36f8b741caca00d110ae4383b2701d"
-B2_RUNNER_SHA256 = "440a34477e6b84f5d1d020e618dc1d9186392763b9df36e639acff4cc3bc5d75"
+B2_RUNNER_SHA256 = "7beb9fbf3a89deb8c47b32d39d85e1cc6636863256501a689aa39aca173f252b"
 MAX_SESSION_SECONDS = 25 * 60
 WORK_SECONDS = 23 * 60
 DRIVE_FREE_BYTES_MINIMUM = 16 * 1024 * 1024
@@ -300,10 +301,11 @@ def main(
     mountpoint = Path("/content/drive")
     approved_root = Path("/content/drive/MyDrive/DynamisRAG/RES-142")
     run_base = approved_root / "retrieval" / "runs" / RUN_ID
-    drive_dir = run_base / "b2"
+    drive_dir = run_base / DRIVE_ATTEMPT_ID
     state: dict[str, object] = {
         "backend": "google_drive",
         "run_id": RUN_ID,
+        "attempt_id": DRIVE_ATTEMPT_ID,
         "mountpoint": str(mountpoint),
         "required_root": str(approved_root),
         "run_dir": str(drive_dir),
@@ -378,7 +380,7 @@ def main(
         if not run_base.resolve().is_relative_to(approved_root.resolve()):
             raise RuntimeError("Approved retrieval run resolves outside the RES-142 Drive root.")
         if drive_dir.exists() or drive_dir.is_symlink():
-            raise RuntimeError("Refusing to reuse an existing B2 Drive evidence directory.")
+            raise RuntimeError("Refusing to reuse an existing B2 attempt evidence directory.")
         drive_dir.mkdir(parents=False, exist_ok=False)
         if not drive_dir.resolve().is_relative_to(run_base.resolve()):
             raise RuntimeError("B2 Drive directory resolves outside the approved retrieval run.")
@@ -403,6 +405,7 @@ def main(
                 "schema_revision": "res142-colab-b2-manifest-v1",
                 "status": "started",
                 "run_id": RUN_ID,
+                "attempt_id": DRIVE_ATTEMPT_ID,
                 "source_commit": SOURCE_COMMIT,
                 "runtime_version_required": COLAB_VERSION,
                 "session_limit_seconds": MAX_SESSION_SECONDS,
@@ -413,6 +416,8 @@ def main(
                 "projected_cu_is_platform_enforced": False,
                 "input_identity": input_identity,
                 "artifact_sha256": artifact_hashes,
+                "import_smoke_required": True,
+                "import_smoke_status": "pending",
                 "drive_storage": state,
             },
             work_deadline,
@@ -643,6 +648,86 @@ print(json.dumps({"python": sys.version.split()[0], "platform": platform.platfor
             deadline=work_deadline,
         )
 
+        stage = "b2_import_smoke"
+        smoke = _json(
+            _run(
+                support,
+                [
+                    str(py),
+                    str(root / "res142_b2_runner.py"),
+                    "--input-zip",
+                    str(upload_dir / "res142-b2-candidate-input-v3.zip"),
+                    "--support-dir",
+                    str(root),
+                    "--smoke-only",
+                    "--source-root",
+                    str(clone),
+                    "--source-commit",
+                    source_sha,
+                ],
+                env={**uv_env, "PYTHONPATH": str(clone / "src")},
+                deadline=work_deadline,
+                timeout=120,
+            ).stdout.encode(),
+            "B2 import-and-input smoke",
+        )
+        expected_query_ids = input_identity.get("query_ids_in_selection_order")
+        imported_distributions = smoke.get("imported_distributions")
+        mapping_sha256 = smoke.get("candidate_mapping_sha256")
+        if (
+            smoke.get("schema_revision") != "res142-b2-import-smoke-v1"
+            or smoke.get("status") != "verified"
+            or smoke.get("source_commit") != source_sha
+            or smoke.get("b2_execution_sha256") != B2_HELPER_SHA256
+            or smoke.get("input_zip_sha256") != CANDIDATE_SHA256
+            or smoke.get("query_count") != 20
+            or smoke.get("candidate_count") != 1000
+            or smoke.get("selected_query_ids") != expected_query_ids
+            or smoke.get("sqlalchemy_version") != "2.1.1"
+            or smoke.get("adapter_class")
+            != "dynamisrag.ir.qwen3_reranker.Qwen3RerankerAdapter"
+            or not isinstance(imported_distributions, list)
+            or "sqlalchemy"
+            not in {str(name).casefold().replace("_", "-") for name in imported_distributions}
+            or not isinstance(smoke.get("imported_modules"), list)
+            or not isinstance(smoke.get("third_party_modules"), list)
+            or not isinstance(smoke.get("imported_distribution_versions"), dict)
+            or not isinstance(mapping_sha256, str)
+            or len(mapping_sha256) != 64
+            or any(character not in "0123456789abcdef" for character in mapping_sha256)
+        ):
+            raise RuntimeError("B2 import smoke did not verify the frozen scorer and candidate mapping.")
+        state["import_smoke"] = smoke
+        smoke_bytes = _json_bytes(smoke)
+        smoke_path = output / "import-smoke.json"
+        with smoke_path.open("xb") as handle:
+            handle.write(smoke_bytes)
+        support.persist_drive_bytes(
+            state,
+            staging,
+            "environment/import-smoke.json",
+            smoke_bytes,
+            deadline=work_deadline,
+        )
+        support.persist_drive_checkpoint(
+            state,
+            staging,
+            "b2-import-smoke-verified",
+            {
+                "source_commit": source_sha,
+                "candidate_zip_sha256": CANDIDATE_SHA256,
+                "query_count": 20,
+                "candidate_count": 1000,
+                "candidate_mapping_sha256": mapping_sha256,
+                "sqlalchemy_version": smoke["sqlalchemy_version"],
+                "imported_distributions": imported_distributions,
+            },
+            deadline=work_deadline,
+        )
+        if state.get("persistence_status") == "incomplete":
+            raise RuntimeError("B2 import smoke evidence did not verify in Drive.")
+        print(json.dumps(smoke, sort_keys=True))
+
         stage = "model_snapshot_verification"
         hf_home = root / "hf-home"
         hf_home.mkdir()
@@ -872,7 +957,9 @@ print(json.dumps({{"snapshot_dir": str(root), "snapshot_commit": root.name, "fil
                     "schema_revision": "res142-colab-b2-manifest-v1",
                     "status": "success",
                     "run_id": RUN_ID,
+                    "attempt_id": DRIVE_ATTEMPT_ID,
                     "source_commit": SOURCE_COMMIT,
+                    "import_smoke": state.get("import_smoke"),
                     "runtime_version": COLAB_VERSION,
                     "model": {
                         "id": MODEL_ID,
@@ -943,7 +1030,9 @@ print(json.dumps({{"snapshot_dir": str(root), "snapshot_commit": root.name, "fil
             failure_manifest = {
                 "schema_revision": "res142-colab-b2-failure-v1",
                 "status": "failed",
+                "attempt_id": DRIVE_ATTEMPT_ID,
                 "stage": stage,
+                "import_smoke": state.get("import_smoke"),
                 "error_type": type(error).__name__,
                 "message": support.sanitize_output(error, limit=2000),
                 "traceback": support.sanitize_output(
@@ -1006,6 +1095,7 @@ print(json.dumps({{"snapshot_dir": str(root), "snapshot_commit": root.name, "fil
             )
             outcome = {
                 "status": completion_status,
+                "attempt_id": DRIVE_ATTEMPT_ID,
                 "drive_flush": flush,
                 "drive_storage": state,
             }
@@ -1030,6 +1120,7 @@ print(json.dumps({{"snapshot_dir": str(root), "snapshot_commit": root.name, "fil
         raise error
     return {
         "status": completion_status,
+        "attempt_id": DRIVE_ATTEMPT_ID,
         "candidate_zip_sha256": CANDIDATE_SHA256,
         "results_sha256": sha256_bytes((output / "scores" / "results.json").read_bytes()),
         "drive_flush": state.get("drive_flush_status"),

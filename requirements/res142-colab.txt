@@ -15,3 +15,5 @@ transformers==5.10.4
 huggingface-hub==1.31.0
 tokenizers==0.22.1
 safetensors==0.6.2
+# Required by the eager RES-135 search-package imports in the frozen B2 runner.
+sqlalchemy==2.1.1

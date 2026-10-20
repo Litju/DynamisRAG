@@ -1,12 +1,16 @@
-"""Mock-only RES-142 B2 transfer execution and failure-boundary tests."""
+"""RES-142 B2 transfer execution, import-smoke, and failure-boundary tests."""
 
 from __future__ import annotations
 
 import hashlib
 import io
 import json
+import subprocess
+import sys
 import time
 import urllib.request
+import zipfile
+from pathlib import Path
 from typing import cast
 
 import pytest
@@ -70,6 +74,87 @@ def _payload() -> tuple[dict[str, object], list[str]]:
         },
         query_ids,
     )
+
+
+def _write_smoke_zip(path: Path, payload: dict[str, object], query_ids: list[str]) -> None:
+    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("candidate-input.json", json.dumps(payload, sort_keys=True))
+        archive.writestr(
+            "pilot-query-selection.json",
+            json.dumps({"selected_query_ids": query_ids}, sort_keys=True),
+        )
+
+
+def _run_import_smoke(input_zip: Path) -> subprocess.CompletedProcess[str]:
+    root = Path(__file__).parents[2]
+    runner = root / "notebooks" / "res142_b2_runner.py"
+    return subprocess.run(  # noqa: S603 - fixed local script and arguments; no untrusted command input.
+        [
+            sys.executable,
+            str(runner),
+            "--input-zip",
+            str(input_zip),
+            "--support-dir",
+            str(root / "notebooks"),
+            "--smoke-only",
+            "--source-root",
+            str(root),
+            "--source-commit",
+            "85024771215947e0315f37a6dd67d1e8d0575eff",
+        ],
+        capture_output=True,
+        check=False,
+        cwd=root,
+        text=True,
+        timeout=30,
+    )
+
+
+def test_import_smoke_subprocess_imports_real_scorers_and_reconstructs_all_pairs(
+    tmp_path: Path,
+) -> None:
+    payload, query_ids = _payload()
+    archive = tmp_path / "b2-import-smoke.zip"
+    _write_smoke_zip(archive, payload, query_ids)
+
+    result = _run_import_smoke(archive)
+
+    assert result.returncode == 0, result.stderr
+    smoke = cast("dict[str, object]", json.loads(result.stdout))
+    assert smoke["status"] == "verified"
+    assert smoke["source_commit"] == "85024771215947e0315f37a6dd67d1e8d0575eff"
+    assert smoke["query_count"] == 20
+    assert smoke["candidate_count"] == 1000
+    assert smoke["selected_query_ids"] == query_ids
+    assert smoke["adapter_class"] == "dynamisrag.ir.qwen3_reranker.Qwen3RerankerAdapter"
+    assert smoke["sqlalchemy_version"] == "2.1.1"
+    assert "sqlalchemy" in {
+        str(name).casefold().replace("_", "-")
+        for name in cast("list[object]", smoke["imported_distributions"])
+    }
+    mapping_sha256 = cast("str", smoke["candidate_mapping_sha256"])
+    assert len(mapping_sha256) == 64
+    assert all(character in "0123456789abcdef" for character in mapping_sha256)
+
+
+@pytest.mark.parametrize("invalid_population", ("short-query", "wrong-passage-map"))
+def test_import_smoke_subprocess_rejects_invalid_candidate_populations(
+    tmp_path: Path, invalid_population: str
+) -> None:
+    payload, query_ids = _payload()
+    rows = cast("list[dict[str, object]]", payload["queries_in_selection_order"])
+    candidates = cast("list[dict[str, object]]", rows[0]["candidates"])
+    if invalid_population == "short-query":
+        candidates.pop()
+    else:
+        candidates[0]["passage_id"] = "foreign-passage"
+    archive = tmp_path / f"invalid-{invalid_population}.zip"
+    _write_smoke_zip(archive, payload, query_ids)
+
+    result = _run_import_smoke(archive)
+
+    assert result.returncode != 0
+    assert "IrContractError" in result.stderr
 
 
 def _mock_adapter(monkeypatch: pytest.MonkeyPatch) -> tuple[Qwen3RerankerAdapter, list[object]]:

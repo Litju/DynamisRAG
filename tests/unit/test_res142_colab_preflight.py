@@ -23,7 +23,7 @@ _NOTEBOOK = _ROOT / "notebooks" / "res142_qwen3_reranker_colab.ipynb"
 _QUALIFICATION_NOTEBOOK = _ROOT / "notebooks" / "res142_drive_storage_qualification_colab.ipynb"
 _TEMPLATE = _ROOT / "notebooks" / "res142_qwen3_reranker.jinja"
 _LOCK = _ROOT / "requirements" / "res142-colab.lock.txt"
-_LOCK_SHA256 = "d8a87ad2f1f2a7faccfb96fee9fa859995f61caa7b8a7b845e268888c4c111dc"
+_LOCK_SHA256 = "8b360f4533eb616eac38469e450d3df1a516f155afba464929036eada7d80e16"
 _DRIVE_AUTHORIZATION = support.COLAB_DRIVE_AUTHORIZATION_REQUIRED
 _DRIVE_DESTINATION = support.COLAB_DRIVE_ROOT.as_posix()
 

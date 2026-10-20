@@ -75,6 +75,49 @@ def test_b2_colab_runtime_helpers_compile_without_running_colab() -> None:
     )
 
 
+def test_b2_import_smoke_is_bounded_and_precedes_model_download() -> None:
+    root = Path(__file__).parents[2]
+    source = (root / "notebooks" / "res142_b2_colab.py").read_text(encoding="utf-8")
+    smoke_start = source.index('stage = "b2_import_smoke"')
+    model_download = source.index('stage = "model_snapshot_verification"')
+    vllm_startup = source.index('stage = "vllm_startup_and_scoring"')
+
+    assert smoke_start < model_download < vllm_startup
+    smoke_source = source[smoke_start:model_download]
+    assert '"--smoke-only"' in smoke_source
+    assert '"--source-root"' in smoke_source
+    assert "timeout=120" in smoke_source
+    assert '"b2-import-smoke-verified"' in smoke_source
+    assert '"environment/import-smoke.json"' in smoke_source
+    assert '"dynamisrag.ir.qwen3_reranker.Qwen3RerankerAdapter"' in smoke_source
+    assert '"imported_distribution_versions"' in smoke_source
+
+
+def test_pinned_b2_inference_lock_declares_sqlalchemy_with_hashes() -> None:
+    root = Path(__file__).parents[2]
+    direct = (root / "requirements" / "res142-colab.txt").read_text(encoding="utf-8")
+    lock = (root / "requirements" / "res142-colab.lock.txt").read_text(encoding="utf-8")
+    lines = lock.splitlines()
+    index = next(index for index, line in enumerate(lines) if line.startswith("sqlalchemy=="))
+    end = next(
+        (
+            offset
+            for offset in range(index + 1, len(lines))
+            if lines[offset].startswith("sse-starlette==")
+        ),
+        len(lines),
+    )
+    sqlalchemy_block = "\n".join(lines[index:end])
+
+    assert "sqlalchemy==2.1.1" in direct
+    assert lines[index] == "sqlalchemy==2.1.1 \\"
+    assert (
+        "--hash=sha256:0fad3dc37851b096ef72538b18152a5c1ae9c8b2013cd89f51eca83fc6eba36b"
+        in sqlalchemy_block
+    )
+    assert "typing-extensions==4.16.0" in lock
+
+
 def test_rate_inspection_cap_does_not_limit_the_scoring_budget() -> None:
     root = Path(__file__).parents[2]
     notebook = cast(
@@ -96,6 +139,8 @@ def _mock_b2_orchestrator(  # noqa: PLR0915
     *,
     flush_fails: bool = False,
     omit_query_checkpoint: int | None = None,
+    smoke_fails: bool = False,
+    preexisting_attempt: bool = False,
 ) -> tuple[dict[str, object] | None, BaseException | None, list[Path], Path]:
     root = Path(__file__).parents[2]
     orchestrator_path = root / "notebooks" / "res142_b2_colab.py"
@@ -223,7 +268,34 @@ def _mock_b2_orchestrator(  # noqa: PLR0915
     ) -> subprocess.CompletedProcess[str]:
         del deadline, timeout, env
         stdout = ""
-        if command[0] == "git" and "clone" in command:
+        if "--smoke-only" in command:
+            if smoke_fails:
+                raise RuntimeError("ModuleNotFoundError: No module named 'sqlalchemy'")
+            stdout = json.dumps(
+                {
+                    "schema_revision": "res142-b2-import-smoke-v1",
+                    "status": "verified",
+                    "source_commit": source_commit,
+                    "b2_execution_sha256": digest("b2_execution.py"),
+                    "input_zip_sha256": digest("res142-b2-candidate-input-v3.zip"),
+                    "query_count": 20,
+                    "candidate_count": 1000,
+                    "selected_query_ids": query_ids,
+                    "candidate_mapping_sha256": "b" * 64,
+                    "adapter_class": "dynamisrag.ir.qwen3_reranker.Qwen3RerankerAdapter",
+                    "sqlalchemy_version": "2.1.1",
+                    "imported_modules": ["sqlalchemy", "sqlalchemy.orm"],
+                    "third_party_modules": ["sqlalchemy", "sqlalchemy.orm"],
+                    "imported_module_roots": ["httpx2", "pydantic", "sqlalchemy"],
+                    "imported_distributions": ["httpx2", "pydantic", "SQLAlchemy"],
+                    "imported_distribution_versions": {
+                        "httpx2": "0.29.0",
+                        "pydantic": "2.12.5",
+                        "SQLAlchemy": "2.1.1",
+                    },
+                }
+            )
+        elif command[0] == "git" and "clone" in command:
             (Path(command[-1]) / "src" / "dynamisrag" / "ir").mkdir(parents=True)
         elif command[0] == "git" and "rev-parse" in command:
             stdout = source_commit
@@ -321,9 +393,13 @@ def _mock_b2_orchestrator(  # noqa: PLR0915
     run_id = cast("str", orchestrator["RUN_ID"])
     drive_root = mapped_path("/content/drive")
     run_base = drive_root / "MyDrive" / "DynamisRAG" / "RES-142" / "retrieval" / "runs" / run_id
+    attempt_dir = run_base / cast("str", orchestrator["DRIVE_ATTEMPT_ID"])
 
     def mount(_mountpoint: str, **_kwargs: object) -> None:
-        run_base.mkdir(parents=True)
+        run_base.mkdir(parents=True, exist_ok=True)
+        if preexisting_attempt:
+            attempt_dir.mkdir()
+            (attempt_dir / "sentinel.json").write_text('{"preserve":true}', encoding="utf-8")
 
     def flush_and_unmount(*, timeout_ms: int) -> None:
         assert timeout_ms > 0
@@ -401,6 +477,68 @@ def test_b2_orchestrator_returns_incomplete_after_successful_scoring_and_failed_
         outcome = json.loads(archive.read("post-flush-outcome.json"))
     assert outcome["status"] == "incomplete"
     assert outcome["drive_flush"]["drive_flush_status"] == "incomplete"
+
+
+def test_b2_orchestrator_records_import_smoke_and_uses_new_attempt_directory(
+    monkeypatch: Any, tmp_path: Path
+) -> None:
+    result, error, downloads, _output = _mock_b2_orchestrator(monkeypatch, tmp_path)
+
+    assert error is None
+    assert result is not None
+    assert result["status"] == "complete"
+    assert result["attempt_id"] == "b2-attempt-20261019-import-smoke-repair"
+    assert len(downloads) == 1
+    with zipfile.ZipFile(downloads[0]) as archive:
+        manifest = json.loads(archive.read("manifest-final.json"))
+        smoke = json.loads(archive.read("import-smoke.json"))
+    assert manifest["attempt_id"] == result["attempt_id"]
+    assert manifest["drive_storage"]["run_dir"].endswith(result["attempt_id"])
+    assert smoke["status"] == "verified"
+    assert smoke["candidate_count"] == 1000
+
+
+def test_b2_orchestrator_fails_at_import_smoke_before_model_download(
+    monkeypatch: Any, tmp_path: Path
+) -> None:
+    result, error, _downloads, output = _mock_b2_orchestrator(
+        monkeypatch, tmp_path, smoke_fails=True
+    )
+
+    assert result is None
+    assert isinstance(error, RuntimeError)
+    assert "No module named 'sqlalchemy'" in str(error)
+    failures = list(output.glob("failure-*.json"))
+    assert len(failures) == 1
+    failure = json.loads(failures[0].read_text(encoding="utf-8"))
+    assert failure["stage"] == "b2_import_smoke"
+    assert not list(output.glob("model-snapshot.json"))
+
+
+def test_b2_orchestrator_refuses_existing_attempt_directory_without_mutation(
+    monkeypatch: Any, tmp_path: Path
+) -> None:
+    result, error, _downloads, _output = _mock_b2_orchestrator(
+        monkeypatch, tmp_path, preexisting_attempt=True
+    )
+
+    assert result is None
+    assert isinstance(error, RuntimeError)
+    assert "existing B2 attempt evidence directory" in str(error)
+    preserved = (
+        tmp_path
+        / "content"
+        / "drive"
+        / "MyDrive"
+        / "DynamisRAG"
+        / "RES-142"
+        / "retrieval"
+        / "runs"
+        / "20261016-10bce56f6ea04d949355af34fba2698c"
+        / "b2-attempt-20261019-import-smoke-repair"
+        / "sentinel.json"
+    )
+    assert preserved.read_text(encoding="utf-8") == '{"preserve":true}'
 
 
 def test_b2_orchestrator_rejects_missing_required_score_evidence_with_traceback(
