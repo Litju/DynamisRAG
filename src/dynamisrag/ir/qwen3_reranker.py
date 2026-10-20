@@ -1,0 +1,1184 @@
+"""Local Qwen3 reranking for a frozen SciFact hybrid-retrieval snapshot.
+
+The adapter consumes saved ``HybridRetrievalResponse`` objects. It never calls
+BM25 or dense retrieval; it rebuilds pure RRF from the saved lanes only to
+validate the fused top-50. Every output row carries its original retrieval identity.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import math
+import time
+import urllib.request
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from typing import Final, cast
+from urllib.parse import urlsplit
+
+from dynamisrag.ir.contracts import (
+    IrContractError,
+    IrDataset,
+    IrExperimentConfig,
+    IrPassageHit,
+    IrPassageMapping,
+    IrQrel,
+    IrQuery,
+    IrRun,
+    canonical_ir_json,
+    document_run_from_passages,
+)
+from dynamisrag.search.bm25 import BM25_QUERY_REVISION, SearchHit
+from dynamisrag.search.retrieval import (
+    DENSE_MODEL_ID,
+    DENSE_MODEL_REVISION,
+    PROVISIONAL_EMBEDDING_PROFILE,
+    DenseCandidate,
+    FusedHit,
+    HybridRetrievalResponse,
+    RrfLaneTrace,
+    reciprocal_rank_fusion,
+)
+
+__all__ = [
+    "QWEN3_RERANKER_MODEL_ID",
+    "QWEN3_RERANKER_REVISION",
+    "QWEN3_RERANKER_TEMPLATE_SHA256",
+    "SCIFACT_PILOT_CANDIDATE_COUNT",
+    "SCIFACT_PILOT_QUERY_COUNT",
+    "SCIFACT_PILOT_REVISION",
+    "SCIFACT_PILOT_SESSION_LIMIT_SECONDS",
+    "Qwen3RerankerAdapter",
+    "QwenRerankedCandidate",
+    "QwenRerankedQuery",
+    "QwenScoringCandidate",
+    "SciFactCandidateSnapshot",
+    "build_scifact_candidate_snapshot",
+    "canonical_scifact_evaluation_dataset",
+    "frozen_hybrid_passage_hits",
+    "qwen3_reranker_config",
+    "qwen3_reranker_run",
+    "qwen_scoring_candidates",
+    "ranked_passage_hits",
+    "scifact_candidate_snapshot_sha256",
+    "scifact_qrel_identity_mapping_sha256",
+    "select_scifact_pilot_dataset",
+    "select_scifact_pilot_query_ids",
+]
+
+SCIFACT_SOURCE_ID: Final[str] = "beir.scifact"
+SCIFACT_TEST_QUERY_COUNT: Final[int] = 300
+SCIFACT_PILOT_QUERY_COUNT: Final[int] = 20
+SCIFACT_PILOT_CANDIDATE_COUNT: Final[int] = 50
+SCIFACT_PILOT_SESSION_LIMIT_SECONDS: Final[int] = 25 * 60
+SCIFACT_PILOT_REVISION: Final[str] = "res142-sf-pilot-v1"
+_PILOT_QUERY_PREFIX: Final[bytes] = b"res142-sf-pilot-v1\0"
+
+QWEN3_RERANKER_MODEL_ID: Final[str] = "Qwen/Qwen3-Reranker-0.6B"
+QWEN3_RERANKER_REVISION: Final[str] = "e61197ed45024b0ed8a2d74b80b4d909f1255473"
+QWEN3_RERANKER_TOKENIZER_REVISION: Final[str] = QWEN3_RERANKER_REVISION
+QWEN3_RERANKER_TEMPLATE_SHA256: Final[str] = (
+    "bf7b104801a4e4ad6a147d732e2d5a837a36f708cdbd1b871b864979d3e10acd"
+)
+QWEN3_RERANKER_VLLM_VERSION: Final[str] = "0.31.0+cu129"
+QWEN3_RERANKER_INSTRUCTION: Final[str] = (
+    "Given a scientific claim, retrieve scientific abstracts that provide evidence "
+    "relevant to the claim, whether it supports or refutes it."
+)
+QWEN3_RERANKER_INSTRUCTION_SHA256: Final[str] = hashlib.sha256(
+    QWEN3_RERANKER_INSTRUCTION.encode("utf-8")
+).hexdigest()
+
+_ADAPTER_REVISION: Final[str] = "qwen3-reranker-adapter-v1"
+_CANDIDATE_SNAPSHOT_REVISION: Final[str] = "res142-frozen-retrieval-query-v1"
+_PILOT_SNAPSHOT_REVISION: Final[str] = "res142-scifact-pilot-candidates-v1"
+_CANONICAL_QREL_REVISION: Final[str] = "canonical-qrels-v1"
+_SCORE_ENDPOINT: Final[str] = "http://127.0.0.1:8000/score"
+_SCORE_BATCH_SIZE: Final[int] = 8
+_PILOT_EVALUATION_DEPTH: Final[int] = SCIFACT_PILOT_CANDIDATE_COUNT
+_MAX_TOKENS_PER_QUERY: Final[int] = 1024
+_MAX_TOKENS_PER_DOCUMENT: Final[int] = 6144
+
+
+def _sha256_text(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _finite_score(value: object, *, field: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise IrContractError(f"{field} must be a finite numeric value")
+    score = float(value)
+    if not math.isfinite(score):
+        raise IrContractError(f"{field} must be a finite numeric value")
+    return 0.0 if score == 0.0 else score
+
+
+def _nonblank_text(value: object, *, field: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise IrContractError(f"{field} must be non-empty text")
+    return value
+
+
+def _positive_rank(value: object, *, field: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise IrContractError(f"{field} must be a positive integer rank")
+    return value
+
+
+def _lane_payload(lane: RrfLaneTrace) -> dict[str, object]:
+    if lane.present != (lane.rank is not None and lane.raw_score is not None):
+        raise IrContractError("frozen retrieval lane has inconsistent presence and values")
+    if lane.present != (lane.rrf_contribution is not None):
+        raise IrContractError("frozen retrieval lane has inconsistent RRF contribution")
+    return {
+        "present": lane.present,
+        "rank": lane.rank,
+        "raw_score": (
+            None
+            if lane.raw_score is None
+            else _finite_score(lane.raw_score, field="lane raw score")
+        ),
+        "rrf_contribution": (
+            None
+            if lane.rrf_contribution is None
+            else _finite_score(lane.rrf_contribution, field="lane RRF contribution")
+        ),
+    }
+
+
+def _candidate_identity(candidate: FusedHit) -> dict[str, object]:
+    provenance = candidate.provenance
+    if provenance.passage_key != candidate.passage_key:
+        raise IrContractError("frozen candidate and provenance passage keys differ")
+    if not provenance.text.strip():
+        raise IrContractError("frozen candidate text must be non-blank")
+    return {
+        "passage_key": candidate.passage_key,
+        "original_rrf_rank": candidate.final_rank,
+        "original_rrf_score": _finite_score(candidate.rrf_score, field="RRF score"),
+        "lexical": _lane_payload(candidate.lexical),
+        "dense": _lane_payload(candidate.dense),
+        "candidate_text_sha256": _sha256_text(provenance.text),
+        "provenance": provenance.model_dump(exclude={"text"}),
+    }
+
+
+@dataclass(frozen=True, slots=True)
+class QwenRerankedCandidate:
+    """One score plus its exact original hybrid candidate identity."""
+
+    query_id: str
+    passage_id: str
+    original_rrf_rank: int
+    reranked_rank: int
+    reranker_score: float
+    original_retrieval_json: str
+
+    def payload(self) -> dict[str, object]:
+        return {
+            "query_id": self.query_id,
+            "passage_id": self.passage_id,
+            "original_rrf_rank": self.original_rrf_rank,
+            "reranked_rank": self.reranked_rank,
+            "reranker_score": self.reranker_score,
+            "original_retrieval": json.loads(self.original_retrieval_json),
+        }
+
+    def to_ir_passage_hit(self) -> IrPassageHit:
+        return IrPassageHit(
+            query_id=self.query_id,
+            passage_id=self.passage_id,
+            rank=self.reranked_rank,
+            raw_score=self.reranker_score,
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class QwenScoringCandidate:
+    """One locally validated fused candidate prepared for minimal B2 transfer."""
+
+    query_id: str
+    passage_id: str
+    original_rrf_rank: int
+    candidate_text_sha256: str
+    text: str
+    original_retrieval_json: str
+
+    def __post_init__(self) -> None:
+        _nonblank_text(self.query_id, field="Qwen scoring query ID")
+        _nonblank_text(self.passage_id, field="Qwen scoring passage ID")
+        _nonblank_text(self.text, field="Qwen scoring candidate text")
+        _nonblank_text(self.candidate_text_sha256, field="Qwen candidate text SHA-256")
+        original_rank = _positive_rank(self.original_rrf_rank, field="original RRF")
+        if (
+            len(self.candidate_text_sha256) != 64
+            or any(character not in "0123456789abcdef" for character in self.candidate_text_sha256)
+            or _sha256_text(self.text) != self.candidate_text_sha256
+        ):
+            raise IrContractError("Qwen scoring candidate rank or text digest is invalid")
+        _nonblank_text(self.original_retrieval_json, field="Qwen scoring candidate identity")
+        try:
+            identity_value: object = json.loads(self.original_retrieval_json)
+        except ValueError as error:
+            raise IrContractError("Qwen scoring candidate identity must be valid JSON") from error
+        if not isinstance(identity_value, dict):
+            raise IrContractError("Qwen scoring candidate identity must be a JSON object")
+        identity = cast("dict[str, object]", identity_value)
+        if canonical_ir_json(identity).decode("utf-8").rstrip("\n") != self.original_retrieval_json:
+            raise IrContractError("Qwen scoring candidate identity must use canonical JSON")
+        if (
+            identity.get("passage_key") != self.passage_id
+            or identity.get("original_rrf_rank") != original_rank
+            or identity.get("candidate_text_sha256") != self.candidate_text_sha256
+        ):
+            raise IrContractError(
+                "Qwen scoring candidate differs from its frozen retrieval identity"
+            )
+        _finite_score(identity.get("original_rrf_score"), field="original RRF score")
+
+
+@dataclass(frozen=True, slots=True)
+class QwenRerankedQuery:
+    """A reranked query with source-snapshot identity and operational timing."""
+
+    query_id: str
+    query_text_sha256: str
+    retrieval_response_sha256: str
+    projection_sha256: str
+    candidate_count: int
+    request_count: int
+    elapsed_ms: float
+    candidates: tuple[QwenRerankedCandidate, ...]
+
+    def payload(self) -> dict[str, object]:
+        return {
+            "schema_revision": "res142-qwen-reranked-query-v1",
+            "query_id": self.query_id,
+            "query_text_sha256": self.query_text_sha256,
+            "retrieval_response_sha256": self.retrieval_response_sha256,
+            "projection_sha256": self.projection_sha256,
+            "reranker": {
+                "adapter_revision": _ADAPTER_REVISION,
+                "model_id": QWEN3_RERANKER_MODEL_ID,
+                "model_revision": QWEN3_RERANKER_REVISION,
+                "tokenizer_revision": QWEN3_RERANKER_TOKENIZER_REVISION,
+                "template_sha256": QWEN3_RERANKER_TEMPLATE_SHA256,
+                "vllm_version": QWEN3_RERANKER_VLLM_VERSION,
+                "dtype": "bfloat16",
+                "instruction": QWEN3_RERANKER_INSTRUCTION,
+                "instruction_sha256": QWEN3_RERANKER_INSTRUCTION_SHA256,
+                "use_activation": True,
+                "tie_break": "score_desc,original_rrf_rank_asc",
+            },
+            "candidate_count": self.candidate_count,
+            "request_count": self.request_count,
+            "elapsed_ms": self.elapsed_ms,
+            "ranked_candidates": [candidate.payload() for candidate in self.candidates],
+        }
+
+    def passage_hits(self) -> tuple[IrPassageHit, ...]:
+        return tuple(candidate.to_ir_passage_hit() for candidate in self.candidates)
+
+
+@dataclass(frozen=True, slots=True)
+class SciFactCandidateSnapshot:
+    """Digest and provenance for the exact frozen 20-query retrieval input."""
+
+    sha256: str
+    dataset_sha256: str
+    projection_sha256: str
+    passage_mapping_sha256: str
+    query_ids: tuple[str, ...]
+    response_sha256: tuple[tuple[str, str], ...]
+    snapshot_json: str
+
+    def __post_init__(self) -> None:
+        for field, value in (
+            ("snapshot_sha256", self.sha256),
+            ("dataset_sha256", self.dataset_sha256),
+            ("projection_sha256", self.projection_sha256),
+            ("passage_mapping_sha256", self.passage_mapping_sha256),
+        ):
+            if len(value) != 64 or any(character not in "0123456789abcdef" for character in value):
+                raise IrContractError(f"{field} must be a lowercase SHA-256")
+        if hashlib.sha256(self.snapshot_json.encode("utf-8")).hexdigest() != self.sha256:
+            raise IrContractError("candidate snapshot bytes do not match their SHA-256")
+        if self.query_ids != tuple(query_id for query_id, _ in self.response_sha256):
+            raise IrContractError("candidate snapshot response hashes do not cover its query IDs")
+        if len(self.query_ids) != SCIFACT_PILOT_QUERY_COUNT or len(set(self.query_ids)) != len(
+            self.query_ids
+        ):
+            raise IrContractError("candidate snapshot must contain 20 unique query IDs")
+        try:
+            payload_value: object = json.loads(self.snapshot_json)
+        except ValueError as error:
+            raise IrContractError("candidate snapshot payload must be valid JSON") from error
+        if not isinstance(payload_value, dict):
+            raise IrContractError("candidate snapshot payload must be a JSON object")
+        payload = cast("dict[str, object]", payload_value)
+        query_ids_value = payload.get("query_ids_in_selection_order")
+        if not isinstance(query_ids_value, list) or any(
+            not isinstance(query_id, str) for query_id in cast("list[object]", query_ids_value)
+        ):
+            raise IrContractError("candidate snapshot query IDs must be a string array")
+        query_ids = cast("list[str]", query_ids_value)
+        if (
+            payload.get("dataset_sha256") != self.dataset_sha256
+            or payload.get("projection_sha256") != self.projection_sha256
+            or payload.get("passage_mapping_sha256") != self.passage_mapping_sha256
+            or tuple(query_ids) != self.query_ids
+        ):
+            raise IrContractError("candidate snapshot fields disagree with its sealed payload")
+        responses_value = payload.get("retrieval_responses")
+        if (
+            not isinstance(responses_value, list)
+            or len(cast("list[object]", responses_value)) != len(self.query_ids)
+            or any(not isinstance(row, dict) for row in cast("list[object]", responses_value))
+        ):
+            raise IrContractError("candidate snapshot response hashes disagree with its payload")
+        responses = cast("list[dict[str, object]]", responses_value)
+        if (
+            tuple((row.get("query_id"), row.get("retrieval_response_sha256")) for row in responses)
+            != self.response_sha256
+        ):
+            raise IrContractError("candidate snapshot response hashes disagree with its payload")
+
+    def payload(self) -> dict[str, object]:
+        value: object = json.loads(self.snapshot_json)
+        if not isinstance(value, dict):
+            raise IrContractError("candidate snapshot payload must be a JSON object")
+        return cast("dict[str, object]", value)
+
+
+def select_scifact_pilot_query_ids(query_ids: Sequence[str]) -> tuple[str, ...]:
+    """Select the frozen 20 from the complete BEIR SciFact test query universe."""
+    ids = tuple(query_ids)
+    if len(ids) != SCIFACT_TEST_QUERY_COUNT or len(set(ids)) != len(ids):
+        raise IrContractError(
+            "SciFact pilot selection needs the complete 300-query test ID universe"
+        )
+    if any(not query_id or any(character.isspace() for character in query_id) for query_id in ids):
+        raise IrContractError("SciFact query IDs must be non-empty whitespace-free strings")
+    return tuple(
+        sorted(
+            ids,
+            key=lambda query_id: (
+                hashlib.sha256(_PILOT_QUERY_PREFIX + query_id.encode("utf-8")).digest(),
+                query_id,
+            ),
+        )[:SCIFACT_PILOT_QUERY_COUNT]
+    )
+
+
+def select_scifact_pilot_dataset(dataset: IrDataset) -> tuple[IrDataset, tuple[str, ...]]:
+    """Create the deterministic 20-query metric dataset without reading qrel values."""
+    if dataset.source_id != SCIFACT_SOURCE_ID or not dataset.source_revision.endswith(".test"):
+        raise IrContractError("SciFact pilot input must be the frozen beir.scifact test split")
+    selected_ids = select_scifact_pilot_query_ids(
+        tuple(query.query_id for query in dataset.queries)
+    )
+    selected = set(selected_ids)
+    pilot = IrDataset(
+        source_id=dataset.source_id,
+        source_revision=f"{dataset.source_revision}.{SCIFACT_PILOT_REVISION}",
+        corpus_sha256=dataset.corpus_sha256,
+        queries=tuple(query for query in dataset.queries if query.query_id in selected),
+        qrels=tuple(qrel for qrel in dataset.qrels if qrel.query_id in selected),
+    )
+    return pilot, selected_ids
+
+
+def _source_pilot_dataset(dataset: IrDataset) -> IrDataset:
+    if dataset.source_id != SCIFACT_SOURCE_ID:
+        raise IrContractError("candidate snapshot must belong to the SciFact source")
+    if dataset.source_revision.endswith(".test"):
+        return select_scifact_pilot_dataset(dataset)[0]
+    if dataset.source_revision.endswith(f".test.{SCIFACT_PILOT_REVISION}"):
+        if len(dataset.queries) != SCIFACT_PILOT_QUERY_COUNT:
+            raise IrContractError("selected SciFact pilot dataset must contain 20 queries")
+        return dataset
+    raise IrContractError("candidate snapshot requires SciFact BEIR test or its pilot")
+
+
+def canonical_scifact_evaluation_dataset(
+    source_dataset: IrDataset,
+    source_document_to_canonical_document: Mapping[str, str],
+) -> IrDataset:
+    """Project unchanged BEIR qrels onto the canonical IDs used by passage runs."""
+    pilot = _source_pilot_dataset(source_dataset)
+    if not source_document_to_canonical_document:
+        raise IrContractError("SciFact qrel identity mapping must not be empty")
+    untyped_mapping = cast("Mapping[object, object]", source_document_to_canonical_document)
+    if any(
+        not isinstance(source_id, str)
+        or not source_id.strip()
+        or not isinstance(canonical_id, str)
+        or not canonical_id.strip()
+        for source_id, canonical_id in untyped_mapping.items()
+    ):
+        raise IrContractError("SciFact qrel identity mapping contains a blank document ID")
+    missing = sorted(
+        {qrel.document_id for qrel in pilot.qrels} - source_document_to_canonical_document.keys()
+    )
+    if missing:
+        raise IrContractError(f"SciFact qrel identity mapping misses source IDs: {missing[:3]}")
+    qrels = tuple(
+        sorted(
+            (
+                IrQrel(
+                    query_id=qrel.query_id,
+                    document_id=source_document_to_canonical_document[qrel.document_id],
+                    relevance=qrel.relevance,
+                )
+                for qrel in pilot.qrels
+            ),
+            key=lambda qrel: (qrel.query_id, qrel.document_id),
+        )
+    )
+    if len({(qrel.query_id, qrel.document_id) for qrel in qrels}) != len(qrels):
+        raise IrContractError("SciFact qrel identity mapping collapses distinct judgments")
+    return IrDataset(
+        source_id=pilot.source_id,
+        source_revision=f"{pilot.source_revision}.{_CANONICAL_QREL_REVISION}",
+        corpus_sha256=pilot.corpus_sha256,
+        queries=pilot.queries,
+        qrels=qrels,
+    )
+
+
+def scifact_qrel_identity_mapping_sha256(
+    source_dataset: IrDataset,
+    source_document_to_canonical_document: Mapping[str, str],
+) -> str:
+    """Seal source and canonical document IDs without changing source qrels."""
+    pilot = _source_pilot_dataset(source_dataset)
+    # Validate qrel coverage and injectivity within each query before sealing.
+    canonical_scifact_evaluation_dataset(source_dataset, source_document_to_canonical_document)
+    payload = {
+        "schema_revision": "res142-scifact-source-document-identity-map-v1",
+        "source_id": source_dataset.source_id,
+        "source_revision": source_dataset.source_revision,
+        "corpus_sha256": source_dataset.corpus_sha256,
+        "source_dataset_sha256": source_dataset.sha256,
+        "source_pilot_dataset_sha256": pilot.sha256,
+        "entries": [
+            {
+                "source_document_id": source_id,
+                "canonical_document_id": canonical_id,
+            }
+            for source_id, canonical_id in sorted(source_document_to_canonical_document.items())
+        ],
+    }
+    return hashlib.sha256(canonical_ir_json(payload)).hexdigest()
+
+
+def _require_complete_source_document_mapping(
+    passage_mapping: IrPassageMapping,
+    source_document_to_canonical_document: Mapping[str, str],
+) -> None:
+    passage_documents = {entry.document_id for entry in passage_mapping.entries}
+    source_documents = set(source_document_to_canonical_document.values())
+    if not passage_documents or source_documents != passage_documents:
+        raise IrContractError("SciFact source document map must cover the complete passage mapping")
+
+
+def _validated_response_candidates(
+    query: IrQuery,
+    response: HybridRetrievalResponse,
+) -> tuple[dict[str, object], ...]:
+    _validate_hybrid_response(query, response)
+    expected_fusion = reciprocal_rank_fusion(
+        lexical=response.lexical.hits,
+        dense=response.dense.candidates,
+        limit=SCIFACT_PILOT_CANDIDATE_COUNT,
+    )
+    if response.fusion != expected_fusion:
+        raise IrContractError(
+            "frozen fused candidates differ from the complete deterministic RRF top-50"
+        )
+    return tuple(_candidate_identity(hit) for hit in expected_fusion.hits)
+
+
+def _validate_bm25_prefix(hits: Sequence[SearchHit]) -> dict[str, SearchHit]:
+    by_passage: dict[str, SearchHit] = {}
+    for expected_rank, hit in enumerate(hits, start=1):
+        if hit.rank != expected_rank:
+            raise IrContractError("frozen BM25 ranks must be a contiguous one-based prefix")
+        if hit.passage_key in by_passage:
+            raise IrContractError("frozen BM25 results contain duplicate passage identities")
+        by_passage[hit.passage_key] = hit
+    return by_passage
+
+
+def _validate_dense_prefix(hits: Sequence[DenseCandidate]) -> dict[str, DenseCandidate]:
+    by_passage: dict[str, DenseCandidate] = {}
+    for expected_rank, hit in enumerate(hits, start=1):
+        if hit.rank != expected_rank:
+            raise IrContractError("frozen dense ranks must be a contiguous one-based prefix")
+        if hit.passage_key in by_passage:
+            raise IrContractError("frozen dense results contain duplicate passage identities")
+        by_passage[hit.passage_key] = hit
+    return by_passage
+
+
+def _validate_hybrid_response(query: IrQuery, response: HybridRetrievalResponse) -> None:
+    """Check the saved response joins before hashing or scoring its candidates."""
+    if query.text != response.query:
+        raise IrContractError("frozen hybrid response query text differs from its query ID")
+    if response.retrieval_revision != "hybrid-rrf-v1":
+        raise IrContractError("frozen response does not use the approved hybrid retrieval")
+    if response.lexical.query_revision != BM25_QUERY_REVISION:
+        raise IrContractError("frozen response does not use the pinned BM25 query revision")
+    if (
+        response.lexical.query != query.text
+        or response.dense.query != query.text
+        or response.lexical.query_revision != BM25_QUERY_REVISION
+        or response.lexical.projection_sha256 != response.dense.projection_sha256
+        or response.lexical.index_schema_revision != response.dense.projection_schema_revision
+        or response.lexical.chunker_revision != response.dense.chunker_revision
+        or response.dense.physical_index != response.physical_index
+        or response.embedding_profile != response.dense.embedding_profile
+        or response.embedding_profile_status != response.dense.embedding_profile_status
+        or response.embedding_profile != PROVISIONAL_EMBEDDING_PROFILE
+        or response.dense.model_id != DENSE_MODEL_ID
+        or response.dense.model_revision != DENSE_MODEL_REVISION
+    ):
+        raise IrContractError("frozen hybrid response lane identities do not agree")
+
+    lexical = _validate_bm25_prefix(response.lexical.hits)
+    dense = _validate_dense_prefix(response.dense.candidates)
+    if len(lexical) != min(SCIFACT_PILOT_CANDIDATE_COUNT, response.lexical.total):
+        raise IrContractError("frozen BM25 lane is incomplete for its declared hit count")
+    if len(lexical) > SCIFACT_PILOT_CANDIDATE_COUNT or len(dense) > SCIFACT_PILOT_CANDIDATE_COUNT:
+        raise IrContractError("frozen retrieval lane exceeds its 50-candidate window")
+
+
+def _retrieval_identity(response: HybridRetrievalResponse) -> dict[str, object]:
+    return {
+        "retrieval_revision": response.retrieval_revision,
+        "physical_index": response.physical_index,
+        "lexical": {
+            "query_revision": response.lexical.query_revision,
+            "index_schema_revision": response.lexical.index_schema_revision,
+            "projection_sha256": response.lexical.projection_sha256,
+            "chunker_revision": response.lexical.chunker_revision,
+        },
+        "dense": {
+            "query_revision": response.dense.query_revision,
+            "projection_schema_revision": response.dense.projection_schema_revision,
+            "projection_sha256": response.dense.projection_sha256,
+            "chunker_revision": response.dense.chunker_revision,
+            "vector_config_sha256": response.dense.vector_config_sha256,
+            "model_id": response.dense.model_id,
+            "model_revision": response.dense.model_revision,
+            "dimension": response.dense.dimension,
+            "vector_space": response.dense.vector_space,
+            "query_embedding_config_sha256": response.dense.query_embedding_config_sha256,
+            "document_embedding_config_sha256": response.dense.document_embedding_config_sha256,
+            "embedding_profile": response.dense.embedding_profile,
+            "embedding_profile_status": response.dense.embedding_profile_status,
+            "candidate_window": response.dense.candidate_window,
+        },
+        "fusion": {
+            "revision": response.fusion.revision,
+            "k": response.fusion.k,
+            "candidate_window": response.fusion.candidate_window,
+        },
+    }
+
+
+def _lane_candidate_identity(
+    *,
+    passage_key: str,
+    rank: int,
+    raw_score: float,
+    text: str,
+    provenance: dict[str, object],
+) -> dict[str, object]:
+    return {
+        "passage_key": passage_key,
+        "rank": rank,
+        "raw_score": _finite_score(raw_score, field="source-lane raw score"),
+        "candidate_text_sha256": _sha256_text(text),
+        "provenance": provenance,
+    }
+
+
+def _source_lane_candidates(
+    response: HybridRetrievalResponse,
+) -> dict[str, list[dict[str, object]]]:
+    return {
+        "bm25": [
+            _lane_candidate_identity(
+                passage_key=hit.passage_key,
+                rank=hit.rank,
+                raw_score=hit.score,
+                text=hit.text,
+                provenance=hit.model_dump(exclude={"rank", "score", "text"}),
+            )
+            for hit in response.lexical.hits
+        ],
+        "dense": [
+            _lane_candidate_identity(
+                passage_key=candidate.passage_key,
+                rank=candidate.rank,
+                raw_score=candidate.raw_score,
+                text=candidate.provenance.text,
+                provenance=candidate.provenance.model_dump(exclude={"text"}),
+            )
+            for candidate in response.dense.candidates
+        ],
+    }
+
+
+def _response_snapshot_sha256(
+    query: IrQuery,
+    response: HybridRetrievalResponse,
+    candidate_identities: Sequence[dict[str, object]],
+) -> str:
+    payload = {
+        "schema_revision": _CANDIDATE_SNAPSHOT_REVISION,
+        "query_id": query.query_id,
+        "query_text_sha256": _sha256_text(query.text),
+        "retrieval_identity": _retrieval_identity(response),
+        "bm25_total": response.lexical.total,
+        "source_lane_candidates": _source_lane_candidates(response),
+        "fused_candidates": list(candidate_identities),
+    }
+    return hashlib.sha256(canonical_ir_json(payload)).hexdigest()
+
+
+def build_scifact_candidate_snapshot(
+    dataset: IrDataset,
+    frozen_responses: Mapping[str, HybridRetrievalResponse],
+    passage_mapping: IrPassageMapping,
+) -> SciFactCandidateSnapshot:
+    """Seal the approved 20-query candidate input before any reranker call."""
+    pilot_dataset, selected_ids = select_scifact_pilot_dataset(dataset)
+    if set(frozen_responses) != set(selected_ids):
+        raise IrContractError("frozen responses must cover exactly the selected pilot query IDs")
+    queries = {query.query_id: query for query in pilot_dataset.queries}
+    mapped_passages = {entry.passage_id: entry for entry in passage_mapping.entries}
+    response_payloads: list[dict[str, object]] = []
+    response_sha256: list[tuple[str, str]] = []
+    identity_sha256: set[bytes] = set()
+    for query_id in selected_ids:
+        response = frozen_responses[query_id]
+        identities = _validated_response_candidates(queries[query_id], response)
+        identity_sha256.add(
+            hashlib.sha256(canonical_ir_json(_retrieval_identity(response))).digest()
+        )
+        for hit in response.lexical.hits:
+            entry = mapped_passages.get(hit.passage_key)
+            if entry is None or (
+                entry.document_id != hit.document_canonical_key
+                or entry.document_version_id != hit.document_version_key
+            ):
+                raise IrContractError("BM25 source candidate disagrees with the full passage map")
+        for candidate in response.dense.candidates:
+            entry = mapped_passages.get(candidate.passage_key)
+            if entry is None or (
+                entry.document_id != candidate.provenance.document_canonical_key
+                or entry.document_version_id != candidate.provenance.document_version_key
+            ):
+                raise IrContractError("dense source candidate disagrees with the full passage map")
+        for hit, identity in zip(response.fusion.hits, identities, strict=True):
+            entry = mapped_passages.get(hit.passage_key)
+            if entry is None:
+                raise IrContractError(
+                    "frozen candidate is missing from the snapshot-wide passage map"
+                )
+            if (
+                entry.document_id != hit.provenance.document_canonical_key
+                or entry.document_version_id != hit.provenance.document_version_key
+            ):
+                raise IrContractError("frozen candidate disagrees with the passage map")
+            if identity.get("passage_key") != entry.passage_id:
+                raise IrContractError("frozen candidate identity disagrees with the passage map")
+        response_digest = _response_snapshot_sha256(queries[query_id], response, identities)
+        response_sha256.append((query_id, response_digest))
+        response_payloads.append(
+            {
+                "query_id": query_id,
+                "query_text_sha256": _sha256_text(queries[query_id].text),
+                "retrieval_response_sha256": response_digest,
+                "bm25_total": response.lexical.total,
+                "candidate_count": len(identities),
+                "source_lane_candidates": _source_lane_candidates(response),
+                "candidates": list(identities),
+            }
+        )
+    if len(identity_sha256) != 1:
+        raise IrContractError("frozen candidate queries mix retrieval/index/embedding identities")
+    retrieval_identity = _retrieval_identity(frozen_responses[selected_ids[0]])
+    projection_sha256 = frozen_responses[selected_ids[0]].dense.projection_sha256
+    payload = {
+        "schema_revision": _PILOT_SNAPSHOT_REVISION,
+        "source_id": pilot_dataset.source_id,
+        "source_revision": pilot_dataset.source_revision,
+        "corpus_sha256": pilot_dataset.corpus_sha256,
+        "dataset_sha256": pilot_dataset.sha256,
+        "retrieval_identity": retrieval_identity,
+        "projection_sha256": projection_sha256,
+        "passage_mapping_sha256": passage_mapping.sha256,
+        "query_ids_in_selection_order": list(selected_ids),
+        "retrieval_responses": response_payloads,
+    }
+    snapshot_json = canonical_ir_json(payload).decode("utf-8").rstrip("\n")
+    return SciFactCandidateSnapshot(
+        sha256=hashlib.sha256(snapshot_json.encode("utf-8")).hexdigest(),
+        dataset_sha256=pilot_dataset.sha256,
+        projection_sha256=projection_sha256,
+        passage_mapping_sha256=passage_mapping.sha256,
+        query_ids=selected_ids,
+        response_sha256=tuple(response_sha256),
+        snapshot_json=snapshot_json,
+    )
+
+
+def scifact_candidate_snapshot_sha256(
+    dataset: IrDataset,
+    frozen_responses: Mapping[str, HybridRetrievalResponse],
+    passage_mapping: IrPassageMapping,
+) -> str:
+    """Return the digest of a validated, frozen SciFact candidate snapshot."""
+    return build_scifact_candidate_snapshot(dataset, frozen_responses, passage_mapping).sha256
+
+
+def _require_snapshot_dataset(dataset: IrDataset, snapshot: SciFactCandidateSnapshot) -> None:
+    pilot_dataset = _source_pilot_dataset(dataset)
+    selected_ids = tuple(query.query_id for query in pilot_dataset.queries)
+    if snapshot.dataset_sha256 != pilot_dataset.sha256 or set(snapshot.query_ids) != set(
+        selected_ids
+    ):
+        raise IrContractError("candidate snapshot and SciFact pilot dataset identities differ")
+
+
+def _require_snapshot_inputs(
+    dataset: IrDataset,
+    passage_mapping: IrPassageMapping,
+    snapshot: SciFactCandidateSnapshot,
+) -> None:
+    _require_snapshot_dataset(dataset, snapshot)
+    if snapshot.passage_mapping_sha256 != passage_mapping.sha256:
+        raise IrContractError("candidate snapshot and passage mapping identities differ")
+
+
+class Qwen3RerankerAdapter:
+    """Call the pinned local vLLM ``/score`` service in fixed-size batches."""
+
+    def __init__(
+        self,
+        *,
+        session_deadline_monotonic: float,
+        timeout_seconds: float = 120.0,
+    ) -> None:
+        if (
+            isinstance(timeout_seconds, bool)
+            or not math.isfinite(timeout_seconds)
+            or timeout_seconds <= 0
+        ):
+            raise IrContractError("score timeout must be a finite positive number")
+        if not math.isfinite(session_deadline_monotonic):
+            raise IrContractError("pilot session deadline must be finite")
+        parsed = urlsplit(_SCORE_ENDPOINT)
+        if (
+            parsed.scheme != "http"
+            or parsed.hostname != "127.0.0.1"
+            or parsed.port != 8000
+            or parsed.path != "/score"
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise IrContractError("Qwen scoring endpoint must remain loopback-only")
+        self._timeout_seconds = timeout_seconds
+        self._session_deadline_monotonic = session_deadline_monotonic
+
+    def _request_timeout(self) -> float:
+        remaining = self._session_deadline_monotonic - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("the global SciFact pilot session deadline expired")
+        return min(self._timeout_seconds, remaining)
+
+    def _score_batch(self, query_text: str, documents: Sequence[str]) -> tuple[float, ...]:
+        payload = {
+            "model": QWEN3_RERANKER_MODEL_ID,
+            "queries": query_text,
+            "documents": list(documents),
+            "instruction": QWEN3_RERANKER_INSTRUCTION,
+            "use_activation": True,
+            "max_tokens_per_query": _MAX_TOKENS_PER_QUERY,
+            "max_tokens_per_doc": _MAX_TOKENS_PER_DOCUMENT,
+        }
+        request = urllib.request.Request(
+            _SCORE_ENDPOINT,
+            data=json.dumps(payload, ensure_ascii=False, allow_nan=False).encode("utf-8"),
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(  # noqa: S310
+            request, timeout=self._request_timeout()
+        ) as response:
+            response_payload: object = json.loads(response.read().decode("utf-8"))
+        if not isinstance(response_payload, dict):
+            raise IrContractError("Qwen /score response must be a JSON object")
+        payload = cast("dict[str, object]", response_payload)
+        if payload.get("model") != QWEN3_RERANKER_MODEL_ID:
+            raise IrContractError("Qwen /score response model differs from the pinned model")
+        rows_value = payload.get("data")
+        if not isinstance(rows_value, list) or len(cast("list[object]", rows_value)) != len(
+            documents
+        ):
+            raise IrContractError("Qwen /score response cardinality differs from the request")
+        rows = cast("list[object]", rows_value)
+        indexed_scores: dict[int, float] = {}
+        for row_value in rows:
+            row: object = row_value
+            if not isinstance(row, dict):
+                raise IrContractError("Qwen /score response contains a non-object row")
+            score_row = cast("dict[str, object]", row)
+            index = score_row.get("index")
+            if (
+                isinstance(index, bool)
+                or not isinstance(index, int)
+                or index < 0
+                or index >= len(documents)
+                or index in indexed_scores
+            ):
+                raise IrContractError("Qwen /score response contains a duplicate or foreign index")
+            indexed_scores[index] = _finite_score(score_row.get("score"), field="reranker score")
+        if set(indexed_scores) != set(range(len(documents))):
+            raise IrContractError("Qwen /score response indices do not cover the request")
+        return tuple(indexed_scores[index] for index in range(len(documents)))
+
+    def rerank_frozen_candidates(
+        self,
+        query: IrQuery,
+        *,
+        retrieval_response_sha256: str,
+        projection_sha256: str,
+        candidates: Sequence[QwenScoringCandidate],
+    ) -> QwenRerankedQuery:
+        """Score only a locally validated minimal B2 candidate transfer record."""
+        if any(
+            len(digest) != 64 or any(character not in "0123456789abcdef" for character in digest)
+            for digest in (retrieval_response_sha256, projection_sha256)
+        ):
+            raise IrContractError("frozen scoring response and projection need SHA-256 identities")
+        passage_ids = tuple(candidate.passage_id for candidate in candidates)
+        ranks = tuple(candidate.original_rrf_rank for candidate in candidates)
+        if (
+            len(candidates) > SCIFACT_PILOT_CANDIDATE_COUNT
+            or len(passage_ids) != len(set(passage_ids))
+            or ranks != tuple(range(1, len(ranks) + 1))
+            or any(candidate.query_id != query.query_id for candidate in candidates)
+        ):
+            raise IrContractError(
+                "frozen scoring candidates must be a unique contiguous query prefix"
+            )
+        self._request_timeout()
+        query_sha256 = _sha256_text(query.text)
+        scores: list[float] = []
+        request_count = 0
+        started = time.perf_counter()
+        for start in range(0, len(candidates), _SCORE_BATCH_SIZE):
+            batch = candidates[start : start + _SCORE_BATCH_SIZE]
+            scores.extend(
+                self._score_batch(query.text, tuple(candidate.text for candidate in batch))
+            )
+            request_count += 1
+            self._request_timeout()
+        elapsed_ms = (time.perf_counter() - started) * 1000.0
+        if not math.isfinite(elapsed_ms):
+            raise IrContractError("reranker elapsed time is non-finite")
+
+        scored = sorted(
+            zip(candidates, scores, strict=True),
+            key=lambda item: (-item[1], item[0].original_rrf_rank),
+        )
+        ranked = tuple(
+            QwenRerankedCandidate(
+                query_id=query.query_id,
+                passage_id=candidate.passage_id,
+                original_rrf_rank=candidate.original_rrf_rank,
+                reranked_rank=rank,
+                reranker_score=score,
+                original_retrieval_json=candidate.original_retrieval_json,
+            )
+            for rank, (candidate, score) in enumerate(scored, start=1)
+        )
+        return QwenRerankedQuery(
+            query_id=query.query_id,
+            query_text_sha256=query_sha256,
+            retrieval_response_sha256=retrieval_response_sha256,
+            projection_sha256=projection_sha256,
+            candidate_count=len(candidates),
+            request_count=request_count,
+            elapsed_ms=elapsed_ms,
+            candidates=ranked,
+        )
+
+    def rerank(self, query: IrQuery, response: HybridRetrievalResponse) -> QwenRerankedQuery:
+        """Validate saved source lanes, then score the reconstructed fused top-50."""
+        identities = _validated_response_candidates(query, response)
+        return self.rerank_frozen_candidates(
+            query,
+            retrieval_response_sha256=_response_snapshot_sha256(query, response, identities),
+            projection_sha256=response.dense.projection_sha256,
+            candidates=_scoring_candidates(query, response, identities),
+        )
+
+
+def _scoring_candidates(
+    query: IrQuery,
+    response: HybridRetrievalResponse,
+    identities: Sequence[dict[str, object]],
+) -> tuple[QwenScoringCandidate, ...]:
+    """Keep only the selected fused passage text in the B2 transfer payload."""
+    return tuple(
+        QwenScoringCandidate(
+            query_id=query.query_id,
+            passage_id=hit.passage_key,
+            original_rrf_rank=hit.final_rank,
+            candidate_text_sha256=_sha256_text(hit.provenance.text),
+            text=hit.provenance.text,
+            original_retrieval_json=canonical_ir_json(identity).decode("utf-8").rstrip("\n"),
+        )
+        for hit, identity in zip(response.fusion.hits, identities, strict=True)
+    )
+
+
+def qwen_scoring_candidates(
+    query: IrQuery, response: HybridRetrievalResponse
+) -> tuple[QwenScoringCandidate, ...]:
+    """Validate full retrieval lanes and export only fused top-50 text for B2."""
+    return _scoring_candidates(
+        query,
+        response,
+        _validated_response_candidates(query, response),
+    )
+
+
+def frozen_hybrid_passage_hits(
+    dataset: IrDataset,
+    frozen_responses: Mapping[str, HybridRetrievalResponse],
+    passage_mapping: IrPassageMapping,
+    snapshot: SciFactCandidateSnapshot,
+) -> tuple[IrPassageHit, ...]:
+    """Convert sealed original RRF ranks and scores to RES-140 passage hits."""
+    _require_snapshot_inputs(dataset, passage_mapping, snapshot)
+    if build_scifact_candidate_snapshot(dataset, frozen_responses, passage_mapping).sha256 != (
+        snapshot.sha256
+    ):
+        raise IrContractError("frozen retrieval responses differ from their candidate snapshot")
+    return tuple(
+        sorted(
+            (
+                IrPassageHit(
+                    query_id=query_id,
+                    passage_id=hit.passage_key,
+                    rank=hit.final_rank,
+                    raw_score=hit.rrf_score,
+                )
+                for query_id in snapshot.query_ids
+                for hit in frozen_responses[query_id].fusion.hits
+            ),
+            key=lambda hit: (hit.query_id, hit.rank),
+        )
+    )
+
+
+def ranked_passage_hits(
+    dataset: IrDataset,
+    results: Sequence[QwenRerankedQuery],
+    snapshot: SciFactCandidateSnapshot,
+) -> tuple[IrPassageHit, ...]:
+    """Convert complete, snapshot-bound reranker results to RES-140 passage hits."""
+    _require_snapshot_dataset(dataset, snapshot)
+    query_ids = tuple(result.query_id for result in results)
+    if len(query_ids) != len(set(query_ids)) or set(query_ids) != set(snapshot.query_ids):
+        raise IrContractError("reranked results must cover each pilot query exactly once")
+    expected_response_sha256 = dict(snapshot.response_sha256)
+    query_text_sha256 = {query.query_id: _sha256_text(query.text) for query in dataset.queries}
+    response_payloads = cast("list[dict[str, object]]", snapshot.payload()["retrieval_responses"])
+    expected_candidates = {
+        cast("str", response["query_id"]): cast("list[dict[str, object]]", response["candidates"])
+        for response in response_payloads
+    }
+    for result in results:
+        sealed_candidates = expected_candidates[result.query_id]
+        candidates_by_passage = {
+            cast("str", candidate["passage_key"]): candidate for candidate in sealed_candidates
+        }
+        if (
+            result.retrieval_response_sha256 != expected_response_sha256[result.query_id]
+            or result.projection_sha256 != snapshot.projection_sha256
+            or result.query_text_sha256 != query_text_sha256[result.query_id]
+            or result.candidate_count != len(sealed_candidates)
+            or len(result.candidates) != len(candidates_by_passage)
+            or tuple(candidate.reranked_rank for candidate in result.candidates)
+            != tuple(range(1, len(result.candidates) + 1))
+            or any(candidate.query_id != result.query_id for candidate in result.candidates)
+            or any(
+                candidate.passage_id not in candidates_by_passage
+                or candidate.original_rrf_rank
+                != candidates_by_passage[candidate.passage_id].get("original_rrf_rank")
+                or candidate.original_retrieval_json
+                != canonical_ir_json(candidates_by_passage[candidate.passage_id])
+                .decode("utf-8")
+                .rstrip("\n")
+                or not math.isfinite(candidate.reranker_score)
+                for candidate in result.candidates
+            )
+        ):
+            raise IrContractError("reranked results disagree with their candidate snapshot")
+    hits = [hit for result in results for hit in result.passage_hits()]
+    return tuple(sorted(hits, key=lambda hit: (hit.query_id, hit.rank)))
+
+
+def qwen3_reranker_run(
+    dataset: IrDataset,
+    config: IrExperimentConfig,
+    passage_mapping: IrPassageMapping,
+    snapshot: SciFactCandidateSnapshot,
+    results: Sequence[QwenRerankedQuery],
+    *,
+    evaluation_dataset: IrDataset | None = None,
+    source_document_to_canonical_document: Mapping[str, str] | None = None,
+    source_exhausted_query_ids: tuple[str, ...] = (),
+) -> IrRun:
+    """Build the candidate run through RES-140's canonical document collapse."""
+    _require_snapshot_inputs(dataset, passage_mapping, snapshot)
+    source_pilot = _source_pilot_dataset(dataset)
+    run_dataset = evaluation_dataset or dataset
+    qrel_identity_sha256: str | None = None
+    if evaluation_dataset is None:
+        if (
+            dataset.sha256 != source_pilot.sha256
+            or source_document_to_canonical_document is not None
+        ):
+            raise IrContractError(
+                "Qwen run without canonical qrel projection requires the selected source pilot"
+            )
+    else:
+        if source_document_to_canonical_document is None:
+            raise IrContractError("canonical qrel evaluation requires its source document map")
+        expected_evaluation = canonical_scifact_evaluation_dataset(
+            dataset, source_document_to_canonical_document
+        )
+        if evaluation_dataset != expected_evaluation:
+            raise IrContractError("Qwen evaluation dataset differs from the canonical source qrels")
+        _require_complete_source_document_mapping(
+            passage_mapping, source_document_to_canonical_document
+        )
+        qrel_identity_sha256 = scifact_qrel_identity_mapping_sha256(
+            dataset, source_document_to_canonical_document
+        )
+    if (
+        config.dataset_sha256 != run_dataset.sha256
+        or config.projection_sha256 != snapshot.projection_sha256
+    ):
+        raise IrContractError("reranker config and candidate snapshot identities differ")
+    parameters_value: object = json.loads(config.parameters_json)
+    if not isinstance(parameters_value, dict):
+        raise IrContractError("reranker config parameters must be an object")
+    parameters = cast("dict[str, object]", parameters_value)
+    if (
+        parameters.get("candidate_snapshot_sha256") != snapshot.sha256
+        or parameters.get("passage_mapping_sha256") != passage_mapping.sha256
+    ):
+        raise IrContractError("reranker config does not bind its candidate snapshot and mapping")
+    if evaluation_dataset is not None and (
+        parameters.get("source_dataset_sha256") != dataset.sha256
+        or parameters.get("source_pilot_dataset_sha256") != source_pilot.sha256
+        or parameters.get("evaluation_dataset_sha256") != run_dataset.sha256
+        or parameters.get("qrel_identity_mapping_sha256") != qrel_identity_sha256
+    ):
+        raise IrContractError("reranker config does not bind the source qrel identity projection")
+    return document_run_from_passages(
+        dataset=run_dataset,
+        config=config,
+        passage_mapping=passage_mapping,
+        hits=ranked_passage_hits(dataset, results, snapshot),
+        evaluation_depth=_PILOT_EVALUATION_DEPTH,
+        source_exhausted_query_ids=source_exhausted_query_ids,
+    )
+
+
+def qwen3_reranker_config(
+    dataset: IrDataset,
+    *,
+    code_sha: str,
+    projection_sha256: str,
+    candidate_snapshot: SciFactCandidateSnapshot,
+    passage_mapping: IrPassageMapping,
+    evaluation_dataset: IrDataset | None = None,
+    source_document_to_canonical_document: Mapping[str, str] | None = None,
+) -> IrExperimentConfig:
+    """Build the semantic IR config for the frozen SciFact pilot treatment."""
+    _require_snapshot_inputs(dataset, passage_mapping, candidate_snapshot)
+    if projection_sha256 != candidate_snapshot.projection_sha256:
+        raise IrContractError("reranker projection differs from the candidate snapshot")
+    source_pilot = _source_pilot_dataset(dataset)
+    config_dataset = evaluation_dataset or dataset
+    qrel_identity_sha256: str | None = None
+    if evaluation_dataset is None:
+        if (
+            dataset.sha256 != source_pilot.sha256
+            or source_document_to_canonical_document is not None
+        ):
+            raise IrContractError(
+                "Qwen config without canonical qrel projection requires the selected source pilot"
+            )
+    else:
+        if source_document_to_canonical_document is None:
+            raise IrContractError("canonical qrel evaluation requires its source document map")
+        expected_evaluation = canonical_scifact_evaluation_dataset(
+            dataset, source_document_to_canonical_document
+        )
+        if evaluation_dataset != expected_evaluation:
+            raise IrContractError("Qwen evaluation dataset differs from the canonical source qrels")
+        _require_complete_source_document_mapping(
+            passage_mapping, source_document_to_canonical_document
+        )
+        qrel_identity_sha256 = scifact_qrel_identity_mapping_sha256(
+            dataset, source_document_to_canonical_document
+        )
+    parameters: dict[str, object] = {
+        "adapter_revision": _ADAPTER_REVISION,
+        "baseline_retrieval_revision": "hybrid-rrf-v1",
+        "candidate_window": SCIFACT_PILOT_CANDIDATE_COUNT,
+        "candidate_chunk_size": _SCORE_BATCH_SIZE,
+        "candidate_snapshot_sha256": candidate_snapshot.sha256,
+        "dtype": "bfloat16",
+        "instruction": QWEN3_RERANKER_INSTRUCTION,
+        "instruction_sha256": QWEN3_RERANKER_INSTRUCTION_SHA256,
+        "max_tokens_per_document": _MAX_TOKENS_PER_DOCUMENT,
+        "max_tokens_per_query": _MAX_TOKENS_PER_QUERY,
+        "model_id": QWEN3_RERANKER_MODEL_ID,
+        "model_revision": QWEN3_RERANKER_REVISION,
+        "passage_mapping_sha256": passage_mapping.sha256,
+        "reranker_order": "score_desc,original_rrf_rank_asc",
+        "rrf_k": 60,
+        "template_sha256": QWEN3_RERANKER_TEMPLATE_SHA256,
+        "tokenizer_revision": QWEN3_RERANKER_TOKENIZER_REVISION,
+        "use_activation": True,
+        "vllm_version": QWEN3_RERANKER_VLLM_VERSION,
+    }
+    if evaluation_dataset is not None:
+        parameters.update(
+            {
+                "evaluation_dataset_sha256": config_dataset.sha256,
+                "qrel_identity_mapping_sha256": qrel_identity_sha256,
+                "source_dataset_sha256": dataset.sha256,
+                "source_pilot_dataset_sha256": source_pilot.sha256,
+            }
+        )
+    return IrExperimentConfig(
+        dataset_sha256=config_dataset.sha256,
+        code_sha=code_sha,
+        retrieval_revision="hybrid-rrf-v1-qwen3-rerank-v1",
+        projection_sha256=projection_sha256,
+        parameters_json=canonical_ir_json(parameters).decode("utf-8").rstrip("\n"),
+    )
