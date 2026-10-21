@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 import time
 from argparse import Namespace
 from collections.abc import Sequence
@@ -291,7 +292,7 @@ def test_open_watchdog_flag_still_requires_real_cpu_shutdown_evidence(
 @pytest.mark.skipif(os.name != "posix", reason="The detached supervisor is Linux-only.")
 @pytest.mark.integration
 def test_detached_watchdog_survives_caller_exit_and_stops_the_named_fake_session(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path,
 ) -> None:
     fake_cli = tmp_path / "fake-colab"
     fake_cli.write_text(
@@ -332,23 +333,32 @@ def test_detached_watchdog_survives_caller_exit_and_stops_the_named_fake_session
     fake_cli.chmod(0o700)
     run_dir = tmp_path / "detached-run"
 
-    assert (
-        operator.main(
-            [
-                "start",
-                "--mode",
-                "cpu-probe",
-                "--session",
-                "res142-detached-cpu",
-                "--run-dir",
-                str(run_dir),
-                "--cli",
-                str(fake_cli),
-            ]
-        )
-        == 0
+    script = Path(operator.__file__).resolve()
+    launch_result = subprocess.run(  # noqa: S603 - runs this repository script against a local fake CLI.
+        [
+            sys.executable,
+            str(script),
+            "start",
+            "--mode",
+            "cpu-probe",
+            "--session",
+            "res142-detached-cpu",
+            "--run-dir",
+            str(run_dir),
+            "--cli",
+            str(fake_cli),
+            "--max-runtime-seconds",
+            "2",
+            "--hold-open-seconds",
+            "5",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=10,
     )
-    launch = json.loads(capsys.readouterr().out)
+    assert launch_result.returncode == 0, launch_result.stderr
+    launch = json.loads(launch_result.stdout)
     deadline = time.monotonic() + 10
     status: dict[str, object] = {}
     while time.monotonic() < deadline:
