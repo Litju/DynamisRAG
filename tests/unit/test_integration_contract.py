@@ -32,6 +32,12 @@ _BROKEN_INTEGRATION_ENVIRONMENT: Final[dict[str, str]] = {
 _SUBPROCESS_TIMEOUT_SECONDS: Final[int] = 120
 
 
+def _assert_no_unexpected_skips(output: str) -> None:
+    skip_details = [line for line in output.lower().splitlines() if line.startswith("skipped")]
+    assert all("detached supervisor is linux-only" in line for line in skip_details)
+    assert len(skip_details) <= 1
+
+
 def _run_pytest(*args: str) -> subprocess.CompletedProcess[str]:
     environment = os.environ.copy()
     environment.update(_BROKEN_INTEGRATION_ENVIRONMENT)
@@ -68,7 +74,7 @@ def test_default_run_stays_green_without_integration_configuration() -> None:
     completed = _run_pytest()
 
     assert completed.returncode == 0, completed.stdout + completed.stderr
-    assert "skipped" not in completed.stdout.lower()
+    _assert_no_unexpected_skips(completed.stdout)
 
 
 def test_explicit_integration_run_fails_loudly_without_configuration() -> None:
@@ -78,6 +84,6 @@ def test_explicit_integration_run_fails_loudly_without_configuration() -> None:
 
     output = completed.stdout + completed.stderr
     assert completed.returncode != 0, output
-    assert "skipped" not in completed.stdout.lower()
+    _assert_no_unexpected_skips(completed.stdout)
     assert "invalid setting" in completed.stdout
     assert "Copy-Item .env.example .env" in completed.stdout

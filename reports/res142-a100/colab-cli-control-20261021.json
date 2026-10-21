@@ -1,0 +1,76 @@
+{
+  "schema_revision": "res142-colab-cli-control-observation-v1",
+  "observed_date": "2026-10-21",
+  "cli": {
+    "distribution": "google-colab-cli",
+    "official_repository": "https://github.com/googlecolab/google-colab-cli",
+    "version": "0.7.5",
+    "tested_python": "3.12.3",
+    "compatibility": "passed via uv tool run using the existing pinned Linux interpreter",
+    "capabilities": {
+      "named_session": "colab new --session NAME",
+      "upload": "colab upload --session NAME LOCAL_PATH REMOTE_PATH",
+      "execute": "colab exec --session NAME --file NOTEBOOK",
+      "terminate": "colab stop --session NAME; backend unassign is issued by the CLI",
+      "session_listing": "colab sessions lists server-side assignments",
+      "session_name_storage": "friendly names are stored in local CLI session state"
+    }
+  },
+  "authentication_and_read_only_probes": {
+    "authenticated": true,
+    "sessions_exit_code": 0,
+    "active_sessions_observed": 0,
+    "usage_exit_code": 0,
+    "active_assignments_observed": 0,
+    "usage_balance_recorded": false,
+    "credential_contents_read_or_copied": false,
+    "oauth_cache_mode_before": "0644",
+    "oauth_cache_mode_after": "0600"
+  },
+  "operator": {
+    "controller_sha256": "9c42b214b2938f69ffa910eccaa76f1b74193165097785a6091425fcb5b6ee01",
+    "connection_to_termination_ceiling_seconds": 1500,
+    "shutdown_headroom_seconds": 60,
+    "watchdog_is_detached_linux_process": true,
+    "session_state_is_private_and_shared_with_worker": true,
+    "cli_upload_directory": "/content/res142-b2-input",
+    "browser_file_picker_used": false,
+    "bundle_rebuilt": false,
+    "frozen_bundle_hashes_unchanged": true,
+    "notebook_sha256": "79207291038e99e8bb6ffe70bcaeba0410d55e17161dbe28d716dc6ed76bc803",
+    "fresh_offline_bundle_report": "offline-validation-cli-control-final-20261021.json"
+  },
+  "offline_validation": {
+    "unit_tests_passed": 2361,
+    "expected_windows_only_skip": 0,
+    "integration_tests_deselected": 167,
+    "ruff_format": "pass",
+    "ruff_lint": "pass",
+    "strict_pyright": "pass",
+    "linux_detached_process_test": "marked integration; no Colab resource is allocated by the fake-CLI test",
+    "failure_modes_covered": [
+      "timeout",
+      "upload failure",
+      "browser-free execution transport failure",
+      "authentication failure",
+      "worker process crash",
+      "transient CLI termination failure and retry",
+      "persistent CLI termination failure",
+      "zero-session confirmation failure",
+      "unmapped active assignment fails closed"
+    ],
+    "real_colab_session_termination_test": "pending explicit CPU-only allocation authorization"
+  },
+  "resource_activity": {
+    "cpu_runtime_allocated": false,
+    "g4_or_a100_allocated": false,
+    "b2_scoring_attempted": false,
+    "drive_artifacts_modified": false
+  },
+  "watchdog_qualification": {
+    "real_cli_shutdown_evidence_present": false,
+    "SESSION_WATCHDOG_QUALIFIED": false,
+    "launch_ready": false,
+    "decision": "NO-GO"
+  }
+}

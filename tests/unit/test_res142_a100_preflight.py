@@ -48,6 +48,18 @@ def test_a100_notebook_manifest_compiles_and_keeps_authorizations_closed() -> No
     assert "SESSION_WATCHDOG_QUALIFIED = False" in source
 
 
+def test_a100_notebook_uses_the_cli_uploaded_files_without_a_browser_picker() -> None:
+    _, source = validator.notebook_source(ROOT / "notebooks" / "res142_b2_a100_colab.ipynb")
+
+    assert "files.upload()" not in source
+    assert 'Path("/content/res142-b2-input")' in source
+    assert "path.is_symlink() or not path.is_file()" in source
+    assert "(input_dir / name).read_bytes()" in source
+    assert source.index("if SESSION_WATCHDOG_QUALIFIED is not True:") < source.index(
+        'namespace["WATCHDOG_QUALIFIED"] = SESSION_WATCHDOG_QUALIFIED'
+    )
+
+
 def test_a100_orchestrator_support_pin_matches_the_actual_helper_bytes() -> None:
     source = (VARIANT / "res142_b2_colab.py").read_text(encoding="utf-8")
     support_sha = validator.sha256_bytes((VARIANT / "res142_b1_support.py").read_bytes())
