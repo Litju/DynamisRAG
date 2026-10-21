@@ -1,0 +1,35 @@
+{
+  "base_branch": "codex/res142-scifact-pilot",
+  "coderabbit": "skipped: draft pull request",
+  "conclusion": "success",
+  "draft": true,
+  "head_branch": "codex/res142-a100-repair",
+  "head_sha": "01fdb6fdad5752d99ea138d7c5817b976dad9bd6",
+  "jobs": [
+    {
+      "conclusion": "success",
+      "duration": "1m44s",
+      "job_id": 119036916945,
+      "name": "Lint, types, unit tests (ubuntu-latest)"
+    },
+    {
+      "conclusion": "success",
+      "duration": "3m03s",
+      "job_id": 119036916768,
+      "name": "Lint, types, unit tests (windows-latest)"
+    },
+    {
+      "conclusion": "success",
+      "duration": "2m18s",
+      "job_id": 119036916746,
+      "name": "Migrations, integration tests, live server"
+    }
+  ],
+  "pull_request_number": 17,
+  "pull_request_url": "https://github.com/Litju/DynamisRAG/pull/17",
+  "repository": "Litju/DynamisRAG",
+  "schema_revision": "res142-a100-github-ci-v1",
+  "workflow_run_id": 39543676529,
+  "workflow_run_url": "https://github.com/Litju/DynamisRAG/actions/runs/39543676529",
+  "workflow_status": "completed"
+}

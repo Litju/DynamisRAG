@@ -47,6 +47,35 @@
     "rights_sidecar_sha256": "65980a1e19e6a01444193df55e98fd90a941b4c14b4c83efbd32db3564449d92"
   },
   "drive_attempt_directory_id": "b2-attempt-20261021-a100-repair-94e06560a2534a2d99174badbbcf4062",
+  "github_ci": {
+    "coderabbit": "skipped: draft pull request",
+    "jobs": [
+      {
+        "conclusion": "success",
+        "duration": "1m44s",
+        "job_id": 119036916945,
+        "name": "Lint, types, unit tests (ubuntu-latest)"
+      },
+      {
+        "conclusion": "success",
+        "duration": "3m03s",
+        "job_id": 119036916768,
+        "name": "Lint, types, unit tests (windows-latest)"
+      },
+      {
+        "conclusion": "success",
+        "duration": "2m18s",
+        "job_id": 119036916746,
+        "name": "Migrations, integration tests, live server"
+      }
+    ],
+    "note": "This recorded run verified the repair commits; the subsequent CI run for the report-only commit is tracked by the pull request.",
+    "pull_request_url": "https://github.com/Litju/DynamisRAG/pull/17",
+    "status": "pass",
+    "verified_head_sha": "01fdb6fdad5752d99ea138d7c5817b976dad9bd6",
+    "workflow_run_id": 39543676529,
+    "workflow_run_url": "https://github.com/Litju/DynamisRAG/actions/runs/39543676529"
+  },
   "hash_layers_reconciled": true,
   "incident_reconciliation": {
     "active_colab_sessions_verified_zero": false,
@@ -128,7 +157,8 @@
     "ruff-format-release.log",
     "ruff-lint-project.log",
     "ruff-lint-release.log",
-    "pyright-strict-final.log"
+    "pyright-strict-final.log",
+    "github-ci-39543676529.json"
   ],
   "ruff_format": "pass",
   "ruff_lint": "pass",

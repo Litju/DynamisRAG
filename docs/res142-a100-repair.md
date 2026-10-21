@@ -70,3 +70,7 @@ Offline qualification completed with the actual eight-file stage: both hash laye
 The full unit suite passed **2,346 tests**; 166 integration tests were deselected. Ruff format, Ruff lint, and strict Pyright passed. Six watchdog simulation cases passed, covering browser hang, upload delay, timeout, normal cleanup, termination failure, and zero-session verification failure. Machine-readable reports and logs are under `reports/res142-a100/`.
 
 **Decision: NO-GO.** Do not use this bundle for a paid connection. Before a future connection, an independently controlled mechanism must be demonstrated to terminate the runtime without a second confirmation after start and verify zero active sessions. The 3.71 CU projection is not an enforced spending limit.
+
+## GitHub review
+
+The repair is on branch `codex/res142-a100-repair` and is proposed as [draft PR #17](https://github.com/Litju/DynamisRAG/pull/17), based on `codex/res142-scifact-pilot`. GitHub Actions passed on head `01fdb6fdad5752d99ea138d7c5817b976dad9bd6`: Ubuntu unit/lint/type checks, Windows unit/lint/type checks, and migration/integration/live-server checks. CodeRabbit skipped review because the PR is draft. The machine-readable run record is `reports/res142-a100/github-ci-39543676529.json`.
