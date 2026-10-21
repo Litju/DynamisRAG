@@ -1,0 +1,29 @@
+{
+  "schema_revision": "res142-a100-incident-reconciliation-v1",
+  "starting_balance_cu": 277.15,
+  "ending_balance_cu": 262.07,
+  "observed_balance_delta_cu": 15.08,
+  "balance_delta_arithmetic_reconciles": true,
+  "approved_ceiling_cu": 3.71,
+  "excess_over_approved_ceiling_cu": 11.37,
+  "observations_source": "user-reported balances in the RES-142 repair request",
+  "independent_billing_records_verified": false,
+  "failure_stage": "A100 upload integrity gate in the B2 orchestrator, after notebook upload hashing and before Drive mount, dependency setup, model load, or scoring",
+  "root_cause": "The A100 retarget changed two support-helper authorization lines and changed the helper SHA-256, but the orchestrator's SUPPORT_SHA256 remained pinned to the original G4 helper digest.",
+  "failure_message": "ValueError: Uploaded B2 artifact SHA-256 mismatch: res142_b1_support.py",
+  "missing_cleanup_controls": [
+    "No separately controlled connection-to-disconnection watchdog",
+    "The notebook cell timer started after the cell began and did not cover upload waits or a browser hang",
+    "No automatic runtime termination on timeout or failure",
+    "No independent zero-active-session verification"
+  ],
+  "scientific_output": {
+    "scores_produced": 0,
+    "scores_expected": 1000,
+    "scoring_requests_started": false
+  },
+  "previous_drive_evidence_modified": false,
+  "colab_connected_during_repair": false,
+  "active_colab_sessions_verified_zero": false,
+  "launch_decision": "NO-GO"
+}

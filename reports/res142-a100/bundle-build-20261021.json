@@ -1,0 +1,18 @@
+{
+  "bundle_hashes": {
+    "b2_execution.py": "2dc3ddd0a5a8aa9044d4eea38106e3920b36f8b741caca00d110ae4383b2701d",
+    "res142-b2-candidate-input-v3.zip": "c98d26a7aaf38f35b66203f0d27a73f618800218b1a90c4e322a02ab2c4100ac",
+    "res142-colab.lock.txt": "8b360f4533eb616eac38469e450d3df1a516f155afba464929036eada7d80e16",
+    "res142_b1_support.py": "74178e28b9cb8ac6e1a893e3fa07607a80869564caa6191ae81fbe8dde81f99e",
+    "res142_b2_colab.py": "aab769f06240cf129c045b37e5db4bf6b358e8c94a5fd85d438d243ba6d2a3ab",
+    "res142_b2_runner.py": "7beb9fbf3a89deb8c47b32d39d85e1cc6636863256501a689aa39aca173f252b",
+    "res142_qwen3_reranker.jinja": "bf7b104801a4e4ad6a147d732e2d5a837a36f708cdbd1b871b864979d3e10acd",
+    "rights-confirmation-v3.json": "65980a1e19e6a01444193df55e98fd90a941b4c14b4c83efbd32db3564449d92"
+  },
+  "destination": "C:\\Users\\Usuario\\.codex\\visualizations\\2026\\10\\21\\res142-b2-a100-repair-20261021-3550a9a62fd84fe9aec7f7e2b2e2510d",
+  "launch_decision": "NO-GO",
+  "launch_ready": false,
+  "reason": "No production watchdog or zero-active-session verification is available.",
+  "schema_revision": "res142-a100-bundle-build-v1",
+  "status": "created-and-offline-qualified"
+}
