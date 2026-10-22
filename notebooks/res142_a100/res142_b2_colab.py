@@ -37,6 +37,7 @@ WORK_SECONDS = 23 * 60
 DRIVE_FREE_BYTES_MINIMUM = 16 * 1024 * 1024
 VRAM_STOP_PERCENT = 80
 WATCHDOG_QUALIFIED = False
+MANUAL_OPERATOR_AUTHORIZED = False
 _LAST_COMMAND: list[str] = []
 
 
@@ -213,6 +214,19 @@ def verify_uploaded_artifact_hashes(
     return artifact_hashes
 
 
+def require_manual_operator_shutdown(
+    approvals: dict[str, object], *, manual_operator_authorized: bool, watchdog_qualified: bool
+) -> None:
+    if watchdog_qualified:
+        raise PermissionError("Manual operator mode must not claim watchdog qualification.")
+    if not manual_operator_authorized:
+        raise PermissionError("Explicit manual operator shutdown authorization is required.")
+    if approvals.get("shutdown_mode") != "manual_operator":
+        raise PermissionError("A100 execution requires manual_operator shutdown mode.")
+    if approvals.get("shutdown_authorization") != "APPROVE MANUAL SESSION SHUTDOWN":
+        raise PermissionError("Explicit manual session shutdown authorization is required.")
+
+
 def _drive_evidence_is_verified(state: dict[str, object], query_ids: object) -> bool:
     if not isinstance(query_ids, list) or any(
         not isinstance(query_id, str) for query_id in query_ids
@@ -266,10 +280,17 @@ def main(
     run_started: float,
     runtime_version_confirmed: str,
 ) -> dict[str, object]:
-    if not WATCHDOG_QUALIFIED:
-        raise PermissionError("A100 launch is disabled until the external session watchdog is qualified.")
+    require_manual_operator_shutdown(
+        approvals,
+        manual_operator_authorized=MANUAL_OPERATOR_AUTHORIZED,
+        watchdog_qualified=WATCHDOG_QUALIFIED,
+    )
     if runtime_version_confirmed != COLAB_VERSION:
         raise PermissionError("Select Colab runtime 2026.04 and confirm it before proceeding.")
+    print(
+        "Manual shutdown mode: no automatic runtime disconnection. Begin cleanup at 23 minutes; "
+        "manually disconnect and delete the runtime by 25 minutes."
+    )
     sys.path.insert(0, str(upload_dir))
     support = importlib.import_module("res142_b1_support")
     session_deadline = run_started + MAX_SESSION_SECONDS
@@ -406,7 +427,7 @@ def main(
                 "free_space_probe_method": "shutil.disk_usage_on_drivefs_mount_best_effort",
             }
         )
-        for name in expected:
+        for name in sorted(artifact_hashes):
             support.persist_drive_file(
                 state, staging, upload_dir / name, f"inputs/{name}", deadline=work_deadline
             )
@@ -419,6 +440,9 @@ def main(
                 "attempt_id": DRIVE_ATTEMPT_ID,
                 "source_commit": SOURCE_COMMIT,
                 "runtime_version_required": COLAB_VERSION,
+                "shutdown_mode": approvals.get("shutdown_mode"),
+                "manual_operator_shutdown_authorized": True,
+                "automatic_runtime_shutdown": False,
                 "session_limit_seconds": MAX_SESSION_SECONDS,
                 "work_deadline_seconds": WORK_SECONDS,
                 "observed_compute_units_per_hour": approvals.get("observed_compute_units_per_hour"),
@@ -926,6 +950,10 @@ print(json.dumps({{"snapshot_dir": str(root), "snapshot_commit": root.name, "fil
         )
         while scorer.poll() is None:
             if time.monotonic() >= work_deadline:
+                print(
+                    "23-minute work deadline reached; stopping scoring and beginning cleanup now. "
+                    "Manually disconnect and delete the runtime by 25 minutes."
+                )
                 support.terminate_process_group(scorer, deadline=session_deadline)
                 raise TimeoutError("B2 scorer exceeded the global 23-minute work deadline.")
             resource_samples.append(_gpu_sample(support, work_deadline))
@@ -969,6 +997,9 @@ print(json.dumps({{"snapshot_dir": str(root), "snapshot_commit": root.name, "fil
                     "run_id": RUN_ID,
                     "attempt_id": DRIVE_ATTEMPT_ID,
                     "source_commit": SOURCE_COMMIT,
+                    "shutdown_mode": approvals.get("shutdown_mode"),
+                    "manual_operator_shutdown_authorized": True,
+                    "automatic_runtime_shutdown": False,
                     "import_smoke": state.get("import_smoke"),
                     "runtime_version": COLAB_VERSION,
                     "model": {
@@ -1041,6 +1072,9 @@ print(json.dumps({{"snapshot_dir": str(root), "snapshot_commit": root.name, "fil
                 "schema_revision": "res142-colab-b2-failure-v1",
                 "status": "failed",
                 "attempt_id": DRIVE_ATTEMPT_ID,
+                "shutdown_mode": approvals.get("shutdown_mode"),
+                "manual_operator_shutdown_authorized": True,
+                "automatic_runtime_shutdown": False,
                 "stage": stage,
                 "import_smoke": state.get("import_smoke"),
                 "error_type": type(error).__name__,
@@ -1088,7 +1122,10 @@ print(json.dumps({{"snapshot_dir": str(root), "snapshot_commit": root.name, "fil
                 )
             flush = flush_drive()
             print(json.dumps({"failure_manifest": str(failure_path), "drive_flush": flush}))
-            print("Disconnect and delete the runtime manually within the 25-minute limit.")
+            print(
+                "Failure captured. Do not retry. Preserve the evidence above, then manually "
+                "disconnect and delete the runtime now."
+            )
             try:
                 files.download(str(archive_path if archive_path.is_file() else failure_path))
             except Exception as download_error:
@@ -1118,7 +1155,10 @@ print(json.dumps({{"snapshot_dir": str(root), "snapshot_commit": root.name, "fil
                     if path.is_file():
                         archive.write(path, path.relative_to(output).as_posix())
             print(json.dumps(outcome, sort_keys=True))
-            print("Disconnect and delete the runtime manually within the 25-minute limit.")
+            print(
+                "Run ended. Check the Drive flush status above, then manually disconnect and "
+                "delete the runtime now."
+            )
             try:
                 files.download(str(download_archive_path))
             except Exception as download_error:

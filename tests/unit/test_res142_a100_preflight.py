@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import runpy
 from pathlib import Path
 
 import pytest
@@ -45,19 +46,44 @@ def test_a100_notebook_manifest_compiles_and_keeps_authorizations_closed() -> No
     assert manifest["res142_b1_support.py"] == validator.sha256_bytes(
         (VARIANT / "res142_b1_support.py").read_bytes()
     )
+    assert 'SHUTDOWN_MODE = "manual_operator"' in source
+    assert 'SHUTDOWN_AUTHORIZATION = ""' in source
     assert "SESSION_WATCHDOG_QUALIFIED = False" in source
 
 
-def test_a100_notebook_uses_the_cli_uploaded_files_without_a_browser_picker() -> None:
+def test_a100_notebook_uses_the_browser_file_picker_and_hashes_exact_uploads() -> None:
     _, source = validator.notebook_source(ROOT / "notebooks" / "res142_b2_a100_colab.ipynb")
 
-    assert "files.upload()" not in source
-    assert 'Path("/content/res142-b2-input")' in source
-    assert "path.is_symlink() or not path.is_file()" in source
-    assert "(input_dir / name).read_bytes()" in source
-    assert source.index("if SESSION_WATCHDOG_QUALIFIED is not True:") < source.index(
-        'namespace["WATCHDOG_QUALIFIED"] = SESSION_WATCHDOG_QUALIFIED'
+    assert "files.upload()" in source
+    assert "set(uploaded) != REQUIRED_FILES" in source
+    assert "observed = hashlib.sha256(data).hexdigest()" in source
+    assert source.index("if SESSION_WATCHDOG_QUALIFIED is not False:") < source.index(
+        'namespace["MANUAL_OPERATOR_AUTHORIZED"] = True'
     )
+    assert 'namespace["WATCHDOG_QUALIFIED"] = SESSION_WATCHDOG_QUALIFIED' in source
+
+
+def test_manual_shutdown_authorization_never_claims_watchdog_qualification() -> None:
+    orchestrator = runpy.run_path(str(VARIANT / "res142_b2_colab.py"))
+    approvals: dict[str, object] = {
+        "shutdown_mode": "manual_operator",
+        "shutdown_authorization": "APPROVE MANUAL SESSION SHUTDOWN",
+    }
+
+    assert orchestrator["WATCHDOG_QUALIFIED"] is False
+    assert orchestrator["MANUAL_OPERATOR_AUTHORIZED"] is False
+    with pytest.raises(PermissionError, match="manual operator shutdown authorization"):
+        orchestrator["require_manual_operator_shutdown"](
+            approvals, manual_operator_authorized=False, watchdog_qualified=False
+        )
+
+    orchestrator["require_manual_operator_shutdown"](
+        approvals, manual_operator_authorized=True, watchdog_qualified=False
+    )
+    with pytest.raises(PermissionError, match="must not claim watchdog qualification"):
+        orchestrator["require_manual_operator_shutdown"](
+            approvals, manual_operator_authorized=True, watchdog_qualified=True
+        )
 
 
 def test_a100_orchestrator_support_pin_matches_the_actual_helper_bytes() -> None:

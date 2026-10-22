@@ -58,6 +58,7 @@ ORCHESTRATOR_PINS = {
 CLOSED_NOTEBOOK_FIELDS: dict[str, object] = {
     "RUNTIME_VERSION_CONFIRMED": "",
     "SETUP_AUTHORIZATION": "",
+    "SHUTDOWN_MODE": "manual_operator",
     "SHUTDOWN_AUTHORIZATION": "",
     "RATE_INSPECTION_AUTHORIZATION": "",
     "RATE_INSPECTION_MAX_CU": 0.0,
@@ -89,6 +90,16 @@ class _TorchRuntime(Protocol):
 class _A100Orchestrator(Protocol):
     CANDIDATE_SHA256: str
     RIGHTS_SHA256: str
+    WATCHDOG_QUALIFIED: bool
+    MANUAL_OPERATOR_AUTHORIZED: bool
+
+    def require_manual_operator_shutdown(
+        self,
+        approvals: dict[str, object],
+        *,
+        manual_operator_authorized: bool,
+        watchdog_qualified: bool,
+    ) -> None: ...
 
     def _verify_input(self, archive_path: Path, sidecar_path: Path) -> dict[str, object]: ...
 
@@ -236,8 +247,17 @@ def _verify_closed_notebook_authorization(parsed: list[ast.Module], source: str)
             raise ValidationError(f"Notebook authorization field {name} is not closed.")
     if 'RATE_INSPECTION_GPU = "A100"' not in source:
         raise ValidationError("Notebook rate-inspection target is not A100.")
-    if "if SESSION_WATCHDOG_QUALIFIED is not True:" not in source:
-        raise ValidationError("Notebook lacks the fail-closed external-watchdog gate.")
+    gates = (
+        'if SHUTDOWN_MODE != "manual_operator":',
+        'if SHUTDOWN_AUTHORIZATION != "APPROVE MANUAL SESSION SHUTDOWN":',
+        "if SESSION_WATCHDOG_QUALIFIED is not False:",
+        'namespace["WATCHDOG_QUALIFIED"] = SESSION_WATCHDOG_QUALIFIED',
+        'namespace["MANUAL_OPERATOR_AUTHORIZED"] = True',
+    )
+    if any(gate not in source for gate in gates):
+        raise ValidationError("Notebook lacks the explicit manual-operator shutdown gate.")
+    if source.index(gates[2]) > source.index(gates[4]):
+        raise ValidationError("Notebook authorizes manual shutdown before keeping watchdog false.")
 
 
 def notebook_source(notebook_path: Path) -> tuple[dict[str, object], str]:
@@ -409,6 +429,7 @@ def _verify_orchestrator_profile(source: str, constants: dict[str, object]) -> s
         "RIGHTS_SHA256": "65980a1e19e6a01444193df55e98fd90a941b4c14b4c83efbd32db3564449d92",
         "VRAM_STOP_PERCENT": 80,
         "WATCHDOG_QUALIFIED": False,
+        "MANUAL_OPERATOR_AUTHORIZED": False,
     }
     for name, expected in expected_constants.items():
         if constants.get(name) != expected:
@@ -428,7 +449,12 @@ def _verify_orchestrator_profile(source: str, constants: dict[str, object]) -> s
         '"vllm": "0.31.0"',
         '"--dtype",\n            "bfloat16"',
         '"--gpu-memory-utilization",\n            "0.50"',
-        "if not WATCHDOG_QUALIFIED:",
+        "if watchdog_qualified:",
+        "if not manual_operator_authorized:",
+        "manual_operator_authorized=MANUAL_OPERATOR_AUTHORIZED",
+        "watchdog_qualified=WATCHDOG_QUALIFIED",
+        'approvals.get("shutdown_mode") != "manual_operator"',
+        'approvals.get("shutdown_authorization") != "APPROVE MANUAL SESSION SHUTDOWN"',
     )
     missing = [fragment for fragment in required_fragments if fragment not in source]
     if missing:
@@ -627,13 +653,16 @@ def validate_bundle(
         "bundle_hashes": hashes,
         "candidate_population": population,
         "a100_configuration": a100,
+        "shutdown_mode": "manual_operator",
+        "manual_operator_shutdown_required": True,
+        "automatic_runtime_shutdown": False,
         "notebook_compiled": True,
         "notebook_authorizations_closed": True,
         "real_linux_pinned_environment_smoke": "not-run",
         "watchdog_simulation": "not-run",
-        "production_watchdog": "unavailable-and-unverified",
+        "production_watchdog": "unavailable-and-unverified; not claimed by manual mode",
         "active_colab_sessions_verified_zero": False,
-        "launch_decision": "NO-GO",
+        "launch_decision": "NO-GO-UNTIL-FRESH-AUTHORIZATIONS-AND-OPERATOR-PRESENCE",
         "launch_ready": False,
     }
     if run_smoke:

@@ -2,13 +2,13 @@
 
 ## Release state
 
-The repair branch is based on starting commit `df0b62db5a254cea8eddde2c9f22e51c6147815f`. The G4 notebook, scorer implementation, runner, scoring template, frozen candidate ZIP, rights sidecar, and RRF baseline remain unchanged. The A100 variant lives under `notebooks/res142_a100/` and uses a separate, currently disabled notebook at `notebooks/res142_b2_a100_colab.ipynb`.
+The repair branch is based on starting commit `df0b62db5a254cea8eddde2c9f22e51c6147815f`. The G4 notebook, scorer implementation, runner, scoring template, frozen candidate ZIP, rights sidecar, and RRF baseline remain unchanged. The A100 variant lives under `notebooks/res142_a100/` and uses a separate notebook at `notebooks/res142_b2_a100_colab.ipynb`.
 
-The new local eight-file stage was built create-only at:
+The original local eight-file stage was built create-only at:
 
 `C:\Users\Usuario\.codex\visualizations\2026\10\21\res142-b2-a100-repair-20261021-3550a9a62fd84fe9aec7f7e2b2e2510d`
 
-Its future Drive attempt ID is `b2-attempt-20261021-a100-repair-94e06560a2534a2d99174badbbcf4062`. The Drive directory was not created during this offline repair. The notebook and orchestrator both fail closed because an independently controlled watchdog is not qualified.
+Its create-only Drive attempt ID is `b2-attempt-20261021-a100-repair-94e06560a2534a2d99174badbbcf4062`. The Drive directory was not created during the offline repair. The notebook and orchestrator now require explicit manual-operator shutdown authorization while keeping watchdog qualification false.
 
 ## Reconstructed hash failure
 
@@ -39,7 +39,7 @@ The regression `test_outer_pass_then_stale_g4_pin_reproduces_the_previous_error`
 
 The corrected eight-file manifest is recorded in `reports/res142-a100/bundle-build-20261021.json`. It pins the A100 helper at `74178e28b9cb8ac6e1a893e3fa07607a80869564caa6191ae81fbe8dde81f99e` and the repaired orchestrator at `aab769f06240cf129c045b37e5db4bf6b358e8c94a5fd85d438d243ba6d2a3ab`; the remaining six hashes match the table above.
 
-The independent offline validator, `scripts/res142_a100_validate.py`, verifies exactly eight regular files, the notebook manifest, every embedded orchestrator pin, the candidate ZIP inventory and internal hashes, the rights binding, the 20-query selection order, 50 candidates per query, and 1,000 unique query/passage identities. It compiles the unexecuted notebook cells and requires all spending, storage, shutdown, and watchdog fields to remain closed. The complete validator invocation and real Linux smoke report are stored in `reports/res142-a100/`.
+The independent offline validator, `scripts/res142_a100_validate.py`, verifies exactly eight regular files, the notebook manifest, every embedded orchestrator pin, the candidate ZIP inventory and internal hashes, the rights binding, the 20-query selection order, 50 candidates per query, and 1,000 unique query/passage identities. It compiles the unexecuted notebook cells, requires spending and storage authorizations to remain closed, and checks the manual shutdown path without changing the watchdog field. The earlier validator reports in `reports/res142-a100/` describe the 2026-10-21 bundle.
 
 The dedicated A100 notebook SHA-256 is `869e506e64ce9b588c0202b50ca5001e92b7e3670ab24c74760e821266f1b3fb`. The final machine-readable qualification summary is `reports/res142-a100/qualification-summary.json`.
 
@@ -61,15 +61,15 @@ The requested balance observations reconcile arithmetically: `277.15 - 262.07 = 
 
 The failed flow had only a 25-minute notebook-cell timer that started after the first cell began. Upload waits, a hung browser, or a blocked cell could outlive that timer. Failure before Drive mount also skipped Drive flush and unmount. Runtime deletion and zero-active-session verification were manual and were not required by an independent controller. The machine-readable reconciliation is in `reports/res142-a100/incident-reconciliation.json`.
 
-## CLI-managed control path
+## Prior CLI-managed qualification (historical)
 
 The official Google `google-colab-cli` v0.7.5 runs in the existing Linux environment. Its package requires Python 3.12 or newer; `colab version`, `colab sessions`, and `colab usage` also succeeded under the existing pinned Python 3.12.3 interpreter through an isolated `uv tool run`. The authenticated read-only probes reported no active sessions and zero active assignments. The CU balance was not written to this repository.
 
 The CLI supports a named `colab new -s NAME` session, per-file `colab upload`, `colab exec`, and `colab stop -s NAME`. The session name is recorded in local CLI state, so the detached watchdog and worker share a per-run private `--config` file. The watchdog calls the CLI stop operation, which unassigns the server runtime, then re-queries `colab sessions` and requires zero active assignments. The run directory is private; session state is removed after successful confirmation and retained for recovery if shutdown fails.
 
-The A100 notebook now reads the eight uploaded files from `/content/res142-b2-input`, validates the exact file set and their byte hashes, and does not use a browser file picker. The CLI worker uploads the already-qualified stage and runs the notebook in an isolated local copy. All eight frozen bundle hashes remain unchanged. The notebook and orchestrator watchdog gates remain false; no A100/G4 runtime or CPU runtime was allocated, and no B2 scoring was attempted. The local OAuth token cache mode was restricted from `0644` to `0600`; its contents were not read or copied.
+At that time, the A100 notebook read CLI-uploaded files from `/content/res142-b2-input`; the user-selected manual path now uses Colab's file picker. No CLI operation is part of the current execution flow. The earlier audit did not allocate an A100/G4 runtime or score B2 data. The local OAuth token cache mode was restricted from `0644` to `0600`; its contents were not read or copied.
 
-## Watchdog qualification and decision
+## Watchdog qualification and decision (2026-10-21)
 
 The detached Linux watchdog arms before allocation, uses a separate process group from Codex and the worker, begins shutdown with one minute of headroom before its 25-minute ceiling, kills a hung worker, and issues CLI-backed termination. Offline tests cover timeout, upload failure, browser-free execution transport failure, authentication failure, worker crash, transient and persistent termination failure, unknown assignments, and cleanup confirmation. The Linux CI test runs the detached supervisor against a fake local CLI; it does not allocate Colab resources.
 
@@ -79,7 +79,15 @@ Offline qualification completed with the actual eight-file stage: both hash laye
 
 The complete local unit suite passed **2,361 tests**; 167 integration-marked tests were deselected. The detached Linux process test is integration-marked so the Ubuntu integration job executes it while the Windows unit job avoids a platform skip. Ruff format, Ruff lint, and strict Pyright passed. The fresh CLI-aware offline bundle validation is in `reports/res142-a100/offline-validation-cli-control-final-20261021.json`; CLI observations and the no-allocation status are in `reports/res142-a100/colab-cli-control-20261021.json`.
 
-**Decision: NO-GO.** Do not use this bundle for a paid connection. Before a future connection, an independently controlled mechanism must be demonstrated to terminate the runtime without a second confirmation after start and verify zero active sessions. The 3.71 CU projection is not an enforced spending limit.
+**Decision at that time: NO-GO.** The user later selected explicit manual shutdown control. The 3.71 CU projection is not an enforced spending limit.
+
+## Manual-operator execution update (2026-10-22)
+
+The selected mode requires the operator to remain present, start an external 25-minute timer when the A100 runtime connects, begin cleanup at 23 minutes, and manually disconnect/delete the runtime by 25 minutes. The notebook keeps `SESSION_WATCHDOG_QUALIFIED = False`; its separate manual authorization token is checked by both the notebook and A100 orchestrator. Success and failure evidence records `shutdown_mode=manual_operator` and `automatic_runtime_shutdown=false`.
+
+The corrected notebook opens Colab's file picker and accepts exactly the eight files in the corrected stage. The notebook checks each uploaded byte stream against its manifest; the A100 orchestrator independently verifies the uploaded files against its embedded pins. No Colab connection, file upload, Drive write, model download, or scoring occurs before fresh numeric spending authorization and the operator's confirmation that they are at the computer.
+
+The original 2026-10-21 stage remains untouched. The corrected eight-file selection folder is `C:\Users\Usuario\.codex\visualizations\2026\10\22\res142-b2-a100-manual-operator-run-20261022-9c78ade53a8949d9974ffd07d9405bea`. Its two hash layers reconcile; the updated A100 orchestrator SHA-256 is `f1554b33c725da3a0232b9c9e7b1f9f95cd5596862dc638a88169da83f67fc94`. The other seven files retain their previously qualified hashes. The offline command is `uv run python scripts/res142_a100_validate.py --bundle-dir <stage> --skip-runtime-smoke`.
 
 ## GitHub review
 
