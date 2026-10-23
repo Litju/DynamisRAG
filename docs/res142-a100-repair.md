@@ -1,0 +1,94 @@
+# RES-142 A100 repair and incident reconciliation
+
+## Release state
+
+The repair branch is based on starting commit `df0b62db5a254cea8eddde2c9f22e51c6147815f`. The G4 notebook, scorer implementation, runner, scoring template, frozen candidate ZIP, rights sidecar, and RRF baseline remain unchanged. The A100 variant lives under `notebooks/res142_a100/` and uses a separate notebook at `notebooks/res142_b2_a100_colab.ipynb`.
+
+The original local eight-file stage was built create-only at:
+
+`C:\Users\Usuario\.codex\visualizations\2026\10\21\res142-b2-a100-repair-20261021-3550a9a62fd84fe9aec7f7e2b2e2510d`
+
+Its create-only Drive attempt ID is `b2-attempt-20261021-a100-repair-94e06560a2534a2d99174badbbcf4062`. The Drive directory was not created during the offline repair. The notebook and orchestrator now require explicit manual-operator shutdown authorization while keeping watchdog qualification false.
+
+## Reconstructed hash failure
+
+The previous staged directory contained these exact eight files and SHA-256 values:
+
+| Artifact | Failed A100 stage SHA-256 |
+| --- | --- |
+| `b2_execution.py` | `2dc3ddd0a5a8aa9044d4eea38106e3920b36f8b741caca00d110ae4383b2701d` |
+| `res142_b1_support.py` | `74178e28b9cb8ac6e1a893e3fa07607a80869564caa6191ae81fbe8dde81f99e` |
+| `res142_b2_colab.py` | `b788be5cb0cca13c8c28dbebfb31707305851421497cb13e1209570426bf6582` |
+| `res142_b2_runner.py` | `7beb9fbf3a89deb8c47b32d39d85e1cc6636863256501a689aa39aca173f252b` |
+| `res142_qwen3_reranker.jinja` | `bf7b104801a4e4ad6a147d732e2d5a837a36f708cdbd1b871b864979d3e10acd` |
+| `res142-b2-candidate-input-v3.zip` | `c98d26a7aaf38f35b66203f0d27a73f618800218b1a90c4e322a02ab2c4100ac` |
+| `res142-colab.lock.txt` | `8b360f4533eb616eac38469e450d3df1a516f155afba464929036eada7d80e16` |
+| `rights-confirmation-v3.json` | `65980a1e19e6a01444193df55e98fd90a941b4c14b4c83efbd32db3564449d92` |
+
+The support helper was changed in exactly two places from the G4 source: its setup-authorization target changed from `G4` to `A100`, and its mismatch message changed to the A100 wording. Those bytes changed the helper digest from the G4 pin `d98f7ea12d1df559f11c8be132cc033befb66bebfa13af56e630c870130feedc` to `74178e28b9cb8ac6e1a893e3fa07607a80869564caa6191ae81fbe8dde81f99e`.
+
+The staged A100 orchestrator changed the GPU name, compute capability, VRAM floor, and messages, but its embedded `SUPPORT_SHA256` remained `d98f7ea12d1df559f11c8be132cc033befb66bebfa13af56e630c870130feedc`. The notebook’s outer uploader and the orchestrator’s internal check are separate gates. The supplied exception text is raised by the orchestrator’s second gate; reaching that point means the notebook did not reject the uploaded helper first. The stale internal support pin then compared the real A100 helper bytes with the original G4 digest and raised:
+
+`ValueError: Uploaded B2 artifact SHA-256 mismatch: res142_b1_support.py`
+
+The G4 notebook in the starting checkout is preserved and hashes to `6ad4b621b677a6c1a92623e125ad955aef2dac5a8fd5dd8154c871c8efd44407`. No separate copy of the prior modified A100 notebook was present in the failed eight-file stage or the local execution-evidence folders, so its exact old notebook bytes and full outer manifest cannot be independently rehashed. The corrected A100 notebook now pins the complete new bundle from its actual file bytes.
+
+The regression `test_outer_pass_then_stale_g4_pin_reproduces_the_previous_error` proves that an outer manifest can pass while the old G4 pin still raises the same error. The independent validator parses every A100 orchestrator digest itself, compares it to actual files, then calls the orchestrator’s own hash routine and requires the two results to agree. Any disagreement fails the whole validation; it cannot report a bundle ready.
+
+## Corrected bundle and preserved scientific inputs
+
+The corrected eight-file manifest is recorded in `reports/res142-a100/bundle-build-20261021.json`. It pins the A100 helper at `74178e28b9cb8ac6e1a893e3fa07607a80869564caa6191ae81fbe8dde81f99e` and the repaired orchestrator at `aab769f06240cf129c045b37e5db4bf6b358e8c94a5fd85d438d243ba6d2a3ab`; the remaining six hashes match the table above.
+
+The independent offline validator, `scripts/res142_a100_validate.py`, verifies exactly eight regular files, the notebook manifest, every embedded orchestrator pin, the candidate ZIP inventory and internal hashes, the rights binding, the 20-query selection order, 50 candidates per query, and 1,000 unique query/passage identities. It compiles the unexecuted notebook cells, requires spending and storage authorizations to remain closed, and checks the manual shutdown path without changing the watchdog field. The earlier validator reports in `reports/res142-a100/` describe the 2026-10-21 bundle.
+
+The dedicated A100 notebook SHA-256 is `869e506e64ce9b588c0202b50ca5001e92b7e3670ab24c74760e821266f1b3fb`. The final machine-readable qualification summary is `reports/res142-a100/qualification-summary.json`.
+
+The frozen candidate ZIP remains `c98d26a7aaf38f35b66203f0d27a73f618800218b1a90c4e322a02ab2c4100ac`; the rights sidecar remains `65980a1e19e6a01444193df55e98fd90a941b4c14b4c83efbd32db3564449d92`. Offline archive verification reconstructed 20 queries and 1,000 candidates in the frozen order. Candidate snapshot SHA-256: `c4320cebfca3350a8c0d2070c6ed3f20a68692cfdc9b3fc4f583b0a92dd5310e`.
+
+The model remains `Qwen/Qwen3-Reranker-0.6B` at revision/tokenizer revision `e61197ed45024b0ed8a2d74b80b4d909f1255473`, vLLM `0.31.0+cu129`, PyTorch `2.13.0+cu129`, BF16, the existing Jinja template, batch size 8, and the unchanged scoring and RRF baseline. No retrieval or scores were regenerated.
+
+## A100 compatibility audit
+
+The pinned vLLM 0.31.0 GPU documentation requires Linux and NVIDIA compute capability 7.5 or higher and explicitly lists A100; its release provides a CUDA 12.9 build. A100 is compute capability 8.0 and supports BF16 Tensor Core operations. The pinned `cu129` profile is therefore statically compatible with the A100 architecture. The B2 A100 gate supports 40GB and 80GB devices with one visible A100, capability 8.0, at least 38,000 MiB reported memory, a driver at least 575.57.08, and PyTorch BF16 support. The 38,000 MiB floor admits normal 40GB A100 reporting at 40,960 MiB while rejecting smaller partitions. The lock retains the exact CUDA 12.9 vLLM wheel hash.
+
+References: [vLLM 0.31.0 GPU installation and requirements](https://docs.vllm.ai/en/v0.31.0/getting_started/installation/gpu/), [vLLM 0.31.0 release artifacts](https://github.com/vllm-project/vllm/releases/tag/v0.31.0), [NVIDIA CUDA 12.9 release notes](https://docs.nvidia.com/cuda/archive/12.9.1/cuda-toolkit-release-notes/index.html), and [NVIDIA A100 specifications](https://www.nvidia.com/en-us/data-center/a100/).
+
+The hardware-dependent differences are explicit: G4/Blackwell capability 12.0 and a 90,000 MiB floor became A100 capability 8.0 and a 38,000 MiB floor. The 80% VRAM stop threshold, 0.50 vLLM memory utilization, batch size, software versions, model, precision, tokenizer, template, candidate identities, and ranking algorithm remain fixed. A100 can have different throughput and small BF16 score differences; bitwise score equivalence is not claimed. A browser allocation on 2026-10-22 reported an A100 with 40GB GPU memory at approximately 5.3 CU/hour; execution stopped before any notebook cell or upload because the previous gate required 75,000 MiB. This allocation did not test imports, scoring, or performance. The corrected 40GB/80GB gate is validated offline only; runtime performance remains unverified.
+
+## Compute-credit reconciliation
+
+The requested balance observations reconcile arithmetically: `277.15 - 262.07 = 15.08 CU`. Against the approved ceiling of `3.71 CU`, the reported excess is `11.37 CU`. These are reported balance observations supplied in the incident request; no independent billing export or provider receipt was available locally. The scientific result is `0/1,000` scores: the failure occurred before model loading and before any scoring request.
+
+The failed flow had only a 25-minute notebook-cell timer that started after the first cell began. Upload waits, a hung browser, or a blocked cell could outlive that timer. Failure before Drive mount also skipped Drive flush and unmount. Runtime deletion and zero-active-session verification were manual and were not required by an independent controller. The machine-readable reconciliation is in `reports/res142-a100/incident-reconciliation.json`.
+
+## Prior CLI-managed qualification (historical)
+
+The official Google `google-colab-cli` v0.7.5 runs in the existing Linux environment. Its package requires Python 3.12 or newer; `colab version`, `colab sessions`, and `colab usage` also succeeded under the existing pinned Python 3.12.3 interpreter through an isolated `uv tool run`. The authenticated read-only probes reported no active sessions and zero active assignments. The CU balance was not written to this repository.
+
+The CLI supports a named `colab new -s NAME` session, per-file `colab upload`, `colab exec`, and `colab stop -s NAME`. The session name is recorded in local CLI state, so the detached watchdog and worker share a per-run private `--config` file. The watchdog calls the CLI stop operation, which unassigns the server runtime, then re-queries `colab sessions` and requires zero active assignments. The run directory is private; session state is removed after successful confirmation and retained for recovery if shutdown fails.
+
+At that time, the A100 notebook read CLI-uploaded files from `/content/res142-b2-input`; the user-selected manual path now uses Colab's file picker. No CLI operation is part of the current execution flow. The earlier audit did not allocate an A100/G4 runtime or score B2 data. The local OAuth token cache mode was restricted from `0644` to `0600`; its contents were not read or copied.
+
+## Watchdog qualification and decision (2026-10-21)
+
+The detached Linux watchdog arms before allocation, uses a separate process group from Codex and the worker, begins shutdown with one minute of headroom before its 25-minute ceiling, kills a hung worker, and issues CLI-backed termination. Offline tests cover timeout, upload failure, browser-free execution transport failure, authentication failure, worker crash, transient and persistent termination failure, unknown assignments, and cleanup confirmation. The Linux CI test runs the detached supervisor against a fake local CLI; it does not allocate Colab resources.
+
+The real named-session stop is not yet qualified because a disposable CPU runtime requires explicit resource-allocation authorization. Persistent Colab API or authentication failure cannot be force-resolved by a local watchdog; the controller reports `shutdown_failed` and keeps retrying rather than claiming zero sessions. The A100 notebook and frozen orchestrator remain disabled, the fresh shutdown and spending approvals are blank, and the validator reports `launch_ready=false`.
+
+Offline qualification completed with the actual eight-file stage: both hash layers passed, the 20-query / 1,000-candidate population passed, and the pinned Linux Python 3.12.3 / uv 0.12.4 environment installed and checked 198 packages. The real scorer smoke imported `dynamisrag.ir.qwen3_reranker.Qwen3RerankerAdapter`, verified SQLAlchemy 2.1.1, reconstructed all candidates, and recorded mapping SHA-256 `a6fad6fb1418ba1109044e602f64da65633495c1cb125cf09a19ef4e42d36f95`. CUDA libraries were present in the cu129 environment, but no CUDA device was available in WSL.
+
+The complete local unit suite passed **2,361 tests**; 167 integration-marked tests were deselected. The detached Linux process test is integration-marked so the Ubuntu integration job executes it while the Windows unit job avoids a platform skip. Ruff format, Ruff lint, and strict Pyright passed. The fresh CLI-aware offline bundle validation is in `reports/res142-a100/offline-validation-cli-control-final-20261021.json`; CLI observations and the no-allocation status are in `reports/res142-a100/colab-cli-control-20261021.json`.
+
+**Decision at that time: NO-GO.** The user later selected explicit manual shutdown control. The 3.71 CU projection is not an enforced spending limit.
+
+## Manual-operator execution update (2026-10-22)
+
+The selected mode requires the operator to remain present, start an external 25-minute timer when the A100 runtime connects, begin cleanup at 23 minutes, and manually disconnect/delete the runtime by 25 minutes. The notebook keeps `SESSION_WATCHDOG_QUALIFIED = False`; its separate manual authorization token is checked by both the notebook and A100 orchestrator. Success and failure evidence records `shutdown_mode=manual_operator` and `automatic_runtime_shutdown=false`.
+
+The corrected notebook opens Colab's file picker and accepts exactly the eight files in the corrected stage. The notebook checks each uploaded byte stream against its manifest; the A100 orchestrator independently verifies the uploaded files against its embedded pins. No Colab connection, file upload, Drive write, model download, or scoring occurs before fresh numeric spending authorization and the operator's confirmation that they are at the computer.
+
+The original 2026-10-21 stage remains untouched. The corrected eight-file selection folder is `C:\Users\Usuario\.codex\visualizations\2026\10\22\res142-b2-a100-manual-operator-run-20261022-9c78ade53a8949d9974ffd07d9405bea`. Its two hash layers reconcile; the updated A100 orchestrator SHA-256 is `f1554b33c725da3a0232b9c9e7b1f9f95cd5596862dc638a88169da83f67fc94`. The other seven files retain their previously qualified hashes. The offline command is `uv run python scripts/res142_a100_validate.py --bundle-dir <stage> --skip-runtime-smoke`.
+
+## GitHub review
+
+The repair is on branch `codex/res142-a100-repair` and is proposed as [draft PR #17](https://github.com/Litju/DynamisRAG/pull/17), based on `codex/res142-scifact-pilot`. GitHub Actions passed on head `01fdb6fdad5752d99ea138d7c5817b976dad9bd6`: Ubuntu unit/lint/type checks, Windows unit/lint/type checks, and migration/integration/live-server checks. CodeRabbit skipped review because the PR is draft. The machine-readable run record is `reports/res142-a100/github-ci-39543676529.json`.
