@@ -36,6 +36,7 @@ MAX_SESSION_SECONDS = 25 * 60
 WORK_SECONDS = 23 * 60
 DRIVE_FREE_BYTES_MINIMUM = 16 * 1024 * 1024
 VRAM_STOP_PERCENT = 80
+A100_MIN_VRAM_MIB = 38_000  # Admit standard 40 GiB A100s; reject smaller partitions.
 WATCHDOG_QUALIFIED = False
 MANUAL_OPERATOR_AUTHORIZED = False
 _LAST_COMMAND: list[str] = []
@@ -43,6 +44,41 @@ _LAST_COMMAND: list[str] = []
 
 def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def _parse_a100_gpu_profile(output: str) -> dict[str, Any]:
+    lines = output.strip().splitlines()
+    if len(lines) != 1:
+        raise RuntimeError(f"Expected exactly one visible A100 GPU, got {len(lines)}.")
+    fields = [part.strip() for part in lines[0].split(",")]
+    if len(fields) != 4:
+        raise RuntimeError("Malformed nvidia-smi A100 GPU identity.")
+    name, capability, memory, driver = fields
+    try:
+        compute_capability = [int(part) for part in capability.split(".")]
+        memory_mib = int(memory)
+        driver_parts = tuple(int(part) for part in driver.split("."))
+    except ValueError as error:
+        raise RuntimeError("Malformed nvidia-smi A100 GPU identity.") from error
+    gpu = {
+        "name": name,
+        "compute_capability": compute_capability,
+        "memory_mib": memory_mib,
+        "driver_version": driver,
+    }
+    if (
+        "A100" not in name
+        or compute_capability != [8, 0]
+        or memory_mib < A100_MIN_VRAM_MIB
+        or driver_parts < (575, 57, 8)
+    ):
+        raise RuntimeError(f"Selected accelerator differs from the requested A100 profile: {gpu}")
+    return gpu
+
+
+def _require_a100_bf16_support(supported: object) -> None:
+    if supported is not True:
+        raise RuntimeError("PyTorch/CUDA/A100/BF16 identity failed the A100 profile gate.")
 
 
 def _json_bytes(payload: object) -> bytes:
@@ -473,7 +509,7 @@ def main(
         libc, libc_version = platform.libc_ver()
         if libc != "glibc" or tuple(int(part) for part in libc_version.split(".")[:2]) < (2, 31):
             raise RuntimeError("Pinned vLLM profile requires glibc 2.31 or later.")
-        gpu_lines = (
+        gpu_output = (
             _run(
                 support,
                 [
@@ -484,26 +520,9 @@ def main(
                 deadline=work_deadline,
                 timeout=30,
             )
-            .stdout.strip()
-            .splitlines()
+            .stdout
         )
-        if len(gpu_lines) != 1:
-            raise RuntimeError(f"Expected exactly one visible A100 GPU, got {len(gpu_lines)}.")
-        name, capability, memory, driver = [part.strip() for part in gpu_lines[0].split(",")]
-        gpu = {
-            "name": name,
-            "compute_capability": [int(part) for part in capability.split(".")],
-            "memory_mib": int(memory),
-            "driver_version": driver,
-        }
-        driver_parts = tuple(int(part) for part in driver.split("."))
-        if (
-            "A100" not in name
-            or gpu["compute_capability"] != [8, 0]
-            or gpu["memory_mib"] < 75000
-            or driver_parts < (575, 57, 8)
-        ):
-            raise RuntimeError(f"Selected accelerator differs from the requested A100 profile: {gpu}")
+        gpu = _parse_a100_gpu_profile(gpu_output)
         resource_samples.append(_gpu_sample(support, work_deadline))
 
         stage = "runtime_bootstrap"
@@ -666,9 +685,9 @@ print(json.dumps({"python": sys.version.split()[0], "platform": platform.platfor
             or not str(software.get("cuda_runtime", "")).startswith("12.9")
             or software.get("gpu_name") != gpu["name"]
             or software.get("compute_capability") != gpu["compute_capability"]
-            or software.get("bf16_supported") is not True
         ):
-            raise RuntimeError("PyTorch/CUDA/A100/BF16 identity failed the A100 profile gate.")
+            raise RuntimeError("PyTorch/CUDA/A100 identity failed the A100 profile gate.")
+        _require_a100_bf16_support(software.get("bf16_supported"))
         support.persist_drive_checkpoint(
             state,
             staging,

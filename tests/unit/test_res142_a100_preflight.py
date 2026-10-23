@@ -86,6 +86,56 @@ def test_manual_shutdown_authorization_never_claims_watchdog_qualification() -> 
         )
 
 
+@pytest.mark.parametrize(
+    ("name", "memory_mib"),
+    [
+        ("NVIDIA A100-SXM4-40GB", 40960),
+        ("NVIDIA A100-SXM4-80GB", 81920),
+    ],
+)
+def test_a100_hardware_gate_accepts_40gb_and_80gb_nvidia_smi_outputs(
+    name: str, memory_mib: int
+) -> None:
+    orchestrator = runpy.run_path(str(VARIANT / "res142_b2_colab.py"))
+
+    gpu = orchestrator["_parse_a100_gpu_profile"](f"{name}, 8.0, {memory_mib}, 575.57.08\n")
+
+    assert gpu["name"] == name
+    assert gpu["compute_capability"] == [8, 0]
+    assert gpu["memory_mib"] == memory_mib
+    assert gpu["driver_version"] == "575.57.08"
+
+
+def test_a100_hardware_gate_rejects_insufficient_vram() -> None:
+    orchestrator = runpy.run_path(str(VARIANT / "res142_b2_colab.py"))
+
+    with pytest.raises(RuntimeError, match="requested A100 profile"):
+        orchestrator["_parse_a100_gpu_profile"]("NVIDIA A100-SXM4-40GB, 8.0, 37999, 575.57.08\n")
+
+
+def test_a100_hardware_gate_rejects_incorrect_gpu_architecture() -> None:
+    orchestrator = runpy.run_path(str(VARIANT / "res142_b2_colab.py"))
+
+    with pytest.raises(RuntimeError, match="requested A100 profile"):
+        orchestrator["_parse_a100_gpu_profile"]("NVIDIA A100-SXM4-40GB, 8.6, 40960, 575.57.08\n")
+
+
+def test_a100_hardware_gate_rejects_missing_bf16_support() -> None:
+    orchestrator = runpy.run_path(str(VARIANT / "res142_b2_colab.py"))
+
+    with pytest.raises(RuntimeError, match="BF16"):
+        orchestrator["_require_a100_bf16_support"](supported=False)
+    with pytest.raises(RuntimeError, match="BF16"):
+        orchestrator["_require_a100_bf16_support"](None)
+
+
+def test_a100_hardware_gate_rejects_unsupported_driver_version() -> None:
+    orchestrator = runpy.run_path(str(VARIANT / "res142_b2_colab.py"))
+
+    with pytest.raises(RuntimeError, match="requested A100 profile"):
+        orchestrator["_parse_a100_gpu_profile"]("NVIDIA A100-SXM4-40GB, 8.0, 40960, 575.57.07\n")
+
+
 def test_a100_orchestrator_support_pin_matches_the_actual_helper_bytes() -> None:
     source = (VARIANT / "res142_b2_colab.py").read_text(encoding="utf-8")
     support_sha = validator.sha256_bytes((VARIANT / "res142_b1_support.py").read_bytes())

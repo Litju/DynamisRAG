@@ -428,6 +428,7 @@ def _verify_orchestrator_profile(source: str, constants: dict[str, object]) -> s
         "CANDIDATE_SHA256": "c98d26a7aaf38f35b66203f0d27a73f618800218b1a90c4e322a02ab2c4100ac",
         "RIGHTS_SHA256": "65980a1e19e6a01444193df55e98fd90a941b4c14b4c83efbd32db3564449d92",
         "VRAM_STOP_PERCENT": 80,
+        "A100_MIN_VRAM_MIB": 38_000,
         "WATCHDOG_QUALIFIED": False,
         "MANUAL_OPERATOR_AUTHORIZED": False,
     }
@@ -440,10 +441,11 @@ def _verify_orchestrator_profile(source: str, constants: dict[str, object]) -> s
         )
     required_fragments = (
         '"A100" not in name',
-        'gpu["compute_capability"] != [8, 0]',
-        'gpu["memory_mib"] < 75000',
+        "compute_capability != [8, 0]",
+        "memory_mib < A100_MIN_VRAM_MIB",
         "driver_parts < (575, 57, 8)",
-        'software.get("bf16_supported") is not True',
+        "_parse_a100_gpu_profile(gpu_output)",
+        '_require_a100_bf16_support(software.get("bf16_supported"))',
         'software.get("cuda_runtime", "")).startswith("12.9")',
         'versions["torch"].startswith("2.13.0")',
         '"vllm": "0.31.0"',
@@ -526,7 +528,7 @@ def _verify_a100_profile(bundle_dir: Path, source_root: Path) -> dict[str, objec
         raise ValidationError("Real scorer smoke source differs from the staged B2 helper bytes.")
     _verify_pinned_scorer_sources(source_root, cast("str", constants["SOURCE_COMMIT"]))
     return {
-        "gpu": "A100 80GB minimum, compute capability 8.0",
+        "gpu": "A100 40GB or 80GB, minimum 38,000 MiB, compute capability 8.0",
         "cuda": "12.9 (cu129)",
         "minimum_driver": "575.57.08",
         "torch": "2.13.0",
