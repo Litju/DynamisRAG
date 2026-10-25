@@ -1159,6 +1159,112 @@ Write-Output 'protected'
     return result.returncode == 0 and result.stdout.strip() == b"protected"
 
 
+def _windows_ancestor_is_protected(ancestor: Mapping[str, object], user_sid: str) -> bool:
+    trusted = {
+        user_sid,
+        "S-1-5-18",
+        "S-1-5-32-544",
+        # Windows system-volume roots can be owned by TrustedInstaller.
+        "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464",
+    }
+    if (
+        ancestor.get("owner") not in trusted
+        or not isinstance(ancestor.get("root"), bool)
+        or ancestor.get("dacl_present") is not True
+    ):
+        return False
+    for value in _array(ancestor.get("rules"), label="ancestor ACL rules"):
+        rule = _object(value, label="ancestor ACL rule")
+        rights = rule.get("rights")
+        if (
+            not isinstance(rule.get("allow"), bool)
+            or not isinstance(rule.get("inherit_only"), bool)
+            or not isinstance(rule.get("sid"), str)
+            or not isinstance(rights, int)
+            or isinstance(rights, bool)
+        ):
+            return False
+        if not rule["allow"] or rule["inherit_only"]:
+            continue
+        if rule["sid"] in trusted or rule["sid"] == "S-1-3-4":
+            continue
+        # DELETE_CHILD, WRITE_DAC, WRITE_OWNER and GENERIC_ALL are dangerous even at a root.
+        forbidden = 0x40 | 0x40000 | 0x80000 | 0x10000000
+        if not ancestor["root"]:
+            forbidden |= 0x10000  # DELETE can rename a nonempty ancestor itself.
+        if rights & forbidden:
+            return False
+    return True
+
+
+def _private_ancestors_are_protected(parent: Path) -> bool:
+    """Protect every existing path component against another unprivileged local user."""
+    if os.name != "nt":
+        trusted = {0, os.getuid()}
+        child = parent
+        for ancestor in parent.parents:
+            info = ancestor.stat()
+            sticky = bool(info.st_mode & stat.S_ISVTX)
+            # Owners can chmod; sticky only protects entries belonging to trusted owners.
+            if (
+                info.st_uid not in trusted
+                or (info.st_mode & 0o022 and not sticky)
+                or (sticky and child.stat().st_uid not in trusted)
+            ):
+                return False
+            child = ancestor
+        return True
+    executable = shutil.which("pwsh") or shutil.which("powershell.exe")
+    if executable is None:
+        return False
+    script = r"""
+$ErrorActionPreference = 'Stop'
+$directory = (Get-Item -LiteralPath $env:DYNAMISRAG_PRIVATE_PARENT).Parent
+$ancestors = @()
+while ($null -ne $directory) {
+    $acl = Get-Acl -LiteralPath $directory.FullName
+    $raw = [System.Security.AccessControl.RawSecurityDescriptor]::new(
+        $acl.GetSecurityDescriptorBinaryForm(), 0)
+    $rules = @($acl.GetAccessRules($true, $true,
+        [System.Security.Principal.SecurityIdentifier]) | ForEach-Object {
+        @{sid=$_.IdentityReference.Value; rights=[long]$_.FileSystemRights;
+          allow=($_.AccessControlType -eq 'Allow');
+          inherit_only=(($_.PropagationFlags -band 2) -ne 0)}
+    })
+    $ancestors += @{owner=$acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value;
+                    root=($null -eq $directory.Parent);
+                    dacl_present=($null -ne $raw.DiscretionaryAcl);
+                    rules=$rules}
+    $directory = $directory.Parent
+}
+@{user_sid=[System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value;
+  ancestors=$ancestors} | ConvertTo-Json -Depth 5 -Compress
+"""
+    result = subprocess.run(  # noqa: S603 - fixed read-only ACL inventory, path via environment
+        [executable, "-NoProfile", "-NonInteractive", "-Command", script],
+        env={
+            **{key: value for key, value in os.environ.items() if key.upper() != "PSMODULEPATH"},
+            "DYNAMISRAG_PRIVATE_PARENT": str(parent),
+        },
+        capture_output=True,
+        check=False,
+        timeout=30,
+    )
+    if result.returncode != 0:
+        return False
+    inventory = _read_json(result.stdout, label="private ancestor ACL inventory")
+    user_sid = inventory.get("user_sid")
+    ancestors = _array(inventory.get("ancestors"), label="private ancestors")
+    return (
+        isinstance(user_sid, str)
+        and bool(ancestors)
+        and all(
+            _windows_ancestor_is_protected(_object(row, label="private ancestor"), user_sid)
+            for row in ancestors
+        )
+    )
+
+
 def _validate_private_output(output: Path) -> None:
     """Fail closed before reading evidence or creating any output."""
     destination = output.absolute()
@@ -1204,6 +1310,8 @@ def _validate_private_output(output: Path) -> None:
         raise IrContractError(
             "private output parent access controls are not independently protected"
         )
+    if not _private_ancestors_are_protected(parent):
+        raise IrContractError("private output ancestry permits untrusted replacement or removal")
 
 
 def _publish_create_only(output: Path, files: Mapping[str, bytes]) -> None:

@@ -1,0 +1,35 @@
+# RES-142 private-output ancestor replacement repair
+
+Scope: one security repair on PR #18 after `fe04e50189403252c46090ced1932902f85449dd`. Scientific computation, public/private evaluation bytes, evidence placement, owner ACLs and repository visibility are unchanged. Only ACLs/modes of newly created synthetic test directories are varied by regressions.
+
+## Threat and policy
+
+An owner-only private parent does not protect its pathname when an untrusted user can rename an ancestor and replace that path component. The guard now inspects the entire existing ancestry up to the filesystem/volume root, in addition to its original immediate-parent, Git tracking/ignore and symlink/junction checks. It still executes before evidence reads and again before private publication.
+
+POSIX: trust the current UID and root. Reject an untrusted directory owner even when its current mode is restrictive, because that owner can chmod it. Reject group/other-writable ancestors unless the sticky bit is set and both the directory owner and the child entry owner are trusted. The sticky exception permits normal root-owned `/tmp` ancestry while rejecting a foreign-owned sticky ancestor. The same checks apply above intervening mode-0700 directories: protecting one lower directory does not stop an attacker renaming that directory through its own parent. ACL write grants are bounded by the POSIX group-class permission mask; group-writable mode bits are treated conservatively, without assuming every group member is trusted. These rules follow the [POSIX directory protection semantics](https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/V1_chap04.html).
+
+Windows: inspect each ancestor's owner and applicable allow ACEs. Trust the current user, SYSTEM and Administrators; recognize OWNER RIGHTS only on trusted-owned components and TrustedInstaller as a trusted system owner for ancestor paths such as the system-volume root. The original stricter immediate-parent ACL validation is unchanged. Fail closed on an untrusted owner, a NULL DACL, or an applicable untrusted grant of `DELETE_CHILD`, `WRITE_DAC`, `WRITE_OWNER` or `GENERIC_ALL`. Also reject `DELETE` on every non-root ancestor: it can authorize renaming the ancestor itself, even when a protected child denies deletion. At the volume root, `DELETE` alone cannot rename the root, but `DELETE_CHILD` still threatens entries below it. Inherit-only ACEs do not grant rights on the ancestor itself; every descendant component's actual ACL is inspected separately. Read/traverse and create-subdirectory rights alone do not authorize replacing an already existing protected directory. See Microsoft's [file access-rights model](https://learn.microsoft.com/en-us/windows/win32/fileio/file-security-and-access-rights) and [access-mask definitions](https://learn.microsoft.com/en-us/windows-hardware/drivers/ifs/access-mask).
+
+The Windows check deliberately rejects dangerous allow grants even when another deny ACE might make a particular token safe; it does not attempt to enumerate every local group membership or prove effective-token access. Unreadable/malformed ACL inventories and unknown protection fail closed. Current-user, root/admin/SYSTEM and trusted system-service actions are outside this unprivileged-other-user threat model. The guard does not promise protection against a privileged actor changing the filesystem or permissions after validation. Existing nonempty ancestors cannot be converted directly to junctions without first removing entries; the existing symlink/junction check is retained ([Microsoft reparse-point restrictions](https://learn.microsoft.com/en-us/windows-hardware/drivers/ifs/fsctl-set-reparse-point)).
+
+## Regression evidence
+
+Synthetic POSIX cases hold the private parent at mode 0700 while varying a parent or grandparent between non-sticky 0777/0770 (reject), trusted-owned sticky 01777/01770 (accept), and protected 0755/0700 (accept). An additional ownership simulation rejects a foreign-owned sticky directory. Linux CI exercises these native temporary-subtree mode/ownership checks. Unrelated host-prefix metadata is modeled as root-owned/non-writable so an insecure test host does not mask the targeted defect; no existing host permissions are changed.
+
+Windows cases read the actual temporary subtree DACLs, then add Everyone `DELETE_CHILD` only to a newly created synthetic parent or grandparent; the guard rejects the result while the immediate private-parent DACL remains protected. The unrelated host prefix is modeled as protected in this test so an already-insecure test host cannot mask the targeted ancestor defect. Thus the positive cases attest the modeled complete ACL chain and real temporary subtree, not the host's actual ancestry. Separate platform-independent ACL cases cover read/traverse/create-subdirectory positives, `DELETE`, `DELETE_CHILD`, ownership/DACL control, generic full access, NULL DACLs, untrusted ownership, root semantics and inherit-only ACEs. An integration-boundary regression verifies refusal before reading evidence or creating outputs. Existing Git/alias/immediate-ACL tests retain their original checks and isolate ancestry when testing those other boundaries; no skip contract is relaxed.
+
+## Existing evidence and owner decisions
+
+Read-only inspection of the existing E: evidence ancestry found Authenticated Users modify access (including `DELETE`) on ancestor directories. The repaired guard therefore rejects a prospective output under `E:\Data\Projects\DynamisRAG\.tmp\res142-review-repairs-private\`, despite that directory's protected immediate DACL. The former immediate-parent acceptance in the closure audit is superseded by this full-ancestry result. No existing ACL was changed to make the check pass.
+
+The owner must authorize any future ancestry permission remediation or select a destination whose complete ancestry passes the guard. This task did not change those permissions, move evidence, create backups, or establish archival durability. Prior rights/publication/history and durable-custody decisions remain unresolved; [issue #19](https://github.com/Litju/DynamisRAG/issues/19) remains separate and unchanged.
+
+Expected unchanged SHA-256 identities:
+
+- Public evaluation: `045ff32177f85663289c4a17267cb852d8df548a0b7c3adf8b95c096b88281ed`.
+- Public verification receipt: `acc2a0226f198e7741eb3d73f4046644b33df5af4b9367ff0b01c1d25572fbbe`.
+- Retained full private evaluation: `bf1d320620fd1908122560577a5573bbf705fdb0fd0efeb11fd7255c553909bd`.
+
+Local focused security/qualification regressions: 53 passed without skips on Windows. Full Ruff lint/format, notebook-helper lint and configured strict Pyright passed (zero diagnostics). Exact-head Linux/Windows/integration CI is recorded in the PR and final response.
+
+The 17 previously documented direct-script Pyright diagnostics remain out of scope and were not addressed. Configured strict Pyright, full Ruff, focused regressions and exact-head CI are reported separately. No Colab, GPU, inference, retrieval regeneration, science rerun, history rewrite or force-push was performed.

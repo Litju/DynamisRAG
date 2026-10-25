@@ -56,6 +56,11 @@ def repository(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         "_private_parent_is_protected",
         _protected,
     )
+    monkeypatch.setitem(
+        qualification._validate_private_output.__globals__,
+        "_private_ancestors_are_protected",
+        _protected,
+    )
     return root
 
 
@@ -128,7 +133,16 @@ def test_rejects_platform_directory_alias(repository: Path) -> None:
         qualification._validate_private_output(link / "new")
 
 
-def test_private_parent_requires_platform_access_protection(tmp_path: Path) -> None:
+def test_private_parent_requires_platform_access_protection(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # This test isolates the immediate ACL; ancestry has independent adversarial coverage.
+    monkeypatch.setitem(
+        qualification._validate_private_output.__globals__,
+        "_private_ancestors_are_protected",
+        _protected,
+    )
     parent = tmp_path / "protected"
     parent.mkdir(mode=0o700)
     assert qualification._private_parent_is_protected(parent)
