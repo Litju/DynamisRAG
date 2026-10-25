@@ -932,45 +932,6 @@ def _review_markdown(analysis: Mapping[str, object], receipt: Mapping[str, objec
         isinstance(value, (int, float)) and float(value) >= 0.05 for value in adjusted_p_values
     )
 
-    queries = _array(analysis.get("paired_query_outcomes"), label="paired query outcomes")
-    regressions: list[str] = []
-    for value in queries:
-        query = _object(value, label="paired query")
-        outcomes = _object(query.get("metric_outcomes"), label="query metric outcomes")
-        regressed = [name for name, outcome in outcomes.items() if outcome == "regressed"]
-        if not regressed:
-            continue
-        deltas = _object(query.get("absolute_deltas"), label="query metric deltas")
-        movement = _object(query.get("ranking_displacement"), label="ranking movement")
-        ceiling = _object(query.get("candidate_pool_recall_ceiling"), label="pool ceiling")
-        rrf_relevant_ranks = cast(
-            list[int], _array(query.get("rrf_positive_relevant_ranks"), label="RRF relevant ranks")
-        )
-        qwen3_relevant_ranks = cast(
-            list[int],
-            _array(query.get("qwen3_positive_relevant_ranks"), label="Qwen relevant ranks"),
-        )
-        regressions.append(
-            "| {query_id} | {metrics} | {deltas} | {overlap}/10 | {relevant_at10}; ranks "
-            "{rrf_ranks}->{qwen_ranks} | "
-            "{pool_rel}/{pool_total} | {displacement} |".format(
-                query_id=query["query_id"],
-                metrics=", ".join(regressed),
-                deltas=", ".join(f"{name} {_format(deltas[name])}" for name in regressed),
-                overlap=query["top10_overlap_count"],
-                relevant_at10=(
-                    f"{query['rrf_positive_relevant_at10']}→{query['qwen3_positive_relevant_at10']}"
-                ),
-                rrf_ranks=rrf_relevant_ranks or "—",
-                qwen_ranks=qwen3_relevant_ranks or "—",
-                pool_rel=ceiling["relevant_documents_in_candidate_pool"],
-                pool_total=ceiling["positive_qrels"],
-                displacement=_format(movement["mean_absolute_all_candidate_documents"], 3),
-            )
-        )
-    if not regressions:
-        regressions.append("| None | — | — | — | — | — | — |")
-
     ranking = _object(analysis.get("ranking_summary"), label="ranking summary")
     ceiling = _object(analysis.get("candidate_pool_ceiling"), label="candidate ceiling")
     evidence = _object(receipt.get("evidence"), label="evidence receipt")
@@ -989,7 +950,8 @@ def _review_markdown(analysis: Mapping[str, object], receipt: Mapping[str, objec
             ),
             "",
             (
-                "| Metric | Frozen RRF | Qwen3 | Absolute delta | Relative delta | Paired 95% CI | "
+                "| Metric | Frozen RRF | Qwen3 | Absolute delta | Relative delta | "
+                "Nominal unadjusted paired 95% CI | "
                 "Improved/regressed/tied | Sign-flip p (Holm) | Sign-test p (Holm) |"
             ),
             "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
@@ -998,18 +960,10 @@ def _review_markdown(analysis: Mapping[str, object], receipt: Mapping[str, objec
             "## Query regressions",
             "",
             (
-                "These rows identify query metrics that decreased. Relevant-at-10 counts show "
-                "whether fewer positive judged documents appeared in the top ten. Candidate-pool "
-                "counts show which relevant documents were unavailable to B2."
+                "Per-query metrics, positive relevance ranks and qrel-derived pool counts "
+                "are retained in the private audit evaluation. Public redistribution of those "
+                "annotations is not cleared by the existing private-run rights decision."
             ),
-            "",
-            (
-                "| Query ID | Regressed metrics | Absolute deltas | Top-10 overlap | Relevant "
-                "at 10; positive ranks (RRF → Qwen3) | Relevant pool/positive qrels | Mean "
-                "absolute rank displacement |"
-            ),
-            "| --- | --- | --- | ---: | ---: | ---: | ---: |",
-            *regressions,
             "",
             "## Ranking and candidate ceiling",
             "",
@@ -1033,17 +987,19 @@ def _review_markdown(analysis: Mapping[str, object], receipt: Mapping[str, objec
             "",
             (
                 "Paired percentile intervals resample 20 query-level deltas 50,000 times with seed "
-                "1422026 using SplitMix64. Exact two-sided sign-flip tests assess the mean delta; "
+                "1422026 using SplitMix64. These are nominal, unadjusted 95% intervals, not "
+                "simultaneous or multiplicity-adjusted intervals. Exact two-sided sign-flip tests "
+                "assess the mean delta; "
                 "exact binomial sign tests assess direction. Holm correction is applied per "
                 "four-metric family. Power is limited at n=20; sign-flip tests assume symmetric "
                 "deltas and bootstrap intervals treat selected queries as exchangeable. The result "
-                "is not causal and does not validate other query populations."
+                "is not causal and does not validate other query populations. "
                 + (
-                    "No metric has a Holm-adjusted sign-flip p-value below 0.05. "
+                    "No metric has a Holm-adjusted sign-flip p-value below 0.05."
                     if no_adjusted_significance
                     else (
                         "At least one adjusted test is below 0.05; interpretation remains limited "
-                        "by n=20. "
+                        "by n=20."
                     )
                 )
             ),
@@ -1070,8 +1026,8 @@ def _review_markdown(analysis: Mapping[str, object], receipt: Mapping[str, objec
                 "identical at that commit and the verified PR head."
             ),
             (
-                "Restricted qrels and query text are excluded. Machine-readable paired results "
-                "contain query IDs and metrics only."
+                "Public reporting excludes query text and all per-query outcomes, including "
+                "qrel-derived counts and positive rank arrays. Full evidence is retained privately."
             ),
             "",
             "## Operations",
@@ -1089,6 +1045,20 @@ def _review_markdown(analysis: Mapping[str, object], receipt: Mapping[str, objec
                 "not an observed or enforced charge."
             ),
             "",
+            "## External review and operational follow-up",
+            "",
+            (
+                "CodeRabbit skipped the original draft PR; that status was not approval. "
+                "Manual review of the original HEAD was COMMENTED with a spacing finding, "
+                "now repaired; this was not approval. Verify review status at the repaired HEAD. "
+                "See the "
+                "[repair record](../../docs/res142-independent-review-repairs.md) for evidence "
+                "retention and historical disclosure limits. Runtime shutdown and actual CU "
+                "billing remain unresolved in "
+                "[operational issue #19](https://github.com/Litju/DynamisRAG/issues/19), "
+                "separately from offline scientific validity."
+            ),
+            "",
             "## Decision",
             "",
             (
@@ -1104,12 +1074,31 @@ def _review_markdown(analysis: Mapping[str, object], receipt: Mapping[str, objec
                 "downloads: "
                 "`uv run python scripts/res142_scientific_qualification.py "
                 "--evidence-root <private-readback> --audit-package "
-                "<authorized-private-package> --out <new-output-directory>`. The command refuses "
-                "to overwrite outputs and never emits qrels."
+                "<authorized-private-package> --out <new-public-directory> "
+                "--private-out <new-private-directory>`. Both outputs are create-only. "
+                "Keep private audit output access-controlled."
             ),
             "",
         ]
     )
+
+
+def _public_evaluation(evaluation: Mapping[str, object]) -> dict[str, object]:
+    """Publish aggregate reporting only; query-level judgments remain private evidence."""
+    return {
+        key: evaluation[key]
+        for key in (
+            "schema_revision",
+            "source_identities",
+            "protocol",
+            "decision",
+            "query_count",
+            "metrics",
+            "ranking_summary",
+            "candidate_pool_ceiling",
+            "uncertainty_method",
+        )
+    }
 
 
 def _publish_create_only(output: Path, files: Mapping[str, bytes]) -> None:
@@ -1125,12 +1114,19 @@ def _publish_create_only(output: Path, files: Mapping[str, bytes]) -> None:
                 handle.write(data)
                 handle.flush()
                 os.fsync(handle.fileno())
-        if destination.exists():
-            raise IrContractError("scientific qualification output path appeared during creation")
-        stage.rename(destination)
-    except BaseException:
+        # mkdir is exclusive on both POSIX and Windows, including an empty race winner.
+        # Portable directory rename can replace an empty directory on POSIX.
+        try:
+            destination.mkdir()
+        except FileExistsError as error:
+            raise IrContractError(
+                "scientific qualification output path appeared during creation"
+            ) from error
+        for name in files:
+            os.link(stage / name, destination / name)
+        # A failed publication leaves its reserved directory for inspection; never replace it.
+    finally:
         shutil.rmtree(stage, ignore_errors=True)
-        raise
 
 
 def qualify_res142(
@@ -1138,10 +1134,18 @@ def qualify_res142(
     audit_package: Path,
     output: Path,
     *,
+    private_output: Path,
     seed: int = 1422026,
     bootstrap_samples: int = 50_000,
 ) -> dict[str, object]:
     """Reconcile Drive readbacks, reproduce RRF, evaluate Qwen3 and publish outputs."""
+    public_path, private_path = output.resolve(), private_output.resolve()
+    if (
+        public_path == private_path
+        or public_path in private_path.parents
+        or private_path in public_path.parents
+    ):
+        raise IrContractError("public and private output directories must be separate trees")
     evidence_root = evidence_root.resolve()
     drive_readback = evidence_root / "drive-readback"
     for name in _ROOT_EVIDENCE_FILES:
@@ -1279,8 +1283,16 @@ def qualify_res142(
             ),
         },
     }
+    private_bytes = canonical_ir_json(evaluation)
+    _publish_create_only(private_output, {"evaluation.json": private_bytes})
+    public_evaluation = _public_evaluation(evaluation)
+    review_receipt["publication"] = {
+        "private_evaluation_sha256": _sha256(private_bytes),
+        "private_evidence_required": True,
+        "public_per_query_outcomes": False,
+    }
     files = {
-        "evaluation.json": canonical_ir_json(evaluation),
+        "evaluation.json": canonical_ir_json(public_evaluation),
         "verification-receipt.json": canonical_ir_json(review_receipt),
         "scientific-review.md": _review_markdown(analysis, review_receipt).encode("utf-8"),
     }
@@ -1315,9 +1327,12 @@ def main() -> int:
     parser.add_argument("--evidence-root", type=Path, required=True)
     parser.add_argument("--audit-package", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--private-out", type=Path, required=True)
     args = parser.parse_args()
     try:
-        result = qualify_res142(args.evidence_root, args.audit_package, args.out)
+        result = qualify_res142(
+            args.evidence_root, args.audit_package, args.out, private_output=args.private_out
+        )
     except (IrContractError, OSError, subprocess.SubprocessError, zipfile.BadZipFile) as error:
         parser.exit(1, f"res142-scientific-qualification: {type(error).__name__}: {error}\n")
     sys.stdout.write(json.dumps(result, indent=2, sort_keys=True) + "\n")

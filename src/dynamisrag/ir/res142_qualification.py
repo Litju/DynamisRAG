@@ -585,6 +585,7 @@ def analyze_paired_runs(  # noqa: PLR0915 - keep paired gates and outputs togeth
         "uncertainty_method": {
             "confidence_interval": "paired query bootstrap percentile interval",
             "confidence_level": 0.95,
+            "confidence_interval_adjustment": "nominal, unadjusted; not simultaneous",
             "resampling_unit": "query",
             "resamples": bootstrap_samples,
             "seed": seed,
