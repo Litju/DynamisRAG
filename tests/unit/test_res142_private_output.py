@@ -100,67 +100,49 @@ def test_rejects_missing_private_parent(tmp_path: Path) -> None:
         qualification._validate_private_output(tmp_path / "missing/new")
 
 
-def test_rejects_symlink_alias(repository: Path) -> None:
+def test_rejects_platform_directory_alias(repository: Path) -> None:
     link = repository / "private/alias"
-    try:
-        link.symlink_to(repository / "private", target_is_directory=True)
-    except OSError:
-        pytest.skip(
-            "Windows developer mode or symlink privilege unavailable; junction tested separately"
+    if os.name == "nt":
+        executable = shutil.which("pwsh") or shutil.which("powershell.exe")
+        assert executable is not None
+        subprocess.run(  # noqa: S603 - fixed command, task paths via environment
+            [
+                executable,
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "New-Item -ItemType Junction -Path $env:RES142_LINK "
+                "-Target $env:RES142_TARGET | Out-Null",
+            ],
+            env={
+                **os.environ,
+                "RES142_LINK": str(link),
+                "RES142_TARGET": str(repository / "private"),
+            },
+            check=True,
+            capture_output=True,
         )
+    else:
+        link.symlink_to(repository / "private", target_is_directory=True)
     with pytest.raises(IrContractError, match="symlinks or junctions"):
         qualification._validate_private_output(link / "new")
 
 
-@pytest.mark.skipif(os.name != "nt", reason="Windows junction semantics")
-def test_rejects_windows_junction(repository: Path) -> None:
-    executable = shutil.which("pwsh") or shutil.which("powershell.exe")
-    assert executable is not None
-    subprocess.run(  # noqa: S603 - fixed command, task paths via environment
-        [
-            executable,
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            "New-Item -ItemType Junction -Path $env:RES142_LINK "
-            "-Target $env:RES142_TARGET | Out-Null",
-        ],
-        env={
-            **os.environ,
-            "RES142_LINK": str(repository / "private/alias"),
-            "RES142_TARGET": str(repository / "private"),
-        },
-        check=True,
-        capture_output=True,
-    )
-    with pytest.raises(IrContractError, match="symlinks or junctions"):
-        qualification._validate_private_output(repository / "private/alias/new")
-
-
-@pytest.mark.skipif(os.name == "nt", reason="POSIX ownership and mode semantics")
-def test_posix_private_parent_requires_owner_only_mode(tmp_path: Path) -> None:
-    tmp_path.chmod(0o700)
-    assert qualification._private_parent_is_protected(tmp_path)
-    qualification._validate_private_output(tmp_path / "new")
-    tmp_path.chmod(0o755)
-    assert not qualification._private_parent_is_protected(tmp_path)
-    with pytest.raises(IrContractError, match="access controls"):
-        qualification._validate_private_output(tmp_path / "new")
-
-
-@pytest.mark.skipif(os.name != "nt", reason="Windows DACL semantics")
-def test_windows_private_parent_requires_restricted_inheritable_dacl(tmp_path: Path) -> None:
+def test_private_parent_requires_platform_access_protection(tmp_path: Path) -> None:
     parent = tmp_path / "protected"
     parent.mkdir(mode=0o700)
     assert qualification._private_parent_is_protected(parent)
     qualification._validate_private_output(parent / "new")
-    executable = shutil.which("icacls.exe")
-    assert executable is not None
-    subprocess.run(  # noqa: S603 - broaden only this temporary test directory
-        [executable, str(parent), "/grant", "*S-1-1-0:(OI)(CI)RX"],
-        check=True,
-        capture_output=True,
-    )
+    if os.name == "nt":
+        executable = shutil.which("icacls.exe")
+        assert executable is not None
+        subprocess.run(  # noqa: S603 - broaden only this temporary test directory
+            [executable, str(parent), "/grant", "*S-1-1-0:(OI)(CI)RX"],
+            check=True,
+            capture_output=True,
+        )
+    else:
+        parent.chmod(0o755)
     assert not qualification._private_parent_is_protected(parent)
     with pytest.raises(IrContractError, match="access controls"):
         qualification._validate_private_output(parent / "new")

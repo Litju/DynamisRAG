@@ -61,7 +61,9 @@ No history rewrite, force-push, evidence deletion, repository visibility change,
 
 ## Validation
 
-Focused local regressions: 46 passed, 1 POSIX-only test skipped on Windows. The tests cover tracked/unignored destinations, forced-tracked content under an ignore rule (including literal bracket pathnames), ignore exceptions, missing parents, protected versus broadly readable Windows DACLs, Windows junctions, symlink aliases, and a private gate before evidence reads. POSIX ownership/mode checks run in Linux CI. Existing adversarial scientific-evidence and create-only publication regressions also pass. Full Ruff lint/format, notebook helper lint and configured strict Pyright pass with zero diagnostics. The optional direct-script typing limitation is recorded below. No scientific qualification/evaluation was rerun.
+Initial closure CI run `40174925504` passed the new security assertions but failed the existing no-unexpected-skips contract. The OS-specific tests were repaired to execute native branches without introducing skip records; the contract was not weakened.
+
+Focused local regressions: 45 passed without skips. Platform-specific assertions execute the native Windows or POSIX branch within the same tests, preserving the repository's no-unexpected-skips contract. The tests cover tracked/unignored destinations, forced-tracked content under an ignore rule (including literal bracket pathnames), ignore exceptions, missing parents, protected versus broadly readable Windows DACLs, Windows junctions, symlink aliases, and a private gate before evidence reads. POSIX ownership/mode checks run in Linux CI. Existing adversarial scientific-evidence and create-only publication regressions also pass. Full Ruff lint/format, notebook helper lint and configured strict Pyright pass with zero diagnostics. The optional direct-script typing limitation is recorded below. No scientific qualification/evaluation was rerun.
 
 ## Verdict
 
