@@ -38,8 +38,12 @@ Recorded run duration: 725.55 seconds against a 1,380-second work deadline and 1
 
 CodeRabbit skipped the original draft PR; that status was not approval. Manual review of the original HEAD was COMMENTED with a spacing finding, now repaired; this was not approval. Verify review status at the repaired HEAD. See the [repair record](../../docs/res142-independent-review-repairs.md) for evidence retention and historical disclosure limits. Runtime shutdown and actual CU billing remain unresolved in [operational issue #19](https://github.com/Litju/DynamisRAG/issues/19), separately from offline scientific validity.
 
+## Public release status
+
+Public-release clearance is unresolved. Aggregate metrics, outcome counts and ceilings still derive from qrels; sanitization is not distribution authorization. Direct judgment cardinalities are withheld. See the [closure audit](../../docs/res142-publication-closure.md) for owner decisions.
+
 ## Decision
 
 **GO for review of this bounded 20-query scientific pilot. NO-GO for a general performance claim or production-default change.** The aggregate gains are positive, but the fixed sample, candidate ceiling, and unresolved operations evidence limit any broader release decision.
 
-Reproduce with the private authorized audit package and read-only Drive downloads: `uv run python scripts/res142_scientific_qualification.py --evidence-root <private-readback> --audit-package <authorized-private-package> --out <new-public-directory> --private-out <new-private-directory>`. Both outputs are create-only. Keep private audit output access-controlled.
+Reproduce with the private authorized audit package and read-only Drive downloads: `uv run python scripts/res142_scientific_qualification.py --evidence-root <private-readback> --audit-package <authorized-private-package> --out <new-public-directory> --private-out <new-private-directory>`. Both outputs are create-only. Use a pre-protected parent (POSIX 0700 or restricted Windows DACL); repository destinations must also be untracked and Git-ignored.

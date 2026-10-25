@@ -9,6 +9,7 @@ import json
 import math
 import os
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -1059,6 +1060,15 @@ def _review_markdown(analysis: Mapping[str, object], receipt: Mapping[str, objec
                 "separately from offline scientific validity."
             ),
             "",
+            "## Public release status",
+            "",
+            (
+                "Public-release clearance is unresolved. Aggregate metrics, outcome counts and "
+                "ceilings still derive from qrels; sanitization is not distribution authorization. "
+                "Direct judgment cardinalities are withheld. See the "
+                "[closure audit](../../docs/res142-publication-closure.md) for owner decisions."
+            ),
+            "",
             "## Decision",
             "",
             (
@@ -1076,7 +1086,8 @@ def _review_markdown(analysis: Mapping[str, object], receipt: Mapping[str, objec
                 "--evidence-root <private-readback> --audit-package "
                 "<authorized-private-package> --out <new-public-directory> "
                 "--private-out <new-private-directory>`. Both outputs are create-only. "
-                "Keep private audit output access-controlled."
+                "Use a pre-protected parent (POSIX 0700 or restricted Windows DACL); "
+                "repository destinations must also be untracked and Git-ignored."
             ),
             "",
         ]
@@ -1085,7 +1096,7 @@ def _review_markdown(analysis: Mapping[str, object], receipt: Mapping[str, objec
 
 def _public_evaluation(evaluation: Mapping[str, object]) -> dict[str, object]:
     """Publish aggregate reporting only; query-level judgments remain private evidence."""
-    return {
+    public = {
         key: evaluation[key]
         for key in (
             "schema_revision",
@@ -1099,6 +1110,100 @@ def _public_evaluation(evaluation: Mapping[str, object]) -> dict[str, object]:
             "uncertainty_method",
         )
     }
+    ceiling = _object(public["candidate_pool_ceiling"], label="public candidate ceiling")
+    public["candidate_pool_ceiling"] = {
+        key: value for key, value in ceiling.items() if key != "positive_qrel_queries"
+    }
+    public["public_release_clearance"] = "unresolved; aggregate reporting is not rights clearance"
+    return public
+
+
+def _private_parent_is_protected(parent: Path) -> bool:
+    """Require an owner-only POSIX directory or a restricted inheritable Windows DACL."""
+    if os.name != "nt":
+        info = parent.stat()
+        return info.st_uid == os.getuid() and stat.S_IMODE(info.st_mode) == 0o700
+    executable = shutil.which("pwsh") or shutil.which("powershell.exe")
+    if executable is None:
+        return False
+    script = r"""
+$ErrorActionPreference = 'Stop'
+$acl = Get-Acl -LiteralPath $env:DYNAMISRAG_PRIVATE_PARENT
+$userSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+$allowed = @($userSid, 'S-1-5-18', 'S-1-5-32-544', 'S-1-3-4')
+$ownerSid = $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value
+if ($ownerSid -notin @($userSid, 'S-1-5-18', 'S-1-5-32-544')) { exit 1 }
+if (-not $acl.AreAccessRulesProtected) { exit 1 }
+$rules = $acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])
+$ownerInherits = $false
+foreach ($rule in $rules) {
+    if ($rule.AccessControlType -ne 'Allow') { continue }
+    if ($rule.IdentityReference.Value -notin $allowed) { exit 1 }
+    if (($rule.IdentityReference.Value -in @($userSid, 'S-1-3-4')) -and
+        (($rule.InheritanceFlags -band 3) -eq 3) -and
+        (($rule.FileSystemRights -band 2032127) -eq 2032127)) { $ownerInherits = $true }
+}
+if (-not $ownerInherits) { exit 1 }
+Write-Output 'protected'
+"""
+    result = subprocess.run(  # noqa: S603 - fixed read-only ACL inspection, path via environment
+        [executable, "-NoProfile", "-NonInteractive", "-Command", script],
+        env={
+            **{key: value for key, value in os.environ.items() if key.upper() != "PSMODULEPATH"},
+            "DYNAMISRAG_PRIVATE_PARENT": str(parent),
+        },
+        capture_output=True,
+        check=False,
+        timeout=30,
+    )
+    return result.returncode == 0 and result.stdout.strip() == b"protected"
+
+
+def _validate_private_output(output: Path) -> None:
+    """Fail closed before reading evidence or creating any output."""
+    destination = output.absolute()
+    # Resolve only after rejecting aliases, including Windows directory junctions.
+    if any(path.is_symlink() or path.is_junction() for path in (destination, *destination.parents)):
+        raise IrContractError("private output cannot traverse symlinks or junctions")
+    destination = destination.resolve()
+    parent = destination.parent
+    if not parent.is_dir():
+        raise IrContractError("private output needs an existing protected parent directory")
+    executable = shutil.which("git")
+    if executable is None:
+        raise IrContractError("Git is required to verify private output publication boundaries")
+    repository = subprocess.run(  # noqa: S603 - read-only repository discovery
+        [executable, "-C", str(parent), "rev-parse", "--show-toplevel"],
+        capture_output=True,
+        check=False,
+    )
+    if repository.returncode == 0:
+        root = Path(os.fsdecode(repository.stdout).strip()).resolve()
+        relative = destination.relative_to(root).as_posix()
+        tracked = subprocess.run(  # noqa: S603 - read-only tracked-content check
+            [executable, "-C", str(root), "--literal-pathspecs", "ls-files", "-z", "--", relative],
+            capture_output=True,
+            check=False,
+        )
+        ignored = subprocess.run(  # noqa: S603 - read-only ignore check, including negations
+            [executable, "-C", str(root), "check-ignore", "--quiet", "--", relative + "/"],
+            capture_output=True,
+            check=False,
+        )
+        if tracked.returncode != 0 or tracked.stdout or ignored.returncode != 0:
+            raise IrContractError(
+                "private output must be untracked and Git-ignored in a repository"
+            )
+    elif (
+        repository.returncode != 128
+        or b"not a git repository" not in repository.stderr
+        or destination.is_relative_to(_REPO_ROOT.resolve())
+    ):
+        raise IrContractError("cannot establish private output repository boundary")
+    if not _private_parent_is_protected(parent):
+        raise IrContractError(
+            "private output parent access controls are not independently protected"
+        )
 
 
 def _publish_create_only(output: Path, files: Mapping[str, bytes]) -> None:
@@ -1146,6 +1251,7 @@ def qualify_res142(
         or private_path in public_path.parents
     ):
         raise IrContractError("public and private output directories must be separate trees")
+    _validate_private_output(private_output)
     evidence_root = evidence_root.resolve()
     drive_readback = evidence_root / "drive-readback"
     for name in _ROOT_EVIDENCE_FILES:
@@ -1283,10 +1389,15 @@ def qualify_res142(
             ),
         },
     }
+    _validate_private_output(private_output)
     private_bytes = canonical_ir_json(evaluation)
     _publish_create_only(private_output, {"evaluation.json": private_bytes})
     public_evaluation = _public_evaluation(evaluation)
+    public_baseline = dict(baseline_receipt)
+    public_baseline.pop("qrel_count", None)
+    review_receipt["baseline"] = public_baseline
     review_receipt["publication"] = {
+        "public_release_clearance": "unresolved",
         "private_evaluation_sha256": _sha256(private_bytes),
         "private_evidence_required": True,
         "public_per_query_outcomes": False,

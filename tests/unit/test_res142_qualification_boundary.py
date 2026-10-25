@@ -44,6 +44,12 @@ def _receipt(path: str, data: bytes) -> dict[str, object]:
 
 @pytest.fixture
 def evidence(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, dict[str, Any]]:
+    def private_gate(_output: Path) -> None:
+        pass
+
+    monkeypatch.setitem(
+        qualification.qualify_res142.__globals__, "_validate_private_output", private_gate
+    )
     root = tmp_path / "evidence"
     drive = root / "drive-readback"
     queries = [{"query_id": f"q{i:02d}"} for i in range(20)]
@@ -298,7 +304,12 @@ def test_publication_and_public_sanitization(tmp_path: Path) -> None:
         )
     )
     evaluation["paired_query_outcomes"] = {"positive_qrels": 1, "rrf_positive_relevant_ranks": [1]}
+    evaluation["candidate_pool_ceiling"] = {
+        "positive_qrel_queries": 20,
+        "macro_pool_recall_ceiling": 0.925,
+    }
     public = qualification._public_evaluation(evaluation)
+    assert "positive_qrel_queries" not in public["candidate_pool_ceiling"]
     assert "paired_query_outcomes" not in public
     assert "paired_query_outcomes" in evaluation
     output = tmp_path / "output"
@@ -326,6 +337,10 @@ def test_committed_public_report_is_sanitized_and_labels_nominal_intervals() -> 
     raw = (root / "evaluation.json").read_text(encoding="utf-8")
     evaluation = json.loads(raw)
     assert "paired_query_outcomes" not in evaluation
+    assert "positive_qrel_queries" not in raw
+    receipt = json.loads((root / "verification-receipt.json").read_bytes())
+    assert "qrel_count" not in receipt["baseline"]
+    assert receipt["publication"]["public_release_clearance"] == "unresolved"
     for field in (
         "positive_qrels",
         "relevant_documents_in_candidate_pool",
