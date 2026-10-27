@@ -1,5 +1,6 @@
 """Real Qdrant 1.20 operations using explicitly synthetic known vectors."""
 
+import json
 from dataclasses import replace
 
 import pytest
@@ -62,7 +63,7 @@ def test_qdrant_lifecycle_and_retrieval() -> None:
         service = QdrantRetrieval(
             client,
             alias=alias,
-            document_identity=projection.embeddings.embedding_model_identity,
+            projection=projection,
             query_identity=projection.embeddings.embedding_model_identity,
         )
         vector = projection.embeddings.entries[0].values
@@ -142,4 +143,139 @@ def test_qualification_rejects_corrupted_stored_vector_and_provenance() -> None:
     finally:
         client.request("PUT", path, {"points": candidate.points()})
         projector.verify(candidate)
+        client.close()
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("source_spans", []),
+        ("document_canonical_key", "wrong-document"),
+        ("document_version_key", "wrong-version"),
+        ("source_external_id", "wrong-source"),
+        ("chunker_revision", "stale-chunker"),
+        ("projection_sha256", "0" * 64),
+        ("embedding_manifest_sha256", "0" * 64),
+        ("schema_revision", "stale-schema"),
+        ("expected_count", 99),
+        ("expected_count", 2.0),
+        ("passage_ordinal", False),
+        ("language", None),
+    ],
+)
+def test_retrieval_rejects_corruption_after_publication(field: str, value: object) -> None:
+    from typing import cast
+
+    from dynamisrag.search.client import JsonValue
+
+    client = QdrantClient()
+    projection = synthetic_projection()
+    projector = QdrantProjector(client)
+    projector.create(projection)
+    projector.populate(projection)
+    alias = "dynamisrag-synthetic-database-tests"
+    projector.publish(projection, alias=alias, expected_previous=client.aliases().get(alias))
+    service = QdrantRetrieval(
+        client,
+        alias=alias,
+        projection=projection,
+        query_identity=projection.embeddings.embedding_model_identity,
+    )
+    path = f"/collections/{projection.collection_name}/points?wait=true"
+    points = projection.points()
+    payload = points[0]["payload"]
+    assert isinstance(payload, dict)
+    points[0] = {**points[0], "payload": {**payload, field: cast(JsonValue, value)}}
+    try:
+        client.request("PUT", path, {"points": points})
+        with pytest.raises(QdrantError, match="qualified projection provenance"):
+            service.bm25("probiotic")
+        with pytest.raises(QdrantError, match="qualified projection provenance"):
+            service.dense(
+                projection.embeddings.entries[0].values,
+                embedding_config_sha256=projection.expected_embedding_config_sha256,
+            )
+    finally:
+        client.request("PUT", path, {"points": projection.points()})
+        projector.verify(projection)
+        client.close()
+
+
+def test_equal_score_lanes_with_opposite_insertion_orders() -> None:
+    from dynamisrag.search.qdrant import QdrantProjection
+
+    client = QdrantClient()
+    observations: dict[str, object] = {}
+    try:
+        base = synthetic_projection()
+        first = base.passages.documents[0]
+        embeddings = replace(
+            base.embeddings,
+            entries=tuple(
+                replace(
+                    e, content_sha256=first.content_sha256, values=base.embeddings.entries[0].values
+                )
+                for e in base.embeddings.entries
+            ),
+        )
+        for order in ("forward", "reverse"):
+            passages = replace(
+                base.passages,
+                documents=tuple(
+                    replace(
+                        d,
+                        text=first.text,
+                        content_sha256=first.content_sha256,
+                        source_spans=first.source_spans,
+                        title=f"SYNTHETIC tie test {order}",
+                    )
+                    for d in base.passages.documents
+                ),
+            )
+            projection = QdrantProjection(passages, embeddings, embeddings.embedding_config_sha256)
+            projector = QdrantProjector(client)
+            projector.create(projection)
+            points = projection.points()
+            for point in points if order == "forward" else reversed(points):
+                client.request(
+                    "PUT",
+                    f"/collections/{projection.collection_name}/points?wait=true",
+                    {"points": [point]},
+                )
+            projector.verify(projection)
+            alias = f"dynamisrag-synthetic-ties-{order}"
+            projector.publish(
+                projection, alias=alias, expected_previous=client.aliases().get(alias)
+            )
+            service = QdrantRetrieval(
+                client,
+                alias=alias,
+                projection=projection,
+                query_identity=embeddings.embedding_model_identity,
+            )
+            runs: list[dict[str, object]] = []
+            for _ in range(3):
+                lexical, dense, fused = service.hybrid(
+                    "probiotic",
+                    embeddings.entries[0].values,
+                    embedding_config_sha256=embeddings.embedding_config_sha256,
+                )
+                for lane in (lexical, dense):
+                    assert len(lane.points) == 2
+                    assert {p.id for p in lane.points} == {str(p["id"]) for p in points}
+                    assert lane.points[0].score == lane.points[1].score
+                assert fused.k == 60
+                runs.append(
+                    {
+                        "bm25": [p.id for p in lexical.points],
+                        "dense": [p.id for p in dense.points],
+                        "bm25_score": lexical.points[0].score,
+                        "dense_score": dense.points[0].score,
+                        "rrf": [(h.passage_key, h.rrf_score) for h in fused.hits],
+                    }
+                )
+            observations[order] = {"collection": projection.collection_name, "runs": runs}
+        # Deliberately do not assert a server tie order that Qdrant does not promise.
+        print("QDRANT_TIE_OBSERVATIONS=" + json.dumps(observations, sort_keys=True))  # noqa: T201
+    finally:
         client.close()

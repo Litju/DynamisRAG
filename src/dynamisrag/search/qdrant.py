@@ -14,7 +14,7 @@ from urllib.parse import urlsplit
 from uuid import NAMESPACE_URL, uuid5
 
 import httpx2
-from pydantic import BaseModel, Field, TypeAdapter
+from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 
 from dynamisrag.embedding.contracts import passage_content_sha256
 from dynamisrag.embedding.identity import EmbeddingModelIdentity
@@ -90,6 +90,16 @@ class Point(BaseModel):
     payload: dict[str, JsonValue]
     vector: dict[str, list[float]] = Field(default_factory=dict)
     score: float = Field(default=0, allow_inf_nan=False)
+
+
+class ScoredPoint(Point):
+    """A query response must supply its own finite, numeric raw score."""
+
+    score: float = Field(allow_inf_nan=False, strict=True)
+
+
+class ScoredQueryResult(BaseModel):
+    points: list[ScoredPoint]
 
 
 class Scroll(BaseModel):
@@ -379,7 +389,7 @@ class QdrantProjector:
             raise QdrantError("collection does not have exact expected passage membership")
         for point in observed:
             target = expected[point.id]
-            if point.payload != target["payload"] or set(point.vector) != {DENSE}:
+            if digest(point.payload) != digest(target["payload"]) or set(point.vector) != {DENSE}:
                 raise QdrantError("point payload, content hash or source provenance differs")
             vector = cast(dict[str, Sequence[float]], target["vector"])[DENSE]
             norm = math.sqrt(sum(v * v for v in vector))
@@ -442,11 +452,12 @@ class QdrantRetrieval:
         client: QdrantClient,
         *,
         alias: str,
-        document_identity: EmbeddingModelIdentity,
+        projection: QdrantProjection,
         query_identity: EmbeddingModelIdentity,
     ) -> None:
         validate_resource_name(alias, kind="alias")
         self.client, self.alias = client, alias
+        document_identity = projection.embeddings.embedding_model_identity
         if (
             document_identity.model_id != query_identity.model_id
             or document_identity.model_revision != query_identity.model_revision
@@ -454,11 +465,18 @@ class QdrantRetrieval:
             raise QdrantError("document and query model identities differ")
         self.document_identity, self.query_identity = document_identity, query_identity
         self.embedding_config_sha256 = document_identity.embedding_config_sha256
+        QdrantProjector(client).verify(projection)
+        self._collection_name = projection.collection_name
+        self._expected_payload_hashes = {
+            str(p["id"]): digest(p["payload"]) for p in projection.points()
+        }
 
     def resolve(self) -> str:
         name = self.client.aliases().get(self.alias)
         if name is None:
             raise QdrantError("retrieval alias is not published")
+        if name != self._collection_name:
+            raise QdrantError("retrieval alias does not target the explicitly qualified projection")
         return name
 
     def _query(
@@ -472,39 +490,38 @@ class QdrantRetrieval:
     ) -> QdrantLane:
         if isinstance(limit, bool) or not 1 <= limit <= 50:
             raise ValueError("candidate limit must be between 1 and 50")
+        if name != self._collection_name:
+            raise QdrantError("query does not target the explicitly qualified projection")
         conditions: list[JsonValue] = []
         for key, value in (filters or {}).items():
             if key not in KEYWORDS:
                 raise ValueError("filter field must have a declared keyword index")
             conditions.append({"key": key, "match": {"value": value}})
-        result = cast(
-            dict[str, JsonValue],
-            self.client.request(
-                "POST",
-                f"/collections/{name}/points/query",
-                {
-                    "query": query,
-                    "using": using,
-                    "limit": limit,
-                    "with_payload": True,
-                    "with_vector": False,
-                    "params": {"hnsw_ef": 128},
-                    "filter": {"must": conditions},
-                },
-            )["result"],
-        )
-        points = TypeAdapter(list[Point]).validate_python(result["points"])
+        result = self.client.request(
+            "POST",
+            f"/collections/{name}/points/query",
+            {
+                "query": query,
+                "using": using,
+                "limit": limit,
+                "with_payload": True,
+                "with_vector": False,
+                "params": {"hnsw_ef": 128},
+                "filter": {"must": conditions},
+            },
+        ).get("result")
+        try:
+            points = ScoredQueryResult.model_validate(result).points
+        except ValidationError:
+            raise QdrantError("malformed scored query response") from None
+        if len({p.id for p in points}) != len(points) or len(points) > limit:
+            raise QdrantError("duplicate or excessive scored query results")
         for point in points:
             if (
-                point.payload.get("schema_sha256") != SCHEMA_SHA256
-                or point.payload.get("embedding_config_sha256") != self.embedding_config_sha256
-                or point.payload.get("model_id") != self.document_identity.model_id
-                or point.payload.get("model_revision") != self.document_identity.model_revision
-                or point.id != point_id(str(point.payload.get("passage_key")))
-                or point.payload.get("content_sha256")
-                != passage_content_sha256(str(point.payload.get("text")))
+                point.id not in self._expected_payload_hashes
+                or digest(point.payload) != self._expected_payload_hashes[point.id]
             ):
-                raise QdrantError("retrieved point has stale identity or content")
+                raise QdrantError("retrieved point differs from qualified projection provenance")
         # Preserve backend lane order and raw scores. RRF owns deterministic tie-breaking.
         return QdrantLane(
             name,

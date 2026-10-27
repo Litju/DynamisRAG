@@ -25,7 +25,7 @@ def observe() -> dict[str, object]:
         service = QdrantRetrieval(
             client,
             alias="dynamisrag-synthetic-database-tests",
-            document_identity=projection.embeddings.embedding_model_identity,
+            projection=projection,
             query_identity=projection.embeddings.embedding_model_identity,
         )
         lexical, dense, fused = service.hybrid(

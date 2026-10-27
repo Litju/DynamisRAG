@@ -121,9 +121,25 @@ This is not a distributed compare-and-swap guarantee.
 expected generation fingerprint. `bm25` takes text. Both return an independent
 `QdrantLane` with physical collection, raw backend order, raw scores and full point
 provenance. Filters are exact matches on the declared keyword fields. Neither method
-generates vectors or writes data. Constructor identities pin the same model ID and
-revision for documents and queries, while allowing distinct document/query prompt
-configuration fingerprints.
+generates vectors or writes data. Construction requires the explicit retained
+`QdrantProjection`, performs full stored-collection qualification, and derives the
+document model identity from that manifest. Query identity pins the same model ID
+and revision while allowing distinct document/query prompt configuration fingerprints.
+Alias resolution must match that qualified physical collection, including for empty
+searches. An alias move requires constructing a new adapter against the newly
+qualified projection; an existing adapter fails closed rather than following it.
+
+Every returned point must match the canonical JSON hash of its complete expected
+payload. This covers version/document identity, all source spans and anchors,
+source system/ID, chunker, language, schema/projection and embedding-manifest
+fingerprints, expected count, and numeric field types. Missing fields, extra fields
+and metadata altered after construction are rejected in independent lanes and
+hybrid retrieval. Scored responses require an explicit finite numeric score;
+missing, boolean, textual or nonfinite scores, malformed envelopes and duplicate
+point IDs are rejected. Scroll points retain their unscored contract. Backend
+ranking scores are not cryptographic evidence of vector immutability: qualification
+is at adapter construction, so the single-writer rule still applies to subsequent
+out-of-band vector/schema changes.
 
 `hybrid` resolves the alias once, queries both lanes against that physical target,
 and passes typed candidates to the existing `reciprocal_rank_fusion`: candidate
@@ -179,3 +195,48 @@ No new inference was attempted. No scientific retrieval deployment is claimed.
 
 Qdrant API references: [full-text BM25](https://qdrant.tech/documentation/search/text-search/full-text-search/)
 and [payload indexes](https://qdrant.tech/documentation/manage-data/indexing/).
+
+## PR #20 final review repairs
+
+The original CI run `40440754215` restarted Qdrant successfully, then curl exited
+with error 56 (`Recv failure: Connection reset by peer`). CI and the PowerShell
+restart script now share `scripts.wait_qdrant`, a 60-second readiness deadline,
+at most two seconds per HTTP attempt, with retries for connection resets, refused
+connections, timeouts and non-200 readiness responses. The exact before/after
+state comparison is unchanged and remains mandatory. Unit tests inject a reset,
+refusal and 503 before readiness, and separately prove deadline failure.
+
+Equal-score qualification uses two explicitly synthetic physical collections,
+with identical passage text and vectors, inserted one point at a time in forward
+and reverse passage order. Three repeated reads per collection observed:
+
+* Both BM25 scores were `0.1823216`; both dense scores were `1.0`.
+* Forward insertion returned B then A in both lanes. Reverse insertion returned
+  A then B. Each order repeated in the three initial reads, but this is an
+  observation, not a stable ID-order guarantee.
+* RRF consequently ranked the first raw candidate at `2/61` and the second at
+  `2/62`. Deterministic final RRF ties by passage key do not remove differences
+  caused by different lane ranks.
+
+Qdrant returns score-ranked results. Its pinned
+[v1.20.0 scored-point comparator](https://github.com/qdrant/qdrant/blob/v1.20.0/lib/segment/src/types.rs#L407-L418)
+compares scores without a passage-key secondary sort. No insertion-independent
+BM25 or dense tie order is asserted. The small live fixture uses full scans;
+it does not qualify deterministic HNSW traversal, candidate membership, or ties at
+a top-k cutoff. [Qdrant's documentation](https://qdrant.tech/documentation/faq/qdrant-fundamentals/)
+also distinguishes exact scans from approximate HNSW. Approximate retrieval can
+vary its candidate set/ranks; equal-score raw lanes and RRF are not claimed
+equivalent to OpenSearch or the frozen RES-142 rankings. Application-controlled
+RRF(k=60), its formula, raw provenance and the existing OpenSearch metrics are
+unchanged. The tests assert score equality, exact candidate membership for this
+fixture and RRF's k; they print every observed raw ordering rather than asserting
+an unsupported server guarantee.
+
+These tie tests retain two additional synthetic collections (two points each):
+`qdrant-passages-v1-618f0f47a167afade3ef607b8c866eea85955de2280c04ce1b3ece19f1054877`
+and `qdrant-passages-v1-17b7d64f742182919fa9313ff8695ce0366ed8ffc09e1eff80c171e4f558c0a7`.
+The local total after review tests is five physical collections and eight synthetic
+points; the original published database-test alias still has two points.
+The earlier execution receipt above is retained unchanged as historical evidence.
+New before/after receipts are local `.tmp/qdrant-review-before.json` and
+`.tmp/qdrant-review-restart.log`, with no reinsertion between the two observations.
