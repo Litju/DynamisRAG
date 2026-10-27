@@ -187,3 +187,15 @@ added; those three subsequently passed in the focused runs. Ruff and strict
 Pyright passed. Full live PostgreSQL/OpenSearch integration runs in isolated CI;
 its empty-database assumptions make the populated canonical database unsuitable
 as a test fixture.
+
+GitHub CI was dispatched on the separate branch with:
+
+```powershell
+git push -u origin feat/real-scientific-retrieval
+gh workflow run ci.yml --ref feat/real-scientific-retrieval
+```
+
+Run: [40602086964](https://github.com/Litju/DynamisRAG/actions/runs/40602086964).
+After stopping the CPU server, the final local replay again verified all 75
+passages and all three sources; observed BM25/dense/hybrid latencies were
+12.0017 / 10.4669 / 21.4377 ms. PostgreSQL and Qdrant remain running.
