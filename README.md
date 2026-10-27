@@ -1318,3 +1318,8 @@ The all-rights-reserved notice applies to original DynamisRAG code and
 documentation only. Third-party materials retain their own copyright and
 license terms. See `tests/fixtures/README.md` for notices applicable to test
 fixtures.
+
+## Qdrant retrieval backend
+
+The opt-in local Qdrant 1.20.0 backend, schema, publication lifecycle, PowerShell
+commands and observed qualification results are documented in [docs/qdrant.md](docs/qdrant.md).

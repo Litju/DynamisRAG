@@ -1,0 +1,152 @@
+{
+  "aliases": {
+    "dynamisrag-synthetic-database-tests": "qdrant-passages-v1-22ce4f03b2280fd63c06a993b79fbbceece3180f08d3050b6fd55d6f6187e21d"
+  },
+  "bm25": [
+    {
+      "passage_key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "score": 0.6785375
+    }
+  ],
+  "collections": {
+    "qdrant-passages-v1-22ce4f03b2280fd63c06a993b79fbbceece3180f08d3050b6fd55d6f6187e21d": {
+      "points": 2,
+      "stored_points_sha256": "3d80c324dd2c5e87a82fc847455fe96822b5081dae90e048437947475a1a8991"
+    },
+    "qdrant-passages-v1-635b92e9da271b6655319aca948be86639bb497a872b9df4f5f3482ab313cae8": {
+      "points": 0,
+      "stored_points_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "qdrant-passages-v1-cffdc46774f6fa5b6b06c02d8fcb52b89c5764bfe2d8c00848d4fc2ea1ad9dfb": {
+      "points": 2,
+      "stored_points_sha256": "f5fab6fcb57fe46229d2dc52920a606373ba5d725e907f8961be356ab0a94f7f"
+    }
+  },
+  "dense": [
+    {
+      "passage_key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "score": 1.0
+    },
+    {
+      "passage_key": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "score": 0.0
+    }
+  ],
+  "execution": {
+    "command": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/Test-QdrantPersistence.ps1",
+    "date_utc": "2026-10-27",
+    "focused_tests": "11 passed",
+    "image": "qdrant/qdrant:v1.20.0@sha256:9bfc89f9914fc14876a88c05270685921a55b8877b254a98bcc1cc2f0a424cd2",
+    "persistence": "passed: exact before/after comparison without writes",
+    "postgres_canonical_passage_count": 0,
+    "quality": "ruff lint, format and pyright strict passed",
+    "real_collection_published": false,
+    "unit_tests": "2183 passed, 167 integration tests deselected"
+  },
+  "label": "SYNTHETIC DATABASE TEST VECTORS - NOT MODEL EMBEDDINGS",
+  "rrf": {
+    "candidate_window": 50,
+    "hits": [
+      {
+        "dense": {
+          "present": true,
+          "rank": 1,
+          "raw_score": 1.0,
+          "rrf_contribution": 0.01639344262295082
+        },
+        "final_rank": 1,
+        "lexical": {
+          "present": true,
+          "rank": 1,
+          "raw_score": 0.6785375,
+          "rrf_contribution": 0.01639344262295082
+        },
+        "passage_key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "provenance": {
+          "chunker_revision": "structure-v1.1.b19e0939b5de",
+          "content_sha256": "1e19a92940d68f483a2527594455f80b2a0e1c4cc4acac435976d9fa7bb83ce5",
+          "document_canonical_key": "doi:10.1371/journal.pone.03089012",
+          "document_type": "journal_article",
+          "document_version_key": "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv",
+          "doi": "10.1371/journal.pone.03089012",
+          "language": "en",
+          "passage_key": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "passage_ordinal": 0,
+          "pmcid": "PMC2731074",
+          "pmid": "38888888",
+          "primary_source_anchor": "jats:/body[1]/sec[1]/p[1]",
+          "section_key": "2222222222222222222222222222222222222222222222222222222222222222",
+          "section_path": "2",
+          "section_title": "Results",
+          "source_external_id": "PMC2731074",
+          "source_spans": [
+            {
+              "end_char": 59,
+              "paragraph_key": "1e19a92940d68f483a2527594455f80b2a0e1c4cc4acac435976d9fa7bb83ce5",
+              "paragraph_source_anchor": "jats:/body[1]/sec[1]/p[1]",
+              "source_order": 0,
+              "start_char": 0
+            }
+          ],
+          "source_system": "europe_pmc",
+          "text": "A probiotic soy diet reduced colon lesions in jumping rats.",
+          "title": "Probiotic soy and colon lesions in jumping rats",
+          "token_count": 12
+        },
+        "rrf_score": 0.03278688524590164
+      },
+      {
+        "dense": {
+          "present": true,
+          "rank": 2,
+          "raw_score": 0.0,
+          "rrf_contribution": 0.016129032258064516
+        },
+        "final_rank": 2,
+        "lexical": {
+          "present": false,
+          "rank": null,
+          "raw_score": null,
+          "rrf_contribution": null
+        },
+        "passage_key": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "provenance": {
+          "chunker_revision": "structure-v1.1.b19e0939b5de",
+          "content_sha256": "5896f13de0981fb3eb15c27fa3b28b92a1148c3028f19c9334b71dacba9f1e8a",
+          "document_canonical_key": "doi:10.1371/journal.pone.03089012",
+          "document_type": "journal_article",
+          "document_version_key": "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv",
+          "doi": "10.1371/journal.pone.03089012",
+          "language": "en",
+          "passage_key": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "passage_ordinal": 1,
+          "pmcid": "PMC2731074",
+          "pmid": "38888888",
+          "primary_source_anchor": "jats:/body[1]/sec[1]/p[1]",
+          "section_key": "2222222222222222222222222222222222222222222222222222222222222222",
+          "section_path": "2",
+          "section_title": "Results",
+          "source_external_id": "PMC2731074",
+          "source_spans": [
+            {
+              "end_char": 55,
+              "paragraph_key": "5896f13de0981fb3eb15c27fa3b28b92a1148c3028f19c9334b71dacba9f1e8a",
+              "paragraph_source_anchor": "jats:/body[1]/sec[1]/p[1]",
+              "source_order": 0,
+              "start_char": 0
+            }
+          ],
+          "source_system": "europe_pmc",
+          "text": "Exercise training improved the jump height of the rats.",
+          "title": "Probiotic soy and colon lesions in jumping rats",
+          "token_count": 12
+        },
+        "rrf_score": 0.016129032258064516
+      }
+    ],
+    "k": 60,
+    "revision": "rrf-v1"
+  },
+  "source_span_reconstruction": "passed",
+  "version": "1.20.0"
+}
