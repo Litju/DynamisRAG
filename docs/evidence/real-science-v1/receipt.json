@@ -1,0 +1,30 @@
+{
+  "embedding_manifest_sha256": "46f96db3a02cf61374003475e3f006258ecbd790a4a78bd858b305c25f5104ff",
+  "query_manifest_sha256": "4ac70bedcc23ffc2d3acfcba46ffb42ad1b68de55e0cbad782678f1f4b83fb29",
+  "document_config_sha256": "8438d37d8e8c8f975f62cbc6f6c644abc27304b18b7a330d9157a70f21c9c1f7",
+  "query_config_sha256": "94245fa64ff582ab1428c7aea38387e9091a23e538c96d7fbf7b48e1755da8fd",
+  "inference_seconds": 217.86000000000013,
+  "provider": {
+    "provider": "tei",
+    "provider_protocol_revision": "tei-http-v1",
+    "tei_version": "1.9.4",
+    "tei_sha": "e80ef225ed0e6cb1717ce632a6a84b6cf211bb67",
+    "model_dtype": "float32",
+    "model_pooling": "last_token",
+    "max_input_length": 2048,
+    "tei_docker_label": "sha-e80ef22",
+    "model_id": "Qwen/Qwen3-Embedding-0.6B",
+    "model_sha": "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
+    "deployment_semantics": {
+      "tei_default_prompt_mode": "none",
+      "tei_default_prompt_name": null,
+      "tei_default_prompt_sha256": null,
+      "tei_dense_path": null,
+      "local_device": "cpu",
+      "local_backend": "candle-mkl",
+      "local_image_digest": "sha256:2538ea1c9640d3763b15af668039d24172d063b42337b0c27796fc2be180c78d",
+      "local_threads": 4,
+      "local_platform": "linux-amd64"
+    }
+  }
+}

@@ -16,3 +16,6 @@
 *.ico binary
 *.pdf binary
 *.whl binary
+
+# Numerical manifests and their trusted receipts retain their original exact bytes.
+docs/evidence/real-science-v1/*.json -text
