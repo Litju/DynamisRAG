@@ -33,11 +33,11 @@ from dynamisrag.embedding import (
     EmbeddingRetryPolicy,
     EmbeddingRuntimeConfig,
     ExpectedTeiModel,
-    TeiDeploymentSemantics,
     TeiEmbeddingProvider,
     TruncationDirection,
     embed_passages,
 )
+from dynamisrag.embedding.scientific_cpu import CpuDeployment
 from dynamisrag.ingestion import EuropePmcAcquisition, EuropePmcClient
 from dynamisrag.jats import JatsCanonicalImporter, JatsParser
 from dynamisrag.search.projection import PassageProjectionManifest, build_projection_manifest
@@ -55,21 +55,6 @@ PAPERS = ("PMC10780924", "PMC10680285", "PMC5263151")
 ROOT = Path(".dynamisrag/real-science-v1").resolve()
 ALIAS = "dynamisrag-real-science-v1"
 QUESTION = "How does plyometric training change muscle and tendon behavior during depth jumping?"
-CPU_IMAGE_DIGEST = "sha256:2538ea1c9640d3763b15af668039d24172d063b42337b0c27796fc2be180c78d"
-
-
-class CpuDeployment(TeiDeploymentSemantics):
-    """Separate CPU numerical provenance from the frozen GPU experiments."""
-
-    def payload(self) -> dict[str, object]:
-        return {
-            **super().payload(),
-            "local_device": "cpu",
-            "local_backend": "candle-mkl",
-            "local_image_digest": CPU_IMAGE_DIGEST,
-            "local_threads": 4,
-            "local_platform": "linux-amd64",
-        }
 
 
 class BudgetTei(TeiEmbeddingProvider):

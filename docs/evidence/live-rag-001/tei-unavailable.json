@@ -1,0 +1,10 @@
+{
+  "method": "separate application instance; real closed TEI port; existing services untouched",
+  "http_status": 503,
+  "response": {
+    "detail": {
+      "code": "embedding_unavailable"
+    }
+  },
+  "healthz_status": 200
+}

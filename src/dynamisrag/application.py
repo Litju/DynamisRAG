@@ -38,6 +38,8 @@ from dynamisrag.search.retrieval import (
 )
 from dynamisrag.search.retrieval_router import RETRIEVE_PATH, build_retrieval_router
 from dynamisrag.search.router import SEARCH_PATH, build_search_router
+from dynamisrag.search.scientific import ScientificRetrievalService
+from dynamisrag.search.scientific_router import build_scientific_router
 
 __all__ = ["API_DESCRIPTION", "API_TITLE", "create_app"]
 
@@ -85,19 +87,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         alias=resolved.opensearch_index_alias,
         query_embedder=query_embedder,
     )
+    scientific = (
+        ScientificRetrievalService(engine, resolved) if resolved.scientific_qdrant_enabled else None
+    )
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncGenerator[None]:
         _logger.info("starting: version=%s environment=%s", __version__, resolved.environment.value)
         try:
+            if scientific is not None:
+                scientific.start()
             yield
         finally:
             try:
-                if tei_provider is not None:
-                    tei_provider.close()
+                if scientific is not None:
+                    scientific.close()
             finally:
-                opensearch_client.close()
-                engine.dispose()
+                try:
+                    if tei_provider is not None:
+                        tei_provider.close()
+                finally:
+                    opensearch_client.close()
+                    engine.dispose()
             _logger.info("stopped: version=%s", __version__)
 
     app = FastAPI(
@@ -109,6 +120,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(build_health_router(settings=resolved, engine=engine, opensearch=probe))
     app.include_router(build_search_router(search=search))
     app.include_router(build_retrieval_router(retrieval=retrieval))
+    app.include_router(build_scientific_router(scientific))
 
     _logger.debug(
         "application created: health=%s,%s search=%s retrieve=%s",

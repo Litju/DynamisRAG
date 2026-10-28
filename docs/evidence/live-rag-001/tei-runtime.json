@@ -1,0 +1,66 @@
+{
+  "info": {
+    "model_id": "Qwen/Qwen3-Embedding-0.6B",
+    "model_sha": "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
+    "model_dtype": "float32",
+    "served_model_name": "Qwen/Qwen3-Embedding-0.6B",
+    "model_type": {
+      "embedding": {
+        "pooling": "last_token"
+      }
+    },
+    "max_concurrent_requests": 512,
+    "max_input_length": 2048,
+    "max_batch_tokens": 2048,
+    "max_batch_requests": 4,
+    "max_client_batch_size": 1,
+    "auto_truncate": true,
+    "tokenization_workers": 1,
+    "version": "1.9.4",
+    "sha": "e80ef225ed0e6cb1717ce632a6a84b6cf211bb67",
+    "docker_label": "sha-e80ef22"
+  },
+  "deployment": {
+    "image_id": "sha256:8ce0330d3eae11511627a5b3eeef7001f76970ad3633d771147b57915c021dd7",
+    "image_name": "ghcr.io/huggingface/text-embeddings-inference:cpu-1.9.4",
+    "arguments": [
+      "--model-id",
+      "Qwen/Qwen3-Embedding-0.6B",
+      "--revision",
+      "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
+      "--dtype",
+      "float32",
+      "--max-batch-tokens",
+      "2048",
+      "--max-client-batch-size",
+      "1",
+      "--tokenization-workers",
+      "1"
+    ],
+    "cpu_quota_nanocpus": 4000000000,
+    "memory_bytes": 8589934592,
+    "device_requests": null,
+    "ports": {
+      "80/tcp": [
+        {
+          "HostIp": "127.0.0.1",
+          "HostPort": "8081"
+        }
+      ]
+    },
+    "environment": [
+      "OMP_NUM_THREADS=4",
+      "MKL_NUM_THREADS=4",
+      "RAYON_NUM_THREADS=8"
+    ]
+  },
+  "model_prompt_config": {
+    "prompts": {
+      "query": "Instruct: Given a web search query, retrieve relevant passages that answer the query\nQuery:",
+      "document": ""
+    },
+    "default_prompt_name": null,
+    "similarity_fn_name": "cosine"
+  },
+  "http_embed_successes_since_start": 5
+}

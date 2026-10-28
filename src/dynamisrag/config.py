@@ -109,6 +109,11 @@ class Settings(BaseSettings):
     """Documents per bulk request. Fixed rather than derived, so the same
     projection always produces the same request boundaries."""
 
+    scientific_qdrant_enabled: bool = False
+    scientific_qdrant_url: AnyHttpUrl = AnyHttpUrl("http://127.0.0.1:6333")
+    scientific_tei_url: AnyHttpUrl = AnyHttpUrl("http://127.0.0.1:8081")
+    scientific_evidence_directory: Path = _PROJECT_ROOT / "docs/evidence/real-science-v1"
+
     # ------------------------------------------------------------------
     # Embeddings (RES-137). Every entry is optional and defaults to "no
     # embedding provider configured", because a TEI deployment is not required
