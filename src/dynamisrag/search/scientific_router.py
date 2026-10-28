@@ -24,7 +24,7 @@ from dynamisrag.search.scientific import (
 PATH = "/retrieve/qdrant"
 MAX_BODY_BYTES = 8192
 _logger = logging.getLogger(APP_LOGGER_NAME)
-_HEADERS = {"Cache-Control": "no-store"}
+_HEADERS = {"Cache-Control": "no-store", "Content-Type": "application/json; charset=utf-8"}
 FilterKey = Literal[
     "passage_key",
     "document_canonical_key",

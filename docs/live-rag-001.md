@@ -88,6 +88,8 @@ fingerprints, complete independently ranked BM25/dense candidate traces, raw
 scores, source text/identifiers/spans, citation verification flags, RRF ranks and
 contributions, and separate pipeline timings. Vectors are not returned.
 
+Responses explicitly declare `application/json; charset=utf-8` so Windows
+PowerShell preserves scientific symbols and exact citation character spans.
 All responses disable caching. Invalid JSON/fields return a sanitized 422
 `invalid_request`; an oversized body returns 413 `request_too_large`. A TEI
 capacity/validation rejection returns 422 `query_rejected`. Dependency, identity,

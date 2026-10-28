@@ -96,6 +96,9 @@ def canonical_records() -> tuple[PassageProjectionRecords, ...]:
     records = passage_projection_records(corpus)[:1]
     record = records[0]
     record.passage.chunker_revision = scientific.CHUNKER
+    record.passage.text += " Synthetic 90° \u03b1\u2013\u03b2 fixture."
+    record.source_spans[0].paragraph.text = record.passage.text
+    record.source_spans[0].span.end_char = len(record.passage.text)
     record.passage.content_sha256 = passage_content_sha256(record.passage.text)
     record.source_spans[0].paragraph.content_sha256 = passage_content_sha256(
         record.source_spans[0].paragraph.text
@@ -301,6 +304,8 @@ def test_route_success_and_private_error_logs(
     http = TestClient(app)
     response = http.post(PATH, json={"question": "Unseen question?", "limit": 2})
     assert response.status_code == 200
+    assert response.headers["content-type"] == "application/json; charset=utf-8"
+    assert "90° \u03b1\u2013\u03b2" in response.json()["bm25"]["candidates"][0]["provenance"]["text"]
     assert response.json()["bm25"]["candidates"][0]["citation_verified"]
     client.request.side_effect = QdrantError(SENTINEL)
     assert http.post(PATH, json={"question": SENTINEL}).status_code == 503
