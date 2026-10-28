@@ -305,7 +305,9 @@ def test_route_success_and_private_error_logs(
     response = http.post(PATH, json={"question": "Unseen question?", "limit": 2})
     assert response.status_code == 200
     assert response.headers["content-type"] == "application/json; charset=utf-8"
-    assert "90° \u03b1\u2013\u03b2" in response.json()["bm25"]["candidates"][0]["provenance"]["text"]
+    assert (
+        "90° \u03b1\u2013\u03b2" in response.json()["bm25"]["candidates"][0]["provenance"]["text"]
+    )
     assert response.json()["bm25"]["candidates"][0]["citation_verified"]
     client.request.side_effect = QdrantError(SENTINEL)
     assert http.post(PATH, json={"question": SENTINEL}).status_code == 503
