@@ -2,7 +2,7 @@
 
 The running application accepts **POST
 `http://127.0.0.1:8021/answer/scientific`**. It retrieves from the original
-75-passage scientific collection, selects five verified evidence passages, calls
+75-passage scientific collection, selects up to five suitable verified evidence passages, calls
 the local pretrained `qwen3:4b` model through Ollama, and returns generated
 extractive claims with independently verified canonical citations.
 
@@ -29,13 +29,19 @@ $answer.timings
 $clock.Elapsed.TotalMilliseconds
 ```
 
-The actual cold/warm/abstention execution and independent SQL verification used:
+The historical cold/warm/abstention execution and independent SQL verification used:
 
 ```powershell
 uv run python scripts/probe_scientific_answer.py
 ```
 
-The corrected cold and warm requests both returned HTTP 200, `status: supported`,
+These retained receipts were generated under the prior selector policy
+`body-findings-sentence-excerpts-v1`. They remain unchanged historical evidence;
+they do not qualify real generation under selector v2. No fresh real CPU
+generation run has been executed under selector v2. The repaired code is validated
+by deterministic tests with mocked Ollama output, including in CI.
+
+The historical cold and warm requests both returned HTTP 200, `status: supported`,
 five selected evidence passages and three generated claims. The generated answer
 was:
 
@@ -172,14 +178,25 @@ retains its unmodified top-20 RRF trace and independent 50-candidate lanes.
 Selection takes up to five suitable passages in original RRF order. Front/back
 matter, editorial/author information, methods/background/hypothesis sections,
 instruction-like content and low question overlap are excluded with passage keys,
-original RRF ranks and explicit reasons. English lexical overlap is a conservative
-gate, not a semantic relevance model; it can abstain on suitable paraphrases.
+original RRF ranks and explicit reasons. Selector v2 normalizes Unicode with NFKC
+and case folding, preserving scientific abbreviations such as VM, VL, RSI and CMJ,
+numerical values, decimal measurements and angles such as 60° and 90°. It matches
+complete tokens, so VM does not match SVM and 90° does not match 190°. Common
+question stopwords are filtered without imposing a four-character minimum.
+The overlap threshold is `min(2, number of informative question tokens)`;
+questions with no informative tokens are rejected. Thus one informative token
+requires one match, while longer questions still require at least two matches.
+Lexical overlap is a conservative eligibility gate, not a semantic relevance
+model; it can abstain on suitable paraphrases and does not establish sufficiency.
 
 Complete sentence prefixes of at most 800 UTF-8 bytes are used as generation
 excerpts. Full canonical text and all JATS spans remain available in the response.
 The combined system/question/evidence prompt is capped at 6,000 bytes, reserving
-context headroom. At least four suitable passages are required; otherwise the
-server abstains without generation. Only the question, source keys and bounded
+context headroom. One suitable, independently verified passage is sufficient to
+attempt extractive generation; zero suitable passages cause `insufficient_evidence`
+without model inference. Passage count alone does not establish scientific
+validity or answer sufficiency. The prompt requires Ollama to abstain if the
+available evidence does not directly answer the question. Only the question, source keys and bounded
 excerpts go to the model, serialized as untrusted JSON data. No tools, credentials,
 private paths, external search or document instructions are given authority.
 
@@ -190,8 +207,13 @@ Fresh PostgreSQL verification runs before and after generation. Every accepted
 quote must occur in the actual supplied excerpt and full source passage and must
 start/end at sentence boundaries. Unknown citations, fabricated numbers/wording,
 duplicated quotations and unsupported extra identifier fields are rejected.
-An invalid citation produces an empty `insufficient_evidence` answer; invalid or
-truncated provider JSON is a bounded 503 failure, never a partial answer.
+Invalid generated citations, quotations, identifiers or source membership cause a
+sanitized HTTP 503 `generation_invalid_output` failure. All claims are validated
+atomically: one invalid claim rejects the entire generated answer, with no partial
+acceptance. Invalid or truncated provider JSON uses the same failure path.
+These contract failures are distinct from legitimate `insufficient_evidence`
+responses caused by zero usable evidence or a valid model abstention
+(`reason: model_abstained`). They are not scientific abstentions.
 
 **Structural validation does not prove semantic entailment, study validity or
 applicability.** An authentic quotation can still be selected for the wrong
@@ -242,15 +264,30 @@ uv run ruff format --check .
 uv run pyright
 ```
 
-Observed local validation: **2,312 unit tests**, **147 focused tests**, **16 live
-integration tests**, full Ruff lint/format and strict Pyright passed. Tests use
-explicit mock generation in CI; no model download/inference is part of CI.
+The original local execution qualification passed **2,312 unit tests**, **147
+focused tests** and **16 live integration tests**. After the three independently
+reviewed repairs, commit `0ec5cb1f8454833e848105906f4980281043d96e` passed
+**2,340 unit tests on Linux and Windows**, **182 integration tests**, Ruff
+lint/format and strict Pyright in [exact-repaired-head CI](https://github.com/Litju/DynamisRAG/actions/runs/40675734211).
+Locally, **177 focused tests** and the rolled-back PostgreSQL citation fixture
+passed. The regressions first reproduced **17 failures** before production fixes.
+They cover abbreviations/Unicode/numerical token matching, unrelated questions,
+zero/one/two/three/five eligible passages and atomic invalid-generation failures.
+Tests use explicit mock generation in CI; no model download/inference is part of CI.
+This deterministic validation does not replace a real selector-v2 CPU generation
+qualification; that execution remains unperformed.
 Coverage includes missing/fabricated citations, unsupported wording/numbers,
 corrupt canonical metadata, model/quantization/runtime/GPU mismatches, unavailable
 and timed-out models, invalid/truncated JSON, injected document instructions,
 empty/out-of-corpus evidence, concurrency, opt-in startup and cleanup.
 
 ## Retained execution evidence
+
+The cold/warm and abstention receipts below retain their original bytes and prior
+selector-v1 policy hashes. Their model identity, provenance and latency facts are
+historical observations, not fresh selector-v2 results. The three-paper,
+75-passage corpus limits coverage; historical CPU requests took about 139 seconds
+cold and 72 seconds warm. Neither latency nor semantic entailment is guaranteed.
 
 * [Readable generated answer and canonical citations](evidence/live-rag-002/answer-log.txt)
 * [Complete cold HTTP request/response](evidence/live-rag-002/cold.json)
@@ -265,3 +302,63 @@ No article ingestion, document embedding, collection write, training, reranker,
 hosted inference or RES-142 run was performed. The original trusted manifests
 and embedding fingerprints are unchanged. This branch is stacked on PR #21;
 neither PR #20 nor #21 is modified or merged.
+
+## Owner integration preparation (no merges performed)
+
+Verified stack before the documentation-only commit:
+
+| PR | GitHub base | Head branch | Reviewed head SHA |
+| --- | --- | --- | --- |
+| #20 | `main` (`67edcc785af2084e2cc4d8c27b08bea43a5f4bd3`) | `feat/qdrant-vector-backend` | `54c2c4c2078621b8f0106fee00bbb54017496b05` |
+| #21 | `feat/qdrant-vector-backend` | `feat/real-scientific-retrieval` | `ae1c5e1591c48df543363bfb420d98157f284df2` |
+| #22 | `feat/real-scientific-retrieval` | `feat/grounded-scientific-answers` | repair: `0ec5cb1f8454833e848105906f4980281043d96e`; documentation commit follows |
+
+Each parent head is an ancestor of its child. The layer diffs contain no changes
+to frozen benchmark implementations or RES-142 artifacts. The benchmark-boundary
+test changes only permit the pinned scientific CPU profile (requiring its model
+identity to equal the existing profile) and extend boundary checks to generation.
+PR #21 intentionally adds the licensed scientific receipts and numerical
+manifests; PR #22 preserves them. Do not interpret that intentional addition as
+a corpus rewrite.
+
+Read-only integration preparation rechecked all 75 PostgreSQL passages and source
+spans against the retained projection, reparsed all three original JATS files
+against canonical paragraphs, and verified the real-science alias and all 75
+Qdrant payloads/vectors. Counts remain 3 documents, 3 versions and 75 passages.
+All five `real-science-v1` JSON files are byte-identical to PR #21's reviewed head.
+Key SHA-256 values remain:
+
+| Artifact | SHA-256 |
+| --- | --- |
+| Document embedding manifest | `46f96db3a02cf61374003475e3f006258ecbd790a4a78bd858b305c25f5104ff` |
+| Query embedding manifest | `4ac70bedcc23ffc2d3acfcba46ffb42ad1b68de55e0cbad782678f1f4b83fb29` |
+| Original numerical receipt | `8ede85766f656acccf7fd44b9c3fde627bd18289b74fe375dbf895d02ff4d240` |
+| Real-science collection payload/vector snapshot | `2640a00053e5c8231e7db28873a42e7b9465830693f6c4c56f722c7ba2f78d2a` |
+
+This check performed no inference, embedding or service writes. The retained
+cold/warm receipts and frozen benchmark evidence were not modified.
+
+Safe owner-authorized order, preserving commits and branches:
+
+1. Merge **#20 into `main`** using a merge commit. Preserve its existing commits;
+   do not squash/rebase-merge or delete its branch.
+2. Reinspect **#21**. This is a branch-based chain (GitHub REST `stack: null`),
+   not a registered native stack. With branches retained, merging #20 alone
+   leaves #21 based on `feat/qdrant-vector-backend` and its layer diff unchanged.
+   After owner authorization, retarget #21 to `main`; verify that the refreshed
+   diff contains only its reviewed layer. Require fresh CI against the new base
+   and exact head before merging **#21 into `main`** with a merge commit.
+3. Reinspect **#22**. Merging #21 similarly leaves its retained branch and #22's
+   current base/diff unchanged until retargeting. After owner authorization,
+   retarget #22 to `main`, inspect the refreshed diff and require fresh exact-head
+   CI against that base before merging **#22 into `main`** with a merge commit.
+
+GitHub documents automatic base retargeting when a merged head branch is deleted
+in [branch management](https://docs.github.com/en/pull-requests/how-tos/commit-changes/managing-branches-within-your-repository).
+Branch deletion is excluded here; verify actual GitHub base/head fields after
+each integration rather than relying on automatic retargeting. Do not merge
+children into their old parent branches and assume they reach `main`.
+Any changed head, base, conflict resolution or unexpected diff requires renewed
+review and CI for that combination. Current green checks are prerequisites, not
+qualification of future retargeted merge results. No merge, base change,
+force-push, history rewrite or branch deletion is authorized by this preparation.
