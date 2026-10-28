@@ -21,6 +21,32 @@
 name: dynamisrag
 
 services:
+  qdrant:
+    image: qdrant/qdrant:v1.20.0@sha256:9bfc89f9914fc14876a88c05270685921a55b8877b254a98bcc1cc2f0a424cd2
+    container_name: dynamisrag-qdrant
+    restart: unless-stopped
+    environment:
+      QDRANT__SERVICE__HOST: 0.0.0.0
+      QDRANT__SERVICE__HTTP_PORT: 6333
+      QDRANT__SERVICE__GRPC_PORT: 6334
+      QDRANT__STORAGE__STORAGE_PATH: /qdrant/storage
+      QDRANT__STORAGE__SNAPSHOTS_PATH: /qdrant/snapshots
+      QDRANT__STORAGE__WAL__WAL_CAPACITY_MB: 32
+      QDRANT__STORAGE__PERFORMANCE__MAX_SEARCH_THREADS: 2
+      QDRANT__TELEMETRY_DISABLED: 'true'
+    ports:
+      - "127.0.0.1:6333:6333"
+    volumes:
+      - qdrant-data:/qdrant/storage
+      - qdrant-snapshots:/qdrant/snapshots
+    healthcheck:
+      test: [CMD-SHELL, "bash -c 'exec 3<>/dev/tcp/127.0.0.1/6333; printf \"GET /readyz HTTP/1.0\\r\\n\\r\\n\" >&3; head -1 <&3 | grep -q 200'"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    networks:
+      - dynamisrag
   postgres:
     image: postgres:18.6-alpine
     container_name: dynamisrag-postgres
@@ -92,6 +118,8 @@ services:
       - dynamisrag
 
 volumes:
+  qdrant-data:
+  qdrant-snapshots:
   postgres-data:
   opensearch-data:
 

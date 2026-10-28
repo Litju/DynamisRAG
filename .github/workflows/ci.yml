@@ -87,7 +87,7 @@ jobs:
       - name: Install locked dependencies
         run: uv sync --locked
 
-      - name: Start PostgreSQL 18 and OpenSearch 3
+      - name: Start PostgreSQL 18, OpenSearch 3 and Qdrant 1.20
         # The repository's own compose file is what gets validated, so a local
         # stack and the CI stack cannot drift apart.
         run: docker compose up -d --wait --wait-timeout 420
@@ -107,6 +107,14 @@ jobs:
 
       - name: Integration tests
         run: uv run pytest -m integration -v
+
+      - name: Verify Qdrant restart persistence without reinserting data
+        run: |
+          set -euo pipefail
+          uv run python -m scripts.qdrant_persistence_probe snapshot --receipt .tmp/qdrant-before.json
+          docker compose restart qdrant
+          uv run python -m scripts.wait_qdrant --timeout-seconds 60
+          uv run python -m scripts.qdrant_persistence_probe verify --receipt .tmp/qdrant-before.json
 
       - name: Exercise the real server over HTTP, including a dependency outage
         run: |
