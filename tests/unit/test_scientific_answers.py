@@ -433,6 +433,7 @@ def test_service_abstentions_and_dependency_failures(
         else QUESTION
     )
     if kind in (
+        "bad_citation",
         "corrupt_before",
         "corrupt_after",
         "unavailable",
@@ -561,3 +562,130 @@ def test_identity_failure_startup_is_closed_and_cleanup_available(
         service.answer(QUESTION)
     service.close()
     generator.close.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "question,finding,eligible",
+    [
+        ("VM and VL activation at 90°?", "VM and VL were greater at 90°.", True),
+        ("How does CMJ performance change?", "CMJ performance increased after training.", True),
+        ("What is RSI during drop jumping?", "RSI increased during drop jumping.", True),
+        (
+            "Does knee flexion at 60° differ from 90°?",
+            "Knee flexion differed at 60° and 90°.",
+            True,
+        ),
+        ("What is RSI?", "RSI increased after training.", True),
+        ("VM and VL?", "VM and VL increased after training.", True),
+        ("90°?", "The measured angle was 90 °.", True),
+        ("2.5 ms?", "The measured interval was 2.5 ms.", True),
+        ("90°?", "The measured angle was 190°.", False),
+        ("2.5?", "The measured interval was 12.5 ms.", False),
+        ("VM?", "The SVM classifier performed well.", False),
+        ("What is αβ activation?", "The αβ activation increased after training.", True),
+        ("What is café activation?", "The cafe\u0301 activation increased after training.", True),
+        ("What is RSI?", "The unrelated experiment measured neutrinoless decay.", False),
+        ("What determines neutrino mass?", "VM and VL increased after training.", False),
+        ("What is the evidence?", "The unrelated experiment measured decay.", False),
+    ],
+)
+def test_scientific_query_selection(question: str, finding: str, *, eligible: bool) -> None:
+    r = retrieval_fixture()
+    hit = r.fusion.hits[0]
+    text = finding + " This synthetic fixture checks lexical eligibility only and is not evidence."
+    p = hit.provenance.model_copy(update={"title": "Synthetic fixture", "text": text})
+    hit = hit.model_copy(update={"provenance": p})
+    r = r.model_copy(update={"fusion": r.fusion.model_copy(update={"hits": (hit,)})})
+    before = r.model_dump_json()
+    selection = select_evidence(question, r)
+    assert selection.selected == ((p,) if eligible else ())
+    assert r.model_dump_json() == before
+    if not eligible:
+        assert selection.excluded[0].reason == "insufficient_question_overlap"
+        assert selection.excluded[0].original_rrf_rank == hit.final_rank
+        assert selection.excluded[0].passage_key == p.passage_key
+
+
+@pytest.mark.parametrize("count", [0, 1, 2, 3, 5])
+def test_generation_with_any_eligible_evidence(monkeypatch: pytest.MonkeyPatch, count: int) -> None:
+    service, retrieval, generator, verify = service_mock(monkeypatch)
+    r = retrieval.retrieve.return_value
+    retrieval.retrieve.return_value = r.model_copy(
+        update={"fusion": r.fusion.model_copy(update={"hits": r.fusion.hits[:count]})}
+    )
+    answer = service.answer(QUESTION)
+    assert len(answer.evidence) == count
+    assert answer.generation_invoked == bool(count)
+    if count:
+        assert answer.status == "supported" and answer.claims[0].structurally_verified
+        claim = answer.claims[0]
+        assert claim.source.text[claim.excerpt_start : claim.excerpt_end] == claim.text
+        assert claim.text in answer.context_excerpts[0].text
+        assert verify.call_count == 2
+        assert all(call.args[1] == answer.evidence for call in verify.call_args_list)
+        generator.generate.assert_called_once()
+    else:
+        assert answer.status == "insufficient_evidence"
+        assert answer.reason == "insufficient_relevant_evidence"
+        assert answer.answer is None and not answer.claims
+        verify.assert_not_called()
+        generator.generate.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "outcome", ["empty", "abstention", "id", "quote", "membership", "excerpt", "fragment"]
+)
+def test_api_abstention_and_atomic_invalid_generation(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, outcome: str
+) -> None:
+    service, retrieval, generator, _ = service_mock(monkeypatch)
+    draft, model, stats = generator.generate.return_value
+    if outcome == "empty":
+        r = retrieval.retrieve.return_value
+        retrieval.retrieve.return_value = r.model_copy(
+            update={"fusion": r.fusion.model_copy(update={"hits": ()})}
+        )
+    elif outcome == "abstention":
+        draft = DraftAnswer(status="insufficient_evidence", claims=[])
+    else:
+        valid = draft.claims[0]
+        bad = valid.model_copy()
+        if outcome == "id":
+            bad.passage_key = "f" * 64
+        elif outcome == "membership":
+            bad.passage_key = retrieval.retrieve.return_value.fusion.hits[5].passage_key
+        elif outcome == "quote":
+            bad.quote = PRIVATE + " Knee activation increased by 999 percent."
+        elif outcome == "fragment":
+            bad.quote = valid.quote[valid.quote.index("knee") :]
+        else:
+            selection = select_evidence(QUESTION, retrieval.retrieve.return_value)
+            bad = DraftClaim(
+                passage_key=selection.selected[1].passage_key,
+                quote=selection.excerpts[1].text,
+            )
+            monkeypatch.setattr(
+                scientific,
+                "select_evidence",
+                Mock(
+                    return_value=selection.model_copy(update={"excerpts": (selection.excerpts[0],)})
+                ),
+            )
+        draft = DraftAnswer(status="supported", claims=[valid, bad])
+    generator.generate.return_value = (draft, model, stats)
+    app = FastAPI()
+    app.include_router(build_answer_router(service))
+    response = TestClient(app).post(PATH, json={"question": QUESTION})
+    if outcome in ("empty", "abstention"):
+        assert response.status_code == 200
+        body = response.json()
+        assert body["status"] == "insufficient_evidence" and body["claims"] == []
+        assert body["reason"] == (
+            "model_abstained" if outcome == "abstention" else "insufficient_relevant_evidence"
+        )
+        assert body["generation_invoked"] == (outcome == "abstention")
+    else:
+        assert response.status_code == 503
+        assert response.json() == {"detail": {"code": "generation_invalid_output"}}
+        assert "generation_invalid_output" in caplog.text
+        assert PRIVATE not in response.text and PRIVATE not in caplog.text

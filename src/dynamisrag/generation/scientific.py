@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import unicodedata
 from threading import BoundedSemaphore
 from time import perf_counter
 from typing import Literal
@@ -54,7 +55,7 @@ POLICY_SHA256 = hashlib.sha256(
             "options": OPTIONS,
             "schema": DraftAnswer.model_json_schema(),
             "prompt_bytes": PROMPT_BYTES,
-            "selector": "body-findings-sentence-excerpts-v1",
+            "selector": "body-findings-sentence-excerpts-v2",
         },
         sort_keys=True,
         separators=(",", ":"),
@@ -71,6 +72,22 @@ _NON_FINDING = re.compile(
     re.I,
 )
 _STOP = {
+    "a",
+    "an",
+    "as",
+    "at",
+    "be",
+    "by",
+    "for",
+    "in",
+    "is",
+    "it",
+    "of",
+    "on",
+    "or",
+    "to",
+    "was",
+    "were",
     "how",
     "does",
     "do",
@@ -178,11 +195,21 @@ def _context(question: str, selected: list[EvidenceExcerpt]) -> str:
     )
 
 
+def _scientific_terms(text: str) -> set[str]:
+    """Whole Unicode tokens, retaining abbreviations, decimals and optional angle units."""
+    normalized = unicodedata.normalize("NFKC", text).casefold()
+    return {
+        re.sub(r"\s+", "", token).replace(",", ".")
+        for token in re.findall(r"[^\W_]+(?:[.,]\d+)?(?:\s*°)?", normalized)
+        if token not in _STOP
+    }
+
+
 def select_evidence(question: str, retrieval: ScientificResponse) -> EvidenceSelection:
     selected: list[PassageProvenance] = []
     excerpts: list[EvidenceExcerpt] = []
     excluded: list[EvidenceDecision] = []
-    terms = {t for t in re.findall(r"[a-z]{4,}", question.lower()) if t not in _STOP}
+    terms = _scientific_terms(question)
     for hit in retrieval.fusion.hits:
         p = hit.provenance
         prefix = p.text.encode("utf-8")[:800].decode("utf-8", errors="ignore")
@@ -203,8 +230,8 @@ def select_evidence(question: str, retrieval: ScientificResponse) -> EvidenceSel
             reason = "instruction_like_content"
         elif _HYPOTHESIS.search(p.text) or _NON_FINDING.search(p.section_title or ""):
             reason = "background_methods_or_hypothesis"
-        elif (
-            len(terms.intersection(re.findall(r"[a-z]{4,}", (p.title + " " + p.text).lower()))) < 2
+        elif not terms or len(terms.intersection(_scientific_terms(p.title + " " + p.text))) < min(
+            2, len(terms)
         ):
             reason = "insufficient_question_overlap"
         elif len(selected) >= 5:
@@ -336,7 +363,7 @@ class ScientificAnswerService:
         invoked = False
         generation_ms = 0.0
         identity = self.identity
-        if len(selection.selected) >= 4:
+        if selection.selected:
             try:
                 verify_evidence(self.retrieval.engine, selection.selected)
                 generated = perf_counter()
@@ -351,10 +378,10 @@ class ScientificAnswerService:
                 if draft.status == "supported"
                 else ()
             )
-            reason = (
-                "model_abstained" if draft.status == "insufficient_evidence" else "invalid_citation"
-            )
-            if draft.status == "supported" and claims:
+            reason = "model_abstained"
+            if draft.status == "supported":
+                if not claims:
+                    raise GenerationUnavailableError("generation_invalid_output")
                 status, reason = "supported", "supported"
         finished = perf_counter()
         return ScientificAnswer(
