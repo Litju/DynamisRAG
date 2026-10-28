@@ -1,0 +1,1423 @@
+LIVE-RAG-002 ? LOCAL SCIENTIFIC ANSWER
+POST http://127.0.0.1:8021/answer/scientific
+Question: How does starting knee flexion angle influence vastus medialis and vastus lateralis activation during resisted plyometric exercise?
+Status: supported
+
+GENERATED EXTRACTIVE ANSWER
+Study results demonstrated notable variations in muscle activity between 60°and 90° positions, particularly in favor of the 90° knee flexion position. [1]
+
+Our findings suggest that initiating resisted plyometric exercises without jumping at a 90° knee flexion position results in significantly increased muscle activity in both the VM and VL muscles, regardless of limb dominance. [2]
+
+The results revealed a significantly higher level of muscle activity in the VM and VL muscles when the exercises were performed at a 90-degree knee flexion position in both the D and ND legs. [3]
+
+LIMITATION: Exact quotation, context membership and canonical-source checks do not prove semantic entailment, study validity or applicability. Claims are extractive, not free-form synthesis.
+
+MODEL
+{
+  "model": "qwen3:4b",
+  "digest": "359d7dd4bcdab3d86b87d73ac27966f4dbb9f5efdfcc75d34a8764a09474fae7",
+  "quantization": "Q4_K_M",
+  "parameter_size": "4.0B",
+  "runtime_version": "0.13.5",
+  "device": "cpu"
+}
+generation_policy_sha256=02cc90f1b9f6d871732b966400fbc71d196e92bccac04eb81037bc72422e96e8
+
+TIMINGS
+cold
+client_wall_ms=139148.3376000033
+{
+  "retrieval_ms": 4879.112700000405,
+  "generation_ms": 134173.10029999862,
+  "citation_validation_ms": 43.88679999829037,
+  "total_ms": 139096.09979999732
+}
+{
+  "load_duration": 6237986578,
+  "prompt_eval_count": 1277,
+  "prompt_eval_duration": 52843731927,
+  "eval_count": 347,
+  "eval_duration": 73638501754,
+  "total_duration": 133228895849
+}
+warm
+client_wall_ms=72217.19460000168
+{
+  "retrieval_ms": 849.1026999981841,
+  "generation_ms": 71336.39969999786,
+  "citation_validation_ms": 27.21400000154972,
+  "total_ms": 72212.71639999759
+}
+{
+  "load_duration": 94030680,
+  "prompt_eval_count": 1277,
+  "prompt_eval_duration": 170890678,
+  "eval_count": 347,
+  "eval_duration": 70178718642,
+  "total_duration": 70863363084
+}
+out-of-corpus
+client_wall_ms=538.4440999987419
+{
+  "retrieval_ms": 533.6615999985952,
+  "generation_ms": 0.0,
+  "citation_validation_ms": 0.0015000005078036338,
+  "total_ms": 533.663099999103
+}
+null
+
+INDEPENDENTLY VERIFIED CLAIM CITATIONS
+[1] Study results demonstrated notable variations in muscle activity between 60°and 90° positions, particularly in favor of the 90° knee flexion position.
+passage_key=c15877f3938f3a25bc734c99fe15cfb29a25805bdfc2ec7b124ea41e41295cf0
+doi=10.3390/s24010044 pmcid=PMC10780924 pmid=38202906
+version=958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643
+excerpt=[0,150)
+source_spans=[{"source_order": 0, "paragraph_key": "6dbd2ba1fba0d19ed10c9961bd26fdb877fd4d8f0596d6c87af58c26096755fc", "paragraph_source_anchor": "jats:/body[1]/sec[4]/p[2]", "start_char": 0, "end_char": 1747}, {"source_order": 1, "paragraph_key": "0d2456cf2b97bc6a401c967667b1e9d670648aa412b08c4884760f3a44acd7e6", "paragraph_source_anchor": "jats:/body[1]/sec[4]/p[3]", "start_char": 0, "end_char": 185}, {"source_order": 2, "paragraph_key": "0d2456cf2b97bc6a401c967667b1e9d670648aa412b08c4884760f3a44acd7e6", "paragraph_source_anchor": "jats:/body[1]/sec[4]/p[3]", "start_char": 186, "end_char": 299}]
+
+[2] Our findings suggest that initiating resisted plyometric exercises without jumping at a 90° knee flexion position results in significantly increased muscle activity in both the VM and VL muscles, regardless of limb dominance.
+passage_key=a2a28740ccd4e71ab85adc2970a962e5ab7ead39563ff9d217f9b8dfed84c877
+doi=10.3390/s24010044 pmcid=PMC10780924 pmid=38202906
+version=958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643
+excerpt=[0,225)
+source_spans=[{"source_order": 0, "paragraph_key": "7e7f41c5eb15d7ccac13d9eabec93967988d78537551b5bbc5763d864a798f61", "paragraph_source_anchor": "jats:/body[1]/sec[5]/p[1]", "start_char": 0, "end_char": 838}]
+
+[3] The results revealed a significantly higher level of muscle activity in the VM and VL muscles when the exercises were performed at a 90-degree knee flexion position in both the D and ND legs.
+passage_key=a73f69fb8c9eb8d3a4c266f8af55febd81c892052838fe2577fd8a2f7e79ca86
+doi=10.3390/s24010044 pmcid=PMC10780924 pmid=38202906
+version=958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643
+excerpt=[351,542)
+source_spans=[{"source_order": 0, "paragraph_key": "4ac62484c4a56b1995ce0a4b5d36dccb5ec77d2923ba00f824e88266c29fff8e", "paragraph_source_anchor": "jats:/body[1]/sec[4]/p[1]", "start_char": 0, "end_char": 1536}]
+
+CONTEXT EXCERPTS
+[
+  {
+    "passage_key": "0a0cfb976e7bd8ce7f592764f258accd073b5c9455a1b901fb965212fc2fb92c",
+    "text": "The VM, for instance, has a more oblique fiber arrangement compared to the VL, which may result in varying mechanical advantages and force production capabilities at different knee flexion angles [18,19,20]. These architectural disparities can lead to variations in muscle activation patterns during dynamic movements. On the other hand, neuromuscular control plays a pivotal role in muscle activation patterns. Differences in motor unit recruitment strategies between the VM and VL can account for the observed intermuscle differences. The central nervous system modulates motor unit firing rates based on task demands [21] and muscle function [22].",
+    "start": 0,
+    "end": 650
+  },
+  {
+    "passage_key": "c15877f3938f3a25bc734c99fe15cfb29a25805bdfc2ec7b124ea41e41295cf0",
+    "text": "Study results demonstrated notable variations in muscle activity between 60°and 90° positions, particularly in favor of the 90° knee flexion position. These results are in line with prior research [14,15], which observed similar trends in muscle activation during squat exercise at different depths. The observed intermuscle differences between VM and VL were also consistent with previous literature, underscoring the intricate interplay between these muscle groups [15,16,17]. The higher muscle activation observed at 90° of knee flexion can be attributed to the increased demand for force production. At 90° of knee flexion, the lever arm for the subject’s body weight is greater than at 60° of knee flexion, resulting in a higher knee flexion torque.",
+    "start": 0,
+    "end": 754
+  },
+  {
+    "passage_key": "c95fa67ff09a49666ee2640e5f34963bcc08e2e8036ccdc7e2c689e7e539e037",
+    "text": "This may be particularly relevant to improve lower limb strength and power. Furthermore, understanding the intermuscle differences emphasizes the necessity of a balanced training program that targets both the VM and VL, as imbalances between these muscles can contribute to knee instability [27]. Furthermore, if there is a need to increase the muscle activity of the vastus medialis in the nondominant leg to enhance stability during bipedal functional movements in rehabilitation programs, it is recommended to incorporate resisted nonjump plyometrics at 60° or 90° knee flexion angles. This approach can contribute to a more efficient and effective recovery process.",
+    "start": 0,
+    "end": 669
+  },
+  {
+    "passage_key": "a2a28740ccd4e71ab85adc2970a962e5ab7ead39563ff9d217f9b8dfed84c877",
+    "text": "Our findings suggest that initiating resisted plyometric exercises without jumping at a 90° knee flexion position results in significantly increased muscle activity in both the VM and VL muscles, regardless of limb dominance. Moreover, we observed substantial intermuscle differences, with the VM in the ND leg displaying higher activation levels at both 60° and 90° knee flexion positions. Furthermore, our investigation revealed that starting the exercises from a 90° knee flexion position led to significantly greater levels of strength, power, and work during the concentric–eccentric phases of the resisted plyometric exercise without jumping.",
+    "start": 0,
+    "end": 648
+  },
+  {
+    "passage_key": "a73f69fb8c9eb8d3a4c266f8af55febd81c892052838fe2577fd8a2f7e79ca86",
+    "text": "This study aimed to (i) investigate the effects of resisted plyometric exercise without jumping at two knee flexion positions (60 and 90 degrees) on the muscle activity of the vastus muscles with regard to limb dominance and (ii) assess strength, power, and work during the concentric–eccentric phases of resisted plyometric exercise without jumping. The results revealed a significantly higher level of muscle activity in the VM and VL muscles when the exercises were performed at a 90-degree knee flexion position in both the D and ND legs. Additionally, significant intermuscle differences were observed at both 60° and 90° knee flexion positions, with higher values recorded for VM in the ND leg.",
+    "start": 0,
+    "end": 700
+  }
+]
+EXCLUSIONS WITH ORIGINAL RRF RANKS
+[
+  {
+    "passage_key": "be0ea51394c2a8b29ff6edab8d3528543c130212dbdef3b1b49df6f3896d178a",
+    "original_rrf_rank": 3,
+    "reason": "front_or_back_matter"
+  },
+  {
+    "passage_key": "d244797e4f462276cddf0ff7a723f617d71c2633d4e67ff1f48c45bb4e32e638",
+    "original_rrf_rank": 7,
+    "reason": "background_methods_or_hypothesis"
+  },
+  {
+    "passage_key": "5f373e88e61190196f81441dbcbfaf45e75f6237e227fec3f92615c7a2dd19d0",
+    "original_rrf_rank": 8,
+    "reason": "evidence_count_budget"
+  },
+  {
+    "passage_key": "3da0f42019e56d73cc2b3e8a6f860c4d53eed5fee4fcc1d58f77b195b20da41e",
+    "original_rrf_rank": 9,
+    "reason": "evidence_count_budget"
+  },
+  {
+    "passage_key": "3c1221391b9f47231c9e38b28253127bedfb1efe21e9d0c42486962d2c517e93",
+    "original_rrf_rank": 10,
+    "reason": "evidence_count_budget"
+  },
+  {
+    "passage_key": "437b1253f3d061912847c45637aefdd16ac52878be0f887aabe43d86a3ccc1f3",
+    "original_rrf_rank": 11,
+    "reason": "evidence_count_budget"
+  },
+  {
+    "passage_key": "4028f46395328d7c94a3f5bce085ae356b552234edff5b6fcb233154f74f14c7",
+    "original_rrf_rank": 12,
+    "reason": "background_methods_or_hypothesis"
+  },
+  {
+    "passage_key": "9cbd015305b222b8ed8c37eb3b0ed0bb18b9847e13aaec41ae1f7410e9be7abe",
+    "original_rrf_rank": 13,
+    "reason": "front_or_back_matter"
+  },
+  {
+    "passage_key": "b96d0bddf9f3c6ca0bf443f03ac498c71f713d74e6e8768c75769e43ad79953a",
+    "original_rrf_rank": 14,
+    "reason": "evidence_count_budget"
+  },
+  {
+    "passage_key": "37ad148429ed0342fb2bc0e02fadc5194a4be1aa8f16bab1df8d433336a50144",
+    "original_rrf_rank": 15,
+    "reason": "evidence_count_budget"
+  },
+  {
+    "passage_key": "52dd7ddbf821c16d5ee704ec0e934bb87a0e5824bb6d7b69d08083f91c9b053d",
+    "original_rrf_rank": 16,
+    "reason": "background_methods_or_hypothesis"
+  },
+  {
+    "passage_key": "04d4565cd5a7cd106944580d4fe621057f1b7c32c870f638209e976303725dff",
+    "original_rrf_rank": 17,
+    "reason": "background_methods_or_hypothesis"
+  },
+  {
+    "passage_key": "4cce03640fc14755bb8c875d9ec6cd82b50413cb633176b3f53a0e2067c9b744",
+    "original_rrf_rank": 18,
+    "reason": "background_methods_or_hypothesis"
+  },
+  {
+    "passage_key": "20b882b966e04387a69e3f80782fd9dd266642f4a492120b415f5156a6ba25e8",
+    "original_rrf_rank": 19,
+    "reason": "evidence_count_budget"
+  },
+  {
+    "passage_key": "1fab5010322a20942864efa1838766d23b1ce361445edc7436680ea462654e34",
+    "original_rrf_rank": 20,
+    "reason": "evidence_count_budget"
+  }
+]
+ORIGINAL RRF TRACE
+{
+  "revision": "rrf-v1",
+  "k": 60,
+  "candidate_window": 50,
+  "hits": [
+    {
+      "passage_key": "0a0cfb976e7bd8ce7f592764f258accd073b5c9455a1b901fb965212fc2fb92c",
+      "final_rank": 1,
+      "rrf_score": 0.03252247488101534,
+      "lexical": {
+        "present": true,
+        "rank": 1,
+        "raw_score": 23.990767,
+        "rrf_contribution": 0.01639344262295082
+      },
+      "dense": {
+        "present": true,
+        "rank": 2,
+        "raw_score": 0.78802115,
+        "rrf_contribution": 0.016129032258064516
+      },
+      "provenance": {
+        "passage_key": "0a0cfb976e7bd8ce7f592764f258accd073b5c9455a1b901fb965212fc2fb92c",
+        "text": "The VM, for instance, has a more oblique fiber arrangement compared to the VL, which may result in varying mechanical advantages and force production capabilities at different knee flexion angles [18,19,20]. These architectural disparities can lead to variations in muscle activation patterns during dynamic movements. On the other hand, neuromuscular control plays a pivotal role in muscle activation patterns. Differences in motor unit recruitment strategies between the VM and VL can account for the observed intermuscle differences. The central nervous system modulates motor unit firing rates based on task demands [21] and muscle function [22]. Thus, the VM and VL may exhibit distinct motor unit recruitment patterns during the resisted plyometric exercise without jumping, contributing to differences in muscle activity. Furthermore, asymmetries in muscle activation between the D and ND side are commonly observed in the literature [9,23,24]. These differences may stem from variations in limb dominance and coordination patterns. The nondominant (ND) leg may exhibit greater differences in vastus medialis (VM) and vastus lateralis (VL) activation due to varying neuromuscular adaptations resulting from everyday activities and functional demands. Additionally, VM and VL are biomechanically interconnected muscles that work together to control knee joint stability and movement [25,26]. Given that the nondominant leg is primarily responsible for stabilization during bipedal movements [14], this implies that during resisted nonjump plyometric exercises, the nondominant limb may require increased stabilization, resulting in higher vastus medialis activity, regardless of the knee flexion angle. In summary, the intermuscle differences observed between VM and VL during a resisted plyometric exercise without jumping at different knee flexion angles can be attributed to a complex interplay of muscle architecture and neuromuscular control. Coaches and trainers should consider incorporating exercises with a 90° knee flexion angle to maximize muscle activation, particularly in the VM and VL.",
+        "document_canonical_key": "doi:10.3390/s24010044",
+        "document_version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643",
+        "title": "Impact of Starting Knee Flexion Angle on Muscle Activity and Performance during Plyometrics without Jumping",
+        "language": "en",
+        "chunker_revision": "structure-v1.1.b19e0939b5de",
+        "passage_ordinal": 12,
+        "token_count": 353,
+        "document_type": "journal_article",
+        "content_sha256": "74fdad7aff5ffe3db41b63992054e156838040cc2fc0a3f082ff73bb703850c4",
+        "section_key": "0e28cda5ac0ce507229df57c6f28a5d04b6aabf51cf94f17f1cd954deafd5adc",
+        "section_path": "4",
+        "section_title": "4. Discussion",
+        "primary_source_anchor": "jats:/body[1]/sec[4]/p[3]",
+        "source_spans": [
+          {
+            "source_order": 0,
+            "paragraph_key": "0d2456cf2b97bc6a401c967667b1e9d670648aa412b08c4884760f3a44acd7e6",
+            "paragraph_source_anchor": "jats:/body[1]/sec[4]/p[3]",
+            "start_char": 300,
+            "end_char": 507
+          },
+          {
+            "source_order": 1,
+            "paragraph_key": "0d2456cf2b97bc6a401c967667b1e9d670648aa412b08c4884760f3a44acd7e6",
+            "paragraph_source_anchor": "jats:/body[1]/sec[4]/p[3]",
+            "start_char": 508,
+            "end_char": 618
+          },
+          {
+            "source_order": 2,
+            "paragraph_key": "0d2456cf2b97bc6a401c967667b1e9d670648aa412b08c4884760f3a44acd7e6",
+            "paragraph_source_anchor": "jats:/body[1]/sec[4]/p[3]",
+            "start_char": 619,
+            "end_char": 711
+          },
+          {
+            "source_order": 3,
+            "paragraph_key": "0d2456cf2b97bc6a401c967667b1e9d670648aa412b08c4884760f3a44acd7e6",
+            "paragraph_source_anchor": "jats:/body[1]/sec[4]/p[3]",
+            "start_char": 712,
+            "end_char": 836
+          },
+          {
+            "source_order": 4,
+            "paragraph_key": "0d2456cf2b97bc6a401c967667b1e9d670648aa412b08c4884760f3a44acd7e6",
+            "paragraph_source_anchor": "jats:/body[1]/sec[4]/p[3]",
+            "start_char": 837,
+            "end_char": 950
+          },
+          {
+            "source_order": 5,
+            "paragraph_key": "0d2456cf2b97bc6a401c967667b1e9d670648aa412b08c4884760f3a44acd7e6",
+            "paragraph_source_anchor": "jats:/body[1]/sec[4]/p[3]",
+            "start_char": 951,
+            "end_char": 1128
+          },
+          {
+            "source_order": 6,
+            "paragraph_key": "0d2456cf2b97bc6a401c967667b1e9d670648aa412b08c4884760f3a44acd7e6",
+            "paragraph_source_anchor": "jats:/body[1]/sec[4]/p[3]",
+            "start_char": 1129,
+            "end_char": 1251
+          },
+          {
+            "source_order": 7,
+            "paragraph_key": "0d2456cf2b97bc6a401c967667b1e9d670648aa412b08c4884760f3a44acd7e6",
+            "paragraph_source_anchor": "jats:/body[1]/sec[4]/p[3]",
+            "start_char": 1252,
+            "end_char": 1339
+          },
+          {
+            "source_order": 8,
+            "paragraph_key": "0d2456cf2b97bc6a401c967667b1e9d670648aa412b08c4884760f3a44acd7e6",
+            "paragraph_source_anchor": "jats:/body[1]/sec[4]/p[3]",
+            "start_char": 1340,
+            "end_char": 1557
+          },
+          {
+            "source_order": 9,
+            "paragraph_key": "0d2456cf2b97bc6a401c967667b1e9d670648aa412b08c4884760f3a44acd7e6",
+            "paragraph_source_anchor": "jats:/body[1]/sec[4]/p[3]",
+            "start_char": 1558,
+            "end_char": 1697
+          },
+          {
+            "source_order": 10,
+            "paragraph_key": "0d2456cf2b97bc6a401c967667b1e9d670648aa412b08c4884760f3a44acd7e6",
+            "paragraph_source_anchor": "jats:/body[1]/sec[4]/p[3]",
+            "start_char": 1698,
+            "end_char": 2008
+          },
+          {
+            "source_order": 11,
+            "paragraph_key": "0d2456cf2b97bc6a401c967667b1e9d670648aa412b08c4884760f3a44acd7e6",
+            "paragraph_source_anchor": "jats:/body[1]/sec[4]/p[3]",
+            "start_char": 2009,
+            "end_char": 2253
+          },
+          {
+            "source_order": 12,
+            "paragraph_key": "0d2456cf2b97bc6a401c967667b1e9d670648aa412b08c4884760f3a44acd7e6",
+            "paragraph_source_anchor": "jats:/body[1]/sec[4]/p[3]",
+            "start_char": 2254,
+            "end_char": 2406
+          }
+        ],
+        "doi": "10.3390/s24010044",
+        "pmid": "38202906",
+        "pmcid": "PMC10780924",
+        "source_system": "europe_pmc",
+        "source_external_id": "PMC10780924"
+      }
+    },
+    {
+      "passage_key": "c15877f3938f3a25bc734c99fe15cfb29a25805bdfc2ec7b124ea41e41295cf0",
+      "final_rank": 2,
+      "rrf_score": 0.03200204813108039,
+      "lexical": {
+        "present": true,
+        "rank": 2,
+        "raw_score": 20.079687,
+        "rrf_contribution": 0.016129032258064516
+      },
+      "dense": {
+        "present": true,
+        "rank": 3,
+        "raw_score": 0.77691233,
+        "rrf_contribution": 0.015873015873015872
+      },
+      "provenance": {
+        "passage_key": "c15877f3938f3a25bc734c99fe15cfb29a25805bdfc2ec7b124ea41e41295cf0",
+        "text": "Study results demonstrated notable variations in muscle activity between 60°and 90° positions, particularly in favor of the 90° knee flexion position. These results are in line with prior research [14,15], which observed similar trends in muscle activation during squat exercise at different depths. The observed intermuscle differences between VM and VL were also consistent with previous literature, underscoring the intricate interplay between these muscle groups [15,16,17]. The higher muscle activation observed at 90° of knee flexion can be attributed to the increased demand for force production. At 90° of knee flexion, the lever arm for the subject’s body weight is greater than at 60° of knee flexion, resulting in a higher knee flexion torque. Consequently, more motor units are recruited in the vastus medialis and lateralis to generate the necessary force for this task, leading to the higher muscle activity levels observed. These findings underscore the significance of incorporating a 90-degree knee flexion angle when designing resisted plyometric exercises without jumping. Therefore, for rehabilitation exercises, it can be advantageous to include exercises that commence at a 90° knee flexion angle. This approach can aid individuals with vastus muscle inhibition in building knee stability and strength, which is essential for successful rehabilitation, as optimal muscle activation plays a pivotal role in overall performance. However, in addressing the scope of this investigation, it is important to note that deriving necessary adjustments to training and rehabilitation programs goes beyond the focus of this study. The determination and implementation of such adjustments fall within the domain of medical professionals.\n\nThe observed differences in muscle activity between the VM and VL at both 60° and 90°, particularly in the ND leg, may be attributed to muscle architecture and/or neuromuscular factors. The VM and VL possess distinct muscle architectures, with differences in fiber orientation and attachment points.",
+        "document_canonical_key": "doi:10.3390/s24010044",
+        "document_version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643",
+        "title": "Impact of Starting Knee Flexion Angle on Muscle Activity and Performance during Plyometrics without Jumping",
+        "language": "en",
+        "chunker_revision": "structure-v1.1.b19e0939b5de",
+        "passage_ordinal": 11,
+        "token_count": 356,
+        "document_type": "journal_article",
+        "content_sha256": "352413d52cbaae188cf74b08f83cc2a6966906556911df6be935d92ae4def162",
+        "section_key": "0e28cda5ac0ce507229df57c6f28a5d04b6aabf51cf94f17f1cd954deafd5adc",
+        "section_path": "4",
+        "section_title": "4. Discussion",
+        "primary_source_anchor": "jats:/body[1]/sec[4]/p[2]",
+        "source_spans": [
+          {
+            "source_order": 0,
+            "paragraph_key": "6dbd2ba1fba0d19ed10c9961bd26fdb877fd4d8f0596d6c87af58c26096755fc",
+            "paragraph_source_anchor": "jats:/body[1]/sec[4]/p[2]",
+            "start_char": 0,
+            "end_char": 1747
+          },
+          {
+            "source_order": 1,
+            "paragraph_key": "0d2456cf2b97bc6a401c967667b1e9d670648aa412b08c4884760f3a44acd7e6",
+            "paragraph_source_anchor": "jats:/body[1]/sec[4]/p[3]",
+            "start_char": 0,
+            "end_char": 185
+          },
+          {
+            "source_order": 2,
+            "paragraph_key": "0d2456cf2b97bc6a401c967667b1e9d670648aa412b08c4884760f3a44acd7e6",
+            "paragraph_source_anchor": "jats:/body[1]/sec[4]/p[3]",
+            "start_char": 186,
+            "end_char": 299
+          }
+        ],
+        "doi": "10.3390/s24010044",
+        "pmid": "38202906",
+        "pmcid": "PMC10780924",
+        "source_system": "europe_pmc",
+        "source_external_id": "PMC10780924"
+      }
+    },
+    {
+      "passage_key": "be0ea51394c2a8b29ff6edab8d3528543c130212dbdef3b1b49df6f3896d178a",
+      "final_rank": 3,
+      "rrf_score": 0.031544957774465976,
+      "lexical": {
+        "present": true,
+        "rank": 6,
+        "raw_score": 15.463363,
+        "rrf_contribution": 0.015151515151515152
+      },
+      "dense": {
+        "present": true,
+        "rank": 1,
+        "raw_score": 0.83637416,
+        "rrf_contribution": 0.01639344262295082
+      },
+      "provenance": {
+        "passage_key": "be0ea51394c2a8b29ff6edab8d3528543c130212dbdef3b1b49df6f3896d178a",
+        "text": "Correspondence: ichirosa@ugr.es\n\nMost of the existing research has focused on jump plyometrics, where landing reaction forces must be dissipated among lower limb articulations. In contrast, the investigation of resisted plyometrics without jumping, devoid of such landing forces, remains relatively limited. This study aimed to (i) investigate the impact of resisted plyometrics without jumping at two knee flexion angles (60 and 90 degrees) on vastus muscle activity relative to limb dominance and (ii) assess strength, power, and work during the concentric–eccentric phases of these exercises. Thirty-one healthy participants underwent quantification of lower limb muscle amplitude, strength, power, and work during resisted plyometrics without jumping from both 60° and 90° knee flexion positions. After anthropometric evaluations, participants used a dynamometer with a load equal to 80% of body weight while wireless surface electromyography electrodes recorded data. Statistical analyses utilized paired t-tests or nonparametric equivalents and set significance at p ≤ 0.05. Results showed significantly higher muscle activity in the vastus medialis (VM) (dominant: 47.4%, p = 0.0008, rs = 0.90; nondominant: 54.8%, p = 0.047, rs = 0.88) and vastus lateralis (VL) (dominant: 46.9%, p = 0.0004, rs = 0.86; nondominant: 48.1%, p = 0.021, rs = 0.67) muscles when exercises started at 90° knee flexion, regardless of limb dominance. Substantial intermuscle differences occurred at both 60° (50.4%, p = 0.003, rs = 0.56) and 90° (54.8%, p = 0.005, rs = 0.62) knee flexion, favoring VM in the nondominant leg. Concentric and eccentric strength, power, and work metrics significantly increased when initiating exercises from a 90° position. In conclusion, commencing resisted plyometrics without jumping at a 90° knee flexion position increases VM and VL muscle activity, regardless of limb dominance. Furthermore, it enhances strength, power, and work, emphasizing the importance of knee flexion position customization for optimizing muscle engagement and functional performance.\n\nKeywords: plyometric, electromyography, dynamometry, limb dominance, physical training muscle strength\n\nReceived 2023 Sep 19; Revised 2023 Nov 22; Accepted 2023 Dec 19; Collection date 2024 Jan.",
+        "document_canonical_key": "doi:10.3390/s24010044",
+        "document_version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643",
+        "title": "Impact of Starting Knee Flexion Angle on Muscle Activity and Performance during Plyometrics without Jumping",
+        "language": "en",
+        "chunker_revision": "structure-v1.1.b19e0939b5de",
+        "passage_ordinal": 0,
+        "token_count": 466,
+        "document_type": "journal_article",
+        "content_sha256": "bddcec72c07a0b05a6d15d24a5056efcea0401f0fe75a5b38c84019dbed95e8d",
+        "section_key": null,
+        "section_path": null,
+        "section_title": null,
+        "primary_source_anchor": "jats:/front[1]/article-meta[1]/author-notes[1]/fn[1]/p[1]",
+        "source_spans": [
+          {
+            "source_order": 0,
+            "paragraph_key": "39543bc98fea048f5fbe53d8e3529a9188eca8a9614c91261771bcea44251c9f",
+            "paragraph_source_anchor": "jats:/front[1]/article-meta[1]/author-notes[1]/fn[1]/p[1]",
+            "start_char": 0,
+            "end_char": 31
+          },
+          {
+            "source_order": 1,
+            "paragraph_key": "696ca305279069d69fed22333a6bb40b8180e9b7ba72d64f991b7d016875f520",
+            "paragraph_source_anchor": "jats:/front[1]/article-meta[1]/abstract[1]/p[1]",
+            "start_char": 0,
+            "end_char": 2046
+          },
+          {
+            "source_order": 2,
+            "paragraph_key": "1136dc9d8e0e896cdd23ae72c634ab70685af59dd06a31c1b6a05ce1ded22a9f",
+            "paragraph_source_anchor": "jats:/front[1]/article-meta[1]/abstract[1]/sec[1]/p[1]",
+            "start_char": 0,
+            "end_char": 102
+          },
+          {
+            "source_order": 3,
+            "paragraph_key": "22b2a1e836ccb1c23f1655058467983e9a891506ec7a2abd354e0caceaf0b155",
+            "paragraph_source_anchor": "jats:/front[1]/notes[1]/sec[1]/p[1]",
+            "start_char": 0,
+            "end_char": 90
+          }
+        ],
+        "doi": "10.3390/s24010044",
+        "pmid": "38202906",
+        "pmcid": "PMC10780924",
+        "source_system": "europe_pmc",
+        "source_external_id": "PMC10780924"
+      }
+    },
+    {
+      "passage_key": "c95fa67ff09a49666ee2640e5f34963bcc08e2e8036ccdc7e2c689e7e539e037",
+      "final_rank": 4,
+      "rrf_score": 0.03125763125763126,
+      "lexical": {
+        "present": true,
+        "rank": 3,
+        "raw_score": 19.761002,
+        "rrf_contribution": 0.015873015873015872
+      },
+      "dense": {
+        "present": true,
+        "rank": 5,
+        "raw_score": 0.7622793,
+        "rrf_contribution": 0.015384615384615385
+      },
+      "provenance": {
+        "passage_key": "c95fa67ff09a49666ee2640e5f34963bcc08e2e8036ccdc7e2c689e7e539e037",
+        "text": "This may be particularly relevant to improve lower limb strength and power. Furthermore, understanding the intermuscle differences emphasizes the necessity of a balanced training program that targets both the VM and VL, as imbalances between these muscles can contribute to knee instability [27]. Furthermore, if there is a need to increase the muscle activity of the vastus medialis in the nondominant leg to enhance stability during bipedal functional movements in rehabilitation programs, it is recommended to incorporate resisted nonjump plyometrics at 60° or 90° knee flexion angles. This approach can contribute to a more efficient and effective recovery process.\n\nRegarding the impact of knee flexion angle on strength, power, and work during both the concentric and eccentric phases of a resisted plyometric exercise without jumping, the results demonstrated a significant advantage for the 90° knee flexion position across multiple parameters, including mean force, mean power, and mean work during both phases. These findings align with the trends observed in previous studies [28,29], which have reported increased force production and power generation at greater knee flexion angles. Additionally, our results are consistent with the biomechanical principles governing muscle contraction, suggesting that the length–tension relationship and muscle architecture play pivotal roles in force and power output [30]. Indeed, a greater knee flexion angle enhances the length–tension relationship of the muscle fibers, enabling them to generate force more effectively [31,32]. This mechanical advantage achieved at 90° knee flexion led to improved power generation and work output. Furthermore, at 90° of knee flexion, the patella’s position enhances the leverage and mechanical advantage of the quadriceps muscles, including the vastus medialis and lateralis. This improved leverage allows the muscles to generate more force.",
+        "document_canonical_key": "doi:10.3390/s24010044",
+        "document_version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643",
+        "title": "Impact of Starting Knee Flexion Angle on Muscle Activity and Performance during Plyometrics without Jumping",
+        "language": "en",
+        "chunker_revision": "structure-v1.1.b19e0939b5de",
+        "passage_ordinal": 13,
+        "token_count": 330,
+        "document_type": "journal_article",
+        "content_sha256": "b6c06d5da4d488c6f8285143cc8d3282439b0d0d978599bdfa8c949f67f13c17",
+        "section_key": "0e28cda5ac0ce507229df57c6f28a5d04b6aabf51cf94f17f1cd954deafd5adc",
+        "section_path": "4",
+        "section_title": "4. Discussion",
+        "primary_source_anchor": "jats:/body[1]/sec[4]/p[3]",
+        "source_spans": [
+          {
+            "source_order": 0,
+            "paragraph_key": "0d2456cf2b97bc6a401c967667b1e9d670648aa412b08c4884760f3a44acd7e6",
+            "paragraph_source_anchor": "jats:/body[1]/sec[4]/p[3]",
+            "start_char": 2407,
+            "end_char": 2482
+          },
+          {
+            "source_order": 1,
+            "paragraph_key": "0d2456cf2b97bc6a401c967667b1e9d670648aa412b08c4884760f3a44acd7e6",
+            "paragraph_source_anchor": "jats:/body[1]/sec[4]/p[3]",
+            "start_char": 2483,
+            "end_char": 2703
+          },
+          {
+            "source_order": 2,
+            "paragraph_key": "0d2456cf2b97bc6a401c967667b1e9d670648aa412b08c4884760f3a44acd7e6",
+            "paragraph_source_anchor": "jats:/body[1]/sec[4]/p[3]",
+            "start_char": 2704,
+            "end_char": 2995
+          },
+          {
+            "source_order": 3,
+            "paragraph_key": "0d2456cf2b97bc6a401c967667b1e9d670648aa412b08c4884760f3a44acd7e6",
+            "paragraph_source_anchor": "jats:/body[1]/sec[4]/p[3]",
+            "start_char": 2996,
+            "end_char": 3076
+          },
+          {
+            "source_order": 4,
+            "paragraph_key": "c886e163498c4c94a7842628d75beab34b938c34effbeeec8aee79d1a42892af",
+            "paragraph_source_anchor": "jats:/body[1]/sec[4]/p[4]",
+            "start_char": 0,
+            "end_char": 1260
+          }
+        ],
+        "doi": "10.3390/s24010044",
+        "pmid": "38202906",
+        "pmcid": "PMC10780924",
+        "source_system": "europe_pmc",
+        "source_external_id": "PMC10780924"
+      }
+    },
+    {
+      "passage_key": "a2a28740ccd4e71ab85adc2970a962e5ab7ead39563ff9d217f9b8dfed84c877",
+      "final_rank": 5,
+      "rrf_score": 0.03125,
+      "lexical": {
+        "present": true,
+        "rank": 4,
+        "raw_score": 17.20868,
+        "rrf_contribution": 0.015625
+      },
+      "dense": {
+        "present": true,
+        "rank": 4,
+        "raw_score": 0.77090997,
+        "rrf_contribution": 0.015625
+      },
+      "provenance": {
+        "passage_key": "a2a28740ccd4e71ab85adc2970a962e5ab7ead39563ff9d217f9b8dfed84c877",
+        "text": "Our findings suggest that initiating resisted plyometric exercises without jumping at a 90° knee flexion position results in significantly increased muscle activity in both the VM and VL muscles, regardless of limb dominance. Moreover, we observed substantial intermuscle differences, with the VM in the ND leg displaying higher activation levels at both 60° and 90° knee flexion positions. Furthermore, our investigation revealed that starting the exercises from a 90° knee flexion position led to significantly greater levels of strength, power, and work during the concentric–eccentric phases of the resisted plyometric exercise without jumping. These findings emphasize the importance of knee flexion position in tailoring resisted plyometric without jumping training programs to optimize muscle engagement and functional performance.",
+        "document_canonical_key": "doi:10.3390/s24010044",
+        "document_version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643",
+        "title": "Impact of Starting Knee Flexion Angle on Muscle Activity and Performance during Plyometrics without Jumping",
+        "language": "en",
+        "chunker_revision": "structure-v1.1.b19e0939b5de",
+        "passage_ordinal": 15,
+        "token_count": 133,
+        "document_type": "journal_article",
+        "content_sha256": "a1570eaa7b7c2c6f187e1aa357cace339d05cd0117a0eb02db31013f2c9743ae",
+        "section_key": "7a0ec5983b131547dedc63ce228c992d5d02e34fd1e0a5365dac81dd5f61a138",
+        "section_path": "5",
+        "section_title": "5. Conclusions",
+        "primary_source_anchor": "jats:/body[1]/sec[5]/p[1]",
+        "source_spans": [
+          {
+            "source_order": 0,
+            "paragraph_key": "7e7f41c5eb15d7ccac13d9eabec93967988d78537551b5bbc5763d864a798f61",
+            "paragraph_source_anchor": "jats:/body[1]/sec[5]/p[1]",
+            "start_char": 0,
+            "end_char": 838
+          }
+        ],
+        "doi": "10.3390/s24010044",
+        "pmid": "38202906",
+        "pmcid": "PMC10780924",
+        "source_system": "europe_pmc",
+        "source_external_id": "PMC10780924"
+      }
+    },
+    {
+      "passage_key": "a73f69fb8c9eb8d3a4c266f8af55febd81c892052838fe2577fd8a2f7e79ca86",
+      "final_rank": 6,
+      "rrf_score": 0.030309988518943745,
+      "lexical": {
+        "present": true,
+        "rank": 5,
+        "raw_score": 15.790527,
+        "rrf_contribution": 0.015384615384615385
+      },
+      "dense": {
+        "present": true,
+        "rank": 7,
+        "raw_score": 0.73016816,
+        "rrf_contribution": 0.014925373134328358
+      },
+      "provenance": {
+        "passage_key": "a73f69fb8c9eb8d3a4c266f8af55febd81c892052838fe2577fd8a2f7e79ca86",
+        "text": "This study aimed to (i) investigate the effects of resisted plyometric exercise without jumping at two knee flexion positions (60 and 90 degrees) on the muscle activity of the vastus muscles with regard to limb dominance and (ii) assess strength, power, and work during the concentric–eccentric phases of resisted plyometric exercise without jumping. The results revealed a significantly higher level of muscle activity in the VM and VL muscles when the exercises were performed at a 90-degree knee flexion position in both the D and ND legs. Additionally, significant intermuscle differences were observed at both 60° and 90° knee flexion positions, with higher values recorded for VM in the ND leg. Regarding strength, power, and work metrics, significantly higher values were observed when initiating the exercises from a 90-degree knee flexion position. This encompassed concentric mean strength, mean power, and mean work, as well as eccentric mean strength and mean work. These findings offer valuable insights into the influence of knee flexion position on muscle activity and performance during resisted plyometric exercises without jumping. This strategy aims to harness the SSC by training muscles to rapidly stretch and contract forcefully, resulting in significant improvements in explosive strength and reactive ability, all without the need for jumps. This approach reduces joint impact, which may have practical implications for designing tailored training programs and optimizing lower limb muscle engagement and output.",
+        "document_canonical_key": "doi:10.3390/s24010044",
+        "document_version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643",
+        "title": "Impact of Starting Knee Flexion Angle on Muscle Activity and Performance during Plyometrics without Jumping",
+        "language": "en",
+        "chunker_revision": "structure-v1.1.b19e0939b5de",
+        "passage_ordinal": 10,
+        "token_count": 264,
+        "document_type": "journal_article",
+        "content_sha256": "fdbd2ce702bb831806cf4beaaf670bb4385f72fc85074bd6a4b933b5bdfc4884",
+        "section_key": "0e28cda5ac0ce507229df57c6f28a5d04b6aabf51cf94f17f1cd954deafd5adc",
+        "section_path": "4",
+        "section_title": "4. Discussion",
+        "primary_source_anchor": "jats:/body[1]/sec[4]/p[1]",
+        "source_spans": [
+          {
+            "source_order": 0,
+            "paragraph_key": "4ac62484c4a56b1995ce0a4b5d36dccb5ec77d2923ba00f824e88266c29fff8e",
+            "paragraph_source_anchor": "jats:/body[1]/sec[4]/p[1]",
+            "start_char": 0,
+            "end_char": 1536
+          }
+        ],
+        "doi": "10.3390/s24010044",
+        "pmid": "38202906",
+        "pmcid": "PMC10780924",
+        "source_system": "europe_pmc",
+        "source_external_id": "PMC10780924"
+      }
+    },
+    {
+      "passage_key": "d244797e4f462276cddf0ff7a723f617d71c2633d4e67ff1f48c45bb4e32e638",
+      "final_rank": 7,
+      "rrf_score": 0.029418126757516764,
+      "lexical": {
+        "present": true,
+        "rank": 7,
+        "raw_score": 15.031133,
+        "rrf_contribution": 0.014925373134328358
+      },
+      "dense": {
+        "present": true,
+        "rank": 9,
+        "raw_score": 0.67874527,
+        "rrf_contribution": 0.014492753623188406
+      },
+      "provenance": {
+        "passage_key": "d244797e4f462276cddf0ff7a723f617d71c2633d4e67ff1f48c45bb4e32e638",
+        "text": "A critical aspect often overlooked in plyometric studies is the consideration of lower limb dominance and the difference in muscle activity or performance between repeated concentric and eccentric phases. The dominant (D) limb, being more adept at generating force and power [7,8], may respond differently to training stimuli than the nondominant (ND) limb. This discrepancy in adaptation could lead to imbalances, potentially affecting performance and predisposing athletes to injury [9]. Examining the effects of plyometrics without jumping on lower limb muscular activity, and also in strength, power, and work during the concentric–eccentric phases with respect to limb dominance may provide valuable insights into how athletes respond individually to such training, ultimately guiding personalized training programs for improved performance outcomes.\n\nTherefore, this study aimed to (i) investigate the effects of a resisted plyometric exercise without jumping at two knee flexion positions (60 and 90 degrees) on the muscle activity of the vastus muscles with regard to limb dominance and (ii) assess strength, power, and work during the concentric–eccentric phases of a resisted plyometric exercise without jumping. We hypothesize that in a resisted plyometric exercise without jumping, there will be significant differences in muscle activity of the vastus muscles between dominant and nondominant limbs at both 60 and 90 degrees of knee flexion. Additionally, we expect to find variations in strength, power, and work output during the concentric–eccentric phases between the two knee flexion positions, with one position potentially favoring greater performance metrics. These findings could have significant implications for athletes, coaches, and practitioners seeking to maximize the benefits of plyometric exercises while minimizing the risk of asymmetry and landing forces.",
+        "document_canonical_key": "doi:10.3390/s24010044",
+        "document_version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643",
+        "title": "Impact of Starting Knee Flexion Angle on Muscle Activity and Performance during Plyometrics without Jumping",
+        "language": "en",
+        "chunker_revision": "structure-v1.1.b19e0939b5de",
+        "passage_ordinal": 2,
+        "token_count": 316,
+        "document_type": "journal_article",
+        "content_sha256": "d320f87e5384d56f7fa0fd960c52bf7a623f76377bfca1660ba3f43dfdf3b178",
+        "section_key": "2e3623f07f53a906a81532bf958812c73900ef7e72e7c94fa0e431e81a49ccb8",
+        "section_path": "1",
+        "section_title": "1. Introduction",
+        "primary_source_anchor": "jats:/body[1]/sec[1]/p[2]",
+        "source_spans": [
+          {
+            "source_order": 0,
+            "paragraph_key": "10b04e6012cf326ebcb8d2660ab90904da30b76b1cab72e5a097f50e41d5c3ac",
+            "paragraph_source_anchor": "jats:/body[1]/sec[1]/p[2]",
+            "start_char": 0,
+            "end_char": 855
+          },
+          {
+            "source_order": 1,
+            "paragraph_key": "388211489ac4a6ab3a4579822ea2d4d21c8d6956091c7d400bb6928041c45cf1",
+            "paragraph_source_anchor": "jats:/body[1]/sec[1]/p[3]",
+            "start_char": 0,
+            "end_char": 1031
+          }
+        ],
+        "doi": "10.3390/s24010044",
+        "pmid": "38202906",
+        "pmcid": "PMC10780924",
+        "source_system": "europe_pmc",
+        "source_external_id": "PMC10780924"
+      }
+    },
+    {
+      "passage_key": "5f373e88e61190196f81441dbcbfaf45e75f6237e227fec3f92615c7a2dd19d0",
+      "final_rank": 8,
+      "rrf_score": 0.02904040404040404,
+      "lexical": {
+        "present": true,
+        "rank": 12,
+        "raw_score": 10.490049,
+        "rrf_contribution": 0.013888888888888888
+      },
+      "dense": {
+        "present": true,
+        "rank": 6,
+        "raw_score": 0.73708206,
+        "rrf_contribution": 0.015151515151515152
+      },
+      "provenance": {
+        "passage_key": "5f373e88e61190196f81441dbcbfaf45e75f6237e227fec3f92615c7a2dd19d0",
+        "text": "The comparison of RMS sEMG between the plyometric exercise without jumping at 60° and 90° of knee flexion is presented in Figure 3. The results showed significantly higher values in D VM 47.4%, VL 46.9% at 90° (Figure 3a, Table 1), and ND VM 54.8%, VL 48.1% (Figure 3b, Table 1). Additionally, the interlimb comparison of vastus muscle RMS sEMG (i.e., between D and ND leg) revealed no significant differences (Figure 4a,c, Table 2). However, the intermuscle differences (i.e., between VM and VL) revealed higher values at both 60° (VM 50.4%) and 90° (VM 54.8%) exclusively in the ND leg (Figure 4b,d, Table 2).\n\nThe comparison of strength, power, and work between the two knee positions (i.e., 60° and 90°) during the concentric and eccentric phases of the resisted plyometric exercise without jumping is presented in Figure 5. Significantly higher differences at 90° were observed in mean force 69.9% (Figure 5a, Table 3), mean power 5.2 ± 1.8 W/kg (Figure 5b, Table 3), and mean work 1.1 J/kg (Figure 5c, Table 3) during the concentric phase, and in mean force 77.5% (Figure 5a, Table 3), and mean work 0.9 J/kg (Figure 5c, Table 3) during the eccentric phase.",
+        "document_canonical_key": "doi:10.3390/s24010044",
+        "document_version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643",
+        "title": "Impact of Starting Knee Flexion Angle on Muscle Activity and Performance during Plyometrics without Jumping",
+        "language": "en",
+        "chunker_revision": "structure-v1.1.b19e0939b5de",
+        "passage_ordinal": 9,
+        "token_count": 314,
+        "document_type": "journal_article",
+        "content_sha256": "b5a25739e595c0085f535f51f03c21cdd1bce9c35cfa6d33d87713c80c07e545",
+        "section_key": "c8d282be7b19cf8a5c5c1c6f049134fed9a2f3733a0e26d7f7ec1752fe1b5a08",
+        "section_path": "3",
+        "section_title": "3. Results",
+        "primary_source_anchor": "jats:/body[1]/sec[3]/p[1]",
+        "source_spans": [
+          {
+            "source_order": 0,
+            "paragraph_key": "cf1774b4ba302a060bd9f9b97d9d7d864236c8bc14f644614b959dca1bb8cd57",
+            "paragraph_source_anchor": "jats:/body[1]/sec[3]/p[1]",
+            "start_char": 0,
+            "end_char": 611
+          },
+          {
+            "source_order": 1,
+            "paragraph_key": "cdd922b2607e207dec0531ed29d7bd5013a69b7c16658ba2b71601e1546de194",
+            "paragraph_source_anchor": "jats:/body[1]/sec[3]/p[2]",
+            "start_char": 0,
+            "end_char": 550
+          }
+        ],
+        "doi": "10.3390/s24010044",
+        "pmid": "38202906",
+        "pmcid": "PMC10780924",
+        "source_system": "europe_pmc",
+        "source_external_id": "PMC10780924"
+      }
+    },
+    {
+      "passage_key": "3da0f42019e56d73cc2b3e8a6f860c4d53eed5fee4fcc1d58f77b195b20da41e",
+      "final_rank": 9,
+      "rrf_score": 0.028991596638655463,
+      "lexical": {
+        "present": true,
+        "rank": 10,
+        "raw_score": 13.299014,
+        "rrf_contribution": 0.014285714285714285
+      },
+      "dense": {
+        "present": true,
+        "rank": 8,
+        "raw_score": 0.70122564,
+        "rrf_contribution": 0.014705882352941176
+      },
+      "provenance": {
+        "passage_key": "3da0f42019e56d73cc2b3e8a6f860c4d53eed5fee4fcc1d58f77b195b20da41e",
+        "text": "The concentric and eccentric phases of muscle contraction each exhibit distinct biomechanical characteristics. During the concentric phase, the observed increases in mean force, mean power, and mean work at 90° knee flexion suggest that this angle offers a biomechanically favorable starting position for force generation. Conversely, during the eccentric phase, the increased mean force and mean work at 90° may indicate enhanced force absorption and control, which are crucial for eccentric muscle actions [33]. Our findings have significant relevance for exercise prescription, training regimens, and rehabilitation programs. Coaches and trainers can optimize training protocols by incorporating resisted plyometric exercises without jumping with a 90° knee flexion angle to maximize force, power, and work output. Furthermore, rehabilitation programs for individuals recovering from lower limb injuries may strategically utilize the 90° knee flexion position to enhance force absorption and control, which are vital components of injury prevention and rehabilitation [34]. This knowledge provides a valuable framework for tailoring resisted plyometric exercise without jumping interventions to specific performance and rehabilitation goals, thereby facilitating more effective and efficient training and recovery.\n\nCertain limitations must be addressed. In the initial instance, it is imperative to acknowledge the bilateral evaluation of strength, power, and work, which imposes constraints on the potential for comparative analysis across limbs. To mitigate this constraint, forthcoming investigations may contemplate incorporating metrics that discriminate between unilateral and bilateral assessments of strength, power, and work. Secondly, the absence of a sex-based analysis among study subjects has the potential to restrict the extent to which the study’s conclusions can be extrapolated. An alternative course of action would involve conducting a sex-stratified analysis to systematically explore any divergences in outcomes, given that the available data are insufficient for deriving such conclusions. It is important to note that the normalization to body weight aimed to abstract from sex-specific effects.",
+        "document_canonical_key": "doi:10.3390/s24010044",
+        "document_version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643",
+        "title": "Impact of Starting Knee Flexion Angle on Muscle Activity and Performance during Plyometrics without Jumping",
+        "language": "en",
+        "chunker_revision": "structure-v1.1.b19e0939b5de",
+        "passage_ordinal": 14,
+        "token_count": 354,
+        "document_type": "journal_article",
+        "content_sha256": "2d98973a3e96bf125cfa82e4ceac38099bf265e462fd7129fd4cd58b1b1231f7",
+        "section_key": "0e28cda5ac0ce507229df57c6f28a5d04b6aabf51cf94f17f1cd954deafd5adc",
+        "section_path": "4",
+        "section_title": "4. Discussion",
+        "primary_source_anchor": "jats:/body[1]/sec[4]/p[5]",
+        "source_spans": [
+          {
+            "source_order": 0,
+            "paragraph_key": "868ccecca2cfc8ed18af750acdb04deeeda7fb2b6109db131f7ea37a8f510ffa",
+            "paragraph_source_anchor": "jats:/body[1]/sec[4]/p[5]",
+            "start_char": 0,
+            "end_char": 1317
+          },
+          {
+            "source_order": 1,
+            "paragraph_key": "86c7337a4c31d2021b00d9d7c54541b340e056edb1b69b2b3e3767168d8f61cf",
+            "paragraph_source_anchor": "jats:/body[1]/sec[4]/p[6]",
+            "start_char": 0,
+            "end_char": 904
+          }
+        ],
+        "doi": "10.3390/s24010044",
+        "pmid": "38202906",
+        "pmcid": "PMC10780924",
+        "source_system": "europe_pmc",
+        "source_external_id": "PMC10780924"
+      }
+    },
+    {
+      "passage_key": "3c1221391b9f47231c9e38b28253127bedfb1efe21e9d0c42486962d2c517e93",
+      "final_rank": 10,
+      "rrf_score": 0.028370221327967807,
+      "lexical": {
+        "present": true,
+        "rank": 11,
+        "raw_score": 11.839032,
+        "rrf_contribution": 0.014084507042253521
+      },
+      "dense": {
+        "present": true,
+        "rank": 10,
+        "raw_score": 0.6663376,
+        "rrf_contribution": 0.014285714285714285
+      },
+      "provenance": {
+        "passage_key": "3c1221391b9f47231c9e38b28253127bedfb1efe21e9d0c42486962d2c517e93",
+        "text": "In a cross-sectional study, an evaluation was conducted that encompassed the quantification of muscle amplitude, strength, power, and work levels in the lower limbs of a group of healthy subjects. This assessment was conducted during a resisted plyometric exercise without jumping, which involved two different starting positions: one at 60° and another at 90° of knee flexion. This experimental setup was designed to investigate the impact of the two knee flexion angles on the measured variables within each individual, employing a paired observation approach to enhance the precision of the analysis and minimize intersubject variability. After completing an anthropometric evaluation, participants underwent evaluation using a functional electromechanical dynamometer in tonic mode, with a load equivalent to 80% of their body weight. During these assessments, wireless surface electromyography electrodes were applied.\n\nTo enhance the reliability of the testing, a familiarization session was conducted. During this session, participants were provided with a detailed explanation of the exercise, and they performed three practice trials. Additionally, participants were instructed to refrain from engaging in physical training for a period of 24 h preceding the testing session.",
+        "document_canonical_key": "doi:10.3390/s24010044",
+        "document_version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643",
+        "title": "Impact of Starting Knee Flexion Angle on Muscle Activity and Performance during Plyometrics without Jumping",
+        "language": "en",
+        "chunker_revision": "structure-v1.1.b19e0939b5de",
+        "passage_ordinal": 3,
+        "token_count": 209,
+        "document_type": "journal_article",
+        "content_sha256": "f7edf6d87a6a73b2e71315faf02edbac8c46d8cd52e4de8cb7f30e91fafc1571",
+        "section_key": "d8708de24f5e911afca0517c5c540e4a847c1915979af65623d7866525fdf712",
+        "section_path": "2.1",
+        "section_title": "2.1. Experimental Design",
+        "primary_source_anchor": "jats:/body[1]/sec[2]/sec[1]/p[1]",
+        "source_spans": [
+          {
+            "source_order": 0,
+            "paragraph_key": "a27a6c137a891b48a6a2baa12e6235896ee898d6dcd28f5a0ad3590fec1fcfd5",
+            "paragraph_source_anchor": "jats:/body[1]/sec[2]/sec[1]/p[1]",
+            "start_char": 0,
+            "end_char": 923
+          },
+          {
+            "source_order": 1,
+            "paragraph_key": "883739663f4e9fe76c6d42481b2a8d96d7afa20794bc598e310730f59b9dc3d4",
+            "paragraph_source_anchor": "jats:/body[1]/sec[2]/sec[1]/p[2]",
+            "start_char": 0,
+            "end_char": 359
+          }
+        ],
+        "doi": "10.3390/s24010044",
+        "pmid": "38202906",
+        "pmcid": "PMC10780924",
+        "source_system": "europe_pmc",
+        "source_external_id": "PMC10780924"
+      }
+    },
+    {
+      "passage_key": "437b1253f3d061912847c45637aefdd16ac52878be0f887aabe43d86a3ccc1f3",
+      "final_rank": 11,
+      "rrf_score": 0.02819138376017471,
+      "lexical": {
+        "present": true,
+        "rank": 9,
+        "raw_score": 13.494728,
+        "rrf_contribution": 0.014492753623188406
+      },
+      "dense": {
+        "present": true,
+        "rank": 13,
+        "raw_score": 0.6405352,
+        "rrf_contribution": 0.0136986301369863
+      },
+      "provenance": {
+        "passage_key": "437b1253f3d061912847c45637aefdd16ac52878be0f887aabe43d86a3ccc1f3",
+        "text": "Considering their significance for knee stability, sEMG activity of the vastus medialis (VM) and vastus lateralis (VL) was assessed using the Trigno Wireless System (Delsys, Natick, MA, USA). Prior to testing, skin preparation included shaving, abrasion, and alcohol cleaning, followed by the application of the Trigno Flex sensor, featuring a sample rate of 1950 Hz for sEMG signals and 148 Hz for the accelerometer. Electrode placement followed the “Surface Electromyography for the Noninvasive Assessment of Muscles” (SENIAM) recommendations http://www.seniam.org (accessed on 20 March 2023) for the D and ND leg and was secured with 3M adhesive tape (3M, Canada). The sEMG signals were then amplified (input impedance 120 kΩ, signal-to-noise ratio 750, interelectrode distance 10 mm) within a gain range of 500–5000 and transmitted wirelessly to a computer through the Trigno Base Station. The sEMG data were processed using EMGworks® software (Delsys, Natick, MA, USA) and filtered with a 10 Hz high-pass and 500 Hz low-pass second-order infinite impulse response Butterworth filter. For sEMG data analysis during the exercises, the root mean square (RMS) method was employed, applying a 60 ms moving window to calculate RMS values, in accordance with established practices [11].\n\nDuring the resisted plyometric exercise without jumping, sEMG of the muscles was concurrently recorded with the acceleration detected by the Trigno Flex sensor located on the femur’s greater trochanter. A pilot session was conducted to assess the acceleration signals during the exercise, leading to the identification of an initial peak corresponding to the initiation of the exercise repetition and another peak observed at the conclusion of the exercise repetition. The RMS sEMG data were expressed as a percentage of the maximum voluntary contraction (MVC) [12] utilizing the highest sEMG recorded during the resisted plyometric without jumping trials at 5 cm/s [13].",
+        "document_canonical_key": "doi:10.3390/s24010044",
+        "document_version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643",
+        "title": "Impact of Starting Knee Flexion Angle on Muscle Activity and Performance during Plyometrics without Jumping",
+        "language": "en",
+        "chunker_revision": "structure-v1.1.b19e0939b5de",
+        "passage_ordinal": 7,
+        "token_count": 376,
+        "document_type": "journal_article",
+        "content_sha256": "eb1bc01cdf288a72f59ded9144693697b36c5f926624eb7ae7c27853a47fc0c3",
+        "section_key": "95e95898429d46a661a449737b0d9a71ab74aa3a4211d5fffb1da2c89710e01c",
+        "section_path": "2.3.3",
+        "section_title": "2.3.3. Surface Electromyography (sEMG) (Figure 2)",
+        "primary_source_anchor": "jats:/body[1]/sec[2]/sec[3]/sec[3]/p[1]",
+        "source_spans": [
+          {
+            "source_order": 0,
+            "paragraph_key": "884c2ceb7b96093477d2b5749934eab620586a8cf48abf2fcfc919780740e851",
+            "paragraph_source_anchor": "jats:/body[1]/sec[2]/sec[3]/sec[3]/p[1]",
+            "start_char": 0,
+            "end_char": 1284
+          },
+          {
+            "source_order": 1,
+            "paragraph_key": "ff4da6b1f3f2c9c7fe689a706c8a44ecec96643f312d207762fcb166164c8f08",
+            "paragraph_source_anchor": "jats:/body[1]/sec[2]/sec[3]/sec[3]/p[2]",
+            "start_char": 0,
+            "end_char": 671
+          }
+        ],
+        "doi": "10.3390/s24010044",
+        "pmid": "38202906",
+        "pmcid": "PMC10780924",
+        "source_system": "europe_pmc",
+        "source_external_id": "PMC10780924"
+      }
+    },
+    {
+      "passage_key": "4028f46395328d7c94a3f5bce085ae356b552234edff5b6fcb233154f74f14c7",
+      "final_rank": 12,
+      "rrf_score": 0.026754075124025514,
+      "lexical": {
+        "present": true,
+        "rank": 8,
+        "raw_score": 14.998025,
+        "rrf_contribution": 0.014705882352941176
+      },
+      "dense": {
+        "present": true,
+        "rank": 23,
+        "raw_score": 0.5921731,
+        "rrf_contribution": 0.012048192771084338
+      },
+      "provenance": {
+        "passage_key": "4028f46395328d7c94a3f5bce085ae356b552234edff5b6fcb233154f74f14c7",
+        "text": "Plyometric training, characterized by the rapid stretching and contracting of muscles referred to as the stretch–shortening cycle (SSC), has been extensively studied for its efficacy in enhancing athletic performance and improving lower limb power. Performing plyometric exercises has the potential to enhance neuromuscular coordination, thereby improving neural efficiency. As a result, plyometric training can elevate neuromuscular performance and motor control, making neuromuscular coordination more automated [1]. Plyometric exercises enable muscles to generate force by enhancing the musculoskeletal system’s capacity to handle greater workloads without activating the Golgi tendon organ. Through plyometric training, neuromuscular coordination is enhanced by conditioning the nervous system, leading to the automation of movements during activities, known as the “training effect” [1]. This process reinforces motor patterns and automates actions, ultimately enhancing neural efficiency and boosting neuromuscular performance. However, most of the existing research has focused on jump plyometrics [2,3,4,5], where landing reaction forces must be dissipated among lower limb articulations. In contrast, the investigation of resisted plyometrics without jumping, devoid of such landing forces, remains relatively limited. In this context, exploring the effects of SSC to increase muscle performance during resisted plyometrics without jumping at different knee flexion angles becomes particularly relevant to identify optimal training strategies for athletes and active individuals. Starting at different knee angles can be beneficial for optimizing control, especially when the exercise is designed to target specific muscle groups [6]. Higher EMG activity at varying knee flexion angles may indicate increased activation or engagement of specific muscles at those angles. The usefulness of this information depends on the context. For instance, if the exercise aims to target these specific muscles, greater EMG activity can be advantageous. However, the choice of knee flexion angle should align with the training objectives and requirements. Therefore, it is essential to investigate the effects of different knee angles and movement phases in resisted nonjump plyometric exercises, not only from the perspective of EMG amplitude but also strength, power, and workload analysis.",
+        "document_canonical_key": "doi:10.3390/s24010044",
+        "document_version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643",
+        "title": "Impact of Starting Knee Flexion Angle on Muscle Activity and Performance during Plyometrics without Jumping",
+        "language": "en",
+        "chunker_revision": "structure-v1.1.b19e0939b5de",
+        "passage_ordinal": 1,
+        "token_count": 385,
+        "document_type": "journal_article",
+        "content_sha256": "040315d6bc712c33950af8d9c12f1f50078e1b21f197205116f34c20ccbdc1b6",
+        "section_key": "2e3623f07f53a906a81532bf958812c73900ef7e72e7c94fa0e431e81a49ccb8",
+        "section_path": "1",
+        "section_title": "1. Introduction",
+        "primary_source_anchor": "jats:/body[1]/sec[1]/p[1]",
+        "source_spans": [
+          {
+            "source_order": 0,
+            "paragraph_key": "16eea6a09007582ab7783e04af4e5335a0350d015a508227ec9212a3084a6759",
+            "paragraph_source_anchor": "jats:/body[1]/sec[1]/p[1]",
+            "start_char": 0,
+            "end_char": 2388
+          }
+        ],
+        "doi": "10.3390/s24010044",
+        "pmid": "38202906",
+        "pmcid": "PMC10780924",
+        "source_system": "europe_pmc",
+        "source_external_id": "PMC10780924"
+      }
+    },
+    {
+      "passage_key": "9cbd015305b222b8ed8c37eb3b0ed0bb18b9847e13aaec41ae1f7410e9be7abe",
+      "final_rank": 13,
+      "rrf_score": 0.02667140825035562,
+      "lexical": {
+        "present": true,
+        "rank": 16,
+        "raw_score": 6.655075,
+        "rrf_contribution": 0.013157894736842105
+      },
+      "dense": {
+        "present": true,
+        "rank": 14,
+        "raw_score": 0.6323482,
+        "rrf_contribution": 0.013513513513513514
+      },
+      "provenance": {
+        "passage_key": "9cbd015305b222b8ed8c37eb3b0ed0bb18b9847e13aaec41ae1f7410e9be7abe",
+        "text": "Edited by: Francois Hug, University of Nantes, France\n\nReviewed by: Martino V. Franchi, University of Nottingham, UK; Alexandre Fouré, Aix-Marseille University, France\n\n*Correspondence: Kuniaki Hirayama hirayama@aoni.waseda.jp\n\nThis article was submitted to Exercise Physiology, a section of the journal Frontiers in Physiology\n\nThe purpose of the present study was to elucidate how plyometric training improves stretch–shortening cycle (SSC) exercise performance in terms of muscle strength, tendon stiffness, and muscle–tendon behavior during SSC exercise. Eleven men were assigned to a training group and ten to a control group. Subjects in the training group performed depth jumps (DJ) using only the ankle joint for 12 weeks. Before and after the period, we observed reaction forces at foot, muscle–tendon behavior of the gastrocnemius, and electromyographic activities of the triceps surae and tibialis anterior during DJ. Maximal static plantar flexion strength and Achilles tendon stiffness were also determined. In the training group, maximal strength remained unchanged while tendon stiffness increased. The force impulse of DJ increased, with a shorter contact time and larger reaction force over the latter half of braking and initial half of propulsion phases. In the latter half of braking phase, the average electromyographic activity (mEMG) increased in the triceps surae and decreased in tibialis anterior, while fascicle behavior of the gastrocnemius remained unchanged. In the initial half of propulsion, mEMG of triceps surae and shortening velocity of gastrocnemius fascicle decreased, while shortening velocity of the tendon increased. These results suggest that the following mechanisms play an important role in improving SSC exercise performance through plyometric training: (1) optimization of muscle–tendon behavior of the agonists, associated with alteration in the neuromuscular activity during SSC exercise and increase in tendon stiffness and (2) decrease in the neuromuscular activity of antagonists during a counter movement.\n\nKeywords: muscle–tendon interaction, fascicle, ultrasonography, electromyography, magnetic resonance imaging\n\nReceived 2016 Sep 5; Accepted 2017 Jan 9; Collection date 2017.",
+        "document_canonical_key": "doi:10.3389/fphys.2017.00016",
+        "document_version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e",
+        "title": "Plyometric Training Favors Optimizing Muscle–Tendon Behavior during Depth Jumping",
+        "language": "en",
+        "chunker_revision": "structure-v1.1.b19e0939b5de",
+        "passage_ordinal": 0,
+        "token_count": 383,
+        "document_type": "journal_article",
+        "content_sha256": "d378603676779c2c65f252bfba50f26290ffe3f6187a7b7ca45a15ab5dbab68a",
+        "section_key": null,
+        "section_path": null,
+        "section_title": null,
+        "primary_source_anchor": "jats:/front[1]/article-meta[1]/author-notes[1]/fn[1]/p[1]",
+        "source_spans": [
+          {
+            "source_order": 0,
+            "paragraph_key": "e397db61d16f2d00f1fa1d3dd05c9d193564ba884783ef71c0bfcfe15b8e2b91",
+            "paragraph_source_anchor": "jats:/front[1]/article-meta[1]/author-notes[1]/fn[1]/p[1]",
+            "start_char": 0,
+            "end_char": 53
+          },
+          {
+            "source_order": 1,
+            "paragraph_key": "e403510cbf3cb14e12b509147325a237b5c7be287bc1928df24b905b09abf0d9",
+            "paragraph_source_anchor": "jats:/front[1]/article-meta[1]/author-notes[1]/fn[2]/p[1]",
+            "start_char": 0,
+            "end_char": 112
+          },
+          {
+            "source_order": 2,
+            "paragraph_key": "b1809cbb79a569acc2682c23247f77dfb603008fc30787886c79baae98821ce2",
+            "paragraph_source_anchor": "jats:/front[1]/article-meta[1]/author-notes[1]/fn[3]/p[1]",
+            "start_char": 0,
+            "end_char": 57
+          },
+          {
+            "source_order": 3,
+            "paragraph_key": "080d505cd92d93d0c3bd90e611ca05d14824a997658ff65f0333dde78d94a917",
+            "paragraph_source_anchor": "jats:/front[1]/article-meta[1]/author-notes[1]/fn[4]/p[1]",
+            "start_char": 0,
+            "end_char": 99
+          },
+          {
+            "source_order": 4,
+            "paragraph_key": "33d62ab1bb2cf3523f052341d1f7033499f59a821ad22048d3f8d829b5aea071",
+            "paragraph_source_anchor": "jats:/front[1]/article-meta[1]/abstract[1]/p[1]",
+            "start_char": 0,
+            "end_char": 1729
+          },
+          {
+            "source_order": 5,
+            "paragraph_key": "edf08f5c5074ae53ddf16ba95fd4cce4fc716baefb60b971adaba6c71602628f",
+            "paragraph_source_anchor": "jats:/front[1]/article-meta[1]/abstract[1]/sec[1]/p[1]",
+            "start_char": 0,
+            "end_char": 108
+          },
+          {
+            "source_order": 6,
+            "paragraph_key": "5af45229b4212294ef3c4132c42091a1e56c59eef48218e594686a4b5e1de668",
+            "paragraph_source_anchor": "jats:/front[1]/notes[1]/sec[1]/p[1]",
+            "start_char": 0,
+            "end_char": 63
+          }
+        ],
+        "doi": "10.3389/fphys.2017.00016",
+        "pmid": "28179885",
+        "pmcid": "PMC5263151",
+        "source_system": "europe_pmc",
+        "source_external_id": "PMC5263151"
+      }
+    },
+    {
+      "passage_key": "b96d0bddf9f3c6ca0bf443f03ac498c71f713d74e6e8768c75769e43ad79953a",
+      "final_rank": 14,
+      "rrf_score": 0.026279628993473032,
+      "lexical": {
+        "present": true,
+        "rank": 22,
+        "raw_score": 5.3507214,
+        "rrf_contribution": 0.012195121951219513
+      },
+      "dense": {
+        "present": true,
+        "rank": 11,
+        "raw_score": 0.66046596,
+        "rrf_contribution": 0.014084507042253521
+      },
+      "provenance": {
+        "passage_key": "b96d0bddf9f3c6ca0bf443f03ac498c71f713d74e6e8768c75769e43ad79953a",
+        "text": "In the 1st phase, no change was observed in the reaction force at the foot. Reduced neuromuscular activation of the tibialis anterior and an increase in mEMG of the triceps surae could have contributed to an increase in the net plantar flexion torque and to the reaction force at the foot. However, eccentric contraction of triceps surae fascicle observed before training changed to concentric contraction after training, diminishing the degree of force that the muscle group could generate. We should note that muscle–tendon behavior during the 1st phase should not be associated with tendon stiffness, because the tendon stiffness was determined under a relatively high-intensity condition (>50% maximal voluntary contraction). Consequently, net plantar flexion torque and reaction force at the foot may have remained unchanged after the training period.\n\nIn the 4th phase, no change was observed in averaged reaction force. Neuromuscular activation of the antagonistic tibialis anterior decreased in the Post-test. Because the activity of that muscle in the Pre-test was observed just prior to leaving the force plate, it is most likely to have resulted in dorsiflex of the foot away from the plate (see Figure 2). Therefore, the observed change would have had little effect on increasing reaction force.",
+        "document_canonical_key": "doi:10.3389/fphys.2017.00016",
+        "document_version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e",
+        "title": "Plyometric Training Favors Optimizing Muscle–Tendon Behavior during Depth Jumping",
+        "language": "en",
+        "chunker_revision": "structure-v1.1.b19e0939b5de",
+        "passage_ordinal": 21,
+        "token_count": 233,
+        "document_type": "journal_article",
+        "content_sha256": "f9faaea7effb3ff777b8aabe21af8496565b69bcb5394e145cfc1091386c4af1",
+        "section_key": "a3e42d52c44287446eef0453073c2c89d126b34b6e5790e7066749fe98b94a7c",
+        "section_path": "4.2",
+        "section_title": "Reasons that the reaction force during the 1st and 4th phases of DJ did not increase",
+        "primary_source_anchor": "jats:/body[1]/sec[4]/sec[2]/p[1]",
+        "source_spans": [
+          {
+            "source_order": 0,
+            "paragraph_key": "043006489fba73109554281b31fd5b4f6e71af0e700181ac023a8d90fbe51be1",
+            "paragraph_source_anchor": "jats:/body[1]/sec[4]/sec[2]/p[1]",
+            "start_char": 0,
+            "end_char": 856
+          },
+          {
+            "source_order": 1,
+            "paragraph_key": "bca6e35ed6cf947cd6891f4810170be912c94882cce5817ba7c08a372192adaf",
+            "paragraph_source_anchor": "jats:/body[1]/sec[4]/sec[2]/p[2]",
+            "start_char": 0,
+            "end_char": 449
+          }
+        ],
+        "doi": "10.3389/fphys.2017.00016",
+        "pmid": "28179885",
+        "pmcid": "PMC5263151",
+        "source_system": "europe_pmc",
+        "source_external_id": "PMC5263151"
+      }
+    },
+    {
+      "passage_key": "37ad148429ed0342fb2bc0e02fadc5194a4be1aa8f16bab1df8d433336a50144",
+      "final_rank": 15,
+      "rrf_score": 0.0261986301369863,
+      "lexical": {
+        "present": true,
+        "rank": 13,
+        "raw_score": 10.446768,
+        "rrf_contribution": 0.0136986301369863
+      },
+      "dense": {
+        "present": true,
+        "rank": 20,
+        "raw_score": 0.5969382,
+        "rrf_contribution": 0.0125
+      },
+      "provenance": {
+        "passage_key": "37ad148429ed0342fb2bc0e02fadc5194a4be1aa8f16bab1df8d433336a50144",
+        "text": "Lower limb strength, power, and work were evaluated using a functional electromechanical dynamometer (FEMD) (DynaSystem, Model Research, Spain) with a precision of 3 mm for displacement, 100 g for detected loads, a sampling frequency of 1000 Hz, and a speed range between 0.05 and 2.80 m/s. The resisted plyometric exercise without jumping involved an initial position with the participants seated with knee joints bent at two different starting positions: 60° (Figure 1a) and 90° (Figure 1b). The assessment encompassed an isokinetic mode at speeds of 5 cm/s (to determine maximum voluntary contraction) and a tonic mode at 80% of body weight (for resisted plyometric exercise without jumping). Both modalities have demonstrated high reliability [10].\n\nDuring the test, participants marked a consistent foot position on the floor to ensure repetition consistency. A secure vest was worn, where the dynamometer was attached at the xiphoid process. Participants completed three trials in the isokinetic mode and 20 trials in the isotonic mode (i.e., 10 at a knee starting position of 60° and 10 at 90°), with instructions to maintain hands crossed against the chest and perform rapid squats without lifting their feet off the floor. Participants were verbally encouraged to exert maximum effort and speed using standardized guidelines. A Matlab R2013a (MathWorks Inc., Natick, MA, USA) script was used to automatically select the 3 best concentric–eccentric repetitions (higher values) and calculate their mean, normalized to body weight. Consequently, lower limb outcomes included mean strength (kg), mean power (W/kg), and mean work (J/kg).",
+        "document_canonical_key": "doi:10.3390/s24010044",
+        "document_version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643",
+        "title": "Impact of Starting Knee Flexion Angle on Muscle Activity and Performance during Plyometrics without Jumping",
+        "language": "en",
+        "chunker_revision": "structure-v1.1.b19e0939b5de",
+        "passage_ordinal": 6,
+        "token_count": 327,
+        "document_type": "journal_article",
+        "content_sha256": "f4e2b5c6933c97d69994b9c273e424f6d1eaae3fa80ee2b13f226d3922b1cebe",
+        "section_key": "de1e4611a2d7b44c4e9d9e11daef7a003617ee0e05a92aed0476efdd645027bb",
+        "section_path": "2.3.2",
+        "section_title": "2.3.2. Resisted Plyometric without Jumping Evaluation",
+        "primary_source_anchor": "jats:/body[1]/sec[2]/sec[3]/sec[2]/p[1]",
+        "source_spans": [
+          {
+            "source_order": 0,
+            "paragraph_key": "c11788f8eb6806d085c95887481577de9bc7d2e64020f7621fb4f0fd0b1b9140",
+            "paragraph_source_anchor": "jats:/body[1]/sec[2]/sec[3]/sec[2]/p[1]",
+            "start_char": 0,
+            "end_char": 752
+          },
+          {
+            "source_order": 1,
+            "paragraph_key": "c7783bfafd696b91dd1ac4c9a5c1becbf825e58a3ca0cedb78017a3a44e6a294",
+            "paragraph_source_anchor": "jats:/body[1]/sec[2]/sec[3]/sec[2]/p[2]",
+            "start_char": 0,
+            "end_char": 887
+          }
+        ],
+        "doi": "10.3390/s24010044",
+        "pmid": "38202906",
+        "pmcid": "PMC10780924",
+        "source_system": "europe_pmc",
+        "source_external_id": "PMC10780924"
+      }
+    },
+    {
+      "passage_key": "52dd7ddbf821c16d5ee704ec0e934bb87a0e5824bb6d7b69d08083f91c9b053d",
+      "final_rank": 16,
+      "rrf_score": 0.026171741361614778,
+      "lexical": {
+        "present": true,
+        "rank": 14,
+        "raw_score": 9.219687,
+        "rrf_contribution": 0.013513513513513514
+      },
+      "dense": {
+        "present": true,
+        "rank": 19,
+        "raw_score": 0.607995,
+        "rrf_contribution": 0.012658227848101266
+      },
+      "provenance": {
+        "passage_key": "52dd7ddbf821c16d5ee704ec0e934bb87a0e5824bb6d7b69d08083f91c9b053d",
+        "text": "The MTU observed in the present study had a relatively long series elastic component. Arakawa et al. (2010) have shown that the mechanism for enhancing performance by SSC may differ between an MTU with a long series elastic component and one with a short series elastic component. Hence, we speculate that the present findings may not apply to the gluteus maximus, which has little tendon, and may only partially explain the mechanisms of plyometric training-induced performance enhancement of muscle with a short series elastic component, such as the vastus lateralis. Ishikawa et al. (2006) reported that the fascicles and tendons of the vastus lateralis behaved in a stretch–shortening manner during multi-joint depth jumping. They observed that, when subjects intended to jump higher, the EMG amplitude of the vastus lateralis during the late braking phase and the shortening velocity of the tendon tissue increased. These findings are similar to those of the present study, and could support our speculation.\n\nIn addition, an assumption regarding the fascicle behavior should be noted. In both our study and the one by Hirayama et al. (2012), behavior of a fascicle from the medial gastrocnemius was assumed to represent that of the entire triceps surae. The medial and lateral gastrocnemii and the soleus each have their own physiological and morphological characteristics. In contrast, the medial gastrocnemius and the soleus have been shown to behave in a synchronized manner during concentric and eccentric movements (Chino et al., 2008) and SSC actions (Sakuma et al., 2012). Based on these facts, the behavior of the medial gastrocnemius represents fascicles of the soleus during a movement with only an ankle joint would not be vastly different from the actual behavior. The triceps surae includes the lateral gastrocnemius. To the best of our knowledge, there have been no reported studies of the behavior of the fascicles of the lateral gastrocnemius during SSC action; however, this muscle represents only about 12% of the physiological cross-sectional area of the triceps surae (Albracht et al., 2008). Thus, the mechanisms that we report in the present study would explain the major adaptation scenario of the triceps surae. The plantar flexors include other muscles, and future investigation of how each of these muscles behave might further our detailed understanding of the mechanism of SSC performance.",
+        "document_canonical_key": "doi:10.3389/fphys.2017.00016",
+        "document_version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e",
+        "title": "Plyometric Training Favors Optimizing Muscle–Tendon Behavior during Depth Jumping",
+        "language": "en",
+        "chunker_revision": "structure-v1.1.b19e0939b5de",
+        "passage_ordinal": 26,
+        "token_count": 440,
+        "document_type": "journal_article",
+        "content_sha256": "096d0bb69a10bed77a9142df8ba5b2c6c1a4ae206cdb9de282989d592457c049",
+        "section_key": "3f47cc86e3144154820bff09cf7f4f1bf46f3e35d59d91df15838376198e802a",
+        "section_path": "4.7",
+        "section_title": "Limitations",
+        "primary_source_anchor": "jats:/body[1]/sec[4]/sec[7]/p[1]",
+        "source_spans": [
+          {
+            "source_order": 0,
+            "paragraph_key": "88c8b32e9f2d1a8c4dc9c96a2be1e14956e9043ab7c713dffbff811614da3237",
+            "paragraph_source_anchor": "jats:/body[1]/sec[4]/sec[7]/p[1]",
+            "start_char": 0,
+            "end_char": 1013
+          },
+          {
+            "source_order": 1,
+            "paragraph_key": "bfec29b7a871f703236f3fa7d471a3d1033edfed56610171140e54e932c4717e",
+            "paragraph_source_anchor": "jats:/body[1]/sec[4]/sec[7]/p[2]",
+            "start_char": 0,
+            "end_char": 1408
+          }
+        ],
+        "doi": "10.3389/fphys.2017.00016",
+        "pmid": "28179885",
+        "pmcid": "PMC5263151",
+        "source_system": "europe_pmc",
+        "source_external_id": "PMC5263151"
+      }
+    },
+    {
+      "passage_key": "04d4565cd5a7cd106944580d4fe621057f1b7c32c870f638209e976303725dff",
+      "final_rank": 17,
+      "rrf_score": 0.026153846153846153,
+      "lexical": {
+        "present": true,
+        "rank": 15,
+        "raw_score": 6.7020183,
+        "rrf_contribution": 0.013333333333333334
+      },
+      "dense": {
+        "present": true,
+        "rank": 18,
+        "raw_score": 0.60859483,
+        "rrf_contribution": 0.01282051282051282
+      },
+      "provenance": {
+        "passage_key": "04d4565cd5a7cd106944580d4fe621057f1b7c32c870f638209e976303725dff",
+        "text": "In the present study, we aimed to elucidate the mechanisms behind how plyometric training improves SSC exercise performance with changes in muscle strength, tendon stiffness, and muscle–tendon behavior. Considering that plyometric training enables one to jump higher with shorter ground contact time (Markovic and Mikulic, 2010), it was hypothesized that the changes in neuromuscular factors are associated with muscle force generated by the agonists during SSC exercise. In addition, we hypothesized that tendon stiffness would increase as a result of plyometric training, thereby leading to faster tendon recoil after being elongated and to improvement of SSC exercise performance. We also hypothesized that such a change in tendon is accompanied by a more quasi-isometric contraction of the muscle fascicles so that they can exert greater force compared to concentric contraction.",
+        "document_canonical_key": "doi:10.3389/fphys.2017.00016",
+        "document_version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e",
+        "title": "Plyometric Training Favors Optimizing Muscle–Tendon Behavior during Depth Jumping",
+        "language": "en",
+        "chunker_revision": "structure-v1.1.b19e0939b5de",
+        "passage_ordinal": 2,
+        "token_count": 146,
+        "document_type": "journal_article",
+        "content_sha256": "37cd60d7167b5fffb64e4780ef084e798b6c28dbbf9c4434cf09281257b6cedc",
+        "section_key": "ed826f0a068a556b91725aa32eb5e4cafc9b7e1db2092a4f55c85bd56c18b339",
+        "section_path": "1",
+        "section_title": "Introduction",
+        "primary_source_anchor": "jats:/body[1]/sec[1]/p[3]",
+        "source_spans": [
+          {
+            "source_order": 0,
+            "paragraph_key": "eff1b9923bce97683391c6f7e7344cd40d37ba67cee485287da9cb453d98302c",
+            "paragraph_source_anchor": "jats:/body[1]/sec[1]/p[3]",
+            "start_char": 0,
+            "end_char": 883
+          }
+        ],
+        "doi": "10.3389/fphys.2017.00016",
+        "pmid": "28179885",
+        "pmcid": "PMC5263151",
+        "source_system": "europe_pmc",
+        "source_external_id": "PMC5263151"
+      }
+    },
+    {
+      "passage_key": "4cce03640fc14755bb8c875d9ec6cd82b50413cb633176b3f53a0e2067c9b744",
+      "final_rank": 18,
+      "rrf_score": 0.025793650793650792,
+      "lexical": {
+        "present": true,
+        "rank": 24,
+        "raw_score": 5.2545247,
+        "rrf_contribution": 0.011904761904761904
+      },
+      "dense": {
+        "present": true,
+        "rank": 12,
+        "raw_score": 0.6509692,
+        "rrf_contribution": 0.013888888888888888
+      },
+      "provenance": {
+        "passage_key": "4cce03640fc14755bb8c875d9ec6cd82b50413cb633176b3f53a0e2067c9b744",
+        "text": "Impulse significantly increased in the training group, indicating that the plyometric training adopted in the present study improved the SSC exercise performance. Contact time with the force plate shortened and the averaged reaction force during the 2nd phase (latter half of braking) and 3rd phase (initial half of propulsion) increased. Therefore, the increase in impulse was not attributable to prolonged force production but was more probably due to the enhancement of plantar flexion torque around the transition from ankle dorsiflexion to plantar flexion. Maximal static plantar flexion torque did not increase significantly after the plyometric training. Therefore, the increase in reaction force during the 2nd and 3rd phases of DJ could not be explained by any increase in maximal strength of the agonists. It is more likely that the increase in reaction force is due to favorable changes in muscle–tendon behavior of the agonist during DJ. After the training sessions, fascicles were contracted isometrically over the 2nd and 3rd phases. Under this condition, the muscle could generate higher force, and stretch–shortening of the tendon became more influential. These changes were likely to be achieved through changes in tendon stiffness and neuromuscular activity of the agonists. These data support our hypothesis. Furthermore, reduced neuromuscular activity of the antagonist during the 2nd phase of DJ appears to play an important role in performance improvement.",
+        "document_canonical_key": "doi:10.3389/fphys.2017.00016",
+        "document_version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e",
+        "title": "Plyometric Training Favors Optimizing Muscle–Tendon Behavior during Depth Jumping",
+        "language": "en",
+        "chunker_revision": "structure-v1.1.b19e0939b5de",
+        "passage_ordinal": 18,
+        "token_count": 248,
+        "document_type": "journal_article",
+        "content_sha256": "3399fddbaf647a5d35d71c8bb2ae4bafe5cd97782dc6e6e1cbe20bc14f98c48b",
+        "section_key": "6b121f9b7b9a5861f528928d01c57ff3c236fb4f22f53d1af7ca4ce85614943e",
+        "section_path": "4",
+        "section_title": "Discussion",
+        "primary_source_anchor": "jats:/body[1]/sec[4]/p[1]",
+        "source_spans": [
+          {
+            "source_order": 0,
+            "paragraph_key": "83113677dc06ce206b330f95a309d90eb4e456a0a210e52f2a4770d27464395c",
+            "paragraph_source_anchor": "jats:/body[1]/sec[4]/p[1]",
+            "start_char": 0,
+            "end_char": 1478
+          }
+        ],
+        "doi": "10.3389/fphys.2017.00016",
+        "pmid": "28179885",
+        "pmcid": "PMC5263151",
+        "source_system": "europe_pmc",
+        "source_external_id": "PMC5263151"
+      }
+    },
+    {
+      "passage_key": "20b882b966e04387a69e3f80782fd9dd266642f4a492120b415f5156a6ba25e8",
+      "final_rank": 19,
+      "rrf_score": 0.025657894736842105,
+      "lexical": {
+        "present": true,
+        "rank": 20,
+        "raw_score": 6.1428995,
+        "rrf_contribution": 0.0125
+      },
+      "dense": {
+        "present": true,
+        "rank": 16,
+        "raw_score": 0.6279981,
+        "rrf_contribution": 0.013157894736842105
+      },
+      "provenance": {
+        "passage_key": "20b882b966e04387a69e3f80782fd9dd266642f4a492120b415f5156a6ba25e8",
+        "text": "In the 2nd phase, changes in force generated by both antagonists and agonists could have had an influence on increased average reaction force. Reduced activation level of the tibialis anterior could have increased net ankle plantar flexion torque, thereby enhancing the reaction force at the foot. With no change observed in averaged length or shortening velocity of fascicles, the triceps surae exhibited greater mEMG. These findings suggest that the triceps surae exerted greater force than that before the intervention. The reason that no change was observed in fascicle length or contraction velocity despite the increase in muscle activation is probably related to an increase in Achilles tendon stiffness. Regarding the force–length relationship of a tendon, a stiffer tendon resulted in the less fascicle shortening when the muscle was generating greater force. This has an advantageous effect in the force–velocity relationship, and the overall force increased in the output.\n\nIn the 3rd phase, the increase in averaged reaction force appears to be attributable to changes in muscle–tendon behavior of the agonists. The mEMG of the tibialis anterior remained unchanged in the 3rd phase. In contrast, fascicle shortening velocity of the medial gastrocnemius decreased to the point where contraction changed from concentric to isometric contraction. With fascicle length unchanged and mEMG activity lowered, the increase in the averaged reaction force was probably due to the decrease in fascicle contraction velocity. Simultaneously, shortening velocity of the tendon increased. Even though tendon elongation in the braking phase did not change as a result of the training, tendon stiffness and peak reaction force increased. This implies that the amount of elastic (potential) energy stored in the tendon prior to the propulsion phase (the beginning of the 3rd phase) was increased after the training. Transformation of this extra elastic (potential) energy into kinetic energy has been responsible for faster tendon shortening during the 3rd phase. Elastic recoil of the tendon counters muscle shortening since it was positioned as a series elastic component within the muscle. Thus, even though force produced by the muscle was increased, the fact that the fascicle did not shorten might be attributable to the stronger elastic recoil of the tendon in series. Given that mEMG of the triceps surae of the training group decreased significantly in the 3rd phase, it is possible that the subjects in the training group have managed to increase force production of the agonists by decreasing neuromuscular activation. This also would achieve a contraction mode better geared to generating force.",
+        "document_canonical_key": "doi:10.3389/fphys.2017.00016",
+        "document_version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e",
+        "title": "Plyometric Training Favors Optimizing Muscle–Tendon Behavior during Depth Jumping",
+        "language": "en",
+        "chunker_revision": "structure-v1.1.b19e0939b5de",
+        "passage_ordinal": 19,
+        "token_count": 456,
+        "document_type": "journal_article",
+        "content_sha256": "159ed93fa7ec6ccffe4dded3cec9d13e4bfcdb08dba77161be214f7665583d9b",
+        "section_key": "621bee9a6b5d197214b934323d16fd8e87182ac9013e4ab2de9d7800e9da5f96",
+        "section_path": "4.1",
+        "section_title": "Possible mechanisms that increase reaction force during the 2nd and 3rd phases of DJ",
+        "primary_source_anchor": "jats:/body[1]/sec[4]/sec[1]/p[1]",
+        "source_spans": [
+          {
+            "source_order": 0,
+            "paragraph_key": "eb27986585d88de95426142ee48ea513c20b05c3b706bc8cfd5d4b0c449c6161",
+            "paragraph_source_anchor": "jats:/body[1]/sec[4]/sec[1]/p[1]",
+            "start_char": 0,
+            "end_char": 983
+          },
+          {
+            "source_order": 1,
+            "paragraph_key": "04f1e4bd69953e6d3c0877417f336b3e9fb3e70ae30a96c8d3c2828ee8886be7",
+            "paragraph_source_anchor": "jats:/body[1]/sec[4]/sec[1]/p[2]",
+            "start_char": 0,
+            "end_char": 1716
+          }
+        ],
+        "doi": "10.3389/fphys.2017.00016",
+        "pmid": "28179885",
+        "pmcid": "PMC5263151",
+        "source_system": "europe_pmc",
+        "source_external_id": "PMC5263151"
+      }
+    },
+    {
+      "passage_key": "1fab5010322a20942864efa1838766d23b1ce361445edc7436680ea462654e34",
+      "final_rank": 20,
+      "rrf_score": 0.025332691999358666,
+      "lexical": {
+        "present": true,
+        "rank": 17,
+        "raw_score": 6.274528,
+        "rrf_contribution": 0.012987012987012988
+      },
+      "dense": {
+        "present": true,
+        "rank": 21,
+        "raw_score": 0.5940677,
+        "rrf_contribution": 0.012345679012345678
+      },
+      "provenance": {
+        "passage_key": "1fab5010322a20942864efa1838766d23b1ce361445edc7436680ea462654e34",
+        "text": "Joint stiffness (determined from the angle-torque relation during braking movement) has been considered to be related to SSC exercise performance, but the underpinning mechanisms are poorly understood. Previous studies have shown that joint stiffness increases after plyometric training (i.e., the joint becomes “stiffer”), leading to improved performance of SSC exercise (Toumi et al., 2004; Kubo et al., 2007b). When used to calculate index of joint stiffness from the angle-reaction force relation during braking phase, data from our study revealed an increase in joint stiffness index in the training group (Pre: 2392 ± 327 N/rad, Post: 3724 ± 936 N/rad). The mechanism behind the increase in the joint stiffness index appears to be due to greater force of the agonists and less force in the antagonists during the braking phase as well as an increase in tendon stiffness. All these factors were regarded as being involved in the mechanism to improve SSC exercise performance. This increase in joint stiffness could thus serve as one index to reflect a change in the mechanism of improved performance of the SSC exercise.",
+        "document_canonical_key": "doi:10.3389/fphys.2017.00016",
+        "document_version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e",
+        "title": "Plyometric Training Favors Optimizing Muscle–Tendon Behavior during Depth Jumping",
+        "language": "en",
+        "chunker_revision": "structure-v1.1.b19e0939b5de",
+        "passage_ordinal": 25,
+        "token_count": 217,
+        "document_type": "journal_article",
+        "content_sha256": "35a48767845a2614cd6cddcf27c98b79f552aa122f8f0f324472e9dacf8a293e",
+        "section_key": "4c91638274c6b97841b02d2d429fed0dbd0d4c34901c128108ba9514a18daa44",
+        "section_path": "4.6",
+        "section_title": "“Joint stiffness”: an index of braking kinetics",
+        "primary_source_anchor": "jats:/body[1]/sec[4]/sec[6]/p[1]",
+        "source_spans": [
+          {
+            "source_order": 0,
+            "paragraph_key": "ee526f0a2a696eb4970007c5a5061abcbd17460ec3fbdd9edafadc9774f73049",
+            "paragraph_source_anchor": "jats:/body[1]/sec[4]/sec[6]/p[1]",
+            "start_char": 0,
+            "end_char": 1125
+          }
+        ],
+        "doi": "10.3389/fphys.2017.00016",
+        "pmid": "28179885",
+        "pmcid": "PMC5263151",
+        "source_system": "europe_pmc",
+        "source_external_id": "PMC5263151"
+      }
+    }
+  ]
+}
+
+Original collection/vector hashes and canonical row counts unchanged: true

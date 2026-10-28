@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
+from contextlib import ExitStack, asynccontextmanager
 from typing import Final
 
 from fastapi import FastAPI
@@ -26,6 +26,9 @@ from dynamisrag import __version__
 from dynamisrag.config import Settings, load_settings
 from dynamisrag.db.engine import create_database_engine
 from dynamisrag.embedding.errors import EmbeddingProviderError
+from dynamisrag.generation.ollama import OllamaClient
+from dynamisrag.generation.router import build_answer_router
+from dynamisrag.generation.scientific import ScientificAnswerService
 from dynamisrag.health.router import LIVENESS_PATH, READINESS_PATH, build_health_router
 from dynamisrag.logging_config import APP_LOGGER_NAME
 from dynamisrag.search.bm25 import Bm25SearchService
@@ -90,26 +93,30 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     scientific = (
         ScientificRetrievalService(engine, resolved) if resolved.scientific_qdrant_enabled else None
     )
+    answers = (
+        ScientificAnswerService(scientific, OllamaClient(str(resolved.scientific_ollama_url)))
+        if resolved.scientific_answers_enabled and scientific is not None
+        else None
+    )
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncGenerator[None]:
         _logger.info("starting: version=%s environment=%s", __version__, resolved.environment.value)
-        try:
+        with ExitStack() as cleanup:
+            cleanup.callback(engine.dispose)
+            cleanup.callback(opensearch_client.close)
+            if tei_provider is not None:
+                cleanup.callback(tei_provider.close)
+            if scientific is not None:
+                cleanup.callback(scientific.close)
+            if answers is not None:
+                cleanup.callback(answers.close)
             if scientific is not None:
                 scientific.start()
+            if answers is not None:
+                answers.start()
             yield
-        finally:
-            try:
-                if scientific is not None:
-                    scientific.close()
-            finally:
-                try:
-                    if tei_provider is not None:
-                        tei_provider.close()
-                finally:
-                    opensearch_client.close()
-                    engine.dispose()
-            _logger.info("stopped: version=%s", __version__)
+        _logger.info("stopped: version=%s", __version__)
 
     app = FastAPI(
         title=API_TITLE,
@@ -121,6 +128,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(build_search_router(search=search))
     app.include_router(build_retrieval_router(retrieval=retrieval))
     app.include_router(build_scientific_router(scientific))
+    app.include_router(build_answer_router(answers))
 
     _logger.debug(
         "application created: health=%s,%s search=%s retrieve=%s",

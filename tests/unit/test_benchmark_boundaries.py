@@ -55,6 +55,7 @@ _PRODUCTION_PACKAGES: Final[tuple[str, ...]] = (
     "chunking",
     "db",
     "embedding",
+    "generation",
     "health",
     "ingestion",
     "jats",
