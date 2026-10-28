@@ -17,7 +17,7 @@ from dynamisrag.db import create_database_engine
 from dynamisrag.db.models import DocumentRecord, DocumentVersionRecord, PassageRecord
 from dynamisrag.search.qdrant import Point, QdrantClient
 
-ROOT = Path(".dynamisrag/live-rag-001")
+ROOT = Path(__file__).resolve().parents[1] / ".dynamisrag/live-rag-001/readiness-update"
 QUESTION = (
     "How does starting knee flexion angle influence muscle activation during plyometric exercises?"
 )
@@ -55,8 +55,8 @@ def main() -> None:
             {"question": QUESTION, "limit": 3},
             {
                 "question": (
-                    "How does complex training compare with plyometric training "
-                    "for power in male cricketers?"
+                    "How do vastus medialis and vastus lateralis responses vary "
+                    "between dominant and nondominant legs?"
                 ),
                 "limit": 3,
             },
@@ -67,6 +67,9 @@ def main() -> None:
         with httpx2.Client(
             base_url="http://127.0.0.1:8011", timeout=130, trust_env=False
         ) as client:
+            readiness_before = client.get("/readyz/qdrant")
+            if readiness_before.status_code != 200:
+                raise RuntimeError("scientific service not ready")
             for body in requests:
                 start = perf_counter()
                 response = client.post("/retrieve/qdrant", json=body)
@@ -123,6 +126,9 @@ def main() -> None:
             invalid = client.post("/retrieve/qdrant", json={"question": " "})
             if invalid.status_code != 422:
                 raise ValueError("invalid query did not fail closed")
+            readiness_after = client.get("/readyz/qdrant")
+            if readiness_after.status_code != 200:
+                raise RuntimeError("scientific service lost readiness")
         after = snapshot()
         if before != after:
             raise ValueError("corpus, aliases or stored vectors changed")
@@ -133,6 +139,8 @@ def main() -> None:
             "after": after,
             "state_unchanged": True,
             "invalid_query_response": invalid.json(),
+            "readiness_before": readiness_before.json(),
+            "readiness_after": readiness_after.json(),
         }
         (ROOT / "observed-responses.json").write_text(
             json.dumps(receipt, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n"

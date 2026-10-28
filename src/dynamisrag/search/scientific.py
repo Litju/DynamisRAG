@@ -6,7 +6,7 @@ import hashlib
 import json
 import logging
 import math
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from time import perf_counter
 from typing import Literal
@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from dynamisrag.config import Settings
 from dynamisrag.db.canonical import PassageProjectionRecords, list_passage_projection_records
+from dynamisrag.db.probe import check_postgres
 from dynamisrag.embedding import (
     EmbeddingInput,
     EmbeddingProviderError,
@@ -27,7 +28,12 @@ from dynamisrag.embedding import (
     TeiEmbeddingProvider,
     embed_passages,
 )
-from dynamisrag.embedding.contracts import EmbeddingProviderIdentity, passage_content_sha256
+from dynamisrag.embedding.contracts import (
+    EmbeddingGenerationConfig,
+    EmbeddingProvider,
+    EmbeddingProviderIdentity,
+    passage_content_sha256,
+)
 from dynamisrag.embedding.errors import TeiIdentityError
 from dynamisrag.embedding.identity import EmbeddingModelIdentity
 from dynamisrag.embedding.scientific_cpu import (
@@ -39,6 +45,7 @@ from dynamisrag.embedding.scientific_cpu import (
     QUERY_FINGERPRINT,
     CpuDeployment,
 )
+from dynamisrag.health.models import CheckStatus
 from dynamisrag.logging_config import APP_LOGGER_NAME
 from dynamisrag.search.projection import build_projection_manifest
 from dynamisrag.search.qdrant import (
@@ -98,9 +105,46 @@ class ScientificLane(BaseModel):
 
 class ScientificTimings(BaseModel):
     query_embedding_ms: float
+    query_inference_ms: float
+    bm25_ms: float
+    dense_ms: float
+    rrf_ms: float
+    hybrid_retrieval_ms: float
     database_retrieval_ms: float
     citation_verification_ms: float
     total_request_ms: float
+
+
+class ScientificReadiness(BaseModel):
+    status: Literal["ready"] = "ready"
+    physical_collection: str
+    document_embedding_config_sha256: str = DOCUMENT_FINGERPRINT
+    query_embedding_config_sha256: str = QUERY_FINGERPRINT
+
+
+class _TimedQueryProvider:
+    """Per-request timing around the existing provider; no cross-request mutable metrics."""
+
+    def __init__(self, provider: EmbeddingProvider) -> None:
+        self.provider = provider
+        self.inference_ms = 0.0
+
+    def describe(self) -> EmbeddingProviderIdentity:
+        return self.provider.describe()
+
+    @property
+    def generation_config(self) -> EmbeddingGenerationConfig:
+        return self.provider.generation_config
+
+    @property
+    def batch_size(self) -> int:
+        return self.provider.batch_size
+
+    def embed(self, inputs: Sequence[EmbeddingInput]) -> tuple[tuple[float, ...], ...]:
+        start = perf_counter()
+        vectors = self.provider.embed(inputs)
+        self.inference_ms = (perf_counter() - start) * 1000
+        return vectors
 
 
 class ScientificResponse(BaseModel):
@@ -321,7 +365,8 @@ class ScientificRetrievalService:
         try:
             require_cpu_identity(self.provider.describe())
             digest = passage_content_sha256(question)
-            manifest = embed_passages(self.provider, (EmbeddingInput(digest, digest, question),))
+            timed_provider = _TimedQueryProvider(self.provider)
+            manifest = embed_passages(timed_provider, (EmbeddingInput(digest, digest, question),))
             require_cpu_identity(manifest.provider)
             vector = validate_vector(manifest.entries[0].values)
             if manifest.embedding_config_sha256 != QUERY_FINGERPRINT or not math.isclose(
@@ -339,6 +384,7 @@ class ScientificRetrievalService:
         except (ValueError, QdrantError):
             raise ScientificUnavailable("embedding_identity_mismatch") from None
         embedded = perf_counter()
+        lane_timings: dict[str, float] = {}
         try:
             lexical, dense, fusion = adapter.hybrid(
                 question,
@@ -346,6 +392,7 @@ class ScientificRetrievalService:
                 embedding_config_sha256=QUERY_FINGERPRINT,
                 limit=limit,
                 filters=filters,
+                timings=lane_timings,
             )
             # A concurrent publication during the request also fails closed.
             adapter.resolve()
@@ -369,11 +416,41 @@ class ScientificRetrievalService:
             fusion=fusion,
             timings=ScientificTimings(
                 query_embedding_ms=(embedded - start) * 1000,
+                query_inference_ms=timed_provider.inference_ms,
+                bm25_ms=lane_timings["bm25_ms"],
+                dense_ms=lane_timings["dense_ms"],
+                rrf_ms=lane_timings["rrf_ms"],
+                hybrid_retrieval_ms=(retrieved - embedded) * 1000,
                 database_retrieval_ms=(retrieved - embedded) * 1000,
                 citation_verification_ms=(verified - retrieved) * 1000,
                 total_request_ms=(verified - start) * 1000,
             ),
         )
+
+    def readiness(self) -> ScientificReadiness:
+        """Check dependencies and the qualified target without inference or point scans."""
+        if self.adapter is None or self.projection is None:
+            raise ScientificUnavailable(self.unavailable_code)
+        try:
+            require_cpu_identity(self.provider.describe())
+        except TeiIdentityError:
+            raise ScientificUnavailable("embedding_identity_mismatch") from None
+        except EmbeddingProviderError:
+            raise ScientificUnavailable("embedding_unavailable") from None
+        if check_postgres(self.engine).status is not CheckStatus.UP:
+            raise ScientificUnavailable("canonical_unavailable")
+        try:
+            name = self.adapter.resolve()
+            info = self.client.request("GET", f"/collections/{name}").get("result")
+            if (
+                not isinstance(info, dict)
+                or info.get("status") != "green"
+                or info.get("points_count") != len(self.projection.passages.documents)
+            ):
+                raise QdrantError("collection not ready")
+        except (QdrantError, ValueError):
+            raise ScientificUnavailable("qdrant_unavailable") from None
+        return ScientificReadiness(physical_collection=name)
 
     def close(self) -> None:
         try:

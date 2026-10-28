@@ -16,12 +16,14 @@ from starlette.types import Message
 
 from dynamisrag.logging_config import APP_LOGGER_NAME
 from dynamisrag.search.scientific import (
+    ScientificReadiness,
     ScientificResponse,
     ScientificRetrievalService,
     ScientificUnavailable,
 )
 
 PATH = "/retrieve/qdrant"
+READINESS_PATH = "/readyz/qdrant"
 MAX_BODY_BYTES = 8192
 _logger = logging.getLogger(APP_LOGGER_NAME)
 _HEADERS = {"Cache-Control": "no-store", "Content-Type": "application/json; charset=utf-8"}
@@ -89,6 +91,24 @@ class _BoundedRoute(APIRoute):
 
 def build_scientific_router(service: ScientificRetrievalService | None) -> APIRouter:
     router = APIRouter(tags=["scientific retrieval"], route_class=_BoundedRoute)
+
+    @router.get(
+        READINESS_PATH,
+        response_model=ScientificReadiness,
+        summary="Readiness of the opt-in scientific Qdrant service",
+        responses={503: {"description": "Qdrant retrieval not ready"}},
+    )
+    def readiness(response: Response) -> ScientificReadiness | JSONResponse:
+        response.headers.update(_HEADERS)
+        if service is None:
+            return error_response("qdrant_disabled", 503)
+        try:
+            return service.readiness()
+        except ScientificUnavailable as error:
+            return error_response(error.code, 503)
+        except Exception:
+            _logger.error("scientific readiness failed: code=internal_error")
+            return error_response("internal_error", 503)
 
     @router.post(
         PATH,

@@ -1,0 +1,240 @@
+{
+  "observed_at_utc": "2026-10-28T02:01:08.491432+00:00",
+  "before": {
+    "canonical_counts": [
+      3,
+      3,
+      75
+    ],
+    "aliases": {
+      "dynamisrag-synthetic-ties-reverse": "qdrant-passages-v1-17b7d64f742182919fa9313ff8695ce0366ed8ffc09e1eff80c171e4f558c0a7",
+      "dynamisrag-synthetic-database-tests": "qdrant-passages-v1-22ce4f03b2280fd63c06a993b79fbbceece3180f08d3050b6fd55d6f6187e21d",
+      "dynamisrag-real-science-v1": "qdrant-passages-v1-5a20d2780fe6cd0ce0155ed7535c6507ec452f9ad4ae14cbd5990e13d7e8a709",
+      "dynamisrag-synthetic-ties-forward": "qdrant-passages-v1-618f0f47a167afade3ef607b8c866eea85955de2280c04ce1b3ece19f1054877"
+    },
+    "collections": {
+      "qdrant-passages-v1-17b7d64f742182919fa9313ff8695ce0366ed8ffc09e1eff80c171e4f558c0a7": "9bc40e10ea0aeb84e6918be0176bfa6f7d37fe2d5557f8da2767c705cc1b4783",
+      "qdrant-passages-v1-22ce4f03b2280fd63c06a993b79fbbceece3180f08d3050b6fd55d6f6187e21d": "f2de5199fabe7dfbcf8cc7372792ee7c4f70690ad388d5b9f5e31e25c25f5d0d",
+      "qdrant-passages-v1-5a20d2780fe6cd0ce0155ed7535c6507ec452f9ad4ae14cbd5990e13d7e8a709": "2640a00053e5c8231e7db28873a42e7b9465830693f6c4c56f722c7ba2f78d2a",
+      "qdrant-passages-v1-618f0f47a167afade3ef607b8c866eea85955de2280c04ce1b3ece19f1054877": "af59ebdf36eaf3fe241d4ad6b9a9fbba2f794143e4f776174a0f7f3116dc23ee",
+      "qdrant-passages-v1-635b92e9da271b6655319aca948be86639bb497a872b9df4f5f3482ab313cae8": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "qdrant-passages-v1-cffdc46774f6fa5b6b06c02d8fcb52b89c5764bfe2d8c00848d4fc2ea1ad9dfb": "4fda877afb11f9599d3e9fe34d231b5e49a2e4a53c25cec2f459ba3b3f887efc"
+    }
+  },
+  "after": {
+    "canonical_counts": [
+      3,
+      3,
+      75
+    ],
+    "aliases": {
+      "dynamisrag-synthetic-ties-reverse": "qdrant-passages-v1-17b7d64f742182919fa9313ff8695ce0366ed8ffc09e1eff80c171e4f558c0a7",
+      "dynamisrag-synthetic-database-tests": "qdrant-passages-v1-22ce4f03b2280fd63c06a993b79fbbceece3180f08d3050b6fd55d6f6187e21d",
+      "dynamisrag-real-science-v1": "qdrant-passages-v1-5a20d2780fe6cd0ce0155ed7535c6507ec452f9ad4ae14cbd5990e13d7e8a709",
+      "dynamisrag-synthetic-ties-forward": "qdrant-passages-v1-618f0f47a167afade3ef607b8c866eea85955de2280c04ce1b3ece19f1054877"
+    },
+    "collections": {
+      "qdrant-passages-v1-17b7d64f742182919fa9313ff8695ce0366ed8ffc09e1eff80c171e4f558c0a7": "9bc40e10ea0aeb84e6918be0176bfa6f7d37fe2d5557f8da2767c705cc1b4783",
+      "qdrant-passages-v1-22ce4f03b2280fd63c06a993b79fbbceece3180f08d3050b6fd55d6f6187e21d": "f2de5199fabe7dfbcf8cc7372792ee7c4f70690ad388d5b9f5e31e25c25f5d0d",
+      "qdrant-passages-v1-5a20d2780fe6cd0ce0155ed7535c6507ec452f9ad4ae14cbd5990e13d7e8a709": "2640a00053e5c8231e7db28873a42e7b9465830693f6c4c56f722c7ba2f78d2a",
+      "qdrant-passages-v1-618f0f47a167afade3ef607b8c866eea85955de2280c04ce1b3ece19f1054877": "af59ebdf36eaf3fe241d4ad6b9a9fbba2f794143e4f776174a0f7f3116dc23ee",
+      "qdrant-passages-v1-635b92e9da271b6655319aca948be86639bb497a872b9df4f5f3482ab313cae8": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "qdrant-passages-v1-cffdc46774f6fa5b6b06c02d8fcb52b89c5764bfe2d8c00848d4fc2ea1ad9dfb": "4fda877afb11f9599d3e9fe34d231b5e49a2e4a53c25cec2f459ba3b3f887efc"
+    }
+  },
+  "state_unchanged": true,
+  "invalid_query_response": {
+    "detail": {
+      "code": "invalid_request"
+    }
+  },
+  "readiness_before": {
+    "status": "ready",
+    "physical_collection": "qdrant-passages-v1-5a20d2780fe6cd0ce0155ed7535c6507ec452f9ad4ae14cbd5990e13d7e8a709",
+    "document_embedding_config_sha256": "8438d37d8e8c8f975f62cbc6f6c644abc27304b18b7a330d9157a70f21c9c1f7",
+    "query_embedding_config_sha256": "94245fa64ff582ab1428c7aea38387e9091a23e538c96d7fbf7b48e1755da8fd"
+  },
+  "readiness_after": {
+    "status": "ready",
+    "physical_collection": "qdrant-passages-v1-5a20d2780fe6cd0ce0155ed7535c6507ec452f9ad4ae14cbd5990e13d7e8a709",
+    "document_embedding_config_sha256": "8438d37d8e8c8f975f62cbc6f6c644abc27304b18b7a330d9157a70f21c9c1f7",
+    "query_embedding_config_sha256": "94245fa64ff582ab1428c7aea38387e9091a23e538c96d7fbf7b48e1755da8fd"
+  },
+  "executions": [
+    {
+      "request": {
+        "question": "How does starting knee flexion angle influence muscle activation during plyometric exercises?",
+        "limit": 3
+      },
+      "http_status": 200,
+      "client_wall_ms": 19753.660700000182,
+      "independently_verified_passages": 57,
+      "timings": {
+        "query_embedding_ms": 19598.91769999922,
+        "query_inference_ms": 19594.669799998883,
+        "bm25_ms": 74.34900000043854,
+        "dense_ms": 10.791400000016438,
+        "rrf_ms": 3.052299998671515,
+        "hybrid_retrieval_ms": 99.3601000009221,
+        "database_retrieval_ms": 99.3601000009221,
+        "citation_verification_ms": 26.928100000077393,
+        "total_request_ms": 19725.20590000022
+      },
+      "top_fused": [
+        {
+          "passage_key": "a2a28740ccd4e71ab85adc2970a962e5ab7ead39563ff9d217f9b8dfed84c877",
+          "pmcid": "PMC10780924",
+          "rrf_score": 0.03278688524590164
+        },
+        {
+          "passage_key": "c15877f3938f3a25bc734c99fe15cfb29a25805bdfc2ec7b124ea41e41295cf0",
+          "pmcid": "PMC10780924",
+          "rrf_score": 0.031746031746031744
+        },
+        {
+          "passage_key": "0a0cfb976e7bd8ce7f592764f258accd073b5c9455a1b901fb965212fc2fb92c",
+          "pmcid": "PMC10780924",
+          "rrf_score": 0.030834914611005692
+        }
+      ]
+    },
+    {
+      "request": {
+        "question": "How do vastus medialis and vastus lateralis responses vary between dominant and nondominant legs?",
+        "limit": 3
+      },
+      "http_status": 200,
+      "client_wall_ms": 571.2483000006614,
+      "independently_verified_passages": 62,
+      "timings": {
+        "query_embedding_ms": 483.3476999992854,
+        "query_inference_ms": 479.4001999998727,
+        "bm25_ms": 13.318900000740541,
+        "dense_ms": 10.231399999611313,
+        "rrf_ms": 2.9649999996763654,
+        "hybrid_retrieval_ms": 33.58300000036252,
+        "database_retrieval_ms": 33.58300000036252,
+        "citation_verification_ms": 25.834299998678034,
+        "total_request_ms": 542.764999998326
+      },
+      "top_fused": [
+        {
+          "passage_key": "be0ea51394c2a8b29ff6edab8d3528543c130212dbdef3b1b49df6f3896d178a",
+          "pmcid": "PMC10780924",
+          "rrf_score": 0.03278688524590164
+        },
+        {
+          "passage_key": "0a0cfb976e7bd8ce7f592764f258accd073b5c9455a1b901fb965212fc2fb92c",
+          "pmcid": "PMC10780924",
+          "rrf_score": 0.03200204813108039
+        },
+        {
+          "passage_key": "d244797e4f462276cddf0ff7a723f617d71c2633d4e67ff1f48c45bb4e32e638",
+          "pmcid": "PMC10780924",
+          "rrf_score": 0.03200204813108039
+        }
+      ]
+    },
+    {
+      "request": {
+        "question": "How does starting knee flexion angle influence muscle activation during plyometric exercises?",
+        "limit": 3
+      },
+      "http_status": 200,
+      "client_wall_ms": 488.2279000012204,
+      "independently_verified_passages": 57,
+      "timings": {
+        "query_embedding_ms": 408.16280000035476,
+        "query_inference_ms": 404.5435999996698,
+        "bm25_ms": 10.680500001399196,
+        "dense_ms": 8.700099999259692,
+        "rrf_ms": 2.989700000398443,
+        "hybrid_retrieval_ms": 27.681999999913387,
+        "database_retrieval_ms": 27.681999999913387,
+        "citation_verification_ms": 23.82020000004559,
+        "total_request_ms": 459.66500000031374
+      },
+      "top_fused": [
+        {
+          "passage_key": "a2a28740ccd4e71ab85adc2970a962e5ab7ead39563ff9d217f9b8dfed84c877",
+          "pmcid": "PMC10780924",
+          "rrf_score": 0.03278688524590164
+        },
+        {
+          "passage_key": "c15877f3938f3a25bc734c99fe15cfb29a25805bdfc2ec7b124ea41e41295cf0",
+          "pmcid": "PMC10780924",
+          "rrf_score": 0.031746031746031744
+        },
+        {
+          "passage_key": "0a0cfb976e7bd8ce7f592764f258accd073b5c9455a1b901fb965212fc2fb92c",
+          "pmcid": "PMC10780924",
+          "rrf_score": 0.030834914611005692
+        }
+      ]
+    },
+    {
+      "request": {
+        "question": "How does starting knee flexion angle influence muscle activation during plyometric exercises?",
+        "limit": 3,
+        "filters": {
+          "source_external_id": "PMC10780924"
+        }
+      },
+      "http_status": 200,
+      "client_wall_ms": 447.90399999874353,
+      "independently_verified_passages": 25,
+      "timings": {
+        "query_embedding_ms": 384.97190000089176,
+        "query_inference_ms": 381.3062000008358,
+        "bm25_ms": 6.101299999500043,
+        "dense_ms": 6.48679999903834,
+        "rrf_ms": 1.3520000011340016,
+        "hybrid_retrieval_ms": 18.758799998977338,
+        "database_retrieval_ms": 18.758799998977338,
+        "citation_verification_ms": 17.17339999959222,
+        "total_request_ms": 420.9040999994613
+      },
+      "top_fused": [
+        {
+          "passage_key": "a2a28740ccd4e71ab85adc2970a962e5ab7ead39563ff9d217f9b8dfed84c877",
+          "pmcid": "PMC10780924",
+          "rrf_score": 0.03278688524590164
+        },
+        {
+          "passage_key": "c15877f3938f3a25bc734c99fe15cfb29a25805bdfc2ec7b124ea41e41295cf0",
+          "pmcid": "PMC10780924",
+          "rrf_score": 0.031746031746031744
+        },
+        {
+          "passage_key": "0a0cfb976e7bd8ce7f592764f258accd073b5c9455a1b901fb965212fc2fb92c",
+          "pmcid": "PMC10780924",
+          "rrf_score": 0.030834914611005692
+        }
+      ]
+    },
+    {
+      "request": {
+        "question": "How does starting knee flexion angle influence muscle activation during plyometric exercises?",
+        "limit": 3,
+        "filters": {
+          "language": "zz"
+        }
+      },
+      "http_status": 200,
+      "client_wall_ms": 437.3249999989639,
+      "independently_verified_passages": 0,
+      "timings": {
+        "query_embedding_ms": 395.78330000040296,
+        "query_inference_ms": 390.4012999992119,
+        "bm25_ms": 2.219600000898936,
+        "dense_ms": 2.632699999594479,
+        "rrf_ms": 0.03570000080799218,
+        "hybrid_retrieval_ms": 9.238399999958347,
+        "database_retrieval_ms": 9.238399999958347,
+        "citation_verification_ms": 5.778400000053807,
+        "total_request_ms": 410.8001000004151
+      },
+      "top_fused": []
+    }
+  ]
+}

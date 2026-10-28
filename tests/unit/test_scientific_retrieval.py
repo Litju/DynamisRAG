@@ -37,6 +37,7 @@ from dynamisrag.embedding.scientific_cpu import (
     QUERY_FINGERPRINT,
     CpuDeployment,
 )
+from dynamisrag.health.models import CheckStatus, DependencyCheck
 from dynamisrag.search import scientific
 from dynamisrag.search.projection import build_projection_manifest
 from dynamisrag.search.qdrant import (
@@ -128,6 +129,10 @@ def live_mock(monkeypatch: pytest.MonkeyPatch) -> Iterator[LiveMock]:
         "result": {"points": [{"id": point["id"], "payload": point["payload"], "score": 1.0}]}
     }
     verification = Mock()
+    for operation in ("create", "populate", "publish"):
+        monkeypatch.setattr(
+            QdrantProjector, operation, Mock(side_effect=AssertionError("serving write"))
+        )
     monkeypatch.setattr(QdrantProjector, "verify", verification)
     monkeypatch.setattr(scientific, "QdrantClient", Mock(return_value=client))
     monkeypatch.setattr(scientific, "TeiEmbeddingProvider", Mock(return_value=provider))
@@ -155,6 +160,10 @@ def test_new_and_repeated_questions_embed_fresh_without_requalification(live_moc
         assert result.fusion.k == 60
         assert result.bm25.candidates[0].citation_verified
         assert result.timings.total_request_ms >= result.timings.query_embedding_ms
+        assert 0 <= result.timings.query_inference_ms <= result.timings.query_embedding_ms
+        assert result.timings.hybrid_retrieval_ms == result.timings.database_retrieval_ms
+        assert 0 <= result.timings.bm25_ms < result.timings.hybrid_retrieval_ms
+        assert 0 <= result.timings.dense_ms < result.timings.hybrid_retrieval_ms
     assert len(calls) == 3
     assert calls[0]["inputs"] != calls[1]["inputs"]
     assert calls[0]["inputs"] == calls[2]["inputs"]
@@ -420,3 +429,99 @@ def test_unexpected_failure_does_not_log_dependency_prose(
 
 def test_failure_codes_cannot_echo_arbitrary_dependency_content() -> None:
     assert str(ScientificUnavailable(SENTINEL)) == "internal_error"
+
+
+@pytest.mark.parametrize(
+    "failure", [None, "database", "alias", "collection", "count", "tei", "identity", "startup"]
+)
+def test_scientific_readiness_without_inference_or_requalification(
+    live_mock: Any, monkeypatch: pytest.MonkeyPatch, failure: str | None
+) -> None:
+    service, calls, client, verification, canonical = live_mock
+    postgres = Mock(
+        return_value=DependencyCheck(
+            name="postgres",
+            status=CheckStatus.DOWN if failure == "database" else CheckStatus.UP,
+            latency_ms=1,
+        )
+    )
+    monkeypatch.setattr(scientific, "check_postgres", postgres)
+    client.request.return_value = {
+        "result": {
+            "status": "red" if failure == "collection" else "green",
+            "points_count": 0 if failure == "count" else 1,
+        }
+    }
+    if failure == "alias":
+        client.aliases.return_value = {}
+    elif failure == "tei":
+        monkeypatch.setattr(
+            TeiEmbeddingProvider,
+            "describe",
+            Mock(side_effect=TeiTransportError(SENTINEL, operation="describe")),
+        )
+    elif failure == "identity":
+        identity = service.provider.describe()
+        monkeypatch.setattr(
+            TeiEmbeddingProvider,
+            "describe",
+            Mock(return_value=replace(identity, model_dtype="float16")),
+        )
+    elif failure == "startup":
+        service.adapter = None
+        service.unavailable_code = "artifacts_invalid"
+    app = FastAPI()
+    app.include_router(build_scientific_router(service))
+    response = TestClient(app).get("/readyz/qdrant")
+    assert response.status_code == (503 if failure else 200)
+    assert response.headers["cache-control"] == "no-store"
+    assert SENTINEL not in response.text
+    if failure is None:
+        assert response.json()["status"] == "ready"
+        assert response.json()["query_embedding_config_sha256"] == QUERY_FINGERPRINT
+    assert calls == []
+    verification.assert_called_once()
+    canonical.assert_not_called()
+    client.scroll.assert_not_called()
+    assert all(c.args[0] == "GET" for c in client.request.call_args_list)
+
+
+def test_disabled_readiness_and_no_implicit_writes(monkeypatch: pytest.MonkeyPatch) -> None:
+    app = FastAPI()
+    app.include_router(build_scientific_router(None))
+    assert TestClient(app).get("/readyz/qdrant").json() == {"detail": {"code": "qdrant_disabled"}}
+    for name in ("create", "populate", "publish"):
+        monkeypatch.setattr(
+            QdrantProjector, name, Mock(side_effect=AssertionError("serving must never write"))
+        )
+    with TestClient(create_app(build_settings())) as client:
+        assert client.get("/healthz").status_code == 200
+
+
+def test_configured_evidence_path_is_cwd_independent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    settings = build_settings().model_dump()
+    settings["scientific_evidence_directory"] = Path("docs/evidence/real-science-v1")
+    from dynamisrag.config import Settings
+
+    configured = Settings.model_validate(settings)
+    assert configured.scientific_evidence_directory == EVIDENCE
+    assert configured.scientific_evidence_directory.is_absolute()
+
+
+@pytest.mark.parametrize(
+    "missing", ["receipt.json", "embedding-manifest.json", "query-manifest.json"]
+)
+def test_missing_artifact_fails_before_database(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, missing: str
+) -> None:
+    for name in ("receipt.json", "embedding-manifest.json", "query-manifest.json"):
+        if name != missing:
+            (tmp_path / name).write_bytes((EVIDENCE / name).read_bytes())
+    read = Mock()
+    monkeypatch.setattr(scientific, "read_canonical", read)
+    with pytest.raises(ScientificUnavailable, match="artifacts_invalid"):
+        scientific.load_scientific_projection(cast(Engine, Mock()), tmp_path)
+    read.assert_not_called()

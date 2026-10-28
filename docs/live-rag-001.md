@@ -213,8 +213,92 @@ and asserts its model/revision equal the existing provisional Qwen identity.
 Benchmark imports, GPU requirements, old OpenSearch generation semantics, frozen
 results and the production backend default remain unchanged.
 
-The focused endpoint suite passed **41 tests**; local live integration passed
-**16 tests**. The final full local suite passed **2,253 tests**, with 182
+The current focused suite passed **104 tests** across the endpoint, configuration,
+health and Qdrant boundaries; local live integration passed **16 tests**.
+The final full local suite passed **2,266 tests**, with 182
 integration tests deselected; Ruff lint/format and strict Pyright passed.
 Exact-final-HEAD CI is established by the stacked PR checks, whose
 head SHA must match `git rev-parse HEAD`; ancestor CI is not claimed for this change.
+
+## Qdrant readiness, configured paths and separate lane timing
+
+`GET /readyz/qdrant` is the opt-in service's readiness endpoint. It checks the
+loaded/qualified initialization state, current TEI model and both fingerprints,
+PostgreSQL availability, the alias target, collection status and expected point
+count. It does not embed a question, read stored vectors or repeat startup
+qualification. It returns 200 with `status: ready`, the physical collection and
+both configuration fingerprints, or a sanitized 503. `/healthz` and the original
+PostgreSQL/OpenSearch `/readyz` contract remain unchanged.
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8011/readyz/qdrant
+```
+
+`DYNAMISRAG_SCIENTIFIC_EVIDENCE_DIRECTORY` explicitly configures the retained
+manifest directory. Absolute paths are used directly; relative paths are
+anchored to the repository containing `config.py`, never the process working
+directory. Missing or corrupt receipt/document/query artifacts fail closed.
+Startup and request tests trip on any call to `QdrantProjector.create`,
+`populate` or `publish`.
+
+The running application was started from **`E:\Data`**, with the relative
+artifact setting below, to exercise this requirement:
+
+```powershell
+$env:DYNAMISRAG_SCIENTIFIC_QDRANT_ENABLED = 'true'
+$env:DYNAMISRAG_SCIENTIFIC_EVIDENCE_DIRECTORY = 'docs/evidence/real-science-v1'
+$apiProcess = Start-Process -FilePath (Get-Command uv).Source -ArgumentList @('run','--project','E:/Data/Projects/DynamisRAG','uvicorn','--factory','dynamisrag.application:create_app','--host','127.0.0.1','--port','8011','--no-access-log') -WorkingDirectory 'E:/Data' -WindowStyle Hidden -RedirectStandardOutput 'E:/Data/Projects/DynamisRAG/.tmp/live-rag-ready-server.out.log' -RedirectStandardError 'E:/Data/Projects/DynamisRAG/.tmp/live-rag-ready-server.err.log' -PassThru
+```
+
+Timings now include `query_inference_ms` for the fresh `/embed` call alone,
+`bm25_ms`, `dense_ms`, `rrf_ms`, and `hybrid_retrieval_ms`. The embedding call
+measurement is client-observed and includes transport, queueing and tokenization;
+it does not claim a pure model-kernel duration. `query_embedding_ms` also includes
+identity/manifest work. Hybrid time includes alias checks and candidate/RRF
+preparation, with the original `database_retrieval_ms` retained as the same
+aggregate. HTTP wall time is measured separately by the probe.
+
+The new execution of the requested knee-flexion question returned the same
+observed leader, PMC10780924 / DOI `10.3390/s24010044`, at BM25 rank 1 with
+16.201311, dense rank 1 with 0.79328495, and RRF rank 1 with
+0.03278688524590164. All **57** unique candidates were independently rechecked
+against PostgreSQL. Observed first-request values in milliseconds:
+
+```json
+{
+  "query_embedding_ms": 19598.91769999922,
+  "query_inference_ms": 19594.669799998883,
+  "bm25_ms": 74.34900000043854,
+  "dense_ms": 10.791400000016438,
+  "rrf_ms": 3.052299998671515,
+  "hybrid_retrieval_ms": 99.3601000009221,
+  "citation_verification_ms": 26.928100000077393,
+  "total_request_ms": 19725.20590000022,
+  "client_wall_ms": 19753.660700000182
+}
+```
+
+That first embedding request was slow; no cause or benchmark equivalence is
+inferred. The repeated question still performed fresh inference and its HTTP
+wall time was 488.2279 ms. A second, previously unused question about dominant
+and nondominant-leg muscle responses also succeeded. The five-request probe,
+including filters, preserved every collection/vector hash, alias and canonical
+row count; readiness was `ready` both before and after it.
+
+The original execution receipts above remain historical evidence. Current files:
+
+* [Full current HTTP response](evidence/live-rag-001/readiness-update/response.json)
+* [Current retrieval log with every candidate's text, raw score and spans](evidence/live-rag-001/readiness-update/retrieval-log.txt)
+* [Readiness, all five requests/timings and unchanged-state receipt](evidence/live-rag-001/readiness-update/execution-receipt.json)
+
+Exact commands used for this completion:
+
+```powershell
+uv run python scripts/probe_live_scientific_api.py
+uv run pytest tests/unit/test_scientific_retrieval.py tests/unit/test_config.py tests/unit/test_health_endpoints.py tests/unit/test_qdrant.py tests/unit/test_qdrant_review.py -q --basetemp .tmp/live-rag-ready-focused
+uv run pytest tests/integration/test_scientific_citations.py tests/integration/test_qdrant_live.py -m integration -q --basetemp .tmp/live-rag-ready-integration
+uv run pytest --basetemp .tmp/live-rag-ready-unit -q
+uv run ruff check .
+uv run ruff format --check .
+uv run pyright
+```
