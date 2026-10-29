@@ -58,8 +58,11 @@ def verify_article(content: bytes, group: list[Candidate], pmcid: str) -> dict[s
                 identifiers["doi"].add(cast(str, TypeAdapter(NormalizedDoi).validate_python(value)))
             elif namespace in {"pmc", "pmcid"}:
                 identifiers["pmc"].add(
-                    TypeAdapter(Pmcid).validate_python(
-                        f"PMC{value}" if value.isdecimal() else value
+                    cast(
+                        str,
+                        TypeAdapter(Pmcid).validate_python(
+                            f"PMC{value}" if value.isdecimal() else value
+                        ),
                     )
                 )
     except ValidationError as error:
