@@ -226,3 +226,41 @@ def test_replay_rejects_stage_receipt_and_run_identity_tampering(
     )
     with pytest.raises(ValueError, match="run result snapshot identity"):
         verify_run(run_root, store_root)
+
+def test_replay_rejects_coordinated_summary_and_decision_tampering(
+    corpus_engine: Engine, tmp_path: Path
+) -> None:
+    _run(corpus_engine, tmp_path, CorpusTransport())
+    run_root, store_root = tmp_path / "run", tmp_path / "objects"
+    qualification_path = run_root / "qualification.json"
+    result_path = run_root / "result.json"
+    original_qualification = read_json(qualification_path)
+    original_result = read_json(result_path)
+
+    # Changing both reported summaries used to bypass the equality check.
+    forged_qualification = deepcopy(original_qualification)
+    forged_result = deepcopy(original_result)
+    forged_qualification["summary"]["rejected_articles"] += 1
+    forged_result["rejected_articles"] += 1
+    qualification_path.write_bytes(canonical_bytes(forged_qualification) + b"\n")
+    result_path.write_bytes(canonical_bytes(forged_result) + b"\n")
+    with pytest.raises(ValueError, match="qualification summary"):
+        verify_run(run_root, store_root)
+
+    qualification_path.write_bytes(canonical_bytes(original_qualification) + b"\n")
+    result_path.write_bytes(canonical_bytes(original_result) + b"\n")
+
+    # An altered aggregate decision list must not pass independent replay.
+    forged_qualification = deepcopy(original_qualification)
+    forged_qualification["decisions"] = []
+    qualification_path.write_bytes(canonical_bytes(forged_qualification) + b"\n")
+    with pytest.raises(ValueError, match="decision receipts"):
+        verify_run(run_root, store_root)
+    qualification_path.write_bytes(canonical_bytes(original_qualification) + b"\n")
+
+    # Dropping even one per-group receipt must fail closed.
+    decision_path = next((run_root / "decisions").glob("*.json"))
+    decision_path.unlink()
+    with pytest.raises(FileNotFoundError):
+        verify_run(run_root, store_root)
+

@@ -225,6 +225,64 @@ def verify_discovery(discovery: dict[str, Any]) -> None:
         raise ValueError("discovery rejected-record replay incomplete or inconsistent")
 
 
+def _reconstruct_qualification(
+    run_root: Path, discovery: dict[str, Any], manifest: dict[str, Any]
+) -> dict[str, Any]:
+    """Reconstruct every decision and summary count from retained evidence.
+
+    A matching result.json and qualification.json is insufficient: both can
+    be changed together. All accepted discovery groups must have an exact
+    per-group receipt, and every acquired receipt must belong to the snapshot.
+    """
+    records = [Candidate.model_validate(record) for record in discovery["records"]]
+    groups, conflicts = reconcile(records)
+    decisions: list[dict[str, Any]] = []
+    acquired: list[dict[str, Any]] = []
+    for group in groups:
+        sources = [c.model_dump(mode="json") for c in group]
+        decision = read_json(run_root / "decisions" / f"{identity(sources)}.json")
+        status = decision.get("status")
+        if decision.get("sources") != sources:
+            raise ValueError("qualification decision sources mismatch")
+        if status == "acquired":
+            if set(decision) != {"status", "sources", "member"} or not isinstance(
+                decision.get("member"), dict
+            ):
+                raise ValueError("invalid acquired qualification receipt")
+            acquired.append(decision["member"])
+        elif status in {"rejected", "deferred"}:
+            if (
+                set(decision) != {"status", "sources", "reason"}
+                or not isinstance(decision.get("reason"), str)
+                or not decision["reason"]
+                or (status == "deferred" and decision["reason"] != "membership budget reached")
+            ):
+                raise ValueError("invalid rejected or deferred qualification receipt")
+        else:
+            raise ValueError("invalid qualification decision status")
+        decisions.append(decision)
+
+    if build_manifest(discovery, acquired) != manifest:
+        raise ValueError("acquired qualification receipts do not match snapshot membership")
+    summary = {
+        "discovered_records": len(records) + len(discovery["rejected"]),
+        "malformed_records": len(discovery["rejected"]),
+        "unique_articles": len(groups) + len(conflicts),
+        "deduplicated_records": len(records) - len(groups) - len(conflicts),
+        "identifier_conflict_articles": len(conflicts),
+        "eligible_articles": len(acquired),
+        "acquired_articles": len(acquired),
+        "rejected_articles": sum(d["status"] == "rejected" for d in decisions) + len(conflicts),
+        "deferred_articles": sum(d["status"] == "deferred" for d in decisions),
+        "provider_failures": discovery["failures"],
+    }
+    return {
+        "summary": summary,
+        "decisions": decisions,
+        "conflicts": [[c.model_dump(mode="json") for c in group] for group in conflicts],
+    }
+
+
 def verify_run(run_root: Path, store_root: Path) -> dict[str, Any]:
     """Verify the run's claimed snapshot ID, summary and retained acquisition receipts.
 
@@ -238,13 +296,12 @@ def verify_run(run_root: Path, store_root: Path) -> dict[str, Any]:
     manifest = read_json(run_root / "snapshots" / f"{snapshot_id}.json")
     if manifest.get("snapshot_id") != snapshot_id:
         raise ValueError("run result snapshot identity differs from verified manifest")
-    qualification = read_json(run_root / "qualification.json")
-    if result != {"snapshot_id": snapshot_id, **qualification["summary"]}:
-        raise ValueError("run result and qualification summary mismatch")
-    if result["acquired_articles"] != len(manifest["members"]):
-        raise ValueError("run result membership count mismatch")
     discovery = read_json(run_root / "discovery.json")
-    if result["provider_failures"] != discovery["failures"]:
-        raise ValueError("run result discovery failures mismatch")
     verify_manifest(manifest, discovery, store_root, run_root=run_root)
+    qualification = read_json(run_root / "qualification.json")
+    reconstructed = _reconstruct_qualification(run_root, discovery, manifest)
+    if qualification != reconstructed:
+        raise ValueError("qualification summary or decision receipts mismatch")
+    if result != {"snapshot_id": snapshot_id, **reconstructed["summary"]}:
+        raise ValueError("run result and reconstructed qualification summary mismatch")
     return manifest
