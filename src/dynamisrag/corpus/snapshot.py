@@ -18,6 +18,7 @@ from dynamisrag.corpus.discovery import (
     PROVIDERS,
     Candidate,
     DiscoveryPlan,
+    Provider,
     normalize_record,
     page_request_url,
     parse_page,
@@ -192,14 +193,24 @@ def verify_manifest(
 
 
 def verify_discovery(discovery: dict[str, Any]) -> None:
-    """Replay the complete planned request inventory and every record multiplicity.
-
-    Retained pages must cover each provider/topic request until the finite
-    budget, a response-defined stop, or an explicit provider failure. A removed
-    whole page cannot be hidden by also deleting its normalized records.
-    """
+    """Replay the planned request inventory and every record multiplicity."""
     if discovery.get("schema_revision") != "discovery-1":
         raise ValueError("unsupported discovery revision")
+    records, rejected = _replay_discovery_requests(discovery)
+
+    def multiset(items: list[dict[str, Any]]) -> Counter[bytes]:
+        return Counter(canonical_bytes(item) for item in items)
+
+    if multiset(records) != multiset(discovery["records"]):
+        raise ValueError("discovery record replay incomplete or inconsistent")
+    if multiset(rejected) != multiset(discovery["rejected"]):
+        raise ValueError("discovery rejected-record replay incomplete or inconsistent")
+
+
+def _replay_discovery_requests(
+    discovery: dict[str, Any],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Every planned request must end in a retained page, stop, or failure."""
     plan = DiscoveryPlan.model_validate(discovery["plan"])
     pages = discovery["pages"]
     failures = discovery["failures"]
@@ -225,29 +236,11 @@ def verify_discovery(discovery: dict[str, Any]) -> None:
                         != page_request_url(provider, topic, plan.page_size, cursor, page_number)
                     ):
                         raise ValueError("discovery request inventory or URL mismatch")
-                    data = base64.b64decode(page["body_base64"], validate=True)
-                    if hashlib.sha256(data).hexdigest() != page["sha256"]:
-                        raise ValueError("discovery source page mutation")
-                    raw_items, next_cursor = parse_page(provider, json.loads(data))
-                    if len(raw_items) > plan.page_size:
-                        raise ValueError("oversized retained discovery page")
-                    for raw in raw_items:
-                        try:
-                            if not isinstance(raw, dict):
-                                raise ValueError("record is not an object")
-                            candidate = normalize_record(
-                                provider, cast(dict[str, Any], raw), page["sha256"]
-                            )
-                            expected_records.append(candidate.model_dump(mode="json"))
-                        except (ValidationError, ValueError, TypeError, AttributeError) as error:
-                            expected_rejected.append(
-                                {
-                                    "provider": provider,
-                                    "page_sha256": page["sha256"],
-                                    "record": raw,
-                                    "reason": str(error),
-                                }
-                            )
+                    raw_items, next_cursor, records, rejected = _replay_page(
+                        provider, page, plan.page_size
+                    )
+                    expected_records.extend(records)
+                    expected_rejected.extend(rejected)
                     page_index += 1
                     if provider == "openalex":
                         next_cursor = str(page_number + 2)
@@ -276,14 +269,37 @@ def verify_discovery(discovery: dict[str, Any]) -> None:
 
     if page_index != len(pages) or failure_index != len(failures):
         raise ValueError("discovery request inventory contains unmatched pages or failures")
+    return expected_records, expected_rejected
 
-    def multiset(items: list[dict[str, Any]]) -> Counter[bytes]:
-        return Counter(canonical_bytes(item) for item in items)
 
-    if multiset(expected_records) != multiset(discovery["records"]):
-        raise ValueError("discovery record replay incomplete or inconsistent")
-    if multiset(expected_rejected) != multiset(discovery["rejected"]):
-        raise ValueError("discovery rejected-record replay incomplete or inconsistent")
+def _replay_page(
+    provider: Provider, page: dict[str, Any], size: int
+) -> tuple[list[Any], str | None, list[dict[str, Any]], list[dict[str, Any]]]:
+    """Decode one original provider response into normalized and rejected records."""
+    data = base64.b64decode(page["body_base64"], validate=True)
+    if hashlib.sha256(data).hexdigest() != page["sha256"]:
+        raise ValueError("discovery source page mutation")
+    raw_items, next_cursor = parse_page(provider, json.loads(data))
+    if len(raw_items) > size:
+        raise ValueError("oversized retained discovery page")
+    records: list[dict[str, Any]] = []
+    rejected: list[dict[str, Any]] = []
+    for raw in raw_items:
+        try:
+            if not isinstance(raw, dict):
+                raise ValueError("record is not an object")
+            candidate = normalize_record(provider, cast(dict[str, Any], raw), page["sha256"])
+            records.append(candidate.model_dump(mode="json"))
+        except (ValidationError, ValueError, TypeError, AttributeError) as error:
+            rejected.append(
+                {
+                    "provider": provider,
+                    "page_sha256": page["sha256"],
+                    "record": raw,
+                    "reason": str(error),
+                }
+            )
+    return raw_items, next_cursor, records, rejected
 
 
 def _reconstruct_qualification(
