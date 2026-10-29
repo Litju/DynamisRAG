@@ -137,8 +137,7 @@ def verify_manifest(
         ]
         expected_doi = next((c.doi for c in group if c.doi), None)
         expected_uri = (
-            "https://www.ebi.ac.uk/europepmc/webservices/rest/"
-            f"{member['pmcid']}/fullTextXML"
+            f"https://www.ebi.ac.uk/europepmc/webservices/rest/{member['pmcid']}/fullTextXML"
         )
         possible_document_keys = {
             f"pmcid:{member['pmcid']}",

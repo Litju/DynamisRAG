@@ -109,9 +109,7 @@ def test_real_canonical_acquisition_and_network_free_replay(
         tmp_path / "objects",
         run_root=tmp_path / "run",
     )
-    assert verify_run(tmp_path / "run", tmp_path / "objects")["snapshot_id"] == first[
-        "snapshot_id"
-    ]
+    assert verify_run(tmp_path / "run", tmp_path / "objects")["snapshot_id"] == first["snapshot_id"]
 
 
 @pytest.mark.parametrize("boundary", ["stage", "decision", "manifest"])
