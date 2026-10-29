@@ -202,7 +202,6 @@ def test_corrupt_stage_rejected_before_resume_transaction(
     assert _counts(corpus_engine) == before
 
 
-
 def test_forged_staged_license_name_cannot_enter_canonical_database(
     corpus_engine: Engine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -223,9 +222,7 @@ def test_forged_staged_license_name_cannot_enter_canonical_database(
     stage_path = next((tmp_path / "run/staged").glob("*.json"))
     stage = read_json(stage_path)
     assert stage["license_name"] == "open-access"
-    stage_path.write_bytes(
-        canonical_bytes({**stage, "license_name": "forged-cc-by-nc"}) + b"\n"
-    )
+    stage_path.write_bytes(canonical_bytes({**stage, "license_name": "forged-cc-by-nc"}) + b"\n")
     transport.fail_network = True
     with pytest.raises(ValueError, match="stage provenance"):
         _run(corpus_engine, tmp_path, transport)
