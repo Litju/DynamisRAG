@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from defusedxml.ElementTree import fromstring
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
@@ -20,6 +19,7 @@ from dynamisrag.corpus.rights import (
     RIGHTS_REVISION,
     SCOPE_REVISION,
     QualificationError,
+    original_article_license_name,
     preflight,
     verify_article,
 )
@@ -267,12 +267,8 @@ def _validate_stage(
     stage: dict[str, Any], pmcid: str, rights: dict[str, Any], content: bytes
 ) -> None:
     """Verify staged transport metadata against original article-level JATS."""
-    license_element = fromstring(content).find("./front/article-meta/permissions/license")
-    if license_element is None:
-        raise ValueError("missing original article-level license")
-    original_license_name = license_element.get("license-type") or None
     if (
-        stage["license_name"] != original_license_name
+        stage["license_name"] != original_article_license_name(content)
         or stage["source_uri"]
         != f"https://www.ebi.ac.uk/europepmc/webservices/rest/{pmcid}/fullTextXML"
         or stage["license_uri"] != rights["license_uri"]

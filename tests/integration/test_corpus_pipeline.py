@@ -303,6 +303,12 @@ def test_replay_rejects_stage_receipt_and_run_identity_tampering(
     stage_path.write_bytes(canonical_bytes(stage) + b"\n")
     assert verify_run(run_root, store_root)["snapshot_id"] == result["snapshot_id"]
 
+    stage_path.write_bytes(canonical_bytes({**stage, "license_name": "forged-license"}) + b"\n")
+    with pytest.raises(ValueError, match="stage"):
+        verify_run(run_root, store_root)
+    stage_path.write_bytes(canonical_bytes(stage) + b"\n")
+    assert verify_run(run_root, store_root)["snapshot_id"] == result["snapshot_id"]
+
     fake_id = "f" * 64
     (run_root / "snapshots" / f"{fake_id}.json").write_bytes(Path(result["manifest"]).read_bytes())
     (run_root / "result.json").write_bytes(

@@ -23,6 +23,14 @@ class QualificationError(ValueError):
     """A scientific or rights requirement could not be established."""
 
 
+def original_article_license_name(content: bytes) -> str | None:
+    """Read only the article-level license-type from original JATS bytes."""
+    license_element = fromstring(content).find("./front/article-meta/permissions/license")
+    if license_element is None:
+        raise QualificationError("missing original article-level license")
+    return license_element.get("license-type") or None
+
+
 def preflight(group: list[Candidate]) -> str:
     """Require explicit repository license evidence before requesting source bytes."""
     records = [c for c in group if c.provider == "europe_pmc" and c.pmcid]

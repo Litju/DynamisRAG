@@ -24,7 +24,7 @@ from dynamisrag.corpus.discovery import (
     parse_page,
     reconcile,
 )
-from dynamisrag.corpus.rights import preflight, verify_article
+from dynamisrag.corpus.rights import original_article_license_name, preflight, verify_article
 from dynamisrag.domain.identity import digest, document_version_key, source_artifact_key
 from dynamisrag.jats.parser import JATS_NORMALIZER_REVISION, JATS_PARSER_REVISION, JatsParser
 from dynamisrag.storage.filesystem import ObjectStoreIntegrityError
@@ -188,6 +188,7 @@ def verify_manifest(
                 or stage.get("source_uri") != member["source_uri"]
                 or stage.get("media_type") != member["media_type"]
                 or stage.get("license_uri") != member["rights"]["license_uri"]
+                or stage.get("license_name") != original_article_license_name(data)
                 or decision != {"status": "acquired", "member": member, "sources": sources}
             ):
                 raise ValueError("snapshot stage or acquisition decision provenance mismatch")
