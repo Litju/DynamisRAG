@@ -39,6 +39,15 @@ def main() -> None:
                     "verified": manifest["snapshot_id"],
                     "members": len(manifest["members"]),
                     "discovery_status": "partial" if discovery["failures"] else "complete",
+                    "failure_receipt_provenance": (
+                        "none"
+                        if not discovery["failures"]
+                        else (
+                            "legacy-unbound"
+                            if discovery["schema_revision"] == "discovery-1"
+                            else "request-bound"
+                        )
+                    ),
                 }
             )
         )

@@ -6,11 +6,13 @@ import base64
 import hashlib
 from copy import deepcopy
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import httpx2
 import pytest
+from sqlalchemy import create_engine
 
+from dynamisrag.corpus import pipeline
 from dynamisrag.corpus.discovery import (
     BoundedHttp,
     DiscoveryPlan,
@@ -182,6 +184,65 @@ def test_finite_retry_and_recorded_provider_failure(monkeypatch: pytest.MonkeyPa
         data = discover(BoundedHttp(client), DiscoveryPlan(topics=("sprint",)))
     assert len(requests) == 9 and len(data["failures"]) == 3
     verify_discovery(data)
+
+
+def test_failure_receipt_binds_exact_request() -> None:
+    with httpx2.Client(transport=httpx2.MockTransport(lambda _: httpx2.Response(503))) as client:
+        data = discover(BoundedHttp(client, attempts=1), DiscoveryPlan(topics=("sprint",)))
+    assert data["schema_revision"] == "discovery-2"
+    verify_discovery(data)
+    for field, value in (("page", 2), ("url", "https://example.invalid/")):
+        forged = deepcopy(data)
+        forged["failures"][0][field] = value
+        with pytest.raises(ValueError, match="failure"):
+            verify_discovery(forged)
+
+
+def test_legacy_failure_remains_verifiable_but_cannot_resume(tmp_path: Path) -> None:
+    plan = DiscoveryPlan(topics=("sprint",))
+    with httpx2.Client(transport=httpx2.MockTransport(lambda _: httpx2.Response(503))) as client:
+        data = discover(BoundedHttp(client, attempts=1), plan)
+        data["schema_revision"] = "discovery-1"
+        for failure in data["failures"]:
+            del failure["page"]
+            del failure["url"]
+        verify_discovery(data)
+        publish_json(tmp_path / "run/discovery.json", data)
+        with pytest.raises(ValueError, match="legacy discovery failure"):
+            pipeline.run_snapshot(
+                engine=create_engine("sqlite://"),
+                http=BoundedHttp(client),
+                fulltext=cast(Any, None),
+                run_root=tmp_path / "run",
+                store_root=tmp_path / "objects",
+                plan=plan,
+            )
+        assert not (tmp_path / "run/config.json").exists()
+
+
+def test_corrupt_discovery_is_rejected_before_acquisition(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    transport = CorpusTransport()
+    plan = DiscoveryPlan(topics=("sprint",), page_size=4)
+    with httpx2.Client(transport=transport) as client:
+        discovery = discover(BoundedHttp(client), plan)
+        discovery["records"][0]["title"] = "forged"
+        publish_json(tmp_path / "run/discovery.json", discovery)
+
+        def mutated(**kwargs: Any) -> Any:
+            pytest.fail("acquisition was reached before discovery validation")
+
+        monkeypatch.setattr(pipeline, "_qualify", mutated)
+        with pytest.raises(ValueError, match="replay incomplete"):
+            pipeline.run_snapshot(
+                engine=create_engine("sqlite://"),
+                http=BoundedHttp(client),
+                fulltext=cast(Any, None),
+                run_root=tmp_path / "run",
+                store_root=tmp_path / "objects",
+                plan=plan,
+            )
 
 
 def test_discovery_malformed_record_and_source_mutation() -> None:

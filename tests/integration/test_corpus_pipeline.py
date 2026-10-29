@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from dynamisrag.config import Settings
 from dynamisrag.corpus import pipeline
-from dynamisrag.corpus.discovery import BoundedHttp, DiscoveryPlan
+from dynamisrag.corpus.discovery import BoundedHttp, DiscoveryPlan, discover
 from dynamisrag.corpus.pipeline import run_snapshot
 from dynamisrag.corpus.snapshot import (
     build_manifest,
@@ -163,6 +163,61 @@ def test_object_corruption_blocks_republication(corpus_engine: Engine, tmp_path:
     target.write_bytes(b"corrupt")
     transport.fail_network = True
     with pytest.raises(ObjectStoreIntegrityError, match=r"hash|digest"):
+        _run(corpus_engine, tmp_path, transport)
+
+
+def test_corrupt_discovery_cannot_mutate_database_or_store(
+    corpus_engine: Engine, tmp_path: Path
+) -> None:
+    transport = CorpusTransport()
+    with httpx2.Client(transport=transport) as client:
+        discovery = discover(BoundedHttp(client), DiscoveryPlan(topics=("sprint",), page_size=4))
+    discovery["records"][0]["title"] = "forged"
+    publish_json(tmp_path / "run/discovery.json", discovery)
+    before = _counts(corpus_engine)
+    with pytest.raises(ValueError, match="replay incomplete"):
+        _run(corpus_engine, tmp_path, transport)
+    assert _counts(corpus_engine) == before
+    assert transport.fulltext_requests == 0
+    assert not (tmp_path / "objects").exists()
+    assert not (tmp_path / "run/config.json").exists()
+
+
+def test_corrupt_stage_rejected_before_resume_transaction(
+    corpus_engine: Engine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    transport = CorpusTransport()
+    _run(corpus_engine, tmp_path, transport)
+    stage_path = next((tmp_path / "run/staged").glob("*.json"))
+    stage = read_json(stage_path)
+    stage_path.write_bytes(canonical_bytes({**stage, "source_uri": "https://example.invalid"}))
+    before = _counts(corpus_engine)
+
+    def forbidden(**kwargs: Any) -> Any:
+        pytest.fail("acquisition reached with corrupted stage")
+
+    monkeypatch.setattr(pipeline, "_qualify", forbidden)
+    with pytest.raises(ValueError, match="stage"):
+        _run(corpus_engine, tmp_path, transport)
+    assert _counts(corpus_engine) == before
+
+
+def test_interrupted_publication_rejects_forged_summary_before_resume(
+    corpus_engine: Engine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    transport = CorpusTransport()
+    _run(corpus_engine, tmp_path, transport)
+    (tmp_path / "run/result.json").unlink()
+    path = tmp_path / "run/qualification.json"
+    qualification = read_json(path)
+    qualification["summary"]["acquired_articles"] += 1
+    path.write_bytes(canonical_bytes(qualification))
+
+    def forbidden(**kwargs: Any) -> Any:
+        pytest.fail("acquisition reached with corrupted qualification")
+
+    monkeypatch.setattr(pipeline, "_qualify", forbidden)
+    with pytest.raises(ValueError, match="qualification"):
         _run(corpus_engine, tmp_path, transport)
 
 

@@ -112,7 +112,7 @@ def discover(http: BoundedHttp, plan: DiscoveryPlan) -> dict[str, Any]:
     pages: list[dict[str, Any]] = []
     records: list[dict[str, Any]] = []
     rejected: list[dict[str, Any]] = []
-    failures: list[dict[str, str]] = []
+    failures: list[dict[str, Any]] = []
     for provider in PROVIDERS:
         for topic in plan.topics:
             cursor = "*"
@@ -165,10 +165,18 @@ def discover(http: BoundedHttp, plan: DiscoveryPlan) -> dict[str, Any]:
                     seen.add(cursor)
                     cursor = next_cursor
                 except (httpx2.HTTPError, ValueError, KeyError, TypeError) as error:
-                    failures.append({"provider": provider, "topic": topic, "error": str(error)})
+                    failures.append(
+                        {
+                            "provider": provider,
+                            "topic": topic,
+                            "page": page + 1,
+                            "url": page_request_url(provider, topic, plan.page_size, cursor, page),
+                            "error": str(error),
+                        }
+                    )
                     break
     return {
-        "schema_revision": "discovery-1",
+        "schema_revision": "discovery-2",
         "plan": plan.model_dump(mode="json"),
         "pages": pages,
         "records": records,

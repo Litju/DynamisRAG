@@ -41,3 +41,15 @@ HTTP-429 retries. The operator's verification output now derives an explicit
 partial/complete label from the retained failure receipts; a partial snapshot
 must not be reported as an exhaustive search result. No source acquisition,
 embedding, indexing, or model run is required by this verifier repair.
+
+## P1 recovery and failure receipts
+
+Resume validates retained discovery and existing stage and decision receipts before
+acquisition, object publication, or database transactions. Missing discovery with
+retained receipts fails closed. Newly recorded `discovery-2` failure receipts bind
+the planned provider, topic, page and request URL; this is structural consistency,
+not independent proof that an HTTP failure occurred. The original `discovery-1`
+failure receipt lacks those structured fields. It remains available for offline
+verification, reported as `legacy-unbound`, but cannot be resumed for acquisition.
+No historical failure details are inferred or backfilled. Fresh discovery creates a
+separate snapshot; it cannot repair the historical search coverage.

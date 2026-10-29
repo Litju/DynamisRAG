@@ -27,7 +27,7 @@ from dynamisrag.corpus.discovery import (
 from dynamisrag.corpus.rights import preflight, verify_article
 from dynamisrag.domain.identity import digest, document_version_key, source_artifact_key
 from dynamisrag.jats.parser import JATS_NORMALIZER_REVISION, JATS_PARSER_REVISION, JatsParser
-from dynamisrag.storage.filesystem import FileSystemObjectStore
+from dynamisrag.storage.filesystem import ObjectStoreIntegrityError
 
 SNAPSHOT_REVISION = "dynamiscorpus-1"
 
@@ -86,7 +86,8 @@ def source_bytes(root: Path, digest: str) -> bytes:
     if len(digest) != 64 or any(c not in "0123456789abcdef" for c in digest):
         raise ValueError("invalid source digest")
     data = (root / "sha256" / digest[:2] / f"{digest}.xml").read_bytes()
-    FileSystemObjectStore(root).put_if_absent(digest, data)
+    if hashlib.sha256(data).hexdigest() != digest:
+        raise ObjectStoreIntegrityError("source object digest mismatch")
     return data
 
 
@@ -194,7 +195,7 @@ def verify_manifest(
 
 def verify_discovery(discovery: dict[str, Any]) -> None:
     """Replay the planned request inventory and every record multiplicity."""
-    if discovery.get("schema_revision") != "discovery-1":
+    if discovery.get("schema_revision") not in {"discovery-1", "discovery-2"}:
         raise ValueError("unsupported discovery revision")
     records, rejected = _replay_discovery_requests(discovery)
 
@@ -257,11 +258,25 @@ def _replay_discovery_requests(
                     if failure_index >= len(failures):
                         raise ValueError("discovery request inventory incomplete")
                     failure = failures[failure_index]
+                    fields = {"provider", "topic", "error"}
+                    if discovery["schema_revision"] == "discovery-2":
+                        fields |= {"page", "url"}
                     if (
-                        set(failure) != {"provider", "topic", "error"}
+                        set(failure) != fields
                         or failure.get("provider") != provider
                         or failure.get("topic") != topic
                         or not isinstance(failure.get("error"), str)
+                        or not failure["error"]
+                        or (
+                            discovery["schema_revision"] == "discovery-2"
+                            and (
+                                failure.get("page") != page_number + 1
+                                or failure.get("url")
+                                != page_request_url(
+                                    provider, topic, plan.page_size, cursor, page_number
+                                )
+                            )
+                        )
                     ):
                         raise ValueError("discovery request failure inventory mismatch")
                     failure_index += 1
@@ -302,7 +317,7 @@ def _replay_page(
     return raw_items, next_cursor, records, rejected
 
 
-def _reconstruct_qualification(
+def reconstruct_qualification(
     run_root: Path, discovery: dict[str, Any], manifest: dict[str, Any]
 ) -> dict[str, Any]:
     """Reconstruct every decision and summary count from retained evidence.
@@ -376,7 +391,7 @@ def verify_run(run_root: Path, store_root: Path) -> dict[str, Any]:
     discovery = read_json(run_root / "discovery.json")
     verify_manifest(manifest, discovery, store_root, run_root=run_root)
     qualification = read_json(run_root / "qualification.json")
-    reconstructed = _reconstruct_qualification(run_root, discovery, manifest)
+    reconstructed = reconstruct_qualification(run_root, discovery, manifest)
     if qualification != reconstructed:
         raise ValueError("qualification summary or decision receipts mismatch")
     if result != {"snapshot_id": snapshot_id, **reconstructed["summary"]}:
