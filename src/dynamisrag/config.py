@@ -110,6 +110,8 @@ class Settings(BaseSettings):
     projection always produces the same request boundaries."""
 
     scientific_qdrant_enabled: bool = False
+    scientific_answers_enabled: bool = False
+    scientific_ollama_url: AnyHttpUrl = AnyHttpUrl("http://127.0.0.1:11434")
     scientific_qdrant_url: AnyHttpUrl = AnyHttpUrl("http://127.0.0.1:6333")
     scientific_tei_url: AnyHttpUrl = AnyHttpUrl("http://127.0.0.1:8081")
     scientific_evidence_directory: Path = _PROJECT_ROOT / "docs/evidence/real-science-v1"

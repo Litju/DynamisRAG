@@ -1,0 +1,45 @@
+{
+  "before": {
+    "canonical_counts": [
+      3,
+      3,
+      75
+    ],
+    "aliases": {
+      "dynamisrag-synthetic-ties-reverse": "qdrant-passages-v1-17b7d64f742182919fa9313ff8695ce0366ed8ffc09e1eff80c171e4f558c0a7",
+      "dynamisrag-synthetic-database-tests": "qdrant-passages-v1-22ce4f03b2280fd63c06a993b79fbbceece3180f08d3050b6fd55d6f6187e21d",
+      "dynamisrag-real-science-v1": "qdrant-passages-v1-5a20d2780fe6cd0ce0155ed7535c6507ec452f9ad4ae14cbd5990e13d7e8a709",
+      "dynamisrag-synthetic-ties-forward": "qdrant-passages-v1-618f0f47a167afade3ef607b8c866eea85955de2280c04ce1b3ece19f1054877"
+    },
+    "collections": {
+      "qdrant-passages-v1-17b7d64f742182919fa9313ff8695ce0366ed8ffc09e1eff80c171e4f558c0a7": "9bc40e10ea0aeb84e6918be0176bfa6f7d37fe2d5557f8da2767c705cc1b4783",
+      "qdrant-passages-v1-22ce4f03b2280fd63c06a993b79fbbceece3180f08d3050b6fd55d6f6187e21d": "f2de5199fabe7dfbcf8cc7372792ee7c4f70690ad388d5b9f5e31e25c25f5d0d",
+      "qdrant-passages-v1-5a20d2780fe6cd0ce0155ed7535c6507ec452f9ad4ae14cbd5990e13d7e8a709": "2640a00053e5c8231e7db28873a42e7b9465830693f6c4c56f722c7ba2f78d2a",
+      "qdrant-passages-v1-618f0f47a167afade3ef607b8c866eea85955de2280c04ce1b3ece19f1054877": "af59ebdf36eaf3fe241d4ad6b9a9fbba2f794143e4f776174a0f7f3116dc23ee",
+      "qdrant-passages-v1-635b92e9da271b6655319aca948be86639bb497a872b9df4f5f3482ab313cae8": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "qdrant-passages-v1-cffdc46774f6fa5b6b06c02d8fcb52b89c5764bfe2d8c00848d4fc2ea1ad9dfb": "4fda877afb11f9599d3e9fe34d231b5e49a2e4a53c25cec2f459ba3b3f887efc"
+    }
+  },
+  "after": {
+    "canonical_counts": [
+      3,
+      3,
+      75
+    ],
+    "aliases": {
+      "dynamisrag-synthetic-ties-reverse": "qdrant-passages-v1-17b7d64f742182919fa9313ff8695ce0366ed8ffc09e1eff80c171e4f558c0a7",
+      "dynamisrag-synthetic-database-tests": "qdrant-passages-v1-22ce4f03b2280fd63c06a993b79fbbceece3180f08d3050b6fd55d6f6187e21d",
+      "dynamisrag-real-science-v1": "qdrant-passages-v1-5a20d2780fe6cd0ce0155ed7535c6507ec452f9ad4ae14cbd5990e13d7e8a709",
+      "dynamisrag-synthetic-ties-forward": "qdrant-passages-v1-618f0f47a167afade3ef607b8c866eea85955de2280c04ce1b3ece19f1054877"
+    },
+    "collections": {
+      "qdrant-passages-v1-17b7d64f742182919fa9313ff8695ce0366ed8ffc09e1eff80c171e4f558c0a7": "9bc40e10ea0aeb84e6918be0176bfa6f7d37fe2d5557f8da2767c705cc1b4783",
+      "qdrant-passages-v1-22ce4f03b2280fd63c06a993b79fbbceece3180f08d3050b6fd55d6f6187e21d": "f2de5199fabe7dfbcf8cc7372792ee7c4f70690ad388d5b9f5e31e25c25f5d0d",
+      "qdrant-passages-v1-5a20d2780fe6cd0ce0155ed7535c6507ec452f9ad4ae14cbd5990e13d7e8a709": "2640a00053e5c8231e7db28873a42e7b9465830693f6c4c56f722c7ba2f78d2a",
+      "qdrant-passages-v1-618f0f47a167afade3ef607b8c866eea85955de2280c04ce1b3ece19f1054877": "af59ebdf36eaf3fe241d4ad6b9a9fbba2f794143e4f776174a0f7f3116dc23ee",
+      "qdrant-passages-v1-635b92e9da271b6655319aca948be86639bb497a872b9df4f5f3482ab313cae8": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "qdrant-passages-v1-cffdc46774f6fa5b6b06c02d8fcb52b89c5764bfe2d8c00848d4fc2ea1ad9dfb": "4fda877afb11f9599d3e9fe34d231b5e49a2e4a53c25cec2f459ba3b3f887efc"
+    }
+  },
+  "unchanged": true
+}

@@ -41,17 +41,20 @@ FilterValue = Annotated[
 ]
 
 
+ScientificQuestion = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True,
+        min_length=1,
+        max_length=512,
+        pattern=r"^[^\x00-\x08\x0b\x0c\x0e-\x1f\x7f]+$",
+    ),
+]
+
+
 class ScientificRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
-    question: Annotated[
-        str,
-        StringConstraints(
-            strip_whitespace=True,
-            min_length=1,
-            max_length=512,
-            pattern=r"^[^\x00-\x08\x0b\x0c\x0e-\x1f\x7f]+$",
-        ),
-    ]
+    question: ScientificQuestion
     limit: int = Field(default=5, ge=1, le=20)
     filters: dict[FilterKey, FilterValue] = Field(
         default_factory=dict[FilterKey, str], max_length=7
@@ -62,7 +65,7 @@ def error_response(code: str, status: int) -> JSONResponse:
     return JSONResponse(status_code=status, content={"detail": {"code": code}}, headers=_HEADERS)
 
 
-class _BoundedRoute(APIRoute):
+class BoundedScientificRoute(APIRoute):
     def get_route_handler(self) -> Callable[[Request], Coroutine[Any, Any, Response]]:
         original = super().get_route_handler()
 
@@ -90,7 +93,7 @@ class _BoundedRoute(APIRoute):
 
 
 def build_scientific_router(service: ScientificRetrievalService | None) -> APIRouter:
-    router = APIRouter(tags=["scientific retrieval"], route_class=_BoundedRoute)
+    router = APIRouter(tags=["scientific retrieval"], route_class=BoundedScientificRoute)
 
     @router.get(
         READINESS_PATH,
