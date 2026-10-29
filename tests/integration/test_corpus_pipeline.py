@@ -30,9 +30,9 @@ from dynamisrag.corpus.snapshot import (
     verify_manifest,
     verify_run,
 )
-from dynamisrag.domain.identity import document_version_key
 from dynamisrag.db import create_database_engine
 from dynamisrag.db.models import DocumentVersionRecord, PassageRecord, SourceArtifactRecord
+from dynamisrag.domain.identity import document_version_key
 from dynamisrag.ingestion.europe_pmc import EuropePmcClient
 from dynamisrag.storage import ObjectStoreIntegrityError
 from tests._corpus import XML, CorpusTransport
@@ -187,7 +187,7 @@ def test_replay_rejects_recomputed_snapshot_with_forged_member_fields(
         altered = deepcopy(manifest)
         altered["members"][0][field] = changed
         altered = build_manifest(discovery, altered["members"])
-        with pytest.raises(ValueError, match="provenance|identity"):
+        with pytest.raises(ValueError, match=r"provenance|identity"):
             verify_manifest(altered, discovery, store_root, run_root=run_root)
 
     forged = deepcopy(manifest)
@@ -200,7 +200,7 @@ def test_replay_rejects_recomputed_snapshot_with_forged_member_fields(
         member["content_fingerprint"],
     )
     forged = build_manifest(discovery, forged["members"])
-    with pytest.raises(ValueError, match="provenance|identity"):
+    with pytest.raises(ValueError, match=r"provenance|identity"):
         verify_manifest(forged, discovery, store_root, run_root=run_root)
 
 
