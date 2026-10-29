@@ -202,7 +202,9 @@ def verify_discovery(discovery: dict[str, Any]) -> None:
             try:
                 if not isinstance(raw, dict):
                     raise ValueError("record is not an object")
-                candidate = normalize_record(page["provider"], cast(dict[str, Any], raw), page["sha256"])
+                candidate = normalize_record(
+                    page["provider"], cast(dict[str, Any], raw), page["sha256"]
+                )
                 expected_records.append(candidate.model_dump(mode="json"))
             except (ValidationError, ValueError, TypeError, AttributeError) as error:
                 expected_rejected.append(
