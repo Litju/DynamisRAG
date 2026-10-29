@@ -227,6 +227,7 @@ def test_replay_rejects_stage_receipt_and_run_identity_tampering(
     with pytest.raises(ValueError, match="run result snapshot identity"):
         verify_run(run_root, store_root)
 
+
 def test_replay_rejects_coordinated_summary_and_decision_tampering(
     corpus_engine: Engine, tmp_path: Path
 ) -> None:
@@ -263,4 +264,3 @@ def test_replay_rejects_coordinated_summary_and_decision_tampering(
     decision_path.unlink()
     with pytest.raises(FileNotFoundError):
         verify_run(run_root, store_root)
-
