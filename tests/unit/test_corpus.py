@@ -181,6 +181,7 @@ def test_finite_retry_and_recorded_provider_failure(monkeypatch: pytest.MonkeyPa
     with httpx2.Client(transport=httpx2.MockTransport(answer)) as client:
         data = discover(BoundedHttp(client), DiscoveryPlan(topics=("sprint",)))
     assert len(requests) == 9 and len(data["failures"]) == 3
+    verify_discovery(data)
 
 
 def test_discovery_malformed_record_and_source_mutation() -> None:
@@ -233,6 +234,32 @@ def test_discovery_replay_rejects_omitted_and_extra_records() -> None:
     changed_rejection["rejected"][0]["reason"] = "invented rejection"
     with pytest.raises(ValueError, match="replay incomplete"):
         verify_discovery(changed_rejection)
+
+
+def test_discovery_replay_rejects_missing_pages_and_forged_request_metadata() -> None:
+    with httpx2.Client(transport=CorpusTransport()) as client:
+        discovery = discover(
+            BoundedHttp(client), DiscoveryPlan(topics=("sprint",), pages_per_topic=2, page_size=4)
+        )
+    verify_discovery(discovery)
+
+    omitted = deepcopy(discovery)
+    deleted_page = omitted["pages"].pop(0)
+    omitted["records"] = [
+        record for record in omitted["records"] if record["page_sha256"] != deleted_page["sha256"]
+    ]
+    with pytest.raises(ValueError, match="request inventory"):
+        verify_discovery(omitted)
+
+    wrong_page = deepcopy(discovery)
+    wrong_page["pages"][0]["page"] = 2
+    with pytest.raises(ValueError, match="request inventory"):
+        verify_discovery(wrong_page)
+
+    wrong_url = deepcopy(discovery)
+    wrong_url["pages"][0]["url"] = "https://example.invalid/forged"
+    with pytest.raises(ValueError, match="URL"):
+        verify_discovery(wrong_url)
 
 
 def test_deterministic_manifest_and_atomic_interrupted_publication(

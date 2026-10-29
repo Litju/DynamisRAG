@@ -194,6 +194,17 @@ def _params(
     return {"query": topic, "rows": size, "cursor": cursor, "filter": "type:journal-article"}
 
 
+def page_request_url(
+    provider: Provider, topic: str, size: int, cursor: str, page: int
+) -> str:
+    """Derive the exact URL issued by the bounded discovery request."""
+    return str(
+        httpx2.Request(
+            "GET", ENDPOINTS[provider], params=_params(provider, topic, size, cursor, page)
+        ).url
+    )
+
+
 def parse_page(provider: Provider, payload: dict[str, Any]) -> tuple[list[Any], str | None]:
     if provider == "europe_pmc":
         items, cursor = payload["resultList"]["result"], payload.get("nextCursorMark")

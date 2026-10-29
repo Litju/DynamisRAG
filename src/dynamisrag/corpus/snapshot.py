@@ -14,7 +14,15 @@ from typing import Any, cast
 
 from pydantic import TypeAdapter, ValidationError
 
-from dynamisrag.corpus.discovery import Candidate, normalize_record, parse_page, reconcile
+from dynamisrag.corpus.discovery import (
+    PROVIDERS,
+    Candidate,
+    DiscoveryPlan,
+    normalize_record,
+    page_request_url,
+    parse_page,
+    reconcile,
+)
 from dynamisrag.corpus.rights import preflight, verify_article
 from dynamisrag.domain.identity import digest, document_version_key, source_artifact_key
 from dynamisrag.jats.parser import JATS_NORMALIZER_REVISION, JATS_PARSER_REVISION, JatsParser
@@ -184,37 +192,91 @@ def verify_manifest(
 
 
 def verify_discovery(discovery: dict[str, Any]) -> None:
-    """Replay every page record, including malformed records and multiplicities.
+    """Replay the complete planned request inventory and every record multiplicity.
 
-    The retained page bytes are the source of truth, not a one-way membership
-    lookup from a possibly incomplete normalized-record list.
+    Retained pages must cover each provider/topic request until the finite
+    budget, a response-defined stop, or an explicit provider failure. A removed
+    whole page cannot be hidden by also deleting its normalized records.
     """
     if discovery.get("schema_revision") != "discovery-1":
         raise ValueError("unsupported discovery revision")
+    plan = DiscoveryPlan.model_validate(discovery["plan"])
+    pages = discovery["pages"]
+    failures = discovery["failures"]
     expected_records: list[dict[str, Any]] = []
     expected_rejected: list[dict[str, Any]] = []
-    for page in discovery["pages"]:
-        data = base64.b64decode(page["body_base64"], validate=True)
-        if hashlib.sha256(data).hexdigest() != page["sha256"]:
-            raise ValueError("discovery source page mutation")
-        raw_items, _ = parse_page(page["provider"], json.loads(data))
-        for raw in raw_items:
-            try:
-                if not isinstance(raw, dict):
-                    raise ValueError("record is not an object")
-                candidate = normalize_record(
-                    page["provider"], cast(dict[str, Any], raw), page["sha256"]
-                )
-                expected_records.append(candidate.model_dump(mode="json"))
-            except (ValidationError, ValueError, TypeError, AttributeError) as error:
-                expected_rejected.append(
-                    {
-                        "provider": page["provider"],
-                        "page_sha256": page["sha256"],
-                        "record": raw,
-                        "reason": str(error),
-                    }
-                )
+    page_index = 0
+    failure_index = 0
+    for provider in PROVIDERS:
+        for topic in plan.topics:
+            cursor = "*"
+            seen: set[str] = set()
+            for page_number in range(plan.pages_per_topic):
+                if (
+                    page_index < len(pages)
+                    and pages[page_index].get("provider") == provider
+                    and pages[page_index].get("topic") == topic
+                ):
+                    page = pages[page_index]
+                    if (
+                        set(page)
+                        != {"provider", "topic", "page", "url", "sha256", "body_base64"}
+                        or page["page"] != page_number + 1
+                        or page["url"]
+                        != page_request_url(provider, topic, plan.page_size, cursor, page_number)
+                    ):
+                        raise ValueError("discovery request inventory or URL mismatch")
+                    data = base64.b64decode(page["body_base64"], validate=True)
+                    if hashlib.sha256(data).hexdigest() != page["sha256"]:
+                        raise ValueError("discovery source page mutation")
+                    raw_items, next_cursor = parse_page(provider, json.loads(data))
+                    if len(raw_items) > plan.page_size:
+                        raise ValueError("oversized retained discovery page")
+                    for raw in raw_items:
+                        try:
+                            if not isinstance(raw, dict):
+                                raise ValueError("record is not an object")
+                            candidate = normalize_record(
+                                provider, cast(dict[str, Any], raw), page["sha256"]
+                            )
+                            expected_records.append(candidate.model_dump(mode="json"))
+                        except (ValidationError, ValueError, TypeError, AttributeError) as error:
+                            expected_rejected.append(
+                                {
+                                    "provider": provider,
+                                    "page_sha256": page["sha256"],
+                                    "record": raw,
+                                    "reason": str(error),
+                                }
+                            )
+                    page_index += 1
+                    if provider == "openalex":
+                        next_cursor = str(page_number + 2)
+                    if (
+                        len(raw_items) < plan.page_size
+                        or not next_cursor
+                        or next_cursor == cursor
+                        or next_cursor in seen
+                    ):
+                        break
+                    seen.add(cursor)
+                    cursor = next_cursor
+                else:
+                    if failure_index >= len(failures):
+                        raise ValueError("discovery request inventory incomplete")
+                    failure = failures[failure_index]
+                    if (
+                        set(failure) != {"provider", "topic", "error"}
+                        or failure.get("provider") != provider
+                        or failure.get("topic") != topic
+                        or not isinstance(failure.get("error"), str)
+                    ):
+                        raise ValueError("discovery request failure inventory mismatch")
+                    failure_index += 1
+                    break
+
+    if page_index != len(pages) or failure_index != len(failures):
+        raise ValueError("discovery request inventory contains unmatched pages or failures")
 
     def multiset(items: list[dict[str, Any]]) -> Counter[bytes]:
         return Counter(canonical_bytes(item) for item in items)
