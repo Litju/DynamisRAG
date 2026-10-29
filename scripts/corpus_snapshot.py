@@ -13,7 +13,7 @@ import httpx2
 from dynamisrag.config import load_settings
 from dynamisrag.corpus.discovery import BoundedHttp, DiscoveryPlan
 from dynamisrag.corpus.pipeline import run_snapshot
-from dynamisrag.corpus.snapshot import publish_json, read_json, verify_manifest
+from dynamisrag.corpus.snapshot import publish_json, read_json, verify_run
 from dynamisrag.db import create_database_engine
 from dynamisrag.ingestion.europe_pmc import EuropePmcClient
 
@@ -31,16 +31,14 @@ def main() -> None:
     parser.add_argument("--max-members", type=int, default=25)
     args = parser.parse_args()
     if args.operation == "verify":
-        result = read_json(args.run_root / "result.json")
-        manifest = read_json(args.run_root / "snapshots" / f"{result['snapshot_id']}.json")
-        verify_manifest(
-            manifest, read_json(args.run_root / "discovery.json"), args.store_root.resolve()
-        )
+        manifest = verify_run(args.run_root, args.store_root.resolve())
+        discovery = read_json(args.run_root / "discovery.json")
         print(
             json.dumps(
                 {
-                    "verified": result["snapshot_id"],
+                    "verified": manifest["snapshot_id"],
                     "members": len(manifest["members"]),
+                    "discovery_status": "partial" if discovery["failures"] else "complete",
                 }
             )
         )
@@ -77,7 +75,16 @@ def main() -> None:
             args.run_root / "executions" / f"{datetime.now(UTC).strftime('%Y%m%dT%H%M%S%f')}.json",
             {"completed_at": datetime.now(UTC).isoformat(), "result": result},
         )
-        print(json.dumps(result, ensure_ascii=True, indent=2))
+        print(
+            json.dumps(
+                {
+                    **result,
+                    "discovery_status": "partial" if result["provider_failures"] else "complete",
+                },
+                ensure_ascii=True,
+                indent=2,
+            )
+        )
     finally:
         fulltext.close()
         engine.dispose()

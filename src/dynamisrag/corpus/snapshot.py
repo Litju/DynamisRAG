@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import base64
 import hashlib
-from collections import Counter
 import json
 import os
+import re
 import tempfile
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -221,3 +222,28 @@ def verify_discovery(discovery: dict[str, Any]) -> None:
         raise ValueError("discovery record replay incomplete or inconsistent")
     if multiset(expected_rejected) != multiset(discovery["rejected"]):
         raise ValueError("discovery rejected-record replay incomplete or inconsistent")
+
+
+def verify_run(run_root: Path, store_root: Path) -> dict[str, Any]:
+    """Verify the run's claimed snapshot ID, summary and retained acquisition receipts.
+
+    The snapshot path is derived only from a validated hex digest; the ID in the
+    run result must match the independently verified manifest identity.
+    """
+    result = read_json(run_root / "result.json")
+    snapshot_id = result.get("snapshot_id")
+    if not isinstance(snapshot_id, str) or re.fullmatch(r"[0-9a-f]{64}", snapshot_id) is None:
+        raise ValueError("invalid run result snapshot identity")
+    manifest = read_json(run_root / "snapshots" / f"{snapshot_id}.json")
+    if manifest.get("snapshot_id") != snapshot_id:
+        raise ValueError("run result snapshot identity differs from verified manifest")
+    qualification = read_json(run_root / "qualification.json")
+    if result != {"snapshot_id": snapshot_id, **qualification["summary"]}:
+        raise ValueError("run result and qualification summary mismatch")
+    if result["acquired_articles"] != len(manifest["members"]):
+        raise ValueError("run result membership count mismatch")
+    discovery = read_json(run_root / "discovery.json")
+    if result["provider_failures"] != discovery["failures"]:
+        raise ValueError("run result discovery failures mismatch")
+    verify_manifest(manifest, discovery, store_root, run_root=run_root)
+    return manifest

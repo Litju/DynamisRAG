@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
@@ -21,7 +22,15 @@ from dynamisrag.config import Settings
 from dynamisrag.corpus import pipeline
 from dynamisrag.corpus.discovery import BoundedHttp, DiscoveryPlan
 from dynamisrag.corpus.pipeline import run_snapshot
-from dynamisrag.corpus.snapshot import publish_json, read_json, verify_manifest
+from dynamisrag.corpus.snapshot import (
+    build_manifest,
+    canonical_bytes,
+    publish_json,
+    read_json,
+    verify_manifest,
+    verify_run,
+)
+from dynamisrag.domain.identity import document_version_key
 from dynamisrag.db import create_database_engine
 from dynamisrag.db.models import DocumentVersionRecord, PassageRecord, SourceArtifactRecord
 from dynamisrag.ingestion.europe_pmc import EuropePmcClient
@@ -98,7 +107,11 @@ def test_real_canonical_acquisition_and_network_free_replay(
         read_json(Path(first["manifest"])),
         read_json(tmp_path / "run/discovery.json"),
         tmp_path / "objects",
+        run_root=tmp_path / "run",
     )
+    assert verify_run(tmp_path / "run", tmp_path / "objects")["snapshot_id"] == first[
+        "snapshot_id"
+    ]
 
 
 @pytest.mark.parametrize("boundary", ["stage", "decision", "manifest"])
@@ -153,3 +166,65 @@ def test_object_corruption_blocks_republication(corpus_engine: Engine, tmp_path:
     transport.fail_network = True
     with pytest.raises(ObjectStoreIntegrityError, match=r"hash|digest"):
         _run(corpus_engine, tmp_path, transport)
+
+
+def test_replay_rejects_recomputed_snapshot_with_forged_member_fields(
+    corpus_engine: Engine, tmp_path: Path
+) -> None:
+    result = _run(corpus_engine, tmp_path, CorpusTransport())
+    run_root, store_root = tmp_path / "run", tmp_path / "objects"
+    manifest = read_json(Path(result["manifest"]))
+    discovery = read_json(run_root / "discovery.json")
+    member = manifest["members"][0]
+    mutations: list[tuple[str, Any]] = [
+        ("title", "Invented title"),
+        ("attribution", [{"invented": "author"}]),
+        ("source_uri", "https://example.invalid/other.xml"),
+        ("source_system", "untrusted_provider"),
+        ("media_type", "application/json"),
+        ("discovery_sources", []),
+        ("doi", "10.9999/forgery"),
+    ]
+    for field, changed in mutations:
+        altered = deepcopy(manifest)
+        altered["members"][0][field] = changed
+        altered = build_manifest(discovery, altered["members"])
+        with pytest.raises(ValueError, match="provenance|identity"):
+            verify_manifest(altered, discovery, store_root, run_root=run_root)
+
+    forged = deepcopy(manifest)
+    forged["members"][0]["document_canonical_key"] = "doi:10.9999/forgery"
+    forged["members"][0]["version_key"] = document_version_key(
+        "doi:10.9999/forgery",
+        member["artifact_key"],
+        member["parser_revision"],
+        member["normalizer_revision"],
+        member["content_fingerprint"],
+    )
+    forged = build_manifest(discovery, forged["members"])
+    with pytest.raises(ValueError, match="provenance|identity"):
+        verify_manifest(forged, discovery, store_root, run_root=run_root)
+
+
+def test_replay_rejects_stage_receipt_and_run_identity_tampering(
+    corpus_engine: Engine, tmp_path: Path
+) -> None:
+    result = _run(corpus_engine, tmp_path, CorpusTransport())
+    run_root, store_root = tmp_path / "run", tmp_path / "objects"
+    manifest = read_json(Path(result["manifest"]))
+    discovery = read_json(run_root / "discovery.json")
+    stage_path = next((run_root / "staged").glob("*.json"))
+    stage = read_json(stage_path)
+    stage_path.write_bytes(canonical_bytes({**stage, "media_type": "text/xml"}) + b"\n")
+    with pytest.raises(ValueError, match="stage"):
+        verify_manifest(manifest, discovery, store_root, run_root=run_root)
+    stage_path.write_bytes(canonical_bytes(stage) + b"\n")
+    assert verify_run(run_root, store_root)["snapshot_id"] == result["snapshot_id"]
+
+    fake_id = "f" * 64
+    (run_root / "snapshots" / f"{fake_id}.json").write_bytes(Path(result["manifest"]).read_bytes())
+    (run_root / "result.json").write_bytes(
+        canonical_bytes({**read_json(run_root / "result.json"), "snapshot_id": fake_id}) + b"\n"
+    )
+    with pytest.raises(ValueError, match="run result snapshot identity"):
+        verify_run(run_root, store_root)

@@ -130,7 +130,7 @@ def run_snapshot(
             publish_json(decision_path, decision)
         decisions.append(decision)
     manifest = build_manifest(discovery, members)
-    verify_manifest(manifest, discovery, store_root)
+    verify_manifest(manifest, discovery, store_root, run_root=run_root)
     summary = {
         "discovered_records": len(records) + len(discovery["rejected"]),
         "malformed_records": len(discovery["rejected"]),

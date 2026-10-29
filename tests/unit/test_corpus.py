@@ -189,7 +189,7 @@ def test_discovery_malformed_record_and_source_mutation() -> None:
         data = discover(BoundedHttp(client), DiscoveryPlan(topics=("sprint",), page_size=4))
     verify_discovery(data)
     data["records"][0]["title"] = "Invented title"
-    with pytest.raises(ValueError, match="differs"):
+    with pytest.raises(ValueError, match="replay incomplete"):
         verify_discovery(data)
     data["pages"][0]["body_base64"] = base64.b64encode(b"{}").decode()
     with pytest.raises(ValueError, match="mutation"):

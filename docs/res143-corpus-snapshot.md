@@ -18,3 +18,26 @@ The repository metadata preflight and original JATS explicit CC BY grant were ch
 | [PMC13416682](https://europepmc.org/articles/PMC13416682) | https://creativecommons.org/licenses/by/4.0/ | `33a90452b9e2428cbe5f4b3db2857899393eefe4930557401f3e14c00c730787` |
 | [PMC13707224](https://europepmc.org/articles/PMC13707224) | https://creativecommons.org/licenses/by/4.0/ | `1a814d50a7e31bcf5400385c93055c15d993a3ca2627b684b528fd3acc4ee310` |
 | [PMC9691012](https://europepmc.org/articles/PMC9691012) | https://creativecommons.org/licenses/by/4.0/ | `3e486477d100fd623a02014af676950a4bd0f69a947ef724c909175508f5ea80` |
+
+
+## Independent verifier repair scope (PR #23 follow-up)
+
+Offline verification now reconstructs all normalized and rejected records from the
+retained source pages as multisets, including repeated records. It independently
+checks member title, contributors, identifiers, canonical-key plausibility,
+source URI and XML type against original JATS and discovery sources. The
+run-aware verifier also checks the staged acquisition and decision receipts,
+the reported snapshot ID, and the run/qualification summary.
+
+The documented snapshot identity, 10 original source hashes, JATS bytes, and
+canonical database records are not rewritten by these deterministic code and
+test repairs. An offline replay verifies the evidence available locally; it
+cannot independently authenticate an original HTTP response or prove an older
+document's historical canonical-database alias without database evidence.
+A human review of each member's scientific scope remains necessary.
+
+**Discovery coverage: PARTIAL.** One Crossref topic exhausted its bounded
+HTTP-429 retries. The operator's verification output now derives an explicit
+partial/complete label from the retained failure receipts; a partial snapshot
+must not be reported as an exhaustive search result. No source acquisition,
+embedding, indexing, or model run is required by this verifier repair.
