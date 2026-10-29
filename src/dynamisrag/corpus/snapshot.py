@@ -4,17 +4,18 @@ from __future__ import annotations
 
 import base64
 import hashlib
+from collections import Counter
 import json
 import os
 import tempfile
 from pathlib import Path
 from typing import Any
 
-from pydantic import TypeAdapter
+from pydantic import TypeAdapter, ValidationError
 
 from dynamisrag.corpus.discovery import Candidate, normalize_record, parse_page, reconcile
 from dynamisrag.corpus.rights import preflight, verify_article
-from dynamisrag.domain.identity import document_version_key, source_artifact_key
+from dynamisrag.domain.identity import digest, document_version_key, source_artifact_key
 from dynamisrag.jats.parser import JATS_NORMALIZER_REVISION, JATS_PARSER_REVISION, JatsParser
 from dynamisrag.storage.filesystem import FileSystemObjectStore
 
@@ -91,8 +92,18 @@ def build_manifest(discovery: dict[str, Any], members: list[dict[str, Any]]) -> 
     return {"snapshot_id": identity(body), **body}
 
 
-def verify_manifest(manifest: dict[str, Any], discovery: dict[str, Any], store_root: Path) -> None:
-    """Offline integrity check including original bytes; never refetch mutable URLs."""
+def verify_manifest(
+    manifest: dict[str, Any],
+    discovery: dict[str, Any],
+    store_root: Path,
+    *,
+    run_root: Path | None = None,
+) -> None:
+    """Verify source bytes, discovery completeness, and independently derived member fields.
+
+    The optional run_root also binds the manifest to its immutable acquisition
+    stage and decision receipts. No network request or database write occurs.
+    """
     if manifest != build_manifest(discovery, manifest["members"]):
         raise ValueError("snapshot identity, revision or membership order mismatch")
     verify_discovery(discovery)
@@ -102,7 +113,9 @@ def verify_manifest(manifest: dict[str, Any], discovery: dict[str, Any], store_r
         data = source_bytes(store_root, member["content_sha256"])
         if len(data) != member["byte_size"]:
             raise ValueError("source byte size mismatch")
-        group = by_pmcid[member["pmcid"]]
+        group = by_pmcid.get(member["pmcid"])
+        if group is None:
+            raise ValueError("snapshot member absent from qualified discovery")
         if (
             preflight(group) != member["pmcid"]
             or verify_article(data, group, member["pmcid"]) != member["rights"]
@@ -117,34 +130,94 @@ def verify_manifest(manifest: dict[str, Any], discovery: dict[str, Any], store_r
             JATS_NORMALIZER_REVISION,
             parsed.content_fingerprint,
         )
+        expected_sources = [
+            {"provider": c.provider, "source_id": c.source_id, "page_sha256": c.page_sha256}
+            for c in group
+        ]
+        expected_doi = next((c.doi for c in group if c.doi), None)
+        expected_uri = (
+            "https://www.ebi.ac.uk/europepmc/webservices/rest/"
+            f"{member['pmcid']}/fullTextXML"
+        )
+        possible_document_keys = {
+            f"pmcid:{member['pmcid']}",
+            f"title:{digest(parsed.title)}",
+        }
+        if parsed.doi:
+            possible_document_keys.add(f"doi:{parsed.doi}")
+        if parsed.pmid:
+            possible_document_keys.add(f"pmid:{parsed.pmid}")
+        media_type = member["media_type"]
+        xml_media = isinstance(media_type, str) and (
+            media_type in {"application/xml", "text/xml"} or media_type.endswith("+xml")
+        )
         if (
             parsed.pmcid != member["pmcid"]
-            or (member["doi"] and parsed.doi != member["doi"])
+            or member["doi"] != expected_doi
             or member["artifact_key"] != artifact_key
             or member["version_key"] != version_key
+            or member["document_canonical_key"] not in possible_document_keys
             or member["content_fingerprint"] != parsed.content_fingerprint
             or member["parser_revision"] != JATS_PARSER_REVISION
             or member["normalizer_revision"] != JATS_NORMALIZER_REVISION
+            or member["title"] != parsed.title
+            or member["attribution"] != parsed.metadata.get("contributors")
+            or member["source_system"] != "europe_pmc"
+            or member["source_uri"] != expected_uri
+            or not xml_media
+            or member["discovery_sources"] != expected_sources
         ):
-            raise ValueError("snapshot canonical identity mismatch")
+            raise ValueError("snapshot member provenance or canonical identity mismatch")
+        if run_root is not None:
+            sources = [c.model_dump(mode="json") for c in group]
+            group_key = identity(sources)
+            stage = read_json(run_root / "staged" / f"{group_key}.json")
+            decision = read_json(run_root / "decisions" / f"{group_key}.json")
+            if (
+                stage.get("sha256") != member["content_sha256"]
+                or stage.get("source_uri") != member["source_uri"]
+                or stage.get("media_type") != member["media_type"]
+                or stage.get("license_uri") != member["rights"]["license_uri"]
+                or decision != {"status": "acquired", "member": member, "sources": sources}
+            ):
+                raise ValueError("snapshot stage or acquisition decision provenance mismatch")
 
 
 def verify_discovery(discovery: dict[str, Any]) -> None:
-    """Tie normalized discovery records to their exact original API page bytes."""
-    pages: dict[str, list[Candidate]] = {}
+    """Replay every page record, including malformed records and multiplicities.
+
+    The retained page bytes are the source of truth, not a one-way membership
+    lookup from a possibly incomplete normalized-record list.
+    """
+    if discovery.get("schema_revision") != "discovery-1":
+        raise ValueError("unsupported discovery revision")
+    expected_records: list[dict[str, Any]] = []
+    expected_rejected: list[dict[str, Any]] = []
     for page in discovery["pages"]:
         data = base64.b64decode(page["body_base64"], validate=True)
         if hashlib.sha256(data).hexdigest() != page["sha256"]:
             raise ValueError("discovery source page mutation")
         raw_items, _ = parse_page(page["provider"], json.loads(data))
-        candidates: list[Candidate] = []
         for raw in raw_items:
             try:
-                candidates.append(normalize_record(page["provider"], raw, page["sha256"]))
-            except (ValueError, TypeError, AttributeError):
-                continue
-        pages[page["sha256"]] = candidates
-    for raw in discovery["records"]:
-        candidate = Candidate.model_validate(raw)
-        if candidate not in pages.get(candidate.page_sha256, []):
-            raise ValueError("normalized record differs from original source page")
+                if not isinstance(raw, dict):
+                    raise ValueError("record is not an object")
+                candidate = normalize_record(page["provider"], raw, page["sha256"])
+                expected_records.append(candidate.model_dump(mode="json"))
+            except (ValidationError, ValueError, TypeError, AttributeError) as error:
+                expected_rejected.append(
+                    {
+                        "provider": page["provider"],
+                        "page_sha256": page["sha256"],
+                        "record": raw,
+                        "reason": str(error),
+                    }
+                )
+
+    def multiset(items: list[dict[str, Any]]) -> Counter[bytes]:
+        return Counter(canonical_bytes(item) for item in items)
+
+    if multiset(expected_records) != multiset(discovery["records"]):
+        raise ValueError("discovery record replay incomplete or inconsistent")
+    if multiset(expected_rejected) != multiset(discovery["rejected"]):
+        raise ValueError("discovery rejected-record replay incomplete or inconsistent")

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -193,6 +194,45 @@ def test_discovery_malformed_record_and_source_mutation() -> None:
     data["pages"][0]["body_base64"] = base64.b64encode(b"{}").decode()
     with pytest.raises(ValueError, match="mutation"):
         verify_discovery(data)
+
+
+def test_discovery_replay_rejects_omitted_and_extra_records() -> None:
+    def serve(request: httpx2.Request) -> httpx2.Response:
+        if request.url.host == "api.openalex.org":
+            return httpx2.Response(
+                200,
+                json={"results": [{"id": "W143", "display_name": "Title", "ids": {"doi": DOI}}]},
+            )
+        if request.url.host == "api.crossref.org":
+            return httpx2.Response(
+                200, json={"message": {"items": [{"DOI": DOI, "title": ["Title"]}]}}
+            )
+        return httpx2.Response(
+            200, json={"resultList": {"result": [record(), record(), {"title": "No identifier"}]}}
+        )
+
+    with httpx2.Client(transport=httpx2.MockTransport(serve)) as client:
+        discovery = discover(
+            BoundedHttp(client), DiscoveryPlan(topics=("sprint",), pages_per_topic=1, page_size=3)
+        )
+    verify_discovery(discovery)
+    assert len(discovery["rejected"]) == 1
+
+    for field in ("records", "rejected"):
+        incomplete = deepcopy(discovery)
+        incomplete[field].pop()
+        with pytest.raises(ValueError, match="replay incomplete"):
+            verify_discovery(incomplete)
+
+    duplicate = deepcopy(discovery)
+    duplicate["records"].append(duplicate["records"][0])
+    with pytest.raises(ValueError, match="replay incomplete"):
+        verify_discovery(duplicate)
+
+    changed_rejection = deepcopy(discovery)
+    changed_rejection["rejected"][0]["reason"] = "invented rejection"
+    with pytest.raises(ValueError, match="replay incomplete"):
+        verify_discovery(changed_rejection)
 
 
 def test_deterministic_manifest_and_atomic_interrupted_publication(
