@@ -219,8 +219,7 @@ def verify_discovery(discovery: dict[str, Any]) -> None:
                 ):
                     page = pages[page_index]
                     if (
-                        set(page)
-                        != {"provider", "topic", "page", "url", "sha256", "body_base64"}
+                        set(page) != {"provider", "topic", "page", "url", "sha256", "body_base64"}
                         or page["page"] != page_number + 1
                         or page["url"]
                         != page_request_url(provider, topic, plan.page_size, cursor, page_number)

@@ -194,9 +194,7 @@ def _params(
     return {"query": topic, "rows": size, "cursor": cursor, "filter": "type:journal-article"}
 
 
-def page_request_url(
-    provider: Provider, topic: str, size: int, cursor: str, page: int
-) -> str:
+def page_request_url(provider: Provider, topic: str, size: int, cursor: str, page: int) -> str:
     """Derive the exact URL issued by the bounded discovery request."""
     return str(
         httpx2.Request(
