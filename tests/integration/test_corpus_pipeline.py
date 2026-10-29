@@ -202,6 +202,38 @@ def test_corrupt_stage_rejected_before_resume_transaction(
     assert _counts(corpus_engine) == before
 
 
+
+def test_forged_staged_license_name_cannot_enter_canonical_database(
+    corpus_engine: Engine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Stage-only recovery must compare license names against original JATS bytes."""
+    transport = CorpusTransport()
+
+    def interrupt_after_stage(path: Path, value: object) -> None:
+        publish_json(path, value)
+        if path.parent.name == "staged":
+            raise OSError("interrupted after stage")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(pipeline, "publish_json", interrupt_after_stage)
+        with pytest.raises(OSError, match="interrupted after stage"):
+            _run(corpus_engine, tmp_path, transport)
+    assert _counts(corpus_engine) == (0, 0, 0)
+
+    stage_path = next((tmp_path / "run/staged").glob("*.json"))
+    stage = read_json(stage_path)
+    assert stage["license_name"] == "open-access"
+    stage_path.write_bytes(
+        canonical_bytes({**stage, "license_name": "forged-cc-by-nc"}) + b"\n"
+    )
+    transport.fail_network = True
+    with pytest.raises(ValueError, match="stage provenance"):
+        _run(corpus_engine, tmp_path, transport)
+    assert transport.fulltext_requests == 1
+    assert _counts(corpus_engine) == (0, 0, 0)
+    assert not list((tmp_path / "run/snapshots").glob("*.json"))
+
+
 def test_interrupted_publication_rejects_forged_summary_before_resume(
     corpus_engine: Engine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
