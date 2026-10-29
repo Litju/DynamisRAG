@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from defusedxml.ElementTree import fromstring
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
@@ -214,8 +215,9 @@ def _validate_retained(
             if set(stage) != {"sha256", "source_uri", "media_type", "license_name", "license_uri"}:
                 raise ValueError("invalid stage receipt")
             pmcid = preflight(group)
-            rights = verify_article(source_bytes(store_root, stage["sha256"]), group, pmcid)
-            _validate_stage(stage, pmcid, rights)
+            content = source_bytes(store_root, stage["sha256"])
+            rights = verify_article(content, group, pmcid)
+            _validate_stage(stage, pmcid, rights, content)
         if decision_path.exists():
             decision = read_json(decision_path)
             if decision.get("sources") != sources:
@@ -261,9 +263,17 @@ def _validate_publication(
                 raise ValueError("retained snapshot identity mismatch")
 
 
-def _validate_stage(stage: dict[str, Any], pmcid: str, rights: dict[str, Any]) -> None:
+def _validate_stage(
+    stage: dict[str, Any], pmcid: str, rights: dict[str, Any], content: bytes
+) -> None:
+    """Verify staged transport metadata against original article-level JATS."""
+    license_element = fromstring(content).find("./front/article-meta/permissions/license")
+    if license_element is None:
+        raise ValueError("missing original article-level license")
+    original_license_name = license_element.get("license-type") or None
     if (
-        stage["source_uri"]
+        stage["license_name"] != original_license_name
+        or stage["source_uri"]
         != f"https://www.ebi.ac.uk/europepmc/webservices/rest/{pmcid}/fullTextXML"
         or stage["license_uri"] != rights["license_uri"]
         or not isinstance(stage["media_type"], str)
@@ -308,7 +318,7 @@ def _qualify(
             "license_name": payload.license_name,
             "license_uri": payload.license_uri,
         }
-        _validate_stage(stage, pmcid, rights)
+        _validate_stage(stage, pmcid, rights, payload.content)
         store.put_if_absent(digest, payload.content)
         publish_json(stage_path, stage)
     rights = verify_article(payload.content, group, pmcid)
