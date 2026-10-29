@@ -50,7 +50,7 @@ jobs:
         run: uv sync --locked
 
       - name: Ruff format check
-        run: uv run ruff format --check .
+        run: uv run ruff format --diff .
 
       - name: Ruff lint
         run: uv run ruff check --output-format=github .
