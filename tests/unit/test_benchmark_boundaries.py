@@ -196,18 +196,25 @@ def test_no_module_encodes_a_default_or_a_selected_candidate() -> None:
 
 
 def test_only_the_provisional_qwen_profile_is_named_in_production_search() -> None:
-    """RES-139 names its provisional Qwen profile; Voyage remains absent."""
+    """RES-139 and the opt-in scientific CPU service pin the same Qwen; Voyage stays absent."""
+    allowed = {
+        "src/dynamisrag/search/retrieval.py",
+        "src/dynamisrag/embedding/scientific_cpu.py",
+    }
     unexpected: list[str] = []
     for package in _PRODUCTION_PACKAGES:
         for path in _python_files(_DYNAMISRAG / package):
             text = path.read_text(encoding="utf-8")
             if "voyageai/voyage-4-nano" in text:
                 unexpected.append(_relative(path))
-            if "Qwen/Qwen3-Embedding-0.6B" in text and _relative(path) != (
-                "src/dynamisrag/search/retrieval.py"
-            ):
+            if "Qwen/Qwen3-Embedding-0.6B" in text and _relative(path) not in allowed:
                 unexpected.append(_relative(path))
     assert unexpected == []
+    from dynamisrag.embedding.scientific_cpu import MODEL_ID, MODEL_REVISION
+    from dynamisrag.search.retrieval import DENSE_MODEL_ID, DENSE_MODEL_REVISION
+
+    assert MODEL_ID == DENSE_MODEL_ID
+    assert MODEL_REVISION == DENSE_MODEL_REVISION
 
 
 def test_the_search_contract_still_declares_no_embedding_default() -> None:

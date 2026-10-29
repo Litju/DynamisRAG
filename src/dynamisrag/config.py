@@ -18,7 +18,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Final
 
-from pydantic import AliasChoices, AnyHttpUrl, Field, PostgresDsn, SecretStr
+from pydantic import AliasChoices, AnyHttpUrl, Field, PostgresDsn, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 __all__ = [
@@ -108,6 +108,17 @@ class Settings(BaseSettings):
     opensearch_bulk_batch_size: int = Field(default=500, ge=1, le=5000)
     """Documents per bulk request. Fixed rather than derived, so the same
     projection always produces the same request boundaries."""
+
+    scientific_qdrant_enabled: bool = False
+    scientific_qdrant_url: AnyHttpUrl = AnyHttpUrl("http://127.0.0.1:6333")
+    scientific_tei_url: AnyHttpUrl = AnyHttpUrl("http://127.0.0.1:8081")
+    scientific_evidence_directory: Path = _PROJECT_ROOT / "docs/evidence/real-science-v1"
+
+    @field_validator("scientific_evidence_directory")
+    @classmethod
+    def anchor_scientific_evidence(cls, value: Path) -> Path:
+        """An explicitly configured relative path is relative to the repo, never the process CWD."""
+        return value if value.is_absolute() else _PROJECT_ROOT / value
 
     # ------------------------------------------------------------------
     # Embeddings (RES-137). Every entry is optional and defaults to "no

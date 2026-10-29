@@ -1,0 +1,237 @@
+[
+  {
+    "pmcid": "PMC10780924",
+    "title": "Impact of Starting Knee Flexion Angle on Muscle Activity and Performance during Plyometrics without Jumping",
+    "attribution": [
+      {
+        "type": "author",
+        "surname": "Torres-Banduc",
+        "given_names": "Maximiliano",
+        "affiliation_refs": [
+          "af1-sensors-24-00044",
+          "af2-sensors-24-00044"
+        ]
+      },
+      {
+        "type": "author",
+        "surname": "Chirosa-Ríos",
+        "given_names": "Ignacio",
+        "affiliation_refs": [
+          "af2-sensors-24-00044"
+        ]
+      },
+      {
+        "type": "author",
+        "surname": "Chirosa-Ríos",
+        "given_names": "Luis",
+        "affiliation_refs": [
+          "af2-sensors-24-00044"
+        ]
+      },
+      {
+        "type": "author",
+        "surname": "Jerez-Mayorga",
+        "given_names": "Daniel",
+        "affiliation_refs": [
+          "af3-sensors-24-00044"
+        ]
+      },
+      {
+        "type": "author",
+        "surname": "Im",
+        "given_names": "Hyungsoon"
+      },
+      {
+        "type": "author",
+        "surname": "Fischer",
+        "given_names": "Georg"
+      }
+    ],
+    "article_url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10780924/",
+    "version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643",
+    "source": {
+      "id": "a629c27c-3db4-4a3d-a2f6-44225723af95",
+      "source_system": "europe_pmc",
+      "source_external_id": "PMC10780924",
+      "source_uri": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC10780924/fullTextXML",
+      "media_type": "application/xml",
+      "content_sha256": "1e21995a2aaf2c8444dd90d4295a0157097f74eab1f47b72f9666787a0c12477",
+      "byte_size": 93259,
+      "retrieved_at": "2026-10-27T23:13:35.771968Z",
+      "storage_uri": "file:///E:/Data/Projects/DynamisRAG/.dynamisrag/real-science-v1/sources/sha256/1e/1e21995a2aaf2c8444dd90d4295a0157097f74eab1f47b72f9666787a0c12477.xml",
+      "license_name": null,
+      "license_uri": "https://creativecommons.org/licenses/by/4.0/",
+      "artifact_key": "b5a255b5b842fd92f8117942d7048d2109f22ced8659e11ebad4cfd712ce740d"
+    },
+    "permissions": [
+      "© 2023 by the authors.Licensee MDPI, Basel, Switzerland. This article is an open access article distributed under the terms and conditions of the Creative Commons Attribution (CC BY) license (https://creativecommons.org/licenses/by/4.0/)."
+    ],
+    "passages": 25,
+    "import_created": false,
+    "passages_created": false,
+    "passage_manifest_sha256": "b442794b3173c05ed8844234fa6af4f4caa50c61d7c96139ed39d52e413d33d4"
+  },
+  {
+    "pmcid": "PMC10680285",
+    "title": "Effect of plyometric versus complex training on core strength, lower limb, and upper limb power in male cricketers: a randomized controlled trial",
+    "attribution": [
+      {
+        "type": "author",
+        "surname": "Ali",
+        "given_names": "Kamran",
+        "affiliation_refs": [
+          "Aff1"
+        ]
+      },
+      {
+        "type": "author",
+        "surname": "Gupta",
+        "given_names": "Shubham",
+        "affiliation_refs": [
+          "Aff2"
+        ]
+      },
+      {
+        "type": "author",
+        "surname": "Hussain",
+        "given_names": "Mohammad E.",
+        "affiliation_refs": [
+          "Aff3"
+        ]
+      },
+      {
+        "type": "author",
+        "surname": "Alzhrani",
+        "given_names": "Msaad",
+        "affiliation_refs": [
+          "Aff4"
+        ]
+      },
+      {
+        "type": "author",
+        "surname": "Manzar",
+        "given_names": "Md. Dilshad",
+        "affiliation_refs": [
+          "Aff5"
+        ]
+      },
+      {
+        "type": "author",
+        "surname": "Khan",
+        "given_names": "Masood",
+        "affiliation_refs": [
+          "Aff6"
+        ]
+      },
+      {
+        "type": "author",
+        "surname": "Alghadir",
+        "given_names": "Ahmad H.",
+        "affiliation_refs": [
+          "Aff6"
+        ]
+      }
+    ],
+    "article_url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10680285/",
+    "version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b",
+    "source": {
+      "id": "8cb2cf8e-e666-49dc-b4ae-0f779839c138",
+      "source_system": "europe_pmc",
+      "source_external_id": "PMC10680285",
+      "source_uri": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC10680285/fullTextXML",
+      "media_type": "application/xml",
+      "content_sha256": "b6b9627176702f66904fcd592c1f5ec4978a5db63f1f082477a40d71f7fe70e3",
+      "byte_size": 75976,
+      "retrieved_at": "2026-10-27T23:13:37.724077Z",
+      "storage_uri": "file:///E:/Data/Projects/DynamisRAG/.dynamisrag/real-science-v1/sources/sha256/b6/b6b9627176702f66904fcd592c1f5ec4978a5db63f1f082477a40d71f7fe70e3.xml",
+      "license_name": null,
+      "license_uri": "https://creativecommons.org/licenses/by/4.0/",
+      "artifact_key": "d10e0917d16fba3ed8bb10ba24a2be5f217b839b590ac87a510b3ecc3b640a6e"
+    },
+    "permissions": [
+      "© The Author(s) 2023https://creativecommons.org/licenses/by/4.0/Open Access This article is licensed under a Creative Commons Attribution 4.0 International License, which permits use, sharing, adaptation, distribution and reproduction in any medium or format, as long as you give appropriate credit to the original author(s) and the source, provide a link to the Creative Commons licence, and indicate if changes were made. The images or other third party material in this article are included in the article's Creative Commons licence, unless indicated otherwise in a credit line to the material. If material is not included in the article's Creative Commons licence and your intended use is not permitted by statutory regulation or exceeds the permitted use, you will need to obtain permission directly from the copyright holder. To view a copy of this licence, visit http://creativecommons.org/licenses/by/4.0/. The Creative Commons Public Domain Dedication waiver (http://creativecommons.org/publicdomain/zero/1.0/) applies to the data made available in this article, unless otherwise stated in a credit line to the data."
+    ],
+    "passages": 18,
+    "import_created": false,
+    "passages_created": false,
+    "passage_manifest_sha256": "65a4d76480de1060c1cbdd5029e4ba5854c8b480e5586dbb153c8130ad757359"
+  },
+  {
+    "pmcid": "PMC5263151",
+    "title": "Plyometric Training Favors Optimizing Muscle–Tendon Behavior during Depth Jumping",
+    "attribution": [
+      {
+        "type": "author",
+        "surname": "Hirayama",
+        "given_names": "Kuniaki",
+        "affiliation_refs": [
+          "aff1"
+        ]
+      },
+      {
+        "type": "author",
+        "surname": "Iwanuma",
+        "given_names": "Soichiro",
+        "affiliation_refs": [
+          "aff2"
+        ]
+      },
+      {
+        "type": "author",
+        "surname": "Ikeda",
+        "given_names": "Naoki",
+        "affiliation_refs": [
+          "aff3"
+        ]
+      },
+      {
+        "type": "author",
+        "surname": "Yoshikawa",
+        "given_names": "Ayumi",
+        "affiliation_refs": [
+          "aff3"
+        ]
+      },
+      {
+        "type": "author",
+        "surname": "Ema",
+        "given_names": "Ryoichi",
+        "affiliation_refs": [
+          "aff4",
+          "aff5"
+        ]
+      },
+      {
+        "type": "author",
+        "surname": "Kawakami",
+        "given_names": "Yasuo",
+        "affiliation_refs": [
+          "aff1"
+        ]
+      }
+    ],
+    "article_url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC5263151/",
+    "version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e",
+    "source": {
+      "id": "c242469d-24f9-45a8-bb3a-22ab3ae850d4",
+      "source_system": "europe_pmc",
+      "source_external_id": "PMC5263151",
+      "source_uri": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC5263151/fullTextXML",
+      "media_type": "application/xml",
+      "content_sha256": "339647fafae9fa0207ea35e425ec75a50666a9a3fd205f1fea5a2e10212d3a65",
+      "byte_size": 81483,
+      "retrieved_at": "2026-10-27T23:13:39.101266Z",
+      "storage_uri": "file:///E:/Data/Projects/DynamisRAG/.dynamisrag/real-science-v1/sources/sha256/33/339647fafae9fa0207ea35e425ec75a50666a9a3fd205f1fea5a2e10212d3a65.xml",
+      "license_name": null,
+      "license_uri": null,
+      "artifact_key": "dcf28c65b2848712ab481a8d435a5d6cc0fbfdbf1be6d3d8fec9090570255e4d"
+    },
+    "permissions": [
+      "Copyright © 2017 Hirayama, Iwanuma, Ikeda, Yoshikawa, Ema and Kawakami.This is an open-access article distributed under the terms of the Creative Commons Attribution License (CC BY). The use, distribution or reproduction in other forums is permitted, provided the original author(s) or licensor are credited and that the original publication in this journal is cited, in accordance with accepted academic practice. No use, distribution or reproduction is permitted which does not comply with these terms."
+    ],
+    "passages": 32,
+    "import_created": false,
+    "passages_created": false,
+    "passage_manifest_sha256": "a47e66c89be771979ae77113737b322d28e82cf4815a03e5a67a170d782f7306"
+  }
+]

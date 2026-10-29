@@ -9,6 +9,7 @@ from collections.abc import Generator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from time import perf_counter
 from typing import cast
 from urllib.parse import urlsplit
 from uuid import NAMESPACE_URL, uuid5
@@ -566,14 +567,18 @@ class QdrantRetrieval:
         embedding_config_sha256: str,
         limit: int = 10,
         filters: Mapping[str, str] | None = None,
+        timings: dict[str, float] | None = None,
     ) -> tuple[QdrantLane, QdrantLane, RrfTrace]:
         if embedding_config_sha256 != self.query_identity.embedding_config_sha256:
             raise QdrantError("query embedding configuration identity differs")
         name = self.resolve()
+        started = perf_counter()
         lexical = self._query(name, query={"text": text}, using="text", limit=50, filters=filters)
+        lexical_done = perf_counter()
         dense = self._query(
             name, query=validate_vector(vector), using=DENSE, limit=50, filters=filters
         )
+        dense_done = perf_counter()
         lexical_hits = tuple(
             SearchHit.model_validate(
                 {
@@ -599,8 +604,11 @@ class QdrantRetrieval:
             )
             for rank, point in enumerate(dense.points, 1)
         )
-        return (
-            lexical,
-            dense,
-            reciprocal_rank_fusion(lexical=lexical_hits, dense=dense_hits, limit=limit),
-        )
+        fusion = reciprocal_rank_fusion(lexical=lexical_hits, dense=dense_hits, limit=limit)
+        if timings is not None:
+            timings.update(
+                bm25_ms=(lexical_done - started) * 1000,
+                dense_ms=(dense_done - lexical_done) * 1000,
+                rrf_ms=(perf_counter() - dense_done) * 1000,
+            )
+        return lexical, dense, fusion

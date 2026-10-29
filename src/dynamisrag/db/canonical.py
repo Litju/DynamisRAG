@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from typing import Final
 from uuid import UUID, uuid4
 
-from sqlalchemy import select
+from sqlalchemy import select, true
 from sqlalchemy.orm import Session
 
 from dynamisrag.db.errors import SemanticParentKeyError
@@ -890,7 +890,7 @@ class PassageProjectionRecords:
 
 
 def list_passage_projection_records(
-    session: Session, *, chunker_revision: str
+    session: Session, *, chunker_revision: str, passage_keys: Sequence[str] | None = None
 ) -> Sequence[PassageProjectionRecords]:
     """Read every canonical row needed to project ``chunker_revision``.
 
@@ -917,6 +917,9 @@ def list_passage_projection_records(
                 SourceArtifactRecord.id == DocumentVersionRecord.source_artifact_id,
             )
             .where(PassageRecord.chunker_revision == chunker_revision)
+            .where(
+                PassageRecord.passage_key.in_(passage_keys) if passage_keys is not None else true()
+            )
             .order_by(PassageRecord.passage_key)
         )
     )
