@@ -23,10 +23,15 @@ from dynamisrag.corpus.discovery import (
 from dynamisrag.corpus.rights import QualificationError, preflight, verify_article, verify_rights
 from dynamisrag.corpus.snapshot import (
     build_manifest,
+    canonical_bytes,
     identity,
     publish_json,
+    run_config,
+    run_policy,
     source_bytes,
+    verify_configuration,
     verify_discovery,
+    verify_receipt_inventory,
 )
 from dynamisrag.storage import FileSystemObjectStore, ObjectStoreIntegrityError
 from tests._corpus import DOI, PMCID, XML, CorpusTransport, candidate, record
@@ -362,3 +367,86 @@ def test_source_mutation_rejected_without_overwrite(tmp_path: Path) -> None:
         source_bytes(tmp_path, digest)
     assert target.read_bytes() == b"mutated"
     assert identity({"a": 1, "b": 2}) == identity({"b": 2, "a": 1})
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("max_members", 0),
+        ("max_members", 26),
+        ("max_members", True),
+        ("max_members", 1.0),
+        ("max_members", "1"),
+        ("excluded_baseline_pmcids", []),
+        ("unexpected", True),
+        ("plan", {"topics": ["other"], "pages_per_topic": 2, "page_size": 4}),
+    ],
+)
+def test_config_requires_exact_plan_budget_and_baseline(
+    tmp_path: Path,
+    field: str,
+    value: Any,
+) -> None:
+    plan = DiscoveryPlan(topics=("sprint",), page_size=4)
+    config = run_config(plan, 25)
+    config[field] = value
+    publish_json(tmp_path / "config.json", config)
+    publish_json(tmp_path / "policy.json", run_policy())
+    with pytest.raises(ValueError):
+        verify_configuration(tmp_path, {"plan": plan.model_dump(mode="json")})
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "snapshot_revision",
+        "rights_revision",
+        "scope_revision",
+        "parser_revision",
+        "normalizer_revision",
+    ],
+)
+def test_policy_requires_all_current_revisions(tmp_path: Path, field: str) -> None:
+    plan = DiscoveryPlan(topics=("sprint",))
+    policy = run_policy()
+    policy[field] = "forged"
+    publish_json(tmp_path / "config.json", run_config(plan, 25))
+    publish_json(tmp_path / "policy.json", policy)
+    with pytest.raises(ValueError, match="policy"):
+        verify_configuration(tmp_path, {"plan": plan.model_dump(mode="json")})
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("sha256", "b" * 64),
+        ("source_uri", "https://example.invalid"),
+        ("license_name", "forged"),
+        ("license_uri", "https://example.invalid"),
+        ("media_type", "application/json"),
+    ],
+)
+def test_stage_only_inventory_verifies_every_retained_source(
+    tmp_path: Path,
+    field: str,
+    value: str,
+) -> None:
+    group = [candidate()]
+    sources = [c.model_dump(mode="json") for c in group]
+    source_digest = hashlib.sha256(XML).hexdigest()
+    FileSystemObjectStore(tmp_path / "objects").put_if_absent(source_digest, XML)
+    stage = {
+        "sha256": source_digest,
+        "source_uri": f"https://www.ebi.ac.uk/europepmc/webservices/rest/{PMCID}/fullTextXML",
+        "media_type": "application/xml",
+        "license_name": "open-access",
+        "license_uri": "https://creativecommons.org/licenses/by/4.0/",
+    }
+    path = tmp_path / "run/staged" / f"{identity(sources)}.json"
+    publish_json(path, stage)
+    # An interrupted stage is valid without a decision; no database or network needed.
+    verify_receipt_inventory(tmp_path / "run", tmp_path / "objects", [group])
+    stage[field] = value
+    path.write_bytes(canonical_bytes(stage))
+    with pytest.raises((ValueError, FileNotFoundError)):
+        verify_receipt_inventory(tmp_path / "run", tmp_path / "objects", [group])
