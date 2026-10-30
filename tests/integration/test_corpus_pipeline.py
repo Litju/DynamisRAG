@@ -1,0 +1,537 @@
+"""Real PostgreSQL transactions, offline upstreams and interrupted corpus publication."""
+
+from __future__ import annotations
+
+import subprocess
+import sys
+from collections.abc import Iterator
+from copy import deepcopy
+from pathlib import Path
+from typing import Any
+from urllib.parse import urlsplit, urlunsplit
+from uuid import uuid4
+
+import httpx2
+import psycopg
+import pytest
+from alembic import command
+from alembic.config import Config
+from psycopg import sql
+from sqlalchemy import Engine, func, select
+from sqlalchemy.orm import Session
+
+from dynamisrag.config import Settings
+from dynamisrag.corpus import pipeline
+from dynamisrag.corpus.discovery import BoundedHttp, DiscoveryPlan, discover
+from dynamisrag.corpus.pipeline import run_snapshot
+from dynamisrag.corpus.snapshot import (
+    build_manifest,
+    canonical_bytes,
+    publish_json,
+    read_json,
+    reconstruct_qualification,
+    verify_manifest,
+    verify_run,
+)
+from dynamisrag.db import create_database_engine
+from dynamisrag.db.canonical import get_document_identifiers, insert_document
+from dynamisrag.db.models import DocumentVersionRecord, PassageRecord, SourceArtifactRecord
+from dynamisrag.domain.contracts import Document
+from dynamisrag.domain.identity import document_version_key
+from dynamisrag.domain.values import DocumentType
+from dynamisrag.ingestion.europe_pmc import EuropePmcClient
+from dynamisrag.storage import ObjectStoreIntegrityError
+from tests._corpus import DOI, PMCID, XML, CorpusTransport
+from tests._support import ALEMBIC_INI, REPO_ROOT, build_settings
+
+pytestmark = pytest.mark.integration
+
+
+@pytest.fixture
+def corpus_engine(live_settings: Settings, monkeypatch: pytest.MonkeyPatch) -> Iterator[Engine]:
+    """Isolated database: test commits never enter the existing scientific baseline."""
+    database = f"dynamisrag_res143_test_{uuid4().hex[:12]}"
+    dsn = urlsplit(str(live_settings.database_url))
+    maintenance = urlunsplit(dsn._replace(path="/postgres"))
+    scratch = urlunsplit(dsn._replace(path=f"/{database}"))
+    with psycopg.connect(maintenance, autocommit=True) as connection:
+        connection.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database)))
+    engine = create_database_engine(build_settings(database_url=scratch))
+    try:
+        monkeypatch.setenv("DYNAMISRAG_DATABASE_URL", scratch)
+        config = Config(str(ALEMBIC_INI))
+        config.set_main_option("script_location", str(REPO_ROOT / "alembic"))
+        command.upgrade(config, "head")
+        yield engine
+    finally:
+        engine.dispose()
+        with psycopg.connect(maintenance, autocommit=True) as connection:
+            connection.execute(sql.SQL("DROP DATABASE {}").format(sql.Identifier(database)))
+
+
+def _run(engine: Engine, root: Path, transport: CorpusTransport) -> dict[str, Any]:
+    fulltext = EuropePmcClient(transport=transport)
+    try:
+        with httpx2.Client(transport=transport) as client:
+            return run_snapshot(
+                engine=engine,
+                http=BoundedHttp(client),
+                fulltext=fulltext,
+                run_root=root / "run",
+                store_root=root / "objects",
+                plan=DiscoveryPlan(topics=("sprint",), page_size=4),
+            )
+    finally:
+        fulltext.close()
+
+
+def _counts(engine: Engine) -> tuple[int, int, int]:
+    with Session(engine) as session:
+        counts = [
+            session.scalar(select(func.count()).select_from(model)) or 0
+            for model in (SourceArtifactRecord, DocumentVersionRecord, PassageRecord)
+        ]
+        return counts[0], counts[1], counts[2]
+
+
+def test_real_canonical_acquisition_and_network_free_replay(
+    corpus_engine: Engine, tmp_path: Path
+) -> None:
+    transport = CorpusTransport()
+    first = _run(corpus_engine, tmp_path, transport)
+    assert first["acquired_articles"] == 1 and first["deduplicated_records"] == 2
+    assert _counts(corpus_engine) == (1, 1, 0)
+    assert transport.fulltext_requests == 1
+    before = Path(first["manifest"]).read_bytes()
+    # An upstream mutation cannot change the pinned source, even across a fresh transaction.
+    transport.content = XML.replace(b"Synthetic human", b"Mutated human")
+    transport.fail_network = True
+    assert _run(corpus_engine, tmp_path, transport) == first
+    assert Path(first["manifest"]).read_bytes() == before
+    assert _counts(corpus_engine) == (1, 1, 0)
+    verify_manifest(
+        read_json(Path(first["manifest"])),
+        read_json(tmp_path / "run/discovery.json"),
+        tmp_path / "objects",
+        run_root=tmp_path / "run",
+    )
+    assert verify_run(tmp_path / "run", tmp_path / "objects")["snapshot_id"] == first["snapshot_id"]
+
+
+@pytest.mark.parametrize("boundary", ["stage", "decision", "manifest"])
+@pytest.mark.parametrize("reuse", [False, True])
+def test_recovery_after_interrupted_staging_commit_or_publication(
+    corpus_engine: Engine,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    boundary: str,
+    *,
+    reuse: bool,
+) -> None:
+    if reuse:
+        _seed_pmid_document(corpus_engine)
+    transport = CorpusTransport()
+
+    def interrupted(path: Path, value: object) -> None:
+        if (
+            (boundary == "stage" and path.parent.name == "staged")
+            or (boundary == "decision" and path.parent.name == "decisions")
+            or (boundary == "manifest" and path.parent.name == "snapshots")
+        ):
+            if boundary == "stage":
+                publish_json(path, value)
+            raise OSError(f"interrupted {boundary}")
+        publish_json(path, value)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(pipeline, "publish_json", interrupted)
+        with pytest.raises(OSError, match="interrupted"):
+            _run(corpus_engine, tmp_path, transport)
+    assert not list((tmp_path / "run/snapshots").glob("*.json"))
+    assert _counts(corpus_engine) == ((0, 0, 0) if boundary == "stage" else (1, 1, 0))
+    transport.fail_network = True
+    result = _run(corpus_engine, tmp_path, transport)
+    assert result["acquired_articles"] == 1 and _counts(corpus_engine) == (1, 1, 0)
+    assert transport.fulltext_requests == 1
+
+
+def test_rejected_original_license_never_enters_object_store_or_database(
+    corpus_engine: Engine,
+    tmp_path: Path,
+) -> None:
+    transport = CorpusTransport()
+    transport.content = XML.replace(b"/licenses/by/", b"/licenses/by-nc/")
+    result = _run(corpus_engine, tmp_path, transport)
+    assert result["rejected_articles"] == 1 and result["acquired_articles"] == 0
+    assert _counts(corpus_engine) == (0, 0, 0)
+    assert not list((tmp_path / "objects").rglob("*.xml"))
+
+
+def test_object_corruption_blocks_republication(corpus_engine: Engine, tmp_path: Path) -> None:
+    transport = CorpusTransport()
+    _run(corpus_engine, tmp_path, transport)
+    target = next((tmp_path / "objects").rglob("*.xml"))
+    target.write_bytes(b"corrupt")
+    transport.fail_network = True
+    with pytest.raises(ObjectStoreIntegrityError, match=r"hash|digest"):
+        _run(corpus_engine, tmp_path, transport)
+
+
+def test_corrupt_discovery_cannot_mutate_database_or_store(
+    corpus_engine: Engine, tmp_path: Path
+) -> None:
+    transport = CorpusTransport()
+    with httpx2.Client(transport=transport) as client:
+        discovery = discover(BoundedHttp(client), DiscoveryPlan(topics=("sprint",), page_size=4))
+    discovery["records"][0]["title"] = "forged"
+    publish_json(tmp_path / "run/discovery.json", discovery)
+    before = _counts(corpus_engine)
+    with pytest.raises(ValueError, match="replay incomplete"):
+        _run(corpus_engine, tmp_path, transport)
+    assert _counts(corpus_engine) == before
+    assert transport.fulltext_requests == 0
+    assert not (tmp_path / "objects").exists()
+    assert not (tmp_path / "run/config.json").exists()
+
+
+def test_corrupt_stage_rejected_before_resume_transaction(
+    corpus_engine: Engine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    transport = CorpusTransport()
+    _run(corpus_engine, tmp_path, transport)
+    stage_path = next((tmp_path / "run/staged").glob("*.json"))
+    stage = read_json(stage_path)
+    stage_path.write_bytes(canonical_bytes({**stage, "source_uri": "https://example.invalid"}))
+    before = _counts(corpus_engine)
+
+    def forbidden(**kwargs: Any) -> Any:
+        pytest.fail("acquisition reached with corrupted stage")
+
+    monkeypatch.setattr(pipeline, "_qualify", forbidden)
+    with pytest.raises(ValueError, match="stage"):
+        _run(corpus_engine, tmp_path, transport)
+    assert _counts(corpus_engine) == before
+
+
+def test_forged_staged_license_name_cannot_enter_canonical_database(
+    corpus_engine: Engine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Stage-only recovery must compare license names against original JATS bytes."""
+    transport = CorpusTransport()
+
+    def interrupt_after_stage(path: Path, value: object) -> None:
+        publish_json(path, value)
+        if path.parent.name == "staged":
+            raise OSError("interrupted after stage")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(pipeline, "publish_json", interrupt_after_stage)
+        with pytest.raises(OSError, match="interrupted after stage"):
+            _run(corpus_engine, tmp_path, transport)
+    assert _counts(corpus_engine) == (0, 0, 0)
+
+    stage_path = next((tmp_path / "run/staged").glob("*.json"))
+    stage = read_json(stage_path)
+    assert stage["license_name"] == "open-access"
+    stage_path.write_bytes(canonical_bytes({**stage, "license_name": "forged-cc-by-nc"}) + b"\n")
+    transport.fail_network = True
+    with pytest.raises(ValueError, match="stage provenance"):
+        _run(corpus_engine, tmp_path, transport)
+    assert transport.fulltext_requests == 1
+    assert _counts(corpus_engine) == (0, 0, 0)
+    assert not list((tmp_path / "run/snapshots").glob("*.json"))
+
+
+def test_interrupted_publication_rejects_forged_summary_before_resume(
+    corpus_engine: Engine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    transport = CorpusTransport()
+    _run(corpus_engine, tmp_path, transport)
+    (tmp_path / "run/result.json").unlink()
+    path = tmp_path / "run/qualification.json"
+    qualification = read_json(path)
+    qualification["summary"]["acquired_articles"] += 1
+    path.write_bytes(canonical_bytes(qualification))
+
+    def forbidden(**kwargs: Any) -> Any:
+        pytest.fail("acquisition reached with corrupted qualification")
+
+    monkeypatch.setattr(pipeline, "_qualify", forbidden)
+    with pytest.raises(ValueError, match="qualification"):
+        _run(corpus_engine, tmp_path, transport)
+
+
+def test_replay_rejects_recomputed_snapshot_with_forged_member_fields(
+    corpus_engine: Engine, tmp_path: Path
+) -> None:
+    result = _run(corpus_engine, tmp_path, CorpusTransport())
+    run_root, store_root = tmp_path / "run", tmp_path / "objects"
+    manifest = read_json(Path(result["manifest"]))
+    discovery = read_json(run_root / "discovery.json")
+    member = manifest["members"][0]
+    mutations: list[tuple[str, Any]] = [
+        ("title", "Invented title"),
+        ("attribution", [{"invented": "author"}]),
+        ("source_uri", "https://example.invalid/other.xml"),
+        ("source_system", "untrusted_provider"),
+        ("media_type", "application/json"),
+        ("discovery_sources", []),
+        ("doi", "10.9999/forgery"),
+    ]
+    for field, changed in mutations:
+        altered = deepcopy(manifest)
+        altered["members"][0][field] = changed
+        altered = build_manifest(discovery, altered["members"])
+        with pytest.raises(ValueError, match=r"provenance|identity"):
+            verify_manifest(altered, discovery, store_root, run_root=run_root)
+
+    forged = deepcopy(manifest)
+    forged["members"][0]["document_canonical_key"] = "doi:10.9999/forgery"
+    forged["members"][0]["version_key"] = document_version_key(
+        "doi:10.9999/forgery",
+        member["artifact_key"],
+        member["parser_revision"],
+        member["normalizer_revision"],
+        member["content_fingerprint"],
+    )
+    forged = build_manifest(discovery, forged["members"])
+    with pytest.raises(ValueError, match=r"provenance|identity"):
+        verify_manifest(forged, discovery, store_root, run_root=run_root)
+
+
+def test_replay_rejects_stage_receipt_and_run_identity_tampering(
+    corpus_engine: Engine, tmp_path: Path
+) -> None:
+    result = _run(corpus_engine, tmp_path, CorpusTransport())
+    run_root, store_root = tmp_path / "run", tmp_path / "objects"
+    manifest = read_json(Path(result["manifest"]))
+    discovery = read_json(run_root / "discovery.json")
+    stage_path = next((run_root / "staged").glob("*.json"))
+    stage = read_json(stage_path)
+    stage_path.write_bytes(canonical_bytes({**stage, "media_type": "text/xml"}) + b"\n")
+    with pytest.raises(ValueError, match="stage"):
+        verify_manifest(manifest, discovery, store_root, run_root=run_root)
+    stage_path.write_bytes(canonical_bytes(stage) + b"\n")
+    assert verify_run(run_root, store_root)["snapshot_id"] == result["snapshot_id"]
+
+    stage_path.write_bytes(canonical_bytes({**stage, "license_name": "forged-license"}) + b"\n")
+    with pytest.raises(ValueError, match="stage"):
+        verify_run(run_root, store_root)
+    stage_path.write_bytes(canonical_bytes(stage) + b"\n")
+    assert verify_run(run_root, store_root)["snapshot_id"] == result["snapshot_id"]
+
+    fake_id = "f" * 64
+    (run_root / "snapshots" / f"{fake_id}.json").write_bytes(Path(result["manifest"]).read_bytes())
+    (run_root / "result.json").write_bytes(
+        canonical_bytes({**read_json(run_root / "result.json"), "snapshot_id": fake_id}) + b"\n"
+    )
+    with pytest.raises(ValueError, match="run result snapshot identity"):
+        verify_run(run_root, store_root)
+
+
+def test_replay_rejects_coordinated_summary_and_decision_tampering(
+    corpus_engine: Engine, tmp_path: Path
+) -> None:
+    _run(corpus_engine, tmp_path, CorpusTransport())
+    run_root, store_root = tmp_path / "run", tmp_path / "objects"
+    qualification_path = run_root / "qualification.json"
+    result_path = run_root / "result.json"
+    original_qualification = read_json(qualification_path)
+    original_result = read_json(result_path)
+
+    # Changing both reported summaries used to bypass the equality check.
+    forged_qualification = deepcopy(original_qualification)
+    forged_result = deepcopy(original_result)
+    forged_qualification["summary"]["rejected_articles"] += 1
+    forged_result["rejected_articles"] += 1
+    qualification_path.write_bytes(canonical_bytes(forged_qualification) + b"\n")
+    result_path.write_bytes(canonical_bytes(forged_result) + b"\n")
+    with pytest.raises(ValueError, match="qualification summary"):
+        verify_run(run_root, store_root)
+
+    qualification_path.write_bytes(canonical_bytes(original_qualification) + b"\n")
+    result_path.write_bytes(canonical_bytes(original_result) + b"\n")
+
+    # An altered aggregate decision list must not pass independent replay.
+    forged_qualification = deepcopy(original_qualification)
+    forged_qualification["decisions"] = []
+    qualification_path.write_bytes(canonical_bytes(forged_qualification) + b"\n")
+    with pytest.raises(ValueError, match="decision receipts"):
+        verify_run(run_root, store_root)
+    qualification_path.write_bytes(canonical_bytes(original_qualification) + b"\n")
+
+    # Dropping even one per-group receipt must fail closed.
+    decision_path = next((run_root / "decisions").glob("*.json"))
+    decision_path.unlink()
+    with pytest.raises(FileNotFoundError):
+        verify_run(run_root, store_root)
+
+
+def _seed_pmid_document(engine: Engine) -> Document:
+    document = Document(
+        document_type=DocumentType.JOURNAL_ARTICLE,
+        pmid="99999143",
+        pmcid=PMCID,
+        title="Earlier source title",
+    )
+    with Session(engine) as session, session.begin():
+        insert_document(session, document)
+    return document
+
+
+def test_existing_pmid_identity_survives_source_identifier_omission(
+    corpus_engine: Engine,
+    tmp_path: Path,
+) -> None:
+    document = _seed_pmid_document(corpus_engine)
+    transport = CorpusTransport()
+    result = _run(corpus_engine, tmp_path, transport)
+    member = read_json(Path(result["manifest"]))["members"][0]
+    assert member["document_canonical_key"] == document.canonical_key == "pmid:99999143"
+    with Session(corpus_engine) as session:
+        assert {
+            (a.namespace, a.normalized_value)
+            for a in get_document_identifiers(session, document.id)
+        } == {
+            ("pmid", "99999143"),
+            ("pmcid", PMCID),
+            ("doi", DOI),
+        }
+    with pytest.raises(ValueError, match="requires trusted database"):
+        verify_run(tmp_path / "run", tmp_path / "objects")
+    with Session(corpus_engine.execution_options(postgresql_readonly=True)) as reader:
+        assert reader.scalar(select(func.current_setting("transaction_read_only"))) == "on"
+        assert (
+            verify_run(tmp_path / "run", tmp_path / "objects", canonical_session=reader)[
+                "snapshot_id"
+            ]
+            == result["snapshot_id"]
+        )
+    cli = subprocess.run(  # noqa: S603 -- fixed local CLI, synthetic run
+        [
+            sys.executable,
+            "-m",
+            "scripts.corpus_snapshot",
+            "verify",
+            "--canonical-db",
+            "--run-root",
+            str(tmp_path / "run"),
+            "--store-root",
+            str(tmp_path / "objects"),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert '"canonical_identity_evidence": "trusted-database"' in cli.stdout
+    transport.fail_network = True
+    assert _run(corpus_engine, tmp_path, transport) == result
+    assert _counts(corpus_engine) == (1, 1, 0)
+
+
+def test_invalid_resolved_identity_rolls_back_artifact_version_and_aliases(
+    corpus_engine: Engine,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    document = _seed_pmid_document(corpus_engine)
+    other = Document(document_type=DocumentType.JOURNAL_ARTICLE, pmid="88888888", title="Other")
+    with Session(corpus_engine) as session, session.begin():
+        insert_document(session, other)
+    original = pipeline._member  # pyright: ignore[reportPrivateUsage] -- inject invalid output
+
+    def forged(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        member = original(*args, **kwargs)
+        member["document_canonical_key"] = "pmid:88888888"
+        member["version_key"] = document_version_key(
+            member["document_canonical_key"],
+            member["artifact_key"],
+            member["parser_revision"],
+            member["normalizer_revision"],
+            member["content_fingerprint"],
+        )
+        return member
+
+    monkeypatch.setattr(pipeline, "_member", forged)
+    with pytest.raises(ValueError, match="canonical identity"):
+        _run(corpus_engine, tmp_path, CorpusTransport())
+    assert _counts(corpus_engine) == (0, 0, 0)
+    with Session(corpus_engine) as session:
+        assert {
+            (a.namespace, a.normalized_value)
+            for a in get_document_identifiers(session, document.id)
+        } == {
+            ("pmid", "99999143"),
+            ("pmcid", PMCID),
+        }
+    assert not list((tmp_path / "run/decisions").glob("*.json"))
+
+
+def test_conflicting_existing_documents_do_not_cross_attach_aliases(
+    corpus_engine: Engine,
+    tmp_path: Path,
+) -> None:
+    document = _seed_pmid_document(corpus_engine)
+    other = Document(document_type=DocumentType.JOURNAL_ARTICLE, doi=DOI, title="Other")
+    with Session(corpus_engine) as session, session.begin():
+        insert_document(session, other)
+    result = _run(corpus_engine, tmp_path, CorpusTransport())
+    assert result["rejected_articles"] == 1 and result["acquired_articles"] == 0
+    assert _counts(corpus_engine) == (0, 0, 0)
+    with Session(corpus_engine) as session:
+        assert {
+            (a.namespace, a.normalized_value)
+            for a in get_document_identifiers(session, document.id)
+        } == {
+            ("pmid", "99999143"),
+            ("pmcid", PMCID),
+        }
+        assert {
+            (a.namespace, a.normalized_value) for a in get_document_identifiers(session, other.id)
+        } == {("doi", DOI)}
+
+
+@pytest.mark.parametrize("mutation", ["config", "policy", "staged", "decisions"])
+def test_offline_run_rejects_forged_metadata_and_orphan_receipts(
+    corpus_engine: Engine,
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    _run(corpus_engine, tmp_path, CorpusTransport())
+    run_root = tmp_path / "run"
+    if mutation in {"config", "policy"}:
+        target = run_root / f"{mutation}.json"
+        target.write_bytes(canonical_bytes({"forged": True}))
+    else:
+        (run_root / mutation / f"{'f' * 64}.json").write_bytes(
+            canonical_bytes({"sha256": "forged"})
+        )
+    with pytest.raises(ValueError):
+        verify_run(run_root, tmp_path / "objects")
+
+
+def test_offline_run_rejects_coordinated_premature_deferral(
+    corpus_engine: Engine,
+    tmp_path: Path,
+) -> None:
+    result = _run(corpus_engine, tmp_path, CorpusTransport())
+    root = tmp_path / "run"
+    discovery = read_json(root / "discovery.json")
+    decision_path = next((root / "decisions").glob("*.json"))
+    decision = read_json(decision_path)
+    decision = {
+        "status": "deferred",
+        "reason": "membership budget reached",
+        "sources": decision["sources"],
+    }
+    decision_path.write_bytes(canonical_bytes(decision))
+    empty = build_manifest(discovery, [])
+    qualification = reconstruct_qualification(root, discovery, empty)
+    (root / "qualification.json").write_bytes(canonical_bytes(qualification))
+    (root / "result.json").write_bytes(
+        canonical_bytes({"snapshot_id": empty["snapshot_id"], **qualification["summary"]})
+    )
+    Path(result["manifest"]).unlink()
+    publish_json(root / "snapshots" / f"{empty['snapshot_id']}.json", empty)
+    with pytest.raises(ValueError, match="membership budget"):
+        verify_run(root, tmp_path / "objects")

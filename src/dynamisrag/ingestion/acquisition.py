@@ -34,7 +34,7 @@ from sqlalchemy.orm import Session
 from dynamisrag.db.canonical import get_source_artifact_by_key, insert_source_artifact
 from dynamisrag.db.models import SourceArtifactRecord
 from dynamisrag.domain.contracts import SourceArtifact
-from dynamisrag.ingestion.europe_pmc import EuropePmcClient
+from dynamisrag.ingestion.europe_pmc import AcquiredFulltext, EuropePmcClient
 from dynamisrag.storage import ObjectStore
 
 __all__ = ["AcquisitionResult", "EuropePmcAcquisition"]
@@ -67,6 +67,14 @@ class EuropePmcAcquisition:
         artifact and creates a new row.
         """
         payload = self._client.fetch_fulltext(pmcid)
+        return self.acquire_payload(session, payload)
+
+    def acquire_payload(self, session: Session, payload: AcquiredFulltext) -> AcquisitionResult:
+        """Persist the exact payload already fetched and validated by the caller.
+
+        This seam lets snapshot qualification check rights and identity before
+        durable acquisition, without a second, potentially different HTTP fetch.
+        """
         content_sha256 = hashlib.sha256(payload.content).hexdigest()
         stored = self._store.put_if_absent(content_sha256, payload.content)
         artifact = SourceArtifact(
