@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx2
+from sqlalchemy.orm import Session
 
 from dynamisrag.config import load_settings
 from dynamisrag.corpus.discovery import BoundedHttp, DiscoveryPlan
@@ -29,15 +30,33 @@ def main() -> None:
     parser.add_argument("--pages", type=int, default=2)
     parser.add_argument("--page-size", type=int, default=4)
     parser.add_argument("--max-members", type=int, default=25)
+    parser.add_argument(
+        "--canonical-db",
+        action="store_true",
+        help="Verify canonical ownership using the trusted configured PostgreSQL DB (read only)",
+    )
     args = parser.parse_args()
     if args.operation == "verify":
-        manifest = verify_run(args.run_root, args.store_root.resolve())
+        if args.canonical_db:
+            engine = create_database_engine(load_settings())
+            try:
+                with Session(engine.execution_options(postgresql_readonly=True)) as reader:
+                    manifest = verify_run(
+                        args.run_root, args.store_root.resolve(), canonical_session=reader
+                    )
+            finally:
+                engine.dispose()
+        else:
+            manifest = verify_run(args.run_root, args.store_root.resolve())
         discovery = read_json(args.run_root / "discovery.json")
         print(
             json.dumps(
                 {
                     "verified": manifest["snapshot_id"],
                     "members": len(manifest["members"]),
+                    "canonical_identity_evidence": "trusted-database"
+                    if args.canonical_db
+                    else "source-derived",
                     "discovery_status": "partial" if discovery["failures"] else "complete",
                     "failure_receipt_provenance": (
                         "none"

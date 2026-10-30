@@ -16,23 +16,25 @@ from dynamisrag.corpus.discovery import (
     reconcile,
 )
 from dynamisrag.corpus.rights import (
-    RIGHTS_REVISION,
-    SCOPE_REVISION,
     QualificationError,
-    original_article_license_name,
     preflight,
     verify_article,
 )
 from dynamisrag.corpus.snapshot import (
-    SNAPSHOT_REVISION,
+    BASELINE_PMCIDS,
     build_manifest,
     identity,
     publish_json,
     read_json,
     reconstruct_qualification,
+    run_config,
+    run_policy,
     source_bytes,
+    verify_decision,
     verify_discovery,
     verify_manifest,
+    verify_member_stage,
+    verify_receipt_inventory,
     verify_run,
 )
 from dynamisrag.domain.contracts import DocumentVersion, SourceArtifact
@@ -42,9 +44,6 @@ from dynamisrag.jats.errors import JatsParseError
 from dynamisrag.jats.importer import JatsCanonicalImporter
 from dynamisrag.jats.parser import JATS_NORMALIZER_REVISION, JATS_PARSER_REVISION
 from dynamisrag.storage import FileSystemObjectStore
-
-# Existing scientific baseline is explicitly excluded, including canonical alias writes.
-BASELINE_PMCIDS = frozenset({"PMC10780924", "PMC10680285", "PMC5263151"})
 
 
 def run_snapshot(
@@ -67,9 +66,10 @@ def run_snapshot(
     if not 1 <= max_members <= 25:
         raise ValueError("bounded qualification requires 1..25 maximum members")
     run_root, store_root = run_root.resolve(), store_root.resolve()
-    discovery, records, groups, conflicts = _prepare_run(
-        run_root, store_root, http, plan, max_members
-    )
+    with Session(engine.execution_options(postgresql_readonly=True)) as reader:
+        discovery, records, groups, conflicts = _prepare_run(
+            run_root, store_root, http, plan, max_members, canonical_session=reader
+        )
     members: list[dict[str, Any]] = []
     decisions: list[dict[str, Any]] = []
     store = FileSystemObjectStore(store_root)
@@ -106,6 +106,7 @@ def run_snapshot(
                 stage_path=stage_path,
                 group=group,
                 pmcid=pmcid,
+                discovery=discovery,
             )
             decision = {"status": "acquired", "member": member, "sources": sources}
             publish_json(decision_path, decision)
@@ -115,7 +116,10 @@ def run_snapshot(
             publish_json(decision_path, decision)
         decisions.append(decision)
     manifest = build_manifest(discovery, members)
-    verify_manifest(manifest, discovery, store_root, run_root=run_root)
+    with Session(engine.execution_options(postgresql_readonly=True)) as reader:
+        verify_manifest(
+            manifest, discovery, store_root, run_root=run_root, canonical_session=reader
+        )
     summary = {
         "discovered_records": len(records) + len(discovery["rejected"]),
         "malformed_records": len(discovery["rejected"]),
@@ -145,13 +149,15 @@ def run_snapshot(
 
 
 def _prepare_run(
-    run_root: Path, store_root: Path, http: BoundedHttp, plan: DiscoveryPlan, max_members: int
+    run_root: Path,
+    store_root: Path,
+    http: BoundedHttp,
+    plan: DiscoveryPlan,
+    max_members: int,
+    *,
+    canonical_session: Session,
 ) -> tuple[dict[str, Any], list[Candidate], list[list[Candidate]], list[list[Candidate]]]:
-    config = {
-        "plan": plan.model_dump(mode="json"),
-        "max_members": max_members,
-        "excluded_baseline_pmcids": sorted(BASELINE_PMCIDS),
-    }
+    config = run_config(plan, max_members)
     discovery_path = run_root / "discovery.json"
     if not discovery_path.exists() and (
         (run_root / "result.json").exists()
@@ -160,7 +166,7 @@ def _prepare_run(
         )
     ):
         raise ValueError("retained receipts require original discovery")
-    policy = _policy()
+    policy = run_policy()
     _check_configuration(run_root, config, policy)
     discovery = read_json(discovery_path) if discovery_path.exists() else discover(http, plan)
     verify_discovery(discovery)
@@ -170,21 +176,18 @@ def _prepare_run(
         raise ValueError("discovery plan differs from configured plan")
     records = [Candidate.model_validate(r) for r in discovery["records"]]
     groups, conflicts = reconcile(records)
-    _validate_retained(run_root, store_root, discovery, groups)
+    _validate_retained(
+        run_root,
+        store_root,
+        discovery,
+        groups,
+        max_members=max_members,
+        canonical_session=canonical_session,
+    )
     publish_json(run_root / "config.json", config)
     publish_json(run_root / "policy.json", policy)
     publish_json(discovery_path, discovery)
     return discovery, records, groups, conflicts
-
-
-def _policy() -> dict[str, str]:
-    return {
-        "snapshot_revision": SNAPSHOT_REVISION,
-        "rights_revision": RIGHTS_REVISION,
-        "scope_revision": SCOPE_REVISION,
-        "parser_revision": JATS_PARSER_REVISION,
-        "normalizer_revision": JATS_NORMALIZER_REVISION,
-    }
 
 
 def _check_configuration(run_root: Path, config: dict[str, Any], policy: dict[str, str]) -> None:
@@ -198,55 +201,44 @@ def _validate_retained(
     store_root: Path,
     discovery: dict[str, Any],
     groups: list[list[Candidate]],
+    *,
+    canonical_session: Session,
+    max_members: int,
 ) -> None:
     """Validate all retained evidence before any resumed acquisition can commit."""
     if (run_root / "result.json").exists():
-        verify_run(run_root, store_root)
-    known: set[str] = set()
+        verify_run(run_root, store_root, canonical_session=canonical_session)
+    verify_receipt_inventory(run_root, store_root, groups)
     acquired: list[dict[str, Any]] = []
     for group in groups:
         sources = [candidate.model_dump(mode="json") for candidate in group]
         key = identity(sources)
-        known.add(f"{key}.json")
-        stage_path = run_root / "staged" / f"{key}.json"
         decision_path = run_root / "decisions" / f"{key}.json"
-        if stage_path.exists():
-            stage = read_json(stage_path)
-            if set(stage) != {"sha256", "source_uri", "media_type", "license_name", "license_uri"}:
-                raise ValueError("invalid stage receipt")
-            pmcid = preflight(group)
-            content = source_bytes(store_root, stage["sha256"])
-            rights = verify_article(content, group, pmcid)
-            _validate_stage(stage, pmcid, rights, content)
         if decision_path.exists():
             decision = read_json(decision_path)
-            if decision.get("sources") != sources:
-                raise ValueError("qualification decision sources mismatch")
-            status = decision.get("status")
-            if status == "acquired" and isinstance(decision.get("member"), dict):
+            status = verify_decision(decision, sources)
+            if status == "acquired":
                 verify_manifest(
                     build_manifest(discovery, [decision["member"]]),
                     discovery,
                     store_root,
                     run_root=run_root,
+                    canonical_session=canonical_session,
                 )
                 acquired.append(decision["member"])
-            elif (
-                status not in {"rejected", "deferred"}
-                or set(decision) != {"status", "sources", "reason"}
-                or not isinstance(decision.get("reason"), str)
-                or not decision["reason"]
-                or (status == "deferred" and decision["reason"] != "membership budget reached")
-            ):
-                raise ValueError("invalid qualification decision")
-    for directory in ("staged", "decisions"):
-        if any(path.name not in known for path in (run_root / directory).glob("*.json")):
-            raise ValueError(f"unmatched {directory} receipt")
-    _validate_publication(run_root, discovery, acquired)
+            elif status == "deferred":
+                if preflight(group) in BASELINE_PMCIDS or len(acquired) != max_members:
+                    raise ValueError("deferred decision inconsistent with membership budget")
+    if len(acquired) > max_members:
+        raise ValueError("snapshot exceeds configured membership budget")
+    _validate_publication(run_root, discovery, acquired, max_members)
 
 
 def _validate_publication(
-    run_root: Path, discovery: dict[str, Any], acquired: list[dict[str, Any]]
+    run_root: Path,
+    discovery: dict[str, Any],
+    acquired: list[dict[str, Any]],
+    max_members: int,
 ) -> None:
     qualification_path = run_root / "qualification.json"
     snapshots = list((run_root / "snapshots").glob("*.json"))
@@ -255,30 +247,12 @@ def _validate_publication(
     if qualification_path.exists():
         manifest = build_manifest(discovery, acquired)
         if read_json(qualification_path) != reconstruct_qualification(
-            run_root, discovery, manifest
+            run_root, discovery, manifest, max_members=max_members
         ):
             raise ValueError("qualification summary or decision receipts mismatch")
         for path in snapshots:
             if path.name != f"{manifest['snapshot_id']}.json" or read_json(path) != manifest:
                 raise ValueError("retained snapshot identity mismatch")
-
-
-def _validate_stage(
-    stage: dict[str, Any], pmcid: str, rights: dict[str, Any], content: bytes
-) -> None:
-    """Verify staged transport metadata against original article-level JATS."""
-    if (
-        stage["license_name"] != original_article_license_name(content)
-        or stage["source_uri"]
-        != f"https://www.ebi.ac.uk/europepmc/webservices/rest/{pmcid}/fullTextXML"
-        or stage["license_uri"] != rights["license_uri"]
-        or not isinstance(stage["media_type"], str)
-        or not (
-            stage["media_type"] in {"application/xml", "text/xml"}
-            or stage["media_type"].endswith("+xml")
-        )
-    ):
-        raise ValueError("invalid stage provenance")
 
 
 def _qualify(
@@ -291,6 +265,7 @@ def _qualify(
     stage_path: Path,
     group: list[Candidate],
     pmcid: str,
+    discovery: dict[str, Any],
 ) -> dict[str, Any]:
     if stage_path.exists():
         stage = read_json(stage_path)
@@ -314,7 +289,16 @@ def _qualify(
             "license_name": payload.license_name,
             "license_uri": payload.license_uri,
         }
-        _validate_stage(stage, pmcid, rights, payload.content)
+        verify_member_stage(
+            stage,
+            {
+                "content_sha256": digest,
+                "source_uri": f"https://www.ebi.ac.uk/europepmc/webservices/rest/{pmcid}/fullTextXML",
+                "media_type": payload.media_type,
+                "rights": rights,
+            },
+            payload.content,
+        )
         store.put_if_absent(digest, payload.content)
         publish_json(stage_path, stage)
     rights = verify_article(payload.content, group, pmcid)
@@ -323,12 +307,17 @@ def _qualify(
         imported = JatsCanonicalImporter(session).import_artifact(
             acquired.artifact, payload.content
         )
-        return _member(
+        member = _member(
             acquired.artifact,
             imported.version,
             rights,
             group,
         )
+        verify_member_stage(stage, member, payload.content)
+        verify_manifest(
+            build_manifest(discovery, [member]), discovery, store_root, canonical_session=session
+        )
+        return member
 
 
 def _fetch(client: EuropePmcClient, pmcid: str) -> AcquiredFulltext:

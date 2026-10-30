@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from pydantic import TypeAdapter, ValidationError
+from sqlalchemy.orm import Session
 
 from dynamisrag.corpus.discovery import (
     PROVIDERS,
@@ -24,12 +25,186 @@ from dynamisrag.corpus.discovery import (
     parse_page,
     reconcile,
 )
-from dynamisrag.corpus.rights import original_article_license_name, preflight, verify_article
+from dynamisrag.corpus.rights import (
+    RIGHTS_REVISION,
+    SCOPE_REVISION,
+    original_article_license_name,
+    preflight,
+    verify_article,
+)
+from dynamisrag.db.canonical import (
+    get_document_by_canonical_key,
+    get_document_by_identifier,
+    get_document_identifiers,
+    get_document_version_by_key,
+    get_source_artifact_by_key,
+)
 from dynamisrag.domain.identity import digest, document_version_key, source_artifact_key
-from dynamisrag.jats.parser import JATS_NORMALIZER_REVISION, JATS_PARSER_REVISION, JatsParser
+from dynamisrag.domain.values import IdentifierNamespace
+from dynamisrag.jats.parser import (
+    JATS_NORMALIZER_REVISION,
+    JATS_PARSER_REVISION,
+    JatsParser,
+    ParsedJatsArticle,
+)
 from dynamisrag.storage.filesystem import ObjectStoreIntegrityError
 
 SNAPSHOT_REVISION = "dynamiscorpus-1"
+BASELINE_PMCIDS = frozenset({"PMC10780924", "PMC10680285", "PMC5263151"})
+
+
+def run_config(plan: DiscoveryPlan, max_members: int) -> dict[str, Any]:
+    if type(max_members) is not int or not 1 <= max_members <= 25:
+        raise ValueError("bounded qualification requires 1..25 maximum members")
+    return {
+        "plan": plan.model_dump(mode="json"),
+        "max_members": max_members,
+        "excluded_baseline_pmcids": sorted(BASELINE_PMCIDS),
+    }
+
+
+def run_policy() -> dict[str, str]:
+    return {
+        "snapshot_revision": SNAPSHOT_REVISION,
+        "rights_revision": RIGHTS_REVISION,
+        "scope_revision": SCOPE_REVISION,
+        "parser_revision": JATS_PARSER_REVISION,
+        "normalizer_revision": JATS_NORMALIZER_REVISION,
+    }
+
+
+def verify_configuration(run_root: Path, discovery: dict[str, Any]) -> int:
+    config = read_json(run_root / "config.json")
+    plan = DiscoveryPlan.model_validate(discovery["plan"])
+    maximum = config.get("max_members")
+    if not isinstance(maximum, int):
+        raise ValueError("invalid configured membership budget")
+    if (
+        canonical_bytes(discovery["plan"]) != canonical_bytes(plan.model_dump(mode="json"))
+        or canonical_bytes(config) != canonical_bytes(run_config(plan, maximum))
+        or canonical_bytes(read_json(run_root / "policy.json")) != canonical_bytes(run_policy())
+    ):
+        raise ValueError("run configuration or policy mismatch")
+    return maximum
+
+
+def validate_stage(stage: dict[str, Any], group: list[Candidate], store_root: Path) -> None:
+    if set(stage) != {"sha256", "source_uri", "media_type", "license_name", "license_uri"}:
+        raise ValueError("invalid stage receipt")
+    pmcid = preflight(group)
+    content = source_bytes(store_root, stage["sha256"])
+    rights = verify_article(content, group, pmcid)
+    verify_member_stage(
+        stage,
+        {
+            "content_sha256": rights["source_sha256"],
+            "source_uri": f"https://www.ebi.ac.uk/europepmc/webservices/rest/{pmcid}/fullTextXML",
+            "media_type": stage["media_type"],
+            "rights": rights,
+        },
+        content,
+    )
+
+
+def verify_member_stage(stage: dict[str, Any], member: dict[str, Any], content: bytes) -> None:
+    if set(stage) != {"sha256", "source_uri", "media_type", "license_name", "license_uri"}:
+        raise ValueError("invalid stage receipt")
+    if (
+        stage["sha256"] != member["content_sha256"]
+        or stage["license_name"] != original_article_license_name(content)
+        or stage["source_uri"] != member["source_uri"]
+        or stage["media_type"] != member["media_type"]
+        or stage["license_uri"] != member["rights"]["license_uri"]
+        or not isinstance(stage["media_type"], str)
+        or not (
+            stage["media_type"] in {"application/xml", "text/xml"}
+            or stage["media_type"].endswith("+xml")
+        )
+    ):
+        raise ValueError("invalid stage provenance")
+
+
+def verify_receipt_inventory(
+    run_root: Path,
+    store_root: Path,
+    groups: list[list[Candidate]],
+) -> None:
+    known = {
+        f"{identity([c.model_dump(mode='json') for c in group])}.json": group for group in groups
+    }
+    for directory in ("staged", "decisions"):
+        for path in (run_root / directory).iterdir() if (run_root / directory).exists() else ():
+            # Unpublished hard-link staging files are not receipts; a real crash can leave them.
+            if path.is_file() and path.suffix == ".pending":
+                continue
+            if not path.is_file() or path.name not in known:
+                raise ValueError(f"unmatched {directory} receipt")
+            if directory == "staged":
+                validate_stage(read_json(path), known[path.name], store_root)
+
+
+def verify_decision(decision: dict[str, Any], sources: list[dict[str, Any]]) -> str:
+    if decision.get("sources") != sources:
+        raise ValueError("qualification decision sources mismatch")
+    status = decision.get("status")
+    if status == "acquired":
+        if set(decision) != {"status", "sources", "member"} or not isinstance(
+            decision.get("member"), dict
+        ):
+            raise ValueError("invalid acquired qualification receipt")
+    elif status in {"rejected", "deferred"}:
+        if (
+            set(decision) != {"status", "sources", "reason"}
+            or not isinstance(decision.get("reason"), str)
+            or not decision["reason"]
+            or (status == "deferred" and decision["reason"] != "membership budget reached")
+        ):
+            raise ValueError("invalid rejected or deferred qualification receipt")
+    else:
+        raise ValueError("invalid qualification decision status")
+    return status
+
+
+def validate_canonical_identity(
+    session: Session,
+    member: dict[str, Any],
+    parsed: ParsedJatsArticle,
+) -> None:
+    """Read actual canonical ownership, never a self-asserted JSON identity receipt.
+
+    Used in the import transaction and with an explicitly trusted read-only DB
+    for replay. The global importer and creation-time canonical keys are unchanged.
+    """
+    document = get_document_by_canonical_key(session, member["document_canonical_key"])
+    if document is None:
+        raise ValueError("canonical identity has no persisted document")
+    identifiers = [(IdentifierNamespace.PMCID, member["pmcid"])]
+    if parsed.doi:
+        identifiers.append((IdentifierNamespace.DOI, parsed.doi))
+    if parsed.pmid:
+        identifiers.append((IdentifierNamespace.PMID, parsed.pmid))
+    for namespace, value in identifiers:
+        owner = get_document_by_identifier(session, namespace, value)
+        if owner is None or owner.id != document.id:
+            raise ValueError("canonical identity alias ownership mismatch")
+    if any(
+        a.namespace == "pmcid" and a.normalized_value in BASELINE_PMCIDS
+        for a in get_document_identifiers(session, document.id)
+    ):
+        raise ValueError("reserved original scientific baseline identity")
+    version = get_document_version_by_key(session, member["version_key"])
+    artifact = get_source_artifact_by_key(session, member["artifact_key"])
+    if (
+        version is None
+        or artifact is None
+        or version.document_id != document.id
+        or version.source_artifact_id != artifact.id
+        or artifact.content_sha256 != member["content_sha256"]
+        or artifact.source_external_id != member["pmcid"]
+        or artifact.source_system != "europe_pmc"
+        or version.content_fingerprint != parsed.content_fingerprint
+    ):
+        raise ValueError("canonical identity version/source binding mismatch")
 
 
 def canonical_bytes(value: object) -> bytes:
@@ -109,11 +284,15 @@ def verify_manifest(
     store_root: Path,
     *,
     run_root: Path | None = None,
+    canonical_session: Session | None = None,
 ) -> None:
     """Verify source bytes, discovery completeness, and independently derived member fields.
 
     The optional run_root also binds the manifest to its immutable acquisition
-    stage and decision receipts. No network request or database write occurs.
+    stage and decision receipts. Source-only replay checks source-derived key
+    plausibility. A canonical_session checks actual document/alias/version ownership
+    in a trusted database and is required for keys absent from current JATS.
+    No HTTP request or database write occurs.
     """
     if manifest != build_manifest(discovery, manifest["members"]):
         raise ValueError("snapshot identity, revision or membership order mismatch")
@@ -128,7 +307,8 @@ def verify_manifest(
         if group is None:
             raise ValueError("snapshot member absent from qualified discovery")
         if (
-            preflight(group) != member["pmcid"]
+            member["pmcid"] in BASELINE_PMCIDS
+            or preflight(group) != member["pmcid"]
             or verify_article(data, group, member["pmcid"]) != member["rights"]
         ):
             raise ValueError("snapshot rights evidence mismatch")
@@ -157,6 +337,10 @@ def verify_manifest(
             possible_document_keys.add(f"doi:{parsed.doi}")
         if parsed.pmid:
             possible_document_keys.add(f"pmid:{parsed.pmid}")
+        if canonical_session is not None:
+            validate_canonical_identity(canonical_session, member, parsed)
+        elif member["document_canonical_key"] not in possible_document_keys:
+            raise ValueError("canonical identity requires trusted database verification")
         media_type = member["media_type"]
         xml_media = isinstance(media_type, str) and (
             media_type in {"application/xml", "text/xml"} or media_type.endswith("+xml")
@@ -166,7 +350,6 @@ def verify_manifest(
             or member["doi"] != expected_doi
             or member["artifact_key"] != artifact_key
             or member["version_key"] != version_key
-            or member["document_canonical_key"] not in possible_document_keys
             or member["content_fingerprint"] != parsed.content_fingerprint
             or member["parser_revision"] != JATS_PARSER_REVISION
             or member["normalizer_revision"] != JATS_NORMALIZER_REVISION
@@ -183,14 +366,8 @@ def verify_manifest(
             group_key = identity(sources)
             stage = read_json(run_root / "staged" / f"{group_key}.json")
             decision = read_json(run_root / "decisions" / f"{group_key}.json")
-            if (
-                stage.get("sha256") != member["content_sha256"]
-                or stage.get("source_uri") != member["source_uri"]
-                or stage.get("media_type") != member["media_type"]
-                or stage.get("license_uri") != member["rights"]["license_uri"]
-                or stage.get("license_name") != original_article_license_name(data)
-                or decision != {"status": "acquired", "member": member, "sources": sources}
-            ):
+            verify_member_stage(stage, member, data)
+            if decision != {"status": "acquired", "member": member, "sources": sources}:
                 raise ValueError("snapshot stage or acquisition decision provenance mismatch")
 
 
@@ -319,7 +496,11 @@ def _replay_page(
 
 
 def reconstruct_qualification(
-    run_root: Path, discovery: dict[str, Any], manifest: dict[str, Any]
+    run_root: Path,
+    discovery: dict[str, Any],
+    manifest: dict[str, Any],
+    *,
+    max_members: int | None = None,
 ) -> dict[str, Any]:
     """Reconstruct every decision and summary count from retained evidence.
 
@@ -334,25 +515,14 @@ def reconstruct_qualification(
     for group in groups:
         sources = [c.model_dump(mode="json") for c in group]
         decision = read_json(run_root / "decisions" / f"{identity(sources)}.json")
-        status = decision.get("status")
-        if decision.get("sources") != sources:
-            raise ValueError("qualification decision sources mismatch")
+        status = verify_decision(decision, sources)
         if status == "acquired":
-            if set(decision) != {"status", "sources", "member"} or not isinstance(
-                decision.get("member"), dict
-            ):
-                raise ValueError("invalid acquired qualification receipt")
             acquired.append(decision["member"])
-        elif status in {"rejected", "deferred"}:
-            if (
-                set(decision) != {"status", "sources", "reason"}
-                or not isinstance(decision.get("reason"), str)
-                or not decision["reason"]
-                or (status == "deferred" and decision["reason"] != "membership budget reached")
-            ):
-                raise ValueError("invalid rejected or deferred qualification receipt")
-        else:
-            raise ValueError("invalid qualification decision status")
+        elif status == "deferred" and (
+            preflight(group) in BASELINE_PMCIDS
+            or (max_members is not None and len(acquired) != max_members)
+        ):
+            raise ValueError("deferred decision inconsistent with membership budget")
         decisions.append(decision)
 
     if build_manifest(discovery, acquired) != manifest:
@@ -376,7 +546,12 @@ def reconstruct_qualification(
     }
 
 
-def verify_run(run_root: Path, store_root: Path) -> dict[str, Any]:
+def verify_run(
+    run_root: Path,
+    store_root: Path,
+    *,
+    canonical_session: Session | None = None,
+) -> dict[str, Any]:
     """Verify the run's claimed snapshot ID, summary and retained acquisition receipts.
 
     The snapshot path is derived only from a validated hex digest; the ID in the
@@ -390,11 +565,23 @@ def verify_run(run_root: Path, store_root: Path) -> dict[str, Any]:
     if manifest.get("snapshot_id") != snapshot_id:
         raise ValueError("run result snapshot identity differs from verified manifest")
     discovery = read_json(run_root / "discovery.json")
-    verify_manifest(manifest, discovery, store_root, run_root=run_root)
+    maximum = verify_configuration(run_root, discovery)
+    groups, _ = reconcile([Candidate.model_validate(r) for r in discovery["records"]])
+    verify_receipt_inventory(run_root, store_root, groups)
+    verify_manifest(
+        manifest, discovery, store_root, run_root=run_root, canonical_session=canonical_session
+    )
     qualification = read_json(run_root / "qualification.json")
-    reconstructed = reconstruct_qualification(run_root, discovery, manifest)
+    reconstructed = reconstruct_qualification(run_root, discovery, manifest, max_members=maximum)
     if qualification != reconstructed:
         raise ValueError("qualification summary or decision receipts mismatch")
     if result != {"snapshot_id": snapshot_id, **reconstructed["summary"]}:
         raise ValueError("run result and reconstructed qualification summary mismatch")
+    if len(manifest["members"]) > maximum:
+        raise ValueError("snapshot exceeds configured membership budget")
+    for path in (run_root / "snapshots").iterdir():
+        if path.is_file() and path.suffix == ".pending":
+            continue
+        if path.name != f"{snapshot_id}.json" or not path.is_file():
+            raise ValueError("unmatched snapshot receipt")
     return manifest

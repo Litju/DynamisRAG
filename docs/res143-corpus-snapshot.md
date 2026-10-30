@@ -53,3 +53,40 @@ failure receipt lacks those structured fields. It remains available for offline
 verification, reported as `legacy-unbound`, but cannot be resumed for acquisition.
 No historical failure details are inferred or backfilled. Fresh discovery creates a
 separate snapshot; it cannot repair the historical search coverage.
+
+## Canonical reuse and verification trust (F1/F2 repair)
+
+Each prospective member is checked inside its canonical import transaction, before
+commit. The same manifest validator used for final publication checks the member's
+source-derived fields and queries the actual persisted document, ownership of every
+current DOI/PMID/PMCID alias, and version/source relationships. A validation failure
+rolls back the new artifact, version, source structure and aliases. An acquired
+decision is published only after validation and successful commit. The global JATS
+importer and immutable creation-time document keys are unchanged.
+
+A reused document can retain a `pmid:` key when current JATS omits that PMID but
+shares its PMCID. Such a key cannot be authenticated from current XML alone.
+`verify` without database access retains the historical source-derived identity
+plausibility checks and fails closed for keys absent from the current source. It
+does not prove historical database alias choices. Use `verify --canonical-db` for
+database-assisted, HTTP-free replay against an explicitly trusted configured
+PostgreSQL database. That mode uses a read-only transaction and independently reads
+the actual alias and version/source bindings for every member. A missing, unrelated
+or unavailable database cannot authorize reused identity. Self-asserted JSON fields
+are never treated as independent database proof. API callers can supply a trusted
+read-only `canonical_session` to `verify_run`/`verify_manifest` for the same checks.
+
+Offline run verification also requires exact discovery-plan/config agreement,
+integer membership budget within 1..25, fixed baseline exclusions and current
+policy/parser/normalizer/rights revisions. It checks every retained stage against
+original bytes and licensing, a closed stage/decision filename inventory, all
+accepted-group decisions, coherent membership/defer counts, qualification summaries
+and the unique published snapshot. Valid interrupted stages may exist without a
+decision during resume; complete run verification requires every decision. Unlinked
+`.pending` publication temporaries are not receipts and may be left by a crash.
+
+No historical manifest or receipt revision changes. The original ten-member
+`discovery-1` snapshot remains verifiable without a database and its failed request
+provenance remains explicitly `legacy-unbound`; acquisition resume remains refused.
+Neither verification mode authenticates original HTTP transport or authorizes
+scientific claims, embeddings, indexing or completion of the 50K corpus objective.
