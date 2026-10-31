@@ -652,7 +652,9 @@ def test_false_premise_needs_correction_and_supported_answers_do_not_abstain(
             )
         )
 
-    trusted_test_callback = lambda _key, _data, _sig: True
+    def trusted_test_callback(_key: str, _payload: bytes, _signature: str) -> bool:
+        return True
+
     wrong_review = synthetic_signed_review(abstained, abstention="pass")
     wrong = evaluate_answer(
         spec, question.id, abstained,

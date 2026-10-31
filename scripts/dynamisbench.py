@@ -43,14 +43,14 @@ def require_private_capture_output(out: Path, repo_root: Path, git: str) -> Path
     destination = out.resolve()
     if private_root.resolve() != private_root or not destination.is_relative_to(private_root):
         raise ValueError("raw capture requires the private ignored .dynamisrag/dynamisbench-v0")
-    tracked = subprocess.check_output(
+    tracked = subprocess.check_output(  # noqa: S603 -- fixed git argv, no shell
         [git, "-C", str(root), "ls-files", "--cached", "--", ".dynamisrag/dynamisbench-v0"],
         text=True,
     )
     if tracked.strip():
         raise ValueError("private capture directory contains Git-tracked files")
     probe = destination / "private-responses" / ".dynamisbench-private-probe.json"
-    ignored = subprocess.run(
+    ignored = subprocess.run(  # noqa: S603 -- fixed git argv, no shell
         [git, "-C", str(root), "check-ignore", "-q", "--no-index", "--", str(probe)],
         check=False,
     )
@@ -64,7 +64,9 @@ def capture_live(spec: Specification, out: Path) -> None:
     if git is None:
         raise ValueError("git is unavailable")
     root = Path(
-        subprocess.check_output([git, "rev-parse", "--show-toplevel"], text=True).strip()
+        subprocess.check_output(  # noqa: S603 -- fixed git argv, no shell
+            [git, "rev-parse", "--show-toplevel"], text=True
+        ).strip()
     ).resolve()
     out = require_private_capture_output(out, root, git)
     head = subprocess.check_output([git, "rev-parse", "HEAD"], text=True).strip()  # noqa: S603
