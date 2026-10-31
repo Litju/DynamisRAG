@@ -31,7 +31,6 @@ from dynamisrag.generation.scientific import ScientificAnswer
 from dynamisrag.search.bm25 import SearchHit
 from dynamisrag.search.retrieval import DenseCandidate, PassageProvenance, reciprocal_rank_fusion
 from dynamisrag.search.scientific import ScientificCandidate, ScientificLane, ScientificResponse
-from scripts.dynamisbench import capture_live, require_private_capture_output
 from tests.unit.test_scientific_answers import identity, retrieval_fixture
 
 BANK = Path(__file__).resolve().parents[2] / "docs/evidence/dynamisbench-v0/candidate-bank.json"
@@ -692,6 +691,8 @@ def test_raw_capture_refuses_public_and_unignored_paths_before_retrieval(
     spec: Specification, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """F3: never materialize original passage text in docs/, source or other paths."""
+    from scripts.dynamisbench import capture_live, require_private_capture_output
+
     root = Path(__file__).resolve().parents[2]
     git = which("git")
     assert git is not None
