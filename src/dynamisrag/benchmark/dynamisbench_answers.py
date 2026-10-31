@@ -132,24 +132,35 @@ def evaluate_answer(
                 "premise_correction",
             }
         )
-        required = {"abstention_quality"}
+        # The expected answer behavior comes from the question's scientific
+        # protocol, not from reviewer labels alone. A false premise needs a
+        # supported correction; an abstention is not a successful correction.
+        expected_status = (
+            "insufficient_evidence"
+            if q.answerability == "insufficient_evidence"
+            else "supported"
+        )
+        required: set[str] = set()
         if answer.status == "supported":
             required |= {"citation_support", "scientific_entailment", "population_applicability"}
+        else:
+            required.add("abstention_quality")
         if q.category == "numerical" and answer.status == "supported":
             required.add("numerical_fidelity")
         if q.category == "contradictory" and answer.status == "supported":
             required.add("contradiction_handling")
-        if q.answerability == "false_premise":
+        if q.answerability == "false_premise" and answer.status == "supported":
             required.add("premise_correction")
+        abstention_label_consistent = (
+            applicable["abstention_quality"]
+            == ("pass" if answer.status == "insufficient_evidence" else "not_applicable")
+        )
         scientific_pass = (
             valid
+            and answer.status == expected_status
+            and abstention_label_consistent
             and "fail" not in applicable.values()
             and all(applicable[k] == "pass" for k in required)
-            and (
-                q.answerability != "insufficient_evidence"
-                or answer.status == "insufficient_evidence"
-            )
-            and (q.answerability != "answerable" or answer.status == "supported")
         )
     relevant = {j.passage_key for j in q.judgments if j.grade > 0}
     return AnswerEvaluation(
@@ -207,7 +218,8 @@ def compare_answers(
             candidate_abstained=b.abstained,
             expected_abstention=b.expected_abstention,
             unsupported_acceptance=b.expected_abstention and not b.abstained,
-            unnecessary_refusal=q.answerability == "answerable" and b.abstained,
+            unnecessary_refusal=q.answerability in {"answerable", "false_premise"}
+            and b.abstained,
         )
         for q, a, b in zip(spec.questions, left.results, right.results, strict=True)
     )

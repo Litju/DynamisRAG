@@ -179,19 +179,36 @@ class Comparison(Contract):
 
 def compare(spec: Specification, baseline: Run, candidate: Run) -> Comparison:
     left, right = evaluate(spec, baseline), evaluate(spec, candidate)
+    # Valid runs may carry the three lanes in any tuple order. Positional zipping
+    # can fabricate regressions from identical retrievals with a lane permutation.
+    left_rows = {(row.question_id, row.lane): row for row in left.rows}
+    right_rows = {(row.question_id, row.lane): row for row in right.rows}
+    if (
+        len(left_rows) != len(left.rows)
+        or len(right_rows) != len(right.rows)
+        or left_rows.keys() != right_rows.keys()
+    ):
+        raise ValueError("paired metric row identities differ")
     differences: list[Difference] = []
-    for a, b in zip(left.rows, right.rows, strict=True):
-        for metric in METRICS:
-            av, bv = getattr(a, metric), getattr(b, metric)
-            differences.append(
-                Difference(
-                    question_id=a.question_id,
-                    category=a.category,
-                    lane=a.lane,
-                    metric=metric,
-                    delta=None if av is None or bv is None else bv - av,
+    canonical_lanes: tuple[Lane, ...] = ("bm25", "dense", "fused")
+    for question in spec.questions:
+        for lane in canonical_lanes:
+            baseline_row = left_rows[(question.id, lane)]
+            candidate_row = right_rows[(question.id, lane)]
+            if baseline_row.category != candidate_row.category:
+                raise ValueError("paired metric categories differ")
+            for metric in METRICS:
+                av = getattr(baseline_row, metric)
+                bv = getattr(candidate_row, metric)
+                differences.append(
+                    Difference(
+                        question_id=question.id,
+                        category=question.category,
+                        lane=lane,
+                        metric=metric,
+                        delta=None if av is None or bv is None else bv - av,
+                    )
                 )
-            )
     summaries: list[PairedSummary] = []
     for aggregate in left.aggregates:
         values = [

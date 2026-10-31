@@ -36,10 +36,37 @@ def write_artifact(directory: Path, value: Contract) -> Path:
     return target
 
 
+def require_private_capture_output(out: Path, repo_root: Path, git: str) -> Path:
+    """Refuse public or tracked output before any full-text response can be captured."""
+    root = repo_root.resolve()
+    private_root = root / ".dynamisrag" / "dynamisbench-v0"
+    destination = out.resolve()
+    if private_root.resolve() != private_root or not destination.is_relative_to(private_root):
+        raise ValueError("raw capture requires the private ignored .dynamisrag/dynamisbench-v0")
+    tracked = subprocess.check_output(
+        [git, "-C", str(root), "ls-files", "--cached", "--", ".dynamisrag/dynamisbench-v0"],
+        text=True,
+    )
+    if tracked.strip():
+        raise ValueError("private capture directory contains Git-tracked files")
+    probe = destination / "private-responses" / ".dynamisbench-private-probe.json"
+    ignored = subprocess.run(
+        [git, "-C", str(root), "check-ignore", "-q", "--no-index", "--", str(probe)],
+        check=False,
+    )
+    if ignored.returncode != 0:
+        raise ValueError("raw capture destination is not confirmed Git-ignored")
+    return destination
+
+
 def capture_live(spec: Specification, out: Path) -> None:
     git = which("git")
     if git is None:
         raise ValueError("git is unavailable")
+    root = Path(
+        subprocess.check_output([git, "rev-parse", "--show-toplevel"], text=True).strip()
+    ).resolve()
+    out = require_private_capture_output(out, root, git)
     head = subprocess.check_output([git, "rev-parse", "HEAD"], text=True).strip()  # noqa: S603
     dirty = subprocess.check_output([git, "diff", "HEAD", "--name-only"], text=True)  # noqa: S603
     untracked = subprocess.check_output(  # noqa: S603 -- fixed argv and resolved git executable

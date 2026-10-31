@@ -114,10 +114,26 @@ unknown or changed query inventories fail closed. A failed live capture writes n
 completed run; partial private responses are not evaluation results. Timing fields
 come from the real service; they are single-request observations, not percentiles.
 
-Output defaults to ignored `.dynamisrag/dynamisbench-v0`. Full raw API responses
-contain source text and stay in `private-responses/`. New public artifacts contain
-only identifiers, hashes, span offsets, metadata and authored candidate questions
-and interpretations. Do not publish private answer inventories or database rows.
+Output defaults to ignored `.dynamisrag/dynamisbench-v0`. **Live capture now
+fails closed before initializing PostgreSQL/embedding/Qdrant if `--out` escapes
+that exact private repository subtree**, including paths under `docs/`,
+`src/`, symlink escapes and any other unverified destination. The operator
+checks that the raw destination is Git-ignored and that the private subtree
+contains no Git-tracked files. External storage is deliberately unsupported by
+this v0 safety boundary. Full raw API responses contain source text and stay in
+`private-responses/`. New public artifacts contain only identifiers, hashes,
+span offsets, metadata and authored candidate questions and interpretations.
+Do not publish private answer inventories or database rows.
+
+Paired comparisons match each query/lane metric by explicit identity rather than
+tuple position, so a valid permutation of BM25/dense/fused lane ordering cannot
+create spurious wins or regressions. In expert-labeled answer scoring, the
+question's required behavior is authoritative: an unanswerable question must
+abstain, a false premise must be corrected by a supported answer, and an ordinary
+answerable item must be supported. Supported answers require
+`abstention_quality=not_applicable`; abstentions require
+`abstention_quality=pass`. These are **mechanical** acceptance controls, not a
+substitute for trusted independent scientific review.
 
 ## Validation and qualification gaps
 
