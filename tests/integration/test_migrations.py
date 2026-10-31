@@ -42,7 +42,9 @@ _CANONICAL_TABLES: Final[tuple[str, ...]] = (
     "figure",
     "passage_source_span",
 )
-"""The 12 immutable canonical tables after RES-134's 0004."""
+"""The 12 immutable source tables after RES-134's 0004."""
+
+_EVIDENCE_TABLES = ("evidence_set", "claim", "evidence_membership", "evidence_link")
 
 _RES133_TABLES: Final[tuple[str, ...]] = (
     "source_artifact",
@@ -255,11 +257,14 @@ def _assert_canonical_model_present(settings: Settings) -> None:
     finally:
         engine.dispose()
 
-    assert tables == {_VERSION_TABLE, *_CANONICAL_TABLES}
+    assert tables == {_VERSION_TABLE, *_CANONICAL_TABLES, *_EVIDENCE_TABLES}
     assert _IMMUTABILITY_FUNCTION in functions
     assert "dynamisrag_check_passage_source_span" in functions
     assert triggers == {f"trg_{table}_immutable" for table in _CANONICAL_TABLES} | {
-        "trg_passage_source_span_check"
+        "trg_passage_source_span_check",
+        "trg_evidence_set_complete",
+        *(f"trg_{table}_validate" for table in _EVIDENCE_TABLES),
+        *(f"trg_{table}_immutable" for table in _EVIDENCE_TABLES),
     }
     assert set(_CANONICAL_UNIQUE_CONSTRAINTS) <= constraints
     assert set(_CANONICAL_COMPOSITE_FOREIGN_KEYS) <= constraints
@@ -472,4 +477,4 @@ def test_baseline_revision_created_no_application_objects_is_reachable_from_head
 
     # Alembic records only the current head revision; the point of this test
     # is that the 0001 baseline named by the round-trip is reachable from it.
-    assert applied == {"0004_passage_source_spans"}
+    assert applied == _script_heads()
