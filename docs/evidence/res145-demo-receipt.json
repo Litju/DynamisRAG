@@ -1,0 +1,67 @@
+{
+  "artifact_sha256": "1e21995a2aaf2c8444dd90d4295a0157097f74eab1f47b72f9666787a0c12477",
+  "claim_key": "c2a1c4ba705f277501caa2905a7d2d5f880ac7820d97830a096a5f3b56abd243",
+  "evidence_set_key": "d9e87516039b80b76a851dcf7778b3193201e645cd232cf6dd67e59ee3b381d9",
+  "link_key": "cf5fad3e47158090ac39bba2ecd5fe8d5e755a840dc45e1b6e53717de7ce765f",
+  "migration_roundtrip": "0005 -> 0004 -> 0005; canonical rows unchanged",
+  "passage_key": "37ad148429ed0342fb2bc0e02fadc5194a4be1aa8f16bab1df8d433336a50144",
+  "protected_files_sha256": "8ee7f34b09f869f9e39544bc97ff95fd37626e452723f9635c9415c2cbd09fe0",
+  "provenance_sha256": "c5f9c03048ddb86e09c31cc7e5dc34b6941e5c45f5846d49dbc0ff539d7436ce",
+  "qdrant_sha256": "3f2ead3786e04e42709195d569e58a30b5343565332ad583953d04c4970032f7",
+  "reference_database": {
+    "citation": {
+      "count": 805,
+      "sha256": "0b7e75348c3a2485447755c4d0acb1c3a1736ac92d97c6d53e79088b87ccfad5"
+    },
+    "citation_resolution": {
+      "count": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "document": {
+      "count": 16,
+      "sha256": "4231d98a7cc77a9d54bfa406351cabb8c9b63a32f631248d3b62b827ed1301a6"
+    },
+    "document_identifier": {
+      "count": 47,
+      "sha256": "b02d643a14147cae57344d4684a13dbe61384f37790a77158119d0fd00a8cf21"
+    },
+    "document_table": {
+      "count": 40,
+      "sha256": "b08159519b0ace77addd3c970b24c2c49911d2dd2b7f24a8464683a49fb23602"
+    },
+    "document_version": {
+      "count": 16,
+      "sha256": "1330d9f65feb1a5ba06c6eed9e2fe7b306f3233c80df1748354fbb362b67b961"
+    },
+    "figure": {
+      "count": 53,
+      "sha256": "d42dce7aa95a016481bc15228b6993851a6aaafb7719144e239dff6ca582d656"
+    },
+    "paragraph": {
+      "count": 676,
+      "sha256": "4f9400340d5e4add9af32cbaa8db6e2db3fe13aa1680e22dca14356b5852f1d9"
+    },
+    "passage": {
+      "count": 75,
+      "sha256": "71e0bf67b3e11e11222c2dd1912321c45e4d10ec917fbdbb2707d6ea8b3379f3"
+    },
+    "passage_source_span": {
+      "count": 146,
+      "sha256": "8680fb015cf7c9d44ea76f04ce53adee9e7eed44aeb78a4b762d1df887ae87cd"
+    },
+    "section": {
+      "count": 294,
+      "sha256": "f157efe9e3df920a65846ea339879a70d05dba2c8f73a2309f07d3437f560be0"
+    },
+    "source_artifact": {
+      "count": 16,
+      "sha256": "efb4e77ab3b5662db08e844eb8bb9b4f38fbeb23f368a3e7aa31751b9a49e1f4"
+    }
+  },
+  "reference_unchanged": true,
+  "relation": "CONTEXTUAL",
+  "review_state": "PROPOSED",
+  "schema_revision": "res145-demo-receipt-v1",
+  "span_key": "25ce7b229d96be3f4a6ac21e62ca1f0db552b78bb41d3bc6a6872effdd6256ed",
+  "version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643"
+}

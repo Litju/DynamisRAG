@@ -547,6 +547,7 @@ def test_no_migration_was_added_for_embeddings_or_vectors() -> None:
         "0002_canonical_document_model.py",
         "0003_jats_source_structure.py",
         "0004_passage_source_spans.py",
+        "0005_evidence_graph.py",  # Scientific domain persistence, never vectors or embeddings.
     ]
     for path in _ALEMBIC_VERSIONS.glob("*.py"):
         body = path.read_text(encoding="utf-8").casefold()

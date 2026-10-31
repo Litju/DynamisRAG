@@ -257,3 +257,15 @@ def figure_key(
     """Identity of a scientific figure within a document version, derived from
     the version's canonical key plus the figure's structural identity."""
     return digest(version_key, str(ordinal), *_optional(label, caption, source_anchor))
+
+
+def evidence_identity(namespace: str, payload: object) -> str:
+    """Versioned evidence identities; JSON framing preserves text and field boundaries."""
+    import json
+
+    return digest(
+        namespace,
+        json.dumps(
+            payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+        ),
+    )
