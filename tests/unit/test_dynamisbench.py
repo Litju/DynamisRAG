@@ -103,7 +103,7 @@ def synthetic(spec: Specification) -> tuple[Specification, ScientificResponse]:
         update={
             "embedding_manifest_sha256": corpus.embedding_manifest_sha256,
             "projection_sha256": corpus.projection_sha256,
-            "bm25": ScientificLane(lane="bm25", candidates=candidates),
+            "bm25": ScientificLane(lane="text", candidates=candidates),
             "dense": ScientificLane(lane="dense", candidates=candidates),
             "fusion": reciprocal_rank_fusion(lexical=lexical, dense=dense, limit=20),
         }
@@ -494,7 +494,7 @@ def test_grade_ranking_and_candidate_regressions(spec: Specification) -> None:
     )
     changed = response.model_copy(
         update={
-            "bm25": ScientificLane(lane="bm25", candidates=candidates),
+            "bm25": ScientificLane(lane="text", candidates=candidates),
             "dense": ScientificLane(lane="dense", candidates=candidates),
             "fusion": reciprocal_rank_fusion(lexical=lexical, dense=dense, limit=20),
         }

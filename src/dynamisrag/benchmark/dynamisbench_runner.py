@@ -156,7 +156,7 @@ def capture_response(
         ("dense", response.dense),
     )
     for name, lane in named_lanes:
-        if lane.lane != name:
+        if lane.lane != ("text" if name == "bm25" else "dense"):
             raise ValueError("incorrect lane name")
         rankings.append(
             Ranking(
