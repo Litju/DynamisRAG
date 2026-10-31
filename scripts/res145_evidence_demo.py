@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from hashlib import sha256
 from pathlib import Path
@@ -21,7 +21,7 @@ from alembic import command
 from alembic.config import Config
 from psycopg import sql
 from pydantic import PostgresDsn
-from sqlalchemy import Engine, create_engine, select, text
+from sqlalchemy import Engine, create_engine, insert, select, text
 from sqlalchemy.orm import Session
 
 from dynamisrag.config import load_settings, to_sqlalchemy_url
@@ -164,7 +164,7 @@ def example_graph(member: EvidenceMember, version_key: str, span_key: str) -> Ev
 
 
 @contextmanager
-def scratch_database() -> Iterator[tuple[Engine, Config]]:
+def scratch_database() -> Generator[tuple[Engine, Config]]:
     dsn = urlsplit(str(load_settings().database_url))
     database = f"res145_demo_{uuid4().hex}"
     maintenance = urlunsplit(dsn._replace(path="/postgres"))
@@ -215,7 +215,16 @@ def demonstrate() -> dict[str, object]:
             for x in record.source_spans
             if "functional electromechanical dynamometer" in x.paragraph.text
         )
-        rows = [record.artifact, record.document, *record.identifiers, record.version]
+        rows: list[
+            SourceArtifactRecord
+            | DocumentRecord
+            | DocumentIdentifierRecord
+            | DocumentVersionRecord
+            | SectionRecord
+            | ParagraphRecord
+            | PassageRecord
+            | PassageSourceSpanRecord
+        ] = [record.artifact, record.document, *record.identifiers, record.version]
         # Parent-first sections retain exact original UUIDs and anchors.
         rows.extend(
             source.scalars(
@@ -233,7 +242,7 @@ def demonstrate() -> dict[str, object]:
         )
         rows.extend([record.passage, *(x.span for x in record.source_spans)])
         copies = [
-            (type(row).__table__, {c.name: getattr(row, c.name) for c in row.__table__.columns})
+            (type(row), {c.name: getattr(row, c.name) for c in row.__table__.columns})
             for row in rows
         ]
         version_key, span_key, artifact_hash = (
@@ -243,8 +252,8 @@ def demonstrate() -> dict[str, object]:
         )
     with scratch_database() as (engine, config):
         with Session(engine) as session, session.begin():
-            for table, values in copies:
-                session.execute(table.insert().values(**values))
+            for model, values in copies:
+                session.execute(insert(model).values(**values))
             member = canonical_member(session, PASSAGE, version_key)
             if member.provenance_sha256 != evidence_identity("source-v1", fingerprint):
                 raise ValueError("copied source provenance mismatch")
