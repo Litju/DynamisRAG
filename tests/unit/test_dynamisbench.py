@@ -7,6 +7,7 @@ import json
 from datetime import UTC, datetime
 from math import log2
 from pathlib import Path
+from shutil import which
 from typing import Any
 
 import pytest
@@ -27,6 +28,7 @@ from dynamisrag.benchmark.dynamisbench_runner import (
     provenance_digest,
 )
 from dynamisrag.generation.scientific import ScientificAnswer
+from scripts.dynamisbench import capture_live, require_private_capture_output
 from dynamisrag.search.bm25 import SearchHit
 from dynamisrag.search.retrieval import DenseCandidate, PassageProvenance, reciprocal_rank_fusion
 from dynamisrag.search.scientific import ScientificCandidate, ScientificLane, ScientificResponse
@@ -452,7 +454,7 @@ def test_expert_signature_and_numerical_label_mutations(spec: Specification) -> 
         "numerical_fidelity": "pass",
         "population_applicability": "pass",
         "contradiction_handling": "not_applicable",
-        "abstention_quality": "pass",
+        "abstention_quality": "not_applicable",
         "premise_correction": "not_applicable",
     }
     review = SignedReview.model_validate_json(
@@ -577,3 +579,129 @@ def test_answer_inventory_and_abstention(spec: Specification) -> None:
         d for d in compare_answers(spec, answers, answers) if d.question_id == "db00-08"
     )
     assert unanswerable.unsupported_acceptance
+
+
+def test_paired_comparison_is_invariant_to_valid_lane_permutation(spec: Specification) -> None:
+    """F1: identical lane evidence cannot manufacture ranking gains or regressions."""
+    spec, response = synthetic(spec)
+    baseline = make_run(spec, response)
+    candidate = baseline.model_copy(
+        update={
+            "results": tuple(
+                row.model_copy(
+                    update={"rankings": (row.rankings[1], row.rankings[0], row.rankings[2])}
+                )
+                for row in baseline.results
+            ),
+        }
+    )
+    # The existing run contract intentionally allows a changed lane tuple order.
+    validate_run(spec, candidate)
+    comparison = compare(spec, baseline, candidate)
+    assert not comparison.regressions
+    assert all(delta.delta in (0.0, None) for delta in comparison.differences)
+    assert all(a.wins == a.losses == 0 for a in comparison.aggregates)
+    assert any(a.ties > 0 for a in comparison.aggregates)
+
+
+def test_false_premise_needs_correction_and_supported_answers_do_not_abstain(
+    spec: Specification,
+) -> None:
+    """F2: signed labels cannot turn a false-premise abstention into a valid correction."""
+    from dynamisrag.benchmark.dynamisbench_answers import compare_answers
+
+    spec, response = synthetic(spec)
+    question = spec.questions[8]
+    assert question.answerability == "false_premise"
+    supported = answer_fixture(spec, response)
+    abstained = supported.model_copy(
+        update={
+            "status": "insufficient_evidence",
+            "answer": None,
+            "claims": (),
+            "evidence": (),
+            "context_excerpts": (),
+        }
+    )
+
+    def synthetic_signed_review(answer: ScientificAnswer, *, abstention: str) -> SignedReview:
+        supported_answer = answer.status == "supported"
+        labels = {
+            "spec_sha256": spec.digest,
+            "question_id": question.id,
+            "answer_sha256": digest_json(answer.model_dump(mode="json")),
+            "reviewer": "SYNTHETIC CONTROL-PATH TEST ONLY",
+            "reviewed_at": datetime.now(UTC).isoformat(),
+            "protocol_reference": "test-not-scientific-approval",
+            "rationale": "Test the answerability gate, not real expert entailment.",
+            "citation_support": "pass" if supported_answer else "not_applicable",
+            "scientific_entailment": "pass" if supported_answer else "not_applicable",
+            "numerical_fidelity": "not_applicable",
+            "population_applicability": "pass" if supported_answer else "not_applicable",
+            "contradiction_handling": "not_applicable",
+            "abstention_quality": abstention,
+            "premise_correction": "pass",
+        }
+        return SignedReview.model_validate_json(
+            json.dumps(
+                {
+                    "labels": labels,
+                    "key_id": "synthetic-only",
+                    "signature": "not-a-real-signature",
+                }
+            )
+        )
+
+    trusted_test_callback = lambda _key, _data, _sig: True
+    wrong_review = synthetic_signed_review(abstained, abstention="pass")
+    wrong = evaluate_answer(
+        spec, question.id, abstained,
+        review=wrong_review, verify_signature=trusted_test_callback,
+    )
+    assert wrong.structural_citations_valid
+    assert wrong.scientific_pass is False
+    good = evaluate_answer(
+        spec, question.id, supported,
+        review=synthetic_signed_review(supported, abstention="not_applicable"),
+        verify_signature=trusted_test_callback,
+    )
+    assert good.structural_citations_valid
+    assert good.scientific_pass is True
+    wrongly_labeled = evaluate_answer(
+        spec, question.id, supported,
+        review=synthetic_signed_review(supported, abstention="pass"),
+        verify_signature=trusted_test_callback,
+    )
+    assert wrongly_labeled.scientific_pass is False
+    answer_inventory = {q.id: supported for q in spec.questions}
+    candidate = {**answer_inventory, question.id: abstained}
+    transitions = compare_answers(spec, answer_inventory, candidate)
+    assert next(t for t in transitions if t.question_id == question.id).unnecessary_refusal
+
+
+def test_raw_capture_refuses_public_and_unignored_paths_before_retrieval(
+    spec: Specification, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """F3: never materialize original passage text in docs/, source or other paths."""
+    root = Path(__file__).resolve().parents[2]
+    git = which("git")
+    assert git is not None
+    private = root / ".dynamisrag" / "dynamisbench-v0"
+    assert require_private_capture_output(private, root, git) == private
+    assert require_private_capture_output(private / "scratch", root, git) == private / "scratch"
+    for unsafe in (
+        root / "docs" / "evidence" / "dynamisbench-v0",
+        root / "src" / "dynamisrag",
+        root / "out" / "dynamisbench",
+        root / ".dynamisrag" / "unrelated",
+        root / ".dynamisrag" / "dynamisbench-v0" / ".." / ".." / "docs",
+    ):
+        with pytest.raises(ValueError, match="private|ignored"):
+            require_private_capture_output(unsafe, root, git)
+
+    def no_runtime() -> None:
+        raise AssertionError("unsafe capture must reject before initializing runtime")
+
+    monkeypatch.setattr("scripts.dynamisbench.load_settings", no_runtime)
+    with pytest.raises(ValueError, match="private|ignored"):
+        capture_live(spec, root / "docs" / "evidence" / "dynamisbench-v0")
