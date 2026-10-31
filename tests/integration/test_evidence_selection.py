@@ -308,3 +308,30 @@ def test_empty_selection_and_forged_review_fail_closed(selection_engine: Engine)
         SelectionResult.model_validate_json(
             result.model_copy(update={"missing": ()}).model_dump_json()
         )
+
+
+def test_sql_source_rejection_does_not_poison_transaction(
+    selection_engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from dynamisrag.db.evidence import canonical_member
+    from dynamisrag.domain.evidence import EvidenceMember
+    from dynamisrag.evidence import service
+
+    request, response = inputs(selection_engine)
+    real_expand = service.expand_context
+
+    def invalid(session: Session, passage_key: str, version_key: str) -> EvidenceMember:
+        return canonical_member(session, passage_key, "f" * 64)
+
+    def probe(session: Session, *args: Any, **kwargs: Any) -> Any:
+        assert session.scalar(select(1)) == 1
+        return real_expand(session, *args, **kwargs)
+
+    before = database_receipt(selection_engine)
+    monkeypatch.setattr(service, "canonical_member", invalid)
+    monkeypatch.setattr(service, "expand_context", probe)
+    result = select_offline(selection_engine, request, response)
+    assert result.evidence_set is None
+    assert all(d.disposition == "SOURCE_INVALID" for d in result.decisions)
+    assert database_receipt(selection_engine) == before

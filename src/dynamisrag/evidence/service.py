@@ -134,7 +134,9 @@ def _select(
             if actual != sources[key]:
                 continue
             try:
-                verified[key] = canonical_member(session, key, actual.document_version_key)
+                # SQL provenance rejection must not poison other candidate reads.
+                with session.begin_nested():
+                    verified[key] = canonical_member(session, key, actual.document_version_key)
             except InvalidProvenanceError:
                 continue
         selected, decisions = choose(request, response, verified)
