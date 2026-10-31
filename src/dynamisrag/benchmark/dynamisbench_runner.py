@@ -18,6 +18,7 @@ from dynamisrag.benchmark.dynamisbench import (
     Hit,
     Lane,
     Passage,
+    QualificationReceipt,
     QueryResult,
     Ranking,
     Run,
@@ -47,6 +48,7 @@ from dynamisrag.search.scientific import (
 MANIFEST = "46f96db3a02cf61374003475e3f006258ecbd790a4a78bd858b305c25f5104ff"
 PAPERS = "1503e43db080e20db050a4f804597dedda0136c0d7f055b0fd21662d6683eadf"
 PROJECTION = "c805183fa694986ea127fb62c9541b7acdcaa1c4af2fa8cfae5ee099fa9e0eb4"
+QUERY_MANIFEST = "4ac70bedcc23ffc2d3acfcba46ffb42ad1b68de55e0cbad782678f1f4b83fb29"
 
 
 class _OriginalSource(BaseModel):
@@ -245,3 +247,47 @@ def verify_raw_responses(
     for q, row, response in zip(spec.questions, run.results, responses, strict=True):
         if capture_response(spec, q.id, response) != row:
             raise ValueError("raw service response does not reconstruct captured row")
+
+
+def verify_qualification_receipt(
+    spec: Specification,
+    run: Run,
+    metrics_sha256: str,
+    receipt: QualificationReceipt,
+) -> None:
+    receipt = QualificationReceipt.model_validate_json(receipt.canonical_bytes())
+    validate_run(spec, run)
+    if (
+        (
+            receipt.spec_sha256,
+            receipt.query_set_sha256,
+            receipt.corpus_sha256,
+            receipt.run_sha256,
+            receipt.metrics_sha256,
+            receipt.implementation_commit,
+        )
+        != (
+            spec.digest,
+            spec.query_set_sha256,
+            spec.corpus.digest,
+            run.digest,
+            metrics_sha256,
+            run.git_commit,
+        )
+        or receipt.sources != spec.corpus.sources
+        or receipt.alias != spec.corpus.collection
+        or receipt.original_artifact_sha256
+        != {
+            "embedding-manifest.json": spec.corpus.embedding_manifest_sha256,
+            "receipt.json": spec.corpus.receipt_sha256,
+            "papers.json": PAPERS,
+            "query-manifest.json": QUERY_MANIFEST,
+        }
+        or set(receipt.refusal_reasons)
+        != {
+            "expert_gold_set_missing",
+            "preregistered_statistical_protocol_missing",
+            "frozen_acceptance_thresholds_missing",
+        }
+    ):
+        raise ValueError("qualification receipt does not bind original evidence")

@@ -255,6 +255,32 @@ class Run(Contract):
     results: tuple[QueryResult, ...]
 
 
+class QualificationReceipt(Contract):
+    """Operator verification receipt; this format cannot confer scientific approval."""
+
+    revision: Literal["dynamisbench-qualification-receipt-v0"]
+    implementation_commit: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{40}$")]
+    spec_sha256: Digest
+    query_set_sha256: Digest
+    corpus_sha256: Digest
+    run_sha256: Digest
+    metrics_sha256: Digest
+    original_artifact_sha256: dict[str, Digest]
+    sources: tuple[Source, ...]
+    jats_reparse_matches_postgresql: Literal[True]
+    canonical_passages_verified: Literal[75]
+    original_qdrant_vectors_verified_after_capture: Literal[75]
+    alias: Text
+    retrieval_execution_status: Literal["CAPTURED_AND_RAW_REPLAY_VERIFIED"]
+    live_answer_execution_status: Literal["BLOCKED_GENERATION_UNAVAILABLE"]
+    scientific_status: Literal["AWAITING_EXPERT_REVIEW"]
+    expert_signatures: tuple[()] = ()
+    performance_gate_enabled: Literal[False]
+    refusal_reasons: tuple[Text, ...] = Field(min_length=1)
+    private_raw_directory: Text
+    candidate_system_measurements: None
+
+
 def validate_run(spec: Specification, run: Run) -> None:  # noqa: PLR0912 -- independent trust-boundary checks
     """Revalidate objects too: Pydantic model_copy is deliberately not a trust boundary."""
     spec = Specification.model_validate_json(spec.canonical_bytes())

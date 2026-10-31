@@ -148,6 +148,38 @@ def test_captured_baseline_reconstructs_without_inference(spec: Specification) -
 
 
 @pytest.mark.parametrize(
+    "field,value",
+    [
+        ("scientific_status", "EXPERT_APPROVED"),
+        ("performance_gate_enabled", True),
+        ("canonical_passages_verified", 74),
+        ("run_sha256", "0" * 64),
+        ("sources", []),
+        ("refusal_reasons", []),
+        ("original_artifact_sha256", {}),
+    ],
+)
+def test_qualification_receipt_refuses_mutations(
+    spec: Specification, field: str, value: Any
+) -> None:
+    from dynamisrag.benchmark.dynamisbench import QualificationReceipt
+    from dynamisrag.benchmark.dynamisbench_runner import verify_qualification_receipt
+
+    run = Run.model_validate_json((BANK.parent / "baseline-run.json").read_bytes())
+    receipt = QualificationReceipt.model_validate_json(
+        (BANK.parent / "qualification-receipt.json").read_bytes()
+    )
+    verify_qualification_receipt(
+        spec, run, "9b43f5ff02389d43e5b4ebfd17c8a20e36be8d46d0b67c35239d1f2209ffc067", receipt
+    )
+    raw = receipt.model_dump(mode="json")
+    raw[field] = value
+    with pytest.raises(ValueError):
+        altered = QualificationReceipt.model_validate_json(json.dumps(raw))
+        verify_qualification_receipt(spec, run, receipt.metrics_sha256, altered)
+
+
+@pytest.mark.parametrize(
     "mutation",
     [
         "extra",
