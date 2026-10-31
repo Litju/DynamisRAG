@@ -136,9 +136,7 @@ def evaluate_answer(
         # protocol, not from reviewer labels alone. A false premise needs a
         # supported correction; an abstention is not a successful correction.
         expected_status = (
-            "insufficient_evidence"
-            if q.answerability == "insufficient_evidence"
-            else "supported"
+            "insufficient_evidence" if q.answerability == "insufficient_evidence" else "supported"
         )
         required: set[str] = set()
         if answer.status == "supported":
@@ -151,9 +149,8 @@ def evaluate_answer(
             required.add("contradiction_handling")
         if q.answerability == "false_premise" and answer.status == "supported":
             required.add("premise_correction")
-        abstention_label_consistent = (
-            applicable["abstention_quality"]
-            == ("pass" if answer.status == "insufficient_evidence" else "not_applicable")
+        abstention_label_consistent = applicable["abstention_quality"] == (
+            "pass" if answer.status == "insufficient_evidence" else "not_applicable"
         )
         scientific_pass = (
             valid
@@ -218,8 +215,7 @@ def compare_answers(
             candidate_abstained=b.abstained,
             expected_abstention=b.expected_abstention,
             unsupported_acceptance=b.expected_abstention and not b.abstained,
-            unnecessary_refusal=q.answerability in {"answerable", "false_premise"}
-            and b.abstained,
+            unnecessary_refusal=q.answerability in {"answerable", "false_premise"} and b.abstained,
         )
         for q, a, b in zip(spec.questions, left.results, right.results, strict=True)
     )

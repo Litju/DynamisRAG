@@ -657,20 +657,27 @@ def test_false_premise_needs_correction_and_supported_answers_do_not_abstain(
 
     wrong_review = synthetic_signed_review(abstained, abstention="pass")
     wrong = evaluate_answer(
-        spec, question.id, abstained,
-        review=wrong_review, verify_signature=trusted_test_callback,
+        spec,
+        question.id,
+        abstained,
+        review=wrong_review,
+        verify_signature=trusted_test_callback,
     )
     assert wrong.structural_citations_valid
     assert wrong.scientific_pass is False
     good = evaluate_answer(
-        spec, question.id, supported,
+        spec,
+        question.id,
+        supported,
         review=synthetic_signed_review(supported, abstention="not_applicable"),
         verify_signature=trusted_test_callback,
     )
     assert good.structural_citations_valid
     assert good.scientific_pass is True
     wrongly_labeled = evaluate_answer(
-        spec, question.id, supported,
+        spec,
+        question.id,
+        supported,
         review=synthetic_signed_review(supported, abstention="pass"),
         verify_signature=trusted_test_callback,
     )
