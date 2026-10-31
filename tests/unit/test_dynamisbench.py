@@ -127,6 +127,26 @@ def test_candidate_inventory_and_pins(spec: Specification) -> None:
     assert spec.digest == digest_json(spec.model_dump(mode="json"))
 
 
+def test_captured_baseline_reconstructs_without_inference(spec: Specification) -> None:
+    from dynamisrag.benchmark.dynamisbench_metrics import Report
+
+    run = Run.model_validate_json((BANK.parent / "baseline-run.json").read_bytes())
+    report = Report.model_validate_json((BANK.parent / "baseline-metrics.json").read_bytes())
+    verify_report(
+        spec,
+        run,
+        report,
+        expected_spec_sha256=SPEC_PIN,
+        expected_run_sha256="7527818b76f65b98d5707c0301a4923369552b3bf9931cfb45d8bcc6f5a3bf23",
+    )
+    assert report.digest == "9b43f5ff02389d43e5b4ebfd17c8a20e36be8d46d0b67c35239d1f2209ffc067"
+    assert run.git_commit == "e9f29b87a8ae7c608e3fe74e30734986112fe121"
+    assert len(report.rows) == 39
+    assert all(r.ndcg10 is None for r in report.rows if r.question_id in ("db00-08", "db00-13"))
+    fused = next(r for r in report.rows if r.question_id == "db00-09" and r.lane == "fused")
+    assert fused.failure == "no_relevant_hit_at_10"
+
+
 @pytest.mark.parametrize(
     "mutation",
     [

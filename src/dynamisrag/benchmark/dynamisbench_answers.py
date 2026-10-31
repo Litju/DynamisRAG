@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Literal
 
-from pydantic import Field
+from pydantic import AwareDatetime, Field
 
 from dynamisrag.benchmark.dynamisbench import Contract, Digest, Specification, Status, Text
 from dynamisrag.benchmark.dynamisbench_runner import capture, digest_json, provenance_digest
@@ -21,7 +21,7 @@ class ExpertLabels(Contract):
     question_id: Text
     answer_sha256: Digest
     reviewer: Text
-    reviewed_at: Text
+    reviewed_at: AwareDatetime
     protocol_reference: Text
     rationale: Text
     citation_support: Label

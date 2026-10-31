@@ -1,0 +1,48 @@
+{
+  "alias": "qdrant-passages-v1-5a20d2780fe6cd0ce0155ed7535c6507ec452f9ad4ae14cbd5990e13d7e8a709",
+  "candidate_system_measurements": null,
+  "canonical_passages_verified": 75,
+  "corpus_sha256": "833117eaa0ae5cf591d838b989a3475c3e079defa07a43c1b4db3cafe251f3ed",
+  "expert_signatures": [],
+  "implementation_commit": "e9f29b87a8ae7c608e3fe74e30734986112fe121",
+  "jats_reparse_matches_postgresql": true,
+  "live_answer_execution_status": "BLOCKED_GENERATION_UNAVAILABLE",
+  "metrics_sha256": "9b43f5ff02389d43e5b4ebfd17c8a20e36be8d46d0b67c35239d1f2209ffc067",
+  "original_artifact_sha256": {
+    "embedding-manifest.json": "46f96db3a02cf61374003475e3f006258ecbd790a4a78bd858b305c25f5104ff",
+    "papers.json": "1503e43db080e20db050a4f804597dedda0136c0d7f055b0fd21662d6683eadf",
+    "query-manifest.json": "4ac70bedcc23ffc2d3acfcba46ffb42ad1b68de55e0cbad782678f1f4b83fb29",
+    "receipt.json": "8ede85766f656acccf7fd44b9c3fde627bd18289b74fe375dbf895d02ff4d240"
+  },
+  "original_qdrant_vectors_verified_after_capture": 75,
+  "performance_gate_enabled": false,
+  "private_raw_directory": ".dynamisrag/dynamisbench-v0/private-responses",
+  "query_set_sha256": "c3f33539ae089b9fccc3f0f38198bbb955e0462cc79e79f20a397baa76c06b5d",
+  "refusal_reasons": [
+    "expert_gold_set_missing",
+    "preregistered_statistical_protocol_missing",
+    "frozen_acceptance_thresholds_missing"
+  ],
+  "retrieval_execution_status": "CAPTURED_AND_RAW_REPLAY_VERIFIED",
+  "revision": "dynamisbench-qualification-receipt-v0",
+  "run_sha256": "7527818b76f65b98d5707c0301a4923369552b3bf9931cfb45d8bcc6f5a3bf23",
+  "scientific_status": "AWAITING_EXPERT_REVIEW",
+  "sources": [
+    {
+      "original_sha256": "1e21995a2aaf2c8444dd90d4295a0157097f74eab1f47b72f9666787a0c12477",
+      "pmcid": "PMC10780924",
+      "version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643"
+    },
+    {
+      "original_sha256": "b6b9627176702f66904fcd592c1f5ec4978a5db63f1f082477a40d71f7fe70e3",
+      "pmcid": "PMC10680285",
+      "version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b"
+    },
+    {
+      "original_sha256": "339647fafae9fa0207ea35e425ec75a50666a9a3fd205f1fea5a2e10212d3a65",
+      "pmcid": "PMC5263151",
+      "version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e"
+    }
+  ],
+  "spec_sha256": "1df5bacb6cfc786f29b8f5055c33c8e6e3a7be59399744fd55e96ce9d7a755f8"
+}

@@ -101,6 +101,8 @@ uv run python -m scripts.dynamisbench validate --expected-spec $specPin
 # Requires committed code; performs no ingestion, corpus embedding, or publication.
 uv run python -m scripts.dynamisbench capture --expected-spec $specPin
 uv run python -m scripts.dynamisbench score --expected-spec $specPin --run <run.json> --expected-run <run-content-digest>
+# Add --responses .dynamisrag/dynamisbench-v0/private-responses to reconstruct
+# every compact row from its original private service response.
 uv run python -m scripts.dynamisbench compare --expected-spec $specPin --run <baseline.json> --expected-run <baseline-content-digest> --candidate <candidate.json> --expected-candidate <candidate-content-digest>
 # Private ordered JSON object: question ID -> actual /answer/scientific response.
 uv run python -m scripts.dynamisbench answers --expected-spec $specPin --run <private-answers.json> --expected-run <canonical-inventory-digest>
@@ -138,3 +140,42 @@ preregistered sampling/statistical protocol; and frozen acceptance thresholds
 chosen before candidate outcomes. Unit-tested evaluator, executable benchmark,
 approved gold set and qualified regression gate are four different milestones.
 Technical validation alone completes only the first two.
+
+## Executed reference run
+
+The committed compact [baseline run](evidence/dynamisbench-v0/baseline-run.json)
+was captured at implementation commit
+`e9f29b87a8ae7c608e3fe74e30734986112fe121`, at
+2026-10-31T02:50:09Z (2026-10-30 in Buenos Aires). All 13 questions executed through
+the actual ScientificRetrievalService with fresh approved CPU query embeddings.
+All 39 question/lane rows reconstructed from retained private raw responses.
+The [qualification receipt](evidence/dynamisbench-v0/qualification-receipt.json)
+records original file hashes and verification of all source reparses, canonical
+passages and original Qdrant vectors after execution. Corpus embeddings were reused.
+
+Run digest:
+`7527818b76f65b98d5707c0301a4923369552b3bf9931cfb45d8bcc6f5a3bf23`.
+[Metric report](evidence/dynamisbench-v0/baseline-metrics.json) digest:
+`9b43f5ff02389d43e5b4ebfd17c8a20e36be8d46d0b67c35239d1f2209ffc067`.
+Tests independently reconstruct the public report without inference. Eleven
+questions contribute retrieval metrics; the two unanswerable items are excluded.
+Fused retrieval missed the proposed corrective evidence for db00-09 at ten.
+This visible failure is retained. There is no measured candidate system or
+statistically reliable winner. All scores depend on unapproved proposed judgments.
+
+Live answer generation was checked separately using the existing Ollama identity
+client and returned `generation_unavailable`. No live answer scores are invented.
+The answer evaluator is exercised with synthetic contracts; evaluating real
+answers requires the pinned generation runtime and independent expert labels.
+This optional runtime gap does not change the captured retrieval evidence or
+promote the question bank to gold.
+
+Local validation: 2,428 infrastructure-free tests passed before adding the public
+baseline replay test; 168 focused scientific tests and two PostgreSQL integration
+tests passed. The expanded benchmark suite includes the captured-run replay test.
+Use a fresh `--basetemp .tmp/<run-name>` on this machine because its default pytest
+temporary directory is inaccessible. Ruff/format pass with the pre-existing
+untracked `reports/` excluded; strict Pyright passes. Unrelated operator notebooks
+and reports were preserved. Exact PR-head CI evidence is recorded in draft
+[PR #24](https://github.com/Litju/DynamisRAG/pull/24) and RES-144 after CI completes;
+the preserved populated database is never used for migration/reset CI.
