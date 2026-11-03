@@ -1,5 +1,4 @@
-"""Persistence invariants of deterministic structure-aware chunking (RES-134),
-proven against live PostgreSQL 18.
+"""Persistence invariants of deterministic chunking against isolated PostgreSQL 18.
 
 The tests exercise the full flow: canonical DocumentVersion + Sections +
 Paragraphs -> pure StructureAwareChunker -> PassageManifest ->
@@ -22,7 +21,8 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from psycopg import sql
-from sqlalchemy import func, select, text
+from scripts.res145_evidence_demo import scratch_database
+from sqlalchemy import Engine, func, select, text
 from sqlalchemy.orm import Session
 
 from dynamisrag.chunking.config import ChunkerConfig
@@ -57,22 +57,27 @@ from tests._support import ALEMBIC_INI, REPO_ROOT, build_settings
 pytestmark = pytest.mark.integration
 
 
+@pytest.fixture(scope="module")
+def chunking_engine() -> Iterator[Engine]:
+    """A disposable migrated database; never chunk the populated reference corpus."""
+    with scratch_database() as (engine, _):
+        yield engine
+
+
 @pytest.fixture
-def db_session(live_settings: Settings) -> Iterator[Session]:
+def db_session(chunking_engine: Engine) -> Iterator[Session]:
     """A session whose transaction is always rolled back.
 
     Rollback (never DELETE) keeps the canonical tables pristine between
     tests and doubles as proof that the suite needs no deletion lifecycle.
     """
-    engine = create_database_engine(live_settings)
-    session = Session(bind=engine)
+    session = Session(bind=chunking_engine)
     transaction = session.begin()
     try:
         yield session
     finally:
         transaction.rollback()
         session.close()
-        engine.dispose()
 
 
 _NOW = datetime(2026, 9, 29, 12, 0, 0, tzinfo=UTC)

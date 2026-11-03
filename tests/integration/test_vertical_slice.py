@@ -33,11 +33,12 @@ from typing import Final
 
 import httpx2
 import pytest
+from scripts.res145_evidence_demo import scratch_database
+from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
 from dynamisrag.chunking import ChunkerConfig, PassageMaterializer, StructureAwareChunker
 from dynamisrag.config import Settings
-from dynamisrag.db import create_database_engine
 from dynamisrag.db.canonical import (
     list_paragraphs,
     list_passages,
@@ -146,18 +147,23 @@ def _ingest(session: Session, artifacts_root: Path) -> _Ingested:
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture(scope="module")
+def vertical_slice_engine() -> Iterator[Engine]:
+    """A disposable migrated database for the end-to-end vertical slice."""
+    with scratch_database() as (engine, _):
+        yield engine
+
+
 @pytest.fixture
-def db_session(live_settings: Settings) -> Iterator[Session]:
-    """A session whose transaction is always rolled back, never DELETE."""
-    engine = create_database_engine(live_settings)
-    session = Session(bind=engine)
+def db_session(vertical_slice_engine: Engine) -> Iterator[Session]:
+    """Roll the vertical-slice transaction back in its disposable database."""
+    session = Session(bind=vertical_slice_engine)
     transaction = session.begin()
     try:
         yield session
     finally:
         transaction.rollback()
         session.close()
-        engine.dispose()
 
 
 @pytest.fixture
