@@ -101,7 +101,7 @@ produced the observed `/info` maximum input length of 2048.
 ```powershell
 docker compose up -d --wait postgres qdrant
 uv run alembic upgrade head
-docker run -d --name dynamisrag-real-qwen-cpu --cpus 4 --memory 8g `
+docker run -d --restart unless-stopped --name dynamisrag-real-qwen-cpu --cpus 4 --memory 8g `
   -p 127.0.0.1:8081:80 -v dynamisrag-real-qwen-cache:/data `
   -e OMP_NUM_THREADS=4 -e MKL_NUM_THREADS=4 `
   ghcr.io/huggingface/text-embeddings-inference:cpu-1.9.4@sha256:2538ea1c9640d3763b15af668039d24172d063b42337b0c27796fc2be180c78d `
@@ -116,6 +116,61 @@ uv run python scripts/real_scientific_retrieval.py embed
 # embed refuses to overwrite an existing receipted artifact.
 uv run python scripts/real_scientific_retrieval.py retrieve --receipt-sha256 8ede85766f656acccf7fd44b9c3fde627bd18289b74fe375dbf895d02ff4d240
 ```
+
+### Recover the pinned scientific TEI dependency without touching corpus vectors
+
+The original recorded launch did **not** have a restart policy. The launch recipe
+above is now the recommended repeatable configuration and adds
+`--restart unless-stopped` (an operational change, not an embedding-semantic
+change). Docker's default is no automatic restart. The scientific query TEI
+runs on **127.0.0.1:8081**. The optional `compose.embedding.yaml` service on
+**8080** is a separate generic deployment and must not substitute for this
+pinned runtime.
+
+Inspect before modifying an existing container:
+
+```powershell
+docker ps -a --filter 'name=dynamisrag-real-qwen-cpu'
+docker inspect dynamisrag-real-qwen-cpu --format '{{json .State}}'
+docker inspect dynamisrag-real-qwen-cpu --format '{{json .Config.Image}} {{json .Config.Cmd}}'
+docker inspect dynamisrag-real-qwen-cpu --format '{{json .HostConfig.PortBindings}} {{json .Mounts}}'
+docker logs --tail 50 dynamisrag-real-qwen-cpu
+```
+
+If the existing container matches the **exact pinned image, command line, CPU
+limits, port 8081, thread settings and named cache volume**, change only its
+restart policy and start it if stopped:
+
+```powershell
+docker update --restart unless-stopped dynamisrag-real-qwen-cpu
+# Only if stopped:
+docker start dynamisrag-real-qwen-cpu
+$info = Invoke-RestMethod 'http://127.0.0.1:8081/info'
+if ($info.model_id -ne 'Qwen/Qwen3-Embedding-0.6B' -or
+    $info.model_sha -ne '97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3' -or
+    $info.version -ne '1.9.4' -or $info.model_dtype -ne 'float32' -or
+    $info.model_type.embedding.pooling -ne 'last_token') {
+    throw 'Scientific TEI identity mismatch: do not use for retrieval'
+}
+```
+
+If absent, use the pinned **new-container** launch recipe above. If the
+existing container differs, stop and investigate; do not delete/recreate it,
+change the model, point the scientific system at generic 8080, or overwrite
+the retained cache. A successful `/info` check proves identity, **not** a
+working query embedding; next run a fresh read-only query through the actual
+`ScientificRetrievalService` and require nonempty verified fused hits. A
+previously started API instance that failed scientific initialization before
+TEI was ready requires restart/reinitialization after TEI becomes ready.
+The default app `/healthz` and GitHub-hosted CI do not prove local TEI readiness.
+
+For RES-146 live qualification, run the repository's existing bounded
+`python -m scripts.res146_evidence_selection` workflow only after the model
+service is ready. The resulting receipt must explicitly contain
+`demonstration.live_status=completed` and
+`demonstration.authenticity=live-service-call`, with unchanged canonical source
+and Qdrant vector hashes. Its offline replay path is intentionally insufficient
+for that **separate** live-runtime acceptance criterion.
 
 `ingest` and `retrieve` are idempotent. `retrieve` uses the retained query vector
 and requires no running inference server. After a fresh ingestion with identical
