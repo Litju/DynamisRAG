@@ -20,11 +20,12 @@ from datetime import UTC, datetime
 from typing import Any, Final
 
 import pytest
+from scripts.res145_evidence_demo import scratch_database
+from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
 from dynamisrag.chunking import ChunkerConfig, PassageMaterializer, StructureAwareChunker
 from dynamisrag.config import Settings
-from dynamisrag.db import create_database_engine
 from dynamisrag.db.canonical import (
     insert_document,
     insert_document_version,
@@ -102,18 +103,23 @@ _TIED: Final[tuple[tuple[str, str], ...]] = (("1", _TIED_TEXT), ("2", _TIED_TEXT
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture(scope="module")
+def projection_engine() -> Iterator[Engine]:
+    """A disposable migrated database for index projection tests."""
+    with scratch_database() as (engine, _):
+        yield engine
+
+
 @pytest.fixture
-def db_session(live_settings: Settings) -> Iterator[Session]:
-    """A session whose transaction is always rolled back (never DELETE)."""
-    engine = create_database_engine(live_settings)
-    session = Session(bind=engine)
+def db_session(projection_engine: Engine) -> Iterator[Session]:
+    """Roll back each projection fixture in its disposable database."""
+    session = Session(bind=projection_engine)
     transaction = session.begin()
     try:
         yield session
     finally:
         transaction.rollback()
         session.close()
-        engine.dispose()
 
 
 class _Namespace:

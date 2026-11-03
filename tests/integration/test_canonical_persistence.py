@@ -1,5 +1,4 @@
-"""Persistence invariants of the canonical document model, proven against
-live PostgreSQL 18.
+"""Persistence invariants against an isolated, migrated PostgreSQL 18 database.
 
 Every test runs inside a transaction that is rolled back at teardown, so the
 canonical database stays clean and the immutability rules are never fought
@@ -22,7 +21,8 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from psycopg import sql
-from sqlalchemy import func, select, text
+from scripts.res145_evidence_demo import scratch_database
+from sqlalchemy import Engine, func, select, text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -121,22 +121,27 @@ _CANONICAL_TABLES = (
 """The 12 immutable canonical tables after RES-134's 0004."""
 
 
+@pytest.fixture(scope="module")
+def canonical_engine() -> Iterator[Engine]:
+    """A disposable migrated database; migration tests never touch the reference DB."""
+    with scratch_database() as (engine, _):
+        yield engine
+
+
 @pytest.fixture
-def db_session(live_settings: Settings) -> Iterator[Session]:
+def db_session(canonical_engine: Engine) -> Iterator[Session]:
     """A session whose transaction is always rolled back.
 
     Rollback (never DELETE) keeps the canonical tables pristine between
     tests and doubles as proof that the suite needs no deletion lifecycle.
     """
-    engine = create_database_engine(live_settings)
-    session = Session(bind=engine)
+    session = Session(bind=canonical_engine)
     transaction = session.begin()
     try:
         yield session
     finally:
         transaction.rollback()
         session.close()
-        engine.dispose()
 
 
 def _make_artifact(**overrides: Any) -> SourceArtifact:

@@ -1,4 +1,4 @@
-"""JATS canonical materialization proven against live PostgreSQL 18.
+"""JATS canonical materialization proven against isolated PostgreSQL 18.
 
 Every test runs inside a transaction that is rolled back at teardown, so the
 canonical database stays clean. The tests exercise the full RES-133 path —
@@ -21,7 +21,8 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from psycopg import sql
-from sqlalchemy import func, select
+from scripts.res145_evidence_demo import scratch_database
+from sqlalchemy import Engine, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -87,18 +88,23 @@ _FULL_COUNTS: Final[JatsImportCounts] = JatsImportCounts(
 )
 
 
+@pytest.fixture(scope="module")
+def jats_engine() -> Iterator[Engine]:
+    """A disposable migrated database for canonical JATS imports."""
+    with scratch_database() as (engine, _):
+        yield engine
+
+
 @pytest.fixture
-def db_session(live_settings: Settings) -> Iterator[Session]:
-    """A session whose transaction is always rolled back (never DELETE)."""
-    engine = create_database_engine(live_settings)
-    session = Session(bind=engine)
+def db_session(jats_engine: Engine) -> Iterator[Session]:
+    """Roll each JATS import transaction back in the disposable database."""
+    session = Session(bind=jats_engine)
     transaction = session.begin()
     try:
         yield session
     finally:
         transaction.rollback()
         session.close()
-        engine.dispose()
 
 
 def _make_artifact(

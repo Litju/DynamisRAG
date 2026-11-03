@@ -18,11 +18,17 @@ from dynamisrag.db.canonical import (
     insert_section,
     list_passage_projection_records,
 )
+from dynamisrag.db.evidence import get_graph, persist_graph
 from dynamisrag.db.models import ParagraphRecord, PassageSourceSpanRecord, SectionRecord
 from dynamisrag.domain.contracts import Paragraph, Passage, PassageSourceSpan, Section
+from dynamisrag.domain.evidence import Relation
+from dynamisrag.domain.identity import evidence_identity
 from dynamisrag.domain.values import ParagraphRegion
 from dynamisrag.evidence.contracts import SelectionRequest
 from dynamisrag.evidence.service import select_live, select_offline
+from dynamisrag.generation.provider import DraftClaim, DraftEvidenceReference, DraftSynthesis
+from dynamisrag.generation.synthesis import materialize_sources
+from dynamisrag.generation.validation import build_graph
 from dynamisrag.search.projection import build_projection_manifest
 from dynamisrag.search.retrieval import PassageProvenance
 from dynamisrag.search.scientific import CHUNKER, ScientificResponse, ScientificRetrievalService
@@ -83,7 +89,7 @@ def selection_engine() -> Iterator[Engine]:
                     "Synthetic front matter must stay outside context.",
                 ),
             ):
-                paragraph_text = value + "\u03b1\u03b2\u00b1"
+                paragraph_text = value + " Additional source marker αβ±."
                 p = Paragraph(
                     document_version_id=version.id,
                     version_key=version.version_key,
@@ -162,6 +168,51 @@ def test_canonical_replay_context_and_read_only(selection_engine: Engine) -> Non
             assert c.paragraph_sha256 == sha256(p.text.encode()).hexdigest()
             assert p.text not in result.model_dump_json()
     assert database_receipt(selection_engine) == before
+
+
+def test_selected_passage_builds_and_reconstructs_provisional_graph(
+    selection_engine: Engine,
+) -> None:
+    request, response = inputs(selection_engine, max_passages=1, max_documents=1)
+    selection = select_offline(selection_engine, request, response)
+    assert selection.authenticity == "offline-operator-replay"
+    assert selection.evidence_set is not None
+    sources = materialize_sources(selection_engine, selection)
+    source = sources[0]
+    span = source.spans[0]
+    quote = span.text.split(" Additional source marker", maxsplit=1)[0]
+    draft = DraftSynthesis(
+        status="candidate_grounded",
+        claims=(
+            DraftClaim(
+                proposition=quote,
+                category="METHODOLOGICAL",
+                evidence=(
+                    DraftEvidenceReference(
+                        passage_key=source.member.passage_key,
+                        span_key=span.span_key,
+                        relation=Relation.SUPPORTS,
+                        exact_quote=quote,
+                    ),
+                ),
+            ),
+        ),
+        missing_evidence=(),
+        limitations=(),
+    )
+    graph = build_graph(
+        selection.evidence_set,
+        sources,
+        draft,
+        model_identity="f" * 64,
+        policy_sha256=evidence_identity("test-policy", "offline"),
+        allowed_spans={source.member.passage_key: frozenset({span.span_key})},
+    )
+    with Session(selection_engine) as session, session.begin():
+        persisted = persist_graph(session, graph)
+        assert persisted == get_graph(session, selection.evidence_set.key)
+    assert persisted.claims[0].review_state.value == "PROPOSED"
+    assert persisted.links[0].member == source.member
 
 
 @pytest.mark.parametrize(

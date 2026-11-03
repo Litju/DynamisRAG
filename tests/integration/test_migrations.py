@@ -17,6 +17,7 @@ from alembic import command
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 from psycopg import sql
+from scripts.res145_evidence_demo import scratch_database
 from sqlalchemy import Engine, text
 from sqlalchemy.engine import Connection
 
@@ -404,30 +405,33 @@ def test_canonical_migration_round_trips(live_settings: Settings) -> None:
     """0004 round-trips through 0003, 0002 and 0001: downgrading to 0003 leaves
     the sealed RES-133 model intact, the upgrade to head restores the RES-134
     additions, and the full downgrade to the 0001 baseline removes every
-    application object — all against the live PostgreSQL 18 server."""
-    config = Config(str(ALEMBIC_INI))
-    config.set_main_option("script_location", _SCRIPT_LOCATION)
+    application objects only inside a disposable PostgreSQL database."""
+    with scratch_database() as (engine, config):
+        database = engine.url.database
+        if database is None:
+            raise RuntimeError("scratch database has no database name")
+        scratch_settings = build_settings(
+            database_url=_dsn_with_database(str(live_settings.database_url), database)
+        )
+        _assert_canonical_model_present(scratch_settings)
 
-    command.upgrade(config, "head")
-    _assert_canonical_model_present(live_settings)
+        command.downgrade(config, "0003_jats_source_structure")
+        _assert_res133_model_state(scratch_settings)
 
-    command.downgrade(config, "0003_jats_source_structure")
-    _assert_res133_model_state(live_settings)
+        command.upgrade(config, "head")
+        _assert_canonical_model_present(scratch_settings)
 
-    command.upgrade(config, "head")
-    _assert_canonical_model_present(live_settings)
+        command.downgrade(config, "0002_canonical_document_model")
+        _assert_res131_model_state(scratch_settings)
 
-    command.downgrade(config, "0002_canonical_document_model")
-    _assert_res131_model_state(live_settings)
+        command.upgrade(config, "head")
+        _assert_canonical_model_present(scratch_settings)
 
-    command.upgrade(config, "head")
-    _assert_canonical_model_present(live_settings)
+        command.downgrade(config, "0001_foundation_baseline")
+        _assert_canonical_model_absent(scratch_settings)
 
-    command.downgrade(config, "0001_foundation_baseline")
-    _assert_canonical_model_absent(live_settings)
-
-    command.upgrade(config, "head")
-    _assert_canonical_model_present(live_settings)
+        command.upgrade(config, "head")
+        _assert_canonical_model_present(scratch_settings)
 
 
 @pytest.mark.integration
