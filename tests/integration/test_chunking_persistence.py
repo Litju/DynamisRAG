@@ -13,14 +13,9 @@ import hashlib
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any
-from urllib.parse import urlsplit, urlunsplit
-from uuid import UUID, uuid4
+from uuid import UUID
 
-import psycopg
 import pytest
-from alembic import command
-from alembic.config import Config
-from psycopg import sql
 from scripts.res145_evidence_demo import scratch_database
 from sqlalchemy import Engine, func, select, text
 from sqlalchemy.orm import Session
@@ -28,9 +23,7 @@ from sqlalchemy.orm import Session
 from dynamisrag.chunking.config import ChunkerConfig
 from dynamisrag.chunking.materializer import PassageMaterializer
 from dynamisrag.chunking.planner import StructureAwareChunker
-from dynamisrag.config import Settings
 from dynamisrag.db import (
-    create_database_engine,
     insert_document,
     insert_document_version,
     insert_paragraph,
@@ -52,7 +45,6 @@ from dynamisrag.domain.contracts import (
 )
 from dynamisrag.domain.identity import document_version_key, source_artifact_key
 from dynamisrag.domain.values import DocumentType, ParagraphRegion
-from tests._support import ALEMBIC_INI, REPO_ROOT, build_settings
 
 pytestmark = pytest.mark.integration
 
@@ -463,14 +455,8 @@ def test_forced_failure_leaves_no_partial_passage_set(
 # ---------------------------------------------------------------------------
 
 
-def _dsn_with_database(dsn: str, database: str) -> str:
-    return urlunsplit(urlsplit(dsn)._replace(path=f"/{database}"))
-
-
 def test_identical_semantic_graph_produces_identical_manifests_across_databases(
-    live_settings: Settings,
     db_session: Session,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The core determinism invariant: the same canonical graph chunked under
     the same configuration produces byte-identical manifests in two
@@ -479,29 +465,10 @@ def test_identical_semantic_graph_produces_identical_manifests_across_databases(
     chunker = StructureAwareChunker()
     manifest_a = chunker.plan(version, sections, paragraphs)
 
-    database = f"dynamisrag_chunking_probe_{uuid4().hex[:12]}"
-    maintenance_dsn = _dsn_with_database(str(live_settings.database_url), "postgres")
-    with psycopg.connect(maintenance_dsn, autocommit=True) as connection:
-        connection.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database)))
-    try:
-        scratch_dsn = _dsn_with_database(str(live_settings.database_url), database)
-        monkeypatch.setenv("DYNAMISRAG_DATABASE_URL", scratch_dsn)
-        config = Config(str(ALEMBIC_INI))
-        config.set_main_option("script_location", str(REPO_ROOT / "alembic"))
-        command.upgrade(config, "head")
-        engine = create_database_engine(build_settings(database_url=scratch_dsn))
-        try:
-            with Session(bind=engine) as scratch_session:
-                with scratch_session.begin():
-                    version_b, sections_b, paragraphs_b = _sample_graph(scratch_session)
-                manifest_b = chunker.plan(version_b, sections_b, paragraphs_b)
-        finally:
-            engine.dispose()
-    finally:
-        with psycopg.connect(maintenance_dsn, autocommit=True) as connection:
-            connection.execute(
-                sql.SQL("DROP DATABASE IF EXISTS {}").format(sql.Identifier(database))
-            )
+    with scratch_database() as (engine, _), Session(bind=engine) as scratch_session:
+        with scratch_session.begin():
+            version_b, sections_b, paragraphs_b = _sample_graph(scratch_session)
+        manifest_b = chunker.plan(version_b, sections_b, paragraphs_b)
 
     # Different database instance, different surrogate ids — identical
     # semantic output.

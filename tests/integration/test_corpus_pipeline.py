@@ -8,19 +8,13 @@ from collections.abc import Iterator
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit, urlunsplit
-from uuid import uuid4
 
 import httpx2
-import psycopg
 import pytest
-from alembic import command
-from alembic.config import Config
-from psycopg import sql
+from scripts.res145_evidence_demo import scratch_database
 from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session
 
-from dynamisrag.config import Settings
 from dynamisrag.corpus import pipeline
 from dynamisrag.corpus.discovery import BoundedHttp, DiscoveryPlan, discover
 from dynamisrag.corpus.pipeline import run_snapshot
@@ -33,7 +27,6 @@ from dynamisrag.corpus.snapshot import (
     verify_manifest,
     verify_run,
 )
-from dynamisrag.db import create_database_engine
 from dynamisrag.db.canonical import get_document_identifiers, insert_document
 from dynamisrag.db.models import DocumentVersionRecord, PassageRecord, SourceArtifactRecord
 from dynamisrag.domain.contracts import Document
@@ -42,31 +35,15 @@ from dynamisrag.domain.values import DocumentType
 from dynamisrag.ingestion.europe_pmc import EuropePmcClient
 from dynamisrag.storage import ObjectStoreIntegrityError
 from tests._corpus import DOI, PMCID, XML, CorpusTransport
-from tests._support import ALEMBIC_INI, REPO_ROOT, build_settings
 
 pytestmark = pytest.mark.integration
 
 
 @pytest.fixture
-def corpus_engine(live_settings: Settings, monkeypatch: pytest.MonkeyPatch) -> Iterator[Engine]:
+def corpus_engine() -> Iterator[Engine]:
     """Isolated database: test commits never enter the existing scientific baseline."""
-    database = f"dynamisrag_res143_test_{uuid4().hex[:12]}"
-    dsn = urlsplit(str(live_settings.database_url))
-    maintenance = urlunsplit(dsn._replace(path="/postgres"))
-    scratch = urlunsplit(dsn._replace(path=f"/{database}"))
-    with psycopg.connect(maintenance, autocommit=True) as connection:
-        connection.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database)))
-    engine = create_database_engine(build_settings(database_url=scratch))
-    try:
-        monkeypatch.setenv("DYNAMISRAG_DATABASE_URL", scratch)
-        config = Config(str(ALEMBIC_INI))
-        config.set_main_option("script_location", str(REPO_ROOT / "alembic"))
-        command.upgrade(config, "head")
+    with scratch_database() as (engine, _):
         yield engine
-    finally:
-        engine.dispose()
-        with psycopg.connect(maintenance, autocommit=True) as connection:
-            connection.execute(sql.SQL("DROP DATABASE {}").format(sql.Identifier(database)))
 
 
 def _run(engine: Engine, root: Path, transport: CorpusTransport) -> dict[str, Any]:

@@ -95,17 +95,7 @@ jobs:
       - name: Show service state
         run: docker compose ps
 
-      - name: Apply migrations to an empty database
-        run: uv run alembic upgrade head
-
-      - name: Prove migrations are reversible
-        run: |
-          set -euo pipefail
-          uv run alembic downgrade base
-          uv run alembic upgrade head
-          uv run alembic current
-
-      - name: Integration tests
+      - name: Integration tests (each database is created by the test role)
         run: uv run pytest -m integration -v
 
       - name: Verify Qdrant restart persistence without reinserting data

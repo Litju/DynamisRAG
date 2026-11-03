@@ -415,6 +415,7 @@ working directory and behaves identically on Windows and Linux.
 | ----------------------------------------- | -------- | ----------- | ---------------------------------------- |
 | `DYNAMISRAG_ENVIRONMENT`                  | no       | `local`     | `local`, `test`, `ci`, `staging`, `production` |
 | `DYNAMISRAG_DATABASE_URL`                 | **yes**  | —           | PostgreSQL DSN (`postgresql://`)          |
+| `DYNAMISRAG_TEST_DATABASE_URL`             | integration | unset | Non-superuser DSN used only to create disposable test databases |
 | `DYNAMISRAG_OPENSEARCH_URL`               | **yes**  | —           | OpenSearch base URL                       |
 | `DYNAMISRAG_OPENSEARCH_USERNAME`          | no       | `admin`     |                                          |
 | `DYNAMISRAG_OPENSEARCH_PASSWORD`          | **yes**  | —           | Wrapped in `SecretStr`; never logged      |
@@ -488,8 +489,10 @@ docker compose ps             # both services report (healthy)
 docker compose logs           # tail logs
 docker compose stop opensearch    # stop one dependency
 docker compose down           # stop and remove containers (volumes persist)
-docker compose down -v        # also delete the data volumes
 ```
+
+The PostgreSQL volume holds the local reference data. Do not add `-v` to the
+shutdown command unless deleting that database is explicitly intended.
 
 Only two services exist here. Temporal, Valkey, Keycloak, OpenFGA, vLLM,
 Kafka, Neon and Vercel integrations are explicitly **out of scope** and are
@@ -1172,14 +1175,20 @@ disagrees with the run refuses to be reused.
 ## Migrations
 
 ```powershell
-uv run alembic upgrade head      # apply
-uv run alembic current           # what is applied
-uv run alembic history           # revision graph
-uv run alembic downgrade base    # revert to an empty database
-uv run alembic upgrade head --sql   # render SQL, no database needed
+uv run alembic current
+uv run alembic history
+uv run alembic -x 'maintenance_target=database-name:database-oid' upgrade head
+uv run alembic upgrade head --sql   # render SQL; no database connection
 ```
 
-The revision graph has four revisions, and the head is `0004_passage_source_spans`:
+Online migrations fail closed unless the connected database has a disposable
+identity marker, or the command explicitly authorizes that database's exact name
+and OID. The connected role must own the database. Test fixtures use the separate
+non-superuser `DYNAMISRAG_TEST_DATABASE_URL`; they do not migrate the application
+database. For a maintenance command, query the target's live name and OID, then
+supply those exact values with `-x maintenance_target=...`.
+
+The revision graph has five revisions, and the head is `0005_evidence_graph`:
 
 | Revision                          | Effect                                          |
 | --------------------------------- | ----------------------------------------------- |
@@ -1187,6 +1196,7 @@ The revision graph has four revisions, and the head is `0004_passage_source_span
 | `0002_canonical_document_model`   | Canonical documents, versions and acquisition provenance |
 | `0003_jats_source_structure`      | Paragraphs and their JATS source anchors          |
 | `0004_passage_source_spans`       | Passages and their exact paragraph character ranges |
+| `0005_evidence_graph`             | Claims and their evidence-set links |
 
 `0001_foundation_baseline` still asserts what it was built to assert: applying
 *only* that revision to an empty database succeeds and leaves `public` containing
@@ -1202,10 +1212,13 @@ uv run pytest -m integration  # requires the live stack
 ```
 
 `-m 'not integration'` is set in `addopts`, so the default run cannot be broken
-by an absent database. The integration suite reads the same `.env` as the
-application. An explicit `uv run pytest -m integration` run fails loudly with
-an actionable message when configuration is missing or invalid — it can never
-degrade into a silent skip. Unit-level regression tests
+by an absent database. Integration tests use the dedicated
+`DYNAMISRAG_TEST_DATABASE_URL`, whose non-superuser role creates fresh databases
+with an OID-bound identity marker. It cannot connect to the application database.
+`scripts/init-test-role.sh` provisions this role on first initialization of a
+fresh PostgreSQL volume; existing volumes need an administrator-provisioned role.
+An explicit `uv run pytest -m integration` run fails loudly when configuration is
+missing or invalid; it can never degrade into a silent skip. Unit-level regression tests
 (`tests/unit/test_integration_contract.py`) prove both halves of that contract
 in a subprocess, with no live services required.
 
@@ -1220,8 +1233,8 @@ downloaded. The benchmark suite is the same in kind: the retrieval metrics are
 checked against exact brute-force results on small corpora, the Matryoshka gate
 against constructed vectors, the bundle verifier against bundles a test assembles
 and then corrupts one field at a time, and the Colab notebook against its
-committed JSON. The PostgreSQL and OpenSearch integration suite is unchanged and
-remains deterministic.
+committed JSON. PostgreSQL and OpenSearch integration tests remain deterministic;
+database writes stay inside per-test disposable databases.
 
 ## Quality gates
 
@@ -1271,8 +1284,7 @@ process.
   path handling, `pathlib` resolution and subprocess-free configuration are
   exactly the things that break on one platform only.
 - **integration** — starts this repository's own `compose.yaml` via Docker
-  Compose, applies migrations to an empty database, exercises
-  `downgrade base` / `upgrade head` again to prove reversibility, runs the
+  Compose, runs migrations only against marked disposable databases, runs the
   integration suite, and boots the real uvicorn server to exercise
   `/healthz` and `/readyz` over HTTP.
 
