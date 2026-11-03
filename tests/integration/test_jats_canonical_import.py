@@ -13,22 +13,15 @@ import hashlib
 from collections.abc import Iterator, Sequence
 from datetime import UTC, datetime
 from typing import Final
-from urllib.parse import urlsplit, urlunsplit
 from uuid import uuid4
 
-import psycopg
 import pytest
-from alembic import command
-from alembic.config import Config
-from psycopg import sql
 from scripts.res145_evidence_demo import scratch_database
 from sqlalchemy import Engine, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from dynamisrag.config import Settings
 from dynamisrag.db import (
-    create_database_engine,
     get_document,
     get_document_identifiers,
     get_document_version,
@@ -66,11 +59,8 @@ from dynamisrag.jats import (
     JatsSourcePmcidConflict,
 )
 from tests._support import (
-    ALEMBIC_INI,
     JATS_FULL_ARTICLE,
     JATS_SPARSE_ARTICLE,
-    REPO_ROOT,
-    build_settings,
 )
 
 pytestmark = pytest.mark.integration
@@ -295,52 +285,32 @@ def test_repeated_import_is_idempotent(db_session: Session) -> None:
     assert version_count == 1
 
 
-def test_reparse_of_the_same_artifact_in_a_fresh_transaction_is_idempotent(
-    live_settings: Settings, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_reparse_of_the_same_artifact_in_a_fresh_transaction_is_idempotent() -> None:
     """Idempotency across transactions: commit the first import, then reparse
     in a new transaction and prove the same version row is returned.
 
     Runs against a throwaway scratch database so the canonical development
     database stays clean.
     """
-    database = f"dynamisrag_jats_probe_{uuid4().hex[:12]}"
-    maintenance_dsn = _dsn_with_database(str(live_settings.database_url), "postgres")
-    with psycopg.connect(maintenance_dsn, autocommit=True) as connection:
-        connection.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database)))
-    try:
-        scratch_dsn = _dsn_with_database(str(live_settings.database_url), database)
-        monkeypatch.setenv("DYNAMISRAG_DATABASE_URL", scratch_dsn)
-        config = Config(str(ALEMBIC_INI))
-        config.set_main_option("script_location", str(REPO_ROOT / "alembic"))
-        command.upgrade(config, "head")
-        engine = create_database_engine(build_settings(database_url=scratch_dsn))
-        try:
-            artifact = _make_artifact(JATS_SPARSE_ARTICLE, pmcid="PMC22222222")
-            with Session(bind=engine) as session:
-                with session.begin():
-                    insert_source_artifact(session, artifact)
-                    first = _import(session, artifact, JATS_SPARSE_ARTICLE)
-                assert first.created is True
+    with scratch_database() as (engine, _):
+        artifact = _make_artifact(JATS_SPARSE_ARTICLE, pmcid="PMC22222222")
+        with Session(bind=engine) as session:
+            with session.begin():
+                insert_source_artifact(session, artifact)
+                first = _import(session, artifact, JATS_SPARSE_ARTICLE)
+            assert first.created is True
 
-            with Session(bind=engine) as session, session.begin():
-                second = _import(session, artifact, JATS_SPARSE_ARTICLE)
-                assert second.created is False
-                assert second.document.id == first.document.id
-                assert second.version.id == first.version.id
-                assert second.counts == JatsImportCounts(
-                    sections=0, paragraphs=1, citations=0, tables=0, figures=0
-                )
-                version = get_document_version(session, first.version.id)
-                assert version is not None
-                assert len(list_paragraphs(session, version.id)) == 1
-        finally:
-            engine.dispose()
-    finally:
-        with psycopg.connect(maintenance_dsn, autocommit=True) as connection:
-            connection.execute(
-                sql.SQL("DROP DATABASE IF EXISTS {}").format(sql.Identifier(database))
+        with Session(bind=engine) as session, session.begin():
+            second = _import(session, artifact, JATS_SPARSE_ARTICLE)
+            assert second.created is False
+            assert second.document.id == first.document.id
+            assert second.version.id == first.version.id
+            assert second.counts == JatsImportCounts(
+                sections=0, paragraphs=1, citations=0, tables=0, figures=0
             )
+            version = get_document_version(session, first.version.id)
+            assert version is not None
+            assert len(list_paragraphs(session, version.id)) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -751,8 +721,3 @@ def test_different_bytes_produce_a_different_version(db_session: Session) -> Non
     assert second.version.content_fingerprint != first.version.content_fingerprint
     versions = list_document_versions(db_session, first.document.id)
     assert len(versions) == 2
-
-
-def _dsn_with_database(dsn: str, database: str) -> str:
-    """Return ``dsn`` pointing at a different database on the same server."""
-    return urlunsplit(urlsplit(dsn)._replace(path=f"/{database}"))

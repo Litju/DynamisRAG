@@ -23,6 +23,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.pool import NullPool
 
 from dynamisrag.config import load_settings, to_sqlalchemy_url
+from dynamisrag.db.migration_safety import require_migration_target
 
 config = context.config
 
@@ -46,6 +47,9 @@ def database_url() -> str:
 
 
 def _run_migrations(connection: Connection) -> None:
+    maintenance_target = context.get_x_argument(as_dictionary=True).get("maintenance_target")
+    with connection.begin():
+        require_migration_target(connection, maintenance_target)
     context.configure(connection=connection, target_metadata=target_metadata)
     with context.begin_transaction():
         context.run_migrations()

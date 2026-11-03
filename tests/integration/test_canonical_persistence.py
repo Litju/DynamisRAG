@@ -13,23 +13,16 @@ from __future__ import annotations
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any
-from urllib.parse import urlsplit, urlunsplit
 from uuid import UUID, uuid4
 
-import psycopg
 import pytest
-from alembic import command
-from alembic.config import Config
-from psycopg import sql
 from scripts.res145_evidence_demo import scratch_database
 from sqlalchemy import Engine, func, select, text
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from dynamisrag.config import Settings
 from dynamisrag.db import (
     SemanticParentKeyError,
-    create_database_engine,
     get_citation_resolutions,
     get_document,
     get_document_identifiers,
@@ -91,7 +84,6 @@ from dynamisrag.domain.identity import (
     source_artifact_key,
 )
 from dynamisrag.domain.values import DocumentType, IdentifierNamespace, ParagraphRegion
-from tests._support import ALEMBIC_INI, REPO_ROOT, build_settings
 
 pytestmark = pytest.mark.integration
 
@@ -1848,9 +1840,7 @@ def _stored_canonical_identities(session: Session, objects: _FullGraphObjects) -
 
 
 def test_same_semantic_graph_produces_identical_canonical_identities_across_databases(
-    live_settings: Settings,
     db_session: Session,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The core invariant against two independently constructed databases.
 
@@ -1865,40 +1855,16 @@ def test_same_semantic_graph_produces_identical_canonical_identities_across_data
     first_identities = _canonical_identities(first)
     assert _stored_canonical_identities(db_session, first) == first_identities
 
-    database = f"dynamisrag_identity_probe_{uuid4().hex[:12]}"
-    maintenance_dsn = _dsn_with_database(str(live_settings.database_url), "postgres")
-    with psycopg.connect(maintenance_dsn, autocommit=True) as connection:
-        connection.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database)))
-    try:
-        scratch_dsn = _dsn_with_database(str(live_settings.database_url), database)
-        monkeypatch.setenv("DYNAMISRAG_DATABASE_URL", scratch_dsn)
-        config = Config(str(ALEMBIC_INI))
-        config.set_main_option("script_location", str(REPO_ROOT / "alembic"))
-        command.upgrade(config, "head")
-        engine = create_database_engine(build_settings(database_url=scratch_dsn))
-        try:
-            with Session(bind=engine) as scratch_session:
-                with scratch_session.begin():
-                    second = _full_graph(scratch_session)
-                stored_identities = _stored_canonical_identities(scratch_session, second)
-        finally:
-            engine.dispose()
-    finally:
-        with psycopg.connect(maintenance_dsn, autocommit=True) as connection:
-            connection.execute(
-                sql.SQL("DROP DATABASE IF EXISTS {}").format(sql.Identifier(database))
-            )
+    with scratch_database() as (engine, _), Session(bind=engine) as scratch_session:
+        with scratch_session.begin():
+            second = _full_graph(scratch_session)
+        stored_identities = _stored_canonical_identities(scratch_session, second)
 
     # Different database instance, different insertion run, different random
     # surrogate ids — identical canonical identities.
     assert first[2].id != second[2].id
     assert _canonical_identities(second) == first_identities
     assert stored_identities == first_identities
-
-
-def _dsn_with_database(dsn: str, database: str) -> str:
-    """Return ``dsn`` pointing at a different database on the same server."""
-    return urlunsplit(urlsplit(dsn)._replace(path=f"/{database}"))
 
 
 # ---------------------------------------------------------------------------

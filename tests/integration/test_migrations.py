@@ -7,22 +7,22 @@ test itself needing editing.
 
 from __future__ import annotations
 
+import re
 from typing import Final
 from urllib.parse import urlsplit, urlunsplit
-from uuid import uuid4
 
 import psycopg
 import pytest
 from alembic import command
 from alembic.config import Config
 from alembic.script import ScriptDirectory
-from psycopg import sql
 from scripts.res145_evidence_demo import scratch_database
-from sqlalchemy import Engine, text
+from sqlalchemy import Engine, event, text
 from sqlalchemy.engine import Connection
 
-from dynamisrag.config import Settings
+from dynamisrag.config import Settings, load_settings, to_sqlalchemy_url
 from dynamisrag.db import create_database_engine
+from dynamisrag.db.migration_safety import MigrationTargetSafetyError
 from tests._support import ALEMBIC_INI, REPO_ROOT, build_settings
 
 _SCRIPT_LOCATION: Final[str] = str(REPO_ROOT / "alembic")
@@ -362,9 +362,59 @@ def test_database_is_at_the_migration_head(live_settings: Settings) -> None:
 
 
 @pytest.mark.integration
-def test_baseline_revision_created_no_application_objects(
-    live_settings: Settings, monkeypatch: pytest.MonkeyPatch
+def test_test_role_cannot_connect_to_the_protected_reference_database() -> None:
+    test_database_url = load_settings().test_database_url
+    if test_database_url is None:
+        pytest.fail("DYNAMISRAG_TEST_DATABASE_URL must use the dedicated test role", pytrace=False)
+    test_url = str(test_database_url)
+    protected_database = urlsplit(str(load_settings().database_url)).path
+    protected_url = urlunsplit(urlsplit(test_url)._replace(path=protected_database))
+    with psycopg.connect(test_url) as connection:
+        role = connection.execute(
+            "SELECT current_user,rolsuper,rolcreatedb,rolcreaterole FROM pg_roles "
+            "WHERE rolname=current_user"
+        ).fetchone()
+    assert role == (urlsplit(test_url).username, False, True, False)
+
+    with pytest.raises(psycopg.OperationalError, match="permission denied for database"):
+        psycopg.connect(protected_url, connect_timeout=3)
+
+
+@pytest.mark.integration
+def test_adversarial_reference_downgrade_is_rejected_before_ddl(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Configure the protected DSN and block any DDL if the guard regresses."""
+    protected_url = to_sqlalchemy_url(load_settings().database_url)
+    monkeypatch.setenv("DYNAMISRAG_DATABASE_URL", protected_url)
+    config = Config(str(ALEMBIC_INI))
+    config.set_main_option("script_location", _SCRIPT_LOCATION)
+    attempted_ddl: list[str] = []
+
+    def refuse_ddl(
+        _connection: Connection,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: bool,  # noqa: FBT001 - required by SQLAlchemy's event signature
+    ) -> None:
+        if re.match(r"(?is)^\s*(CREATE|ALTER|DROP|TRUNCATE)\b", statement):
+            attempted_ddl.append(statement)
+            raise AssertionError("protected-reference DDL reached the DBAPI")
+
+    event.listen(Engine, "before_cursor_execute", refuse_ddl)
+    try:
+        with pytest.raises(MigrationTargetSafetyError):
+            command.downgrade(config, "base")
+    finally:
+        event.remove(Engine, "before_cursor_execute", refuse_ddl)
+
+    assert attempted_ddl == []
+
+
+@pytest.mark.integration
+def test_baseline_revision_created_no_application_objects() -> None:
     """RES-130 must not pre-empt RES-131: revision 0001 creates no application objects.
 
     The proof runs against a throwaway database that is created, migrated to
@@ -373,29 +423,11 @@ def test_baseline_revision_created_no_application_objects(
     inspecting the canonical database, it stays true now that RES-131's
     schema legitimately exists there.
     """
-    database = f"dynamisrag_baseline_probe_{uuid4().hex[:12]}"
-    maintenance_dsn = _dsn_with_database(str(live_settings.database_url), "postgres")
-    with psycopg.connect(maintenance_dsn, autocommit=True) as connection:
-        connection.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database)))
-    try:
-        scratch_dsn = _dsn_with_database(str(live_settings.database_url), database)
-        monkeypatch.setenv("DYNAMISRAG_DATABASE_URL", scratch_dsn)
-        config = Config(str(ALEMBIC_INI))
-        config.set_main_option("script_location", _SCRIPT_LOCATION)
-        command.upgrade(config, "0001_foundation_baseline")
-        with psycopg.connect(scratch_dsn) as connection:
-            tables = {
-                row[0]
-                for row in connection.execute(
-                    "SELECT table_name FROM information_schema.tables "
-                    "WHERE table_schema = 'public' AND table_type = 'BASE TABLE'"
-                )
-            }
-    finally:
-        with psycopg.connect(maintenance_dsn, autocommit=True) as connection:
-            connection.execute(
-                sql.SQL("DROP DATABASE IF EXISTS {}").format(sql.Identifier(database))
-            )
+    with (
+        scratch_database("0001_foundation_baseline") as (engine, _),
+        engine.connect() as connection,
+    ):
+        tables = _public_tables(connection)
 
     assert tables == {_VERSION_TABLE}
 
@@ -436,28 +468,18 @@ def test_canonical_migration_round_trips(live_settings: Settings) -> None:
 
 @pytest.mark.integration
 def test_res131_revision_creates_exactly_the_sealed_canonical_model(
-    live_settings: Settings, monkeypatch: pytest.MonkeyPatch
+    live_settings: Settings,
 ) -> None:
     """Prove revision 0002 independently of 0003: on a throwaway database,
     upgrading straight to 0002 creates exactly the sealed RES-131 model —
     the 10 canonical tables, no paragraph table, no citation.source_anchor —
     and nothing else."""
-    database = f"dynamisrag_res131_probe_{uuid4().hex[:12]}"
-    maintenance_dsn = _dsn_with_database(str(live_settings.database_url), "postgres")
-    with psycopg.connect(maintenance_dsn, autocommit=True) as connection:
-        connection.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database)))
-    try:
+    with scratch_database("0002_canonical_document_model") as (engine, _):
+        database = engine.url.database
+        if database is None:
+            raise RuntimeError("scratch database has no database name")
         scratch_dsn = _dsn_with_database(str(live_settings.database_url), database)
-        monkeypatch.setenv("DYNAMISRAG_DATABASE_URL", scratch_dsn)
-        config = Config(str(ALEMBIC_INI))
-        config.set_main_option("script_location", _SCRIPT_LOCATION)
-        command.upgrade(config, "0002_canonical_document_model")
         _assert_res131_model_state(build_settings(database_url=scratch_dsn))
-    finally:
-        with psycopg.connect(maintenance_dsn, autocommit=True) as connection:
-            connection.execute(
-                sql.SQL("DROP DATABASE IF EXISTS {}").format(sql.Identifier(database))
-            )
 
 
 @pytest.mark.integration

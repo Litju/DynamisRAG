@@ -55,6 +55,8 @@ services:
       POSTGRES_USER: ${DYNAMISRAG_POSTGRES_USER:?set DYNAMISRAG_POSTGRES_USER in .env}
       POSTGRES_PASSWORD: ${DYNAMISRAG_POSTGRES_PASSWORD:?set DYNAMISRAG_POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ${DYNAMISRAG_POSTGRES_DB:?set DYNAMISRAG_POSTGRES_DB in .env}
+      DYNAMISRAG_TEST_POSTGRES_USER: ${DYNAMISRAG_TEST_POSTGRES_USER:?set DYNAMISRAG_TEST_POSTGRES_USER in .env}
+      DYNAMISRAG_TEST_POSTGRES_PASSWORD: ${DYNAMISRAG_TEST_POSTGRES_PASSWORD:?set DYNAMISRAG_TEST_POSTGRES_PASSWORD in .env}
       # PostgreSQL 18 moved the cluster out of /var/lib/postgresql/data and made
       # /var/lib/postgresql the volume root. Both values below must agree.
       PGDATA: /var/lib/postgresql/18/docker
@@ -68,6 +70,7 @@ services:
       - "127.0.0.1:55432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql
+      - ./scripts/init-test-role.sh:/docker-entrypoint-initdb.d/20-test-role.sh:ro
     healthcheck:
       test:
         - CMD-SHELL
