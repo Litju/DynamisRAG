@@ -7,6 +7,7 @@ from pathlib import Path
 from tests.integration.test_qdrant_live import assert_source_spans
 from tests.unit.test_qdrant import SYNTHETIC_LABEL, synthetic_projection
 
+from dynamisrag.config import load_settings
 from dynamisrag.search.qdrant import (
     QdrantClient,
     QdrantProjector,
@@ -16,7 +17,7 @@ from dynamisrag.search.qdrant import (
 
 
 def observe() -> dict[str, object]:
-    client = QdrantClient()
+    client = QdrantClient(str(load_settings().scientific_qdrant_url).rstrip("/"))
     try:
         projection = synthetic_projection()
         projector = QdrantProjector(client)

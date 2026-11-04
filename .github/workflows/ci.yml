@@ -127,7 +127,7 @@ jobs:
           set -euo pipefail
           uv run python -m scripts.qdrant_persistence_probe snapshot --receipt .tmp/qdrant-before.json
           docker compose --project-name dynamisrag-integration --file compose.yaml --file compose.integration.yaml restart qdrant
-          uv run python -m scripts.wait_qdrant --timeout-seconds 60
+          uv run python -m scripts.wait_qdrant --timeout-seconds 60 --port 16333
           uv run python -m scripts.qdrant_persistence_probe verify --receipt .tmp/qdrant-before.json
 
       - name: Exercise the real server over HTTP, including a dependency outage

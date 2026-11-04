@@ -5,6 +5,7 @@ from dataclasses import replace
 
 import pytest
 
+from dynamisrag.config import load_settings
 from dynamisrag.search.qdrant import (
     Point,
     QdrantClient,
@@ -15,6 +16,10 @@ from dynamisrag.search.qdrant import (
 from tests.unit.test_qdrant import synthetic_projection
 
 pytestmark = pytest.mark.integration
+
+
+def _client() -> QdrantClient:
+    return QdrantClient(str(load_settings().scientific_qdrant_url).rstrip("/"))
 
 
 def assert_source_spans(points: tuple[Point, ...]) -> None:
@@ -40,7 +45,7 @@ def assert_source_spans(points: tuple[Point, ...]) -> None:
 
 
 def test_qdrant_lifecycle_and_retrieval() -> None:
-    client = QdrantClient()
+    client = _client()
     try:
         assert client.request("GET", "/")["version"] == "1.20.0"
         projection = synthetic_projection()
@@ -115,7 +120,7 @@ def test_qdrant_lifecycle_and_retrieval() -> None:
 
 
 def test_qualification_rejects_corrupted_stored_vector_and_provenance() -> None:
-    client = QdrantClient()
+    client = _client()
     candidate = synthetic_projection(alternate=True)
     projector = QdrantProjector(client)
     projector.create(candidate)
@@ -168,7 +173,7 @@ def test_retrieval_rejects_corruption_after_publication(field: str, value: objec
 
     from dynamisrag.search.client import JsonValue
 
-    client = QdrantClient()
+    client = _client()
     projection = synthetic_projection()
     projector = QdrantProjector(client)
     projector.create(projection)
@@ -204,7 +209,7 @@ def test_retrieval_rejects_corruption_after_publication(field: str, value: objec
 def test_equal_score_lanes_with_opposite_insertion_orders() -> None:
     from dynamisrag.search.qdrant import QdrantProjection
 
-    client = QdrantClient()
+    client = _client()
     observations: dict[str, object] = {}
     try:
         base = synthetic_projection()
