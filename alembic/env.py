@@ -51,8 +51,13 @@ def database_url() -> str:
 
 def _run_migrations(connection: Connection) -> None:
     maintenance_target = context.get_x_argument(as_dictionary=True).get("maintenance_target")
+    settings = load_settings()
     with connection.begin():
-        require_migration_target(connection, maintenance_target)
+        require_migration_target(
+            connection,
+            maintenance_target,
+            settings.test_cluster_system_identifier,
+        )
         context.configure(connection=connection, target_metadata=target_metadata)
         with context.begin_transaction():
             context.run_migrations()
@@ -61,6 +66,7 @@ def _run_migrations(connection: Connection) -> None:
 def run_migrations_offline() -> None:
     """Render migration SQL to stdout without opening a connection."""
     maintenance_target = context.get_x_argument(as_dictionary=True).get("maintenance_target")
+    settings = load_settings()
     context.configure(
         url=database_url(),
         target_metadata=target_metadata,
@@ -70,7 +76,12 @@ def run_migrations_offline() -> None:
         compare_server_default=True,
     )
     with context.begin_transaction():
-        context.execute(offline_migration_guard_sql(maintenance_target))
+        context.execute(
+            offline_migration_guard_sql(
+                maintenance_target,
+                settings.test_cluster_system_identifier,
+            )
+        )
         context.run_migrations()
 
 

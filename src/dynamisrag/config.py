@@ -84,6 +84,9 @@ class Settings(BaseSettings):
     test_admin_database_url: PostgresDsn | None = Field(default=None, repr=False)
     """Admin DSN for provisioning only on a disposable test PostgreSQL cluster."""
 
+    test_cluster_system_identifier: str | None = Field(default=None, pattern=r"^[1-9][0-9]{0,19}$")
+    """Out-of-band PostgreSQL system identifier pinned by the test-cluster DBA."""
+
     opensearch_url: AnyHttpUrl
     """Base URL of the OpenSearch node. Local and CI stacks expose HTTPS with a
     self-signed certificate, so ``opensearch_verify_tls`` must be relaxed

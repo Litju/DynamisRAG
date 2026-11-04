@@ -13,6 +13,17 @@ from pydantic import ValidationError
 
 from dynamisrag.config import load_settings
 from dynamisrag.db.migration_safety import MAINTENANCE_ROLE, TEST_DATABASE_ROLE
+from dynamisrag.db.test_cluster import (
+    TEST_CLUSTER_IDENTITY_ROLE,
+    TEST_POSTGRES_HOST_PORT,
+    ClusterIsolationError,
+    require_test_cluster_identity,
+    require_test_cluster_system_identifier,
+    test_cluster_identity_comment,
+    validate_test_database_dsns,
+    verify_test_cluster_system_identifier,
+    verify_test_compose_resources,
+)
 
 _ROLE_MARKER = "dynamisrag-managed-test-role-v1"
 _MAINTENANCE_MARKER = "dynamisrag-managed-maintenance-role-v1"
@@ -21,6 +32,43 @@ _SAFE_IDENTIFIER = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
 
 class TestRoleProvisioningError(RuntimeError):
     """Raised when an existing role or target cluster is unsafe to change."""
+
+
+def _ensure_cluster_identity(connection: Connection[Any], system_identifier: str) -> None:
+    row = connection.execute(
+        """
+        SELECT oid, rolcanlogin, rolsuper, rolcreatedb, rolcreaterole,
+               rolreplication, rolbypassrls, rolinherit,
+               shobj_description(oid, 'pg_authid'),
+               (SELECT count(*) FROM pg_auth_members AS m
+                WHERE m.member=pg_roles.oid OR m.roleid=pg_roles.oid)
+        FROM pg_roles WHERE rolname=%s
+        """,
+        (TEST_CLUSTER_IDENTITY_ROLE,),
+    ).fetchone()
+    expected_comment = test_cluster_identity_comment(system_identifier)
+    if row is None:
+        connection.execute(
+            sql.SQL(
+                "CREATE ROLE {} NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE "
+                "NOREPLICATION NOBYPASSRLS NOINHERIT"
+            ).format(sql.Identifier(TEST_CLUSTER_IDENTITY_ROLE))
+        )
+        connection.execute(
+            sql.SQL("COMMENT ON ROLE {} IS {}").format(
+                sql.Identifier(TEST_CLUSTER_IDENTITY_ROLE), sql.Literal(expected_comment)
+            )
+        )
+        return
+    if (
+        row[1:8] != (False, False, False, False, False, False, False)
+        or row[8] != expected_comment
+        or row[9] != 0
+    ):
+        raise TestRoleProvisioningError(
+            "The existing cluster-identity role is altered or belongs to another cluster; "
+            "no changes made"
+        )
 
 
 def _require_identifier(value: str, *, label: str) -> None:
@@ -219,14 +267,19 @@ def provision_test_role(
     password: str,
     protected_database: str,
     application_role: str,
+    expected_test_cluster_system_identifier: str,
 ) -> None:
     """Provision an isolated test role; never connect to the protected database itself."""
+    expected_test_cluster_system_identifier = require_test_cluster_system_identifier(
+        expected_test_cluster_system_identifier
+    )
+    verify_test_cluster_system_identifier(connection, expected_test_cluster_system_identifier)
     _require_identifier(role_name, label="test role")
     _require_identifier(protected_database, label="protected database")
     admin = connection.execute(
         """
         SELECT current_database(), current_user, session_user,
-               r.rolsuper, r.rolcreaterole
+        r.rolsuper
         FROM pg_roles AS r WHERE r.rolname=current_user
         """
     ).fetchone()
@@ -234,20 +287,17 @@ def provision_test_role(
         raise TestRoleProvisioningError(
             "Connect to a separate administrative database, not the application database"
         )
-    if not admin[3] and not admin[4]:
+    if not admin[3]:
         raise TestRoleProvisioningError(
-            "The provisioning connection requires a PostgreSQL administrator role"
+            "Cluster identity provisioning requires a PostgreSQL superuser"
         )
     app_owner = _database_owner(connection, protected_database)
     if app_owner is None or app_owner[1] != application_role:
         raise TestRoleProvisioningError(
             "The application database is not owned by the configured application role"
         )
-    if not admin[3] and admin[1] != application_role:
-        raise TestRoleProvisioningError(
-            "A non-superuser provisioner must own the application database"
-        )
     with connection.transaction():
+        _ensure_cluster_identity(connection, expected_test_cluster_system_identifier)
         _ensure_maintenance_role(connection)
         _ensure_test_role(
             connection,
@@ -267,37 +317,37 @@ def main() -> int:
         )
     test_dsn = str(settings.test_database_url)
     admin_dsn = str(settings.test_admin_database_url)
-    application = urlsplit(str(settings.database_url))
+    system_identifier = require_test_cluster_system_identifier(
+        settings.test_cluster_system_identifier
+    )
+    application_database, application_role = validate_test_database_dsns(
+        str(settings.database_url),
+        test_dsn,
+        admin_dsn,
+        test_host_port=TEST_POSTGRES_HOST_PORT,
+    )
+    verify_test_compose_resources()
     test = urlsplit(test_dsn)
-    admin = urlsplit(admin_dsn)
     role_name = test.username
     password = test.password
-    application_database = application.path.lstrip("/")
-    if (
-        role_name != TEST_DATABASE_ROLE
-        or application.username is None
-        or password is None
-        or test.path.lstrip("/") == application_database
-        or admin.path.lstrip("/") == application_database
-        or test.path.lstrip("/") != "postgres"
-        or admin.path.lstrip("/") != "postgres"
-        or admin.path.lstrip("/") in {"template0", "template1"}
-        or (admin.hostname, admin.port) != (test.hostname, test.port)
-        or admin.username == TEST_DATABASE_ROLE
-    ):
-        raise TestRoleProvisioningError(
-            "Test and admin DSNs must target the same isolated cluster, different from "
-            "the application database, using the dedicated dynamisrag_test login"
-        )
+    if role_name != TEST_DATABASE_ROLE or password is None:
+        raise TestRoleProvisioningError("The test DSN must use the dedicated test login")
     with psycopg.connect(admin_dsn) as connection:
         provision_test_role(
             connection,
             role_name=role_name,
             password=password,
             protected_database=application_database,
-            application_role=application.username or "",
+            application_role=application_role,
+            expected_test_cluster_system_identifier=system_identifier,
         )
     with psycopg.connect(test_dsn) as connection:
+        require_test_cluster_identity(
+            connection,
+            system_identifier,
+            expected_database="postgres",
+            expected_user=TEST_DATABASE_ROLE,
+        )
         identity = connection.execute(
             """
             SELECT current_database(), session_user, current_user,
@@ -328,7 +378,7 @@ def main() -> int:
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except TestRoleProvisioningError as error:
+    except (TestRoleProvisioningError, ClusterIsolationError) as error:
         sys.stderr.write(f"Test role provisioning refused: {error}\n")
         raise SystemExit(2) from None
     except ValidationError as error:

@@ -32,6 +32,7 @@ _MINIMAL_MAPPING: dict[str, object] = {
     "database_url": "postgresql://user:pw@db.internal:5432/records",
     "test_database_url": None,
     "test_admin_database_url": None,
+    "test_cluster_system_identifier": None,
     "opensearch_url": "https://search.internal:9200",
     "opensearch_password": "a-password-1A",
 }
@@ -121,6 +122,10 @@ def test_malformed_values_are_rejected() -> None:
         Settings.from_mapping({**_MINIMAL_MAPPING, "environment": "staging-ish"})
     with pytest.raises(ValidationError):
         Settings.from_mapping({**_MINIMAL_MAPPING, "log_level": "chatty"})
+    with pytest.raises(ValidationError):
+        Settings.from_mapping(
+            {**_MINIMAL_MAPPING, "test_cluster_system_identifier": "not-a-system-id"}
+        )
 
 
 def test_unknown_dynamisrag_variables_are_ignored() -> None:

@@ -10,6 +10,12 @@ from dynamisrag.db.migration_safety import (
     DatabaseTargetIdentity,
     migration_target_is_allowed,
 )
+from dynamisrag.db.test_cluster import (
+    TEST_CLUSTER_IDENTITY_PREFIX,
+)
+from dynamisrag.db.test_cluster import (
+    test_cluster_identity_comment as cluster_identity_comment,
+)
 
 
 def _disposable() -> DatabaseTargetIdentity:
@@ -26,11 +32,12 @@ def _disposable() -> DatabaseTargetIdentity:
         can_bypass_rls=False,
         comment="dynamisrag-disposable:0123456789abcdef0123456789abcdef",
         direct_maintenance_member=False,
+        test_cluster_identity_comment=cluster_identity_comment("765432109876543210"),
     )
 
 
 def test_marked_test_role_owns_the_disposable_database() -> None:
-    assert migration_target_is_allowed(_disposable(), None)
+    assert migration_target_is_allowed(_disposable(), None, "765432109876543210")
 
 
 @pytest.mark.parametrize(
@@ -48,6 +55,11 @@ def test_marked_test_role_owns_the_disposable_database() -> None:
         replace(_disposable(), comment=None),
         replace(_disposable(), comment="dynamisrag-disposable:not-a-random-marker"),
         replace(_disposable(), database="dynamisrag"),
+        replace(_disposable(), test_cluster_identity_comment=None),
+        replace(
+            _disposable(),
+            test_cluster_identity_comment=f"{TEST_CLUSTER_IDENTITY_PREFIX}123456789012345678",
+        ),
     ],
     ids=(
         "wrong-test-role",
@@ -62,6 +74,8 @@ def test_marked_test_role_owns_the_disposable_database() -> None:
         "missing-marker",
         "malformed-marker",
         "not-a-disposable-name",
+        "unmarked-cluster",
+        "mismatched-cluster-identity",
     ),
 )
 def test_test_database_authorization_fails_closed(target: DatabaseTargetIdentity) -> None:

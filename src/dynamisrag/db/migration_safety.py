@@ -9,6 +9,12 @@ from typing import LiteralString, cast
 from sqlalchemy import Connection, String, literal, text
 from sqlalchemy.dialects import postgresql
 
+from dynamisrag.db.test_cluster import (
+    TEST_CLUSTER_IDENTITY_ROLE,
+    test_cluster_identity_comment,
+    test_cluster_identity_matches,
+)
+
 DISPOSABLE_DATABASE_MARKER_PREFIX = "dynamisrag-disposable:"
 TEST_DATABASE_ROLE = "dynamisrag_test"
 MAINTENANCE_ROLE = "dynamisrag_migration_operators"
@@ -33,10 +39,13 @@ class DatabaseTargetIdentity:
     can_bypass_rls: bool
     comment: str | None
     direct_maintenance_member: bool
+    test_cluster_identity_comment: str | None
 
 
 def migration_target_is_allowed(
-    target: DatabaseTargetIdentity, maintenance_target: str | None
+    target: DatabaseTargetIdentity,
+    maintenance_target: str | None,
+    expected_test_cluster_system_identifier: str | None = None,
 ) -> bool:
     """Allow a marked test database or an exact target authorized by a DBA-granted role."""
     owner_session = target.current_user == target.session_user == target.owner
@@ -55,6 +64,9 @@ def migration_target_is_allowed(
         and not target.direct_maintenance_member
         and target.comment is not None
         and _DISPOSABLE_MARKER.fullmatch(target.comment) is not None
+        and test_cluster_identity_matches(
+            target.test_cluster_identity_comment, expected_test_cluster_system_identifier
+        )
     )
     maintenance = (
         owner_session
@@ -67,8 +79,12 @@ def migration_target_is_allowed(
     return disposable or maintenance
 
 
-def require_migration_target(connection: Connection, maintenance_target: str | None = None) -> None:
-    """Verify the live database, owner, role privileges, marker, and DBA role membership."""
+def require_migration_target(
+    connection: Connection,
+    maintenance_target: str | None = None,
+    expected_test_cluster_system_identifier: str | None = None,
+) -> None:
+    """Verify the live database, test-cluster identity, roles, and DBA membership."""
     row = (
         connection.execute(
             text(
@@ -91,13 +107,20 @@ def require_migration_target(connection: Connection, maintenance_target: str | N
                            WHERE m.member = r.oid
                              AND ops.rolname = :maintenance_role
                              AND NOT m.admin_option
-                       ) AS direct_maintenance_member
+                       ) AS direct_maintenance_member,
+                       shobj_description(cluster_identity.oid, 'pg_authid')
+                           AS test_cluster_identity_comment
                 FROM pg_database AS d
                 JOIN pg_roles AS r ON r.rolname = current_user
+                LEFT JOIN pg_roles AS cluster_identity
+                    ON cluster_identity.rolname = :cluster_identity_role
                 WHERE d.datname = current_database()
                 """
             ),
-            {"maintenance_role": MAINTENANCE_ROLE},
+            {
+                "maintenance_role": MAINTENANCE_ROLE,
+                "cluster_identity_role": TEST_CLUSTER_IDENTITY_ROLE,
+            },
         )
         .mappings()
         .one_or_none()
@@ -106,7 +129,9 @@ def require_migration_target(connection: Connection, maintenance_target: str | N
         raise MigrationTargetSafetyError("Could not verify the connected PostgreSQL database")
 
     target = DatabaseTargetIdentity(**row)
-    if not migration_target_is_allowed(target, maintenance_target):
+    if not migration_target_is_allowed(
+        target, maintenance_target, expected_test_cluster_system_identifier
+    ):
         raise MigrationTargetSafetyError(
             f"Refusing online Alembic migration for database {target.database!r} "
             f"(OID {target.oid}); use a marked disposable test database or an exact target "
@@ -115,10 +140,23 @@ def require_migration_target(connection: Connection, maintenance_target: str | N
         )
 
 
-def offline_migration_guard_sql(maintenance_target: str | None) -> LiteralString:
+def offline_migration_guard_sql(
+    maintenance_target: str | None,
+    expected_test_cluster_system_identifier: str | None = None,
+) -> LiteralString:
     """Render the same authorization check ahead of any offline-generated DDL."""
     target_literal = str(
         literal(maintenance_target or "", type_=String()).compile(
+            dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}
+        )
+    )
+    expected_cluster_marker = (
+        test_cluster_identity_comment(expected_test_cluster_system_identifier)
+        if expected_test_cluster_system_identifier is not None
+        else ""
+    )
+    cluster_marker_literal = str(
+        literal(expected_cluster_marker, type_=String()).compile(
             dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}
         )
     )
@@ -140,6 +178,7 @@ DECLARE
     role_can_bypass_rls boolean;
     database_comment text;
     direct_maintenance_member boolean;
+    cluster_identity_comment text;
 BEGIN
     SELECT current_database(), d.oid, current_user, session_user,
            pg_get_userbyid(d.datdba), r.rolsuper, r.rolcreatedb,
@@ -150,13 +189,16 @@ BEGIN
                JOIN pg_roles AS ops ON ops.oid=m.roleid
                WHERE m.member=r.oid AND ops.rolname='{MAINTENANCE_ROLE}'
                  AND NOT m.admin_option
-           )
+           ),
+           shobj_description(cluster_identity.oid, 'pg_authid')
     INTO target_name, target_oid, connected_role, session_role, database_owner,
          role_is_superuser, role_can_createdb, role_can_createrole,
          role_can_replicate, role_can_bypass_rls, database_comment,
-         direct_maintenance_member
+         direct_maintenance_member, cluster_identity_comment
     FROM pg_database AS d
     JOIN pg_roles AS r ON r.rolname=current_user
+    LEFT JOIN pg_roles AS cluster_identity
+      ON cluster_identity.rolname='{TEST_CLUSTER_IDENTITY_ROLE}'
     WHERE d.datname=current_database();
 
     IF NOT FOUND OR NOT COALESCE((
@@ -167,7 +209,8 @@ BEGIN
             (connected_role='{TEST_DATABASE_ROLE}' AND role_can_createdb
              AND left(target_name, 16)='dynamisrag_test_'
              AND NOT direct_maintenance_member
-             AND COALESCE(database_comment ~ '^dynamisrag-disposable:[0-9a-f]{{32}}$', false))
+             AND COALESCE(database_comment ~ '^dynamisrag-disposable:[0-9a-f]{{32}}$', false)
+             AND cluster_identity_comment={cluster_marker_literal})
             OR
             (connected_role<>'{TEST_DATABASE_ROLE}' AND NOT role_can_createdb
              AND direct_maintenance_member

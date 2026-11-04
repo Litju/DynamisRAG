@@ -5,6 +5,7 @@ import re
 from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
+from typing import LiteralString, cast
 from urllib.parse import urlsplit, urlunsplit
 from uuid import uuid4
 
@@ -18,6 +19,14 @@ from sqlalchemy.engine import Connection
 
 from dynamisrag.config import load_settings
 from dynamisrag.db.migration_safety import MAINTENANCE_ROLE, MigrationTargetSafetyError
+from dynamisrag.db.test_cluster import (
+    TEST_POSTGRES_HOST_PORT,
+    require_test_cluster_identity,
+    require_test_cluster_system_identifier,
+    validate_test_database_dsns,
+    verify_test_cluster_system_identifier,
+    verify_test_compose_resources,
+)
 from tests._support import ALEMBIC_INI, REPO_ROOT
 
 pytestmark = pytest.mark.integration
@@ -44,16 +53,29 @@ def _urls() -> tuple[str, str, str]:
         )
     test_url = str(settings.test_database_url)
     admin_url = str(settings.test_admin_database_url)
-    app_database = urlsplit(str(settings.database_url)).path.lstrip("/")
-    if (
-        urlsplit(test_url).path.lstrip("/") == app_database
-        or urlsplit(admin_url).path.lstrip("/") == app_database
-        or urlsplit(test_url).path.lstrip("/") != "postgres"
-        or urlsplit(admin_url).path.lstrip("/") != "postgres"
-        or (urlsplit(test_url).hostname, urlsplit(test_url).port)
-        != (urlsplit(admin_url).hostname, urlsplit(admin_url).port)
-    ):
-        pytest.fail("The test and admin DSNs must not name the application database", pytrace=False)
+    try:
+        app_database, _ = validate_test_database_dsns(
+            str(settings.database_url),
+            test_url,
+            admin_url,
+            test_host_port=TEST_POSTGRES_HOST_PORT,
+        )
+        system_identifier = require_test_cluster_system_identifier(
+            settings.test_cluster_system_identifier
+        )
+        verify_test_compose_resources()
+        with psycopg.connect(admin_url) as admin:
+            verify_test_cluster_system_identifier(admin, system_identifier)
+            require_test_cluster_identity(admin, system_identifier, expected_database="postgres")
+        with psycopg.connect(test_url) as test:
+            require_test_cluster_identity(
+                test,
+                system_identifier,
+                expected_database="postgres",
+                expected_user="dynamisrag_test",
+            )
+    except RuntimeError as error:
+        pytest.fail(str(error), pytrace=False)
     return test_url, admin_url, app_database
 
 
@@ -311,12 +333,10 @@ def test_dba_granted_maintenance_role_authorizes_only_its_exact_owned_target(
         assert marker == decoy.database_comment
 
 
-def test_offline_sql_places_the_role_guard_before_migration_ddl(
+def test_offline_generated_sql_rejects_before_every_subsequent_ddl(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from io import StringIO
-
-    from dynamisrag.db.migration_safety import offline_migration_guard_sql
 
     with _protected_decoy() as decoy:
         monkeypatch.setenv("DYNAMISRAG_DATABASE_URL", decoy.owner_url)
@@ -327,17 +347,20 @@ def test_offline_sql_places_the_role_guard_before_migration_ddl(
         command.upgrade(config, "head", sql=True)
         generated = output.getvalue()
         guard_at = generated.index("DO $dynamisrag_migration_guard$")
-        first_ddl = re.search(r"(?im)^CREATE TABLE\b", generated)
-        assert first_ddl is not None and guard_at < first_ddl.start()
+        ddl = list(
+            re.finditer(
+                r"(?im)^\s*(?:CREATE|ALTER|DROP|TRUNCATE|REINDEX|GRANT|REVOKE)\b",
+                generated,
+            )
+        )
+        assert ddl and all(guard_at < statement.start() for statement in ddl)
 
         before = _database_state(decoy.owner_url)
         with (
-            psycopg.connect(decoy.owner_url) as connection,
+            psycopg.connect(decoy.owner_url, autocommit=True) as connection,
             pytest.raises(
                 psycopg.errors.RaiseException, match="Refusing offline-generated migration"
             ),
         ):
-            connection.execute(
-                sql.SQL(offline_migration_guard_sql(f"{decoy.database}:{decoy.oid}"))
-            )
+            connection.execute(cast(LiteralString, generated), prepare=False)
         assert _database_state(decoy.owner_url) == before

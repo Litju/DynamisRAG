@@ -493,8 +493,9 @@ docker compose down           # stop and remove containers (volumes persist)
 ```
 
 Do not use `docker compose down -v` with a retained PostgreSQL, Qdrant or
-OpenSearch volume. Integration qualification uses a uniquely named Compose
-project and disposable per-test PostgreSQL databases.
+OpenSearch volume. Integration qualification uses the separate
+`dynamisrag-integration` project, namespaced volumes, and attested disposable
+PostgreSQL databases; see [migration safety](docs/migration-safety.md).
 
 Only two services exist here. Temporal, Valkey, Keycloak, OpenFGA, vLLM,
 Kafka, Neon and Vercel integrations are explicitly **out of scope** and are

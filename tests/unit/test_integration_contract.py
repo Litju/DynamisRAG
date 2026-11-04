@@ -29,11 +29,16 @@ _BROKEN_INTEGRATION_ENVIRONMENT: Final[dict[str, str]] = {
 _SUBPROCESS_TIMEOUT_SECONDS: Final[int] = 120
 
 
-def _run_pytest(*args: str) -> subprocess.CompletedProcess[str]:
+def _run_pytest(
+    *args: str,
+    extra_environment: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
     environment = os.environ.copy()
     environment.update(_BROKEN_INTEGRATION_ENVIRONMENT)
     environment.pop("DYNAMISRAG_TEST_DATABASE_URL", None)
     environment.pop("DYNAMISRAG_TEST_ADMIN_DATABASE_URL", None)
+    if extra_environment is not None:
+        environment.update(extra_environment)
     temporary_root = REPO_ROOT / ".tmp"
     temporary_root.mkdir(parents=True, exist_ok=True)
     base_temp = temporary_root / "pytest-integration-contract"
@@ -79,6 +84,28 @@ def test_explicit_integration_run_fails_loudly_without_configuration() -> None:
     assert completed.returncode != 0, output
     stdout = completed.stdout or ""
     assert "skipped" not in stdout.lower()
-    assert "integration tests need isolated live services" in output.lower()
+    assert "integration tests need the isolated compose cluster" in output.lower()
     assert "DYNAMISRAG_TEST_DATABASE_URL" in output
     assert "Copy-Item .env.example .env" in output
+
+
+def test_explicit_integration_run_fails_loudly_without_cluster_identity() -> None:
+    completed = _run_pytest(
+        "-m",
+        "integration",
+        "-x",
+        extra_environment={
+            "DYNAMISRAG_DATABASE_URL": "postgresql://owner:pw@127.0.0.1:55433/dynamisrag",
+            "DYNAMISRAG_TEST_DATABASE_URL": (
+                "postgresql://dynamisrag_test:pw@127.0.0.1:55433/postgres"
+            ),
+            "DYNAMISRAG_TEST_ADMIN_DATABASE_URL": (
+                "postgresql://admin:pw@127.0.0.1:55433/postgres"
+            ),
+            "DYNAMISRAG_TEST_CLUSTER_SYSTEM_IDENTIFIER": "",
+        },
+    )
+    output = (completed.stdout or "") + (completed.stderr or "")
+    assert completed.returncode != 0, output
+    assert "DYNAMISRAG_TEST_CLUSTER_SYSTEM_IDENTIFIER" in output
+    assert "docker" not in output.lower()

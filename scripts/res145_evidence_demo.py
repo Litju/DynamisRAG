@@ -48,6 +48,13 @@ from dynamisrag.db.models import (
     SectionRecord,
     SourceArtifactRecord,
 )
+from dynamisrag.db.test_cluster import (
+    TEST_POSTGRES_HOST_PORT,
+    require_test_cluster_identity,
+    require_test_cluster_system_identifier,
+    validate_test_database_dsns,
+    verify_test_compose_resources,
+)
 from dynamisrag.domain.evidence import (
     Claim,
     EvidenceGraph,
@@ -170,9 +177,22 @@ def example_graph(member: EvidenceMember, version_key: str, span_key: str) -> Ev
 
 
 def _drop_scratch_database(
-    test_dsn: str, database: str, database_oid: int, owner: str, marker: str
+    *,
+    test_dsn: str,
+    database: str,
+    database_oid: int,
+    owner: str,
+    marker: str,
+    system_identifier: str,
 ) -> None:
+    verify_test_compose_resources()
     with psycopg.connect(test_dsn, autocommit=True) as connection:
+        require_test_cluster_identity(
+            connection,
+            system_identifier,
+            expected_database="postgres",
+            expected_user=TEST_DATABASE_ROLE,
+        )
         identity_query = """
             SELECT d.oid, pg_get_userbyid(d.datdba),
                    shobj_description(d.oid, 'pg_database')
@@ -224,14 +244,26 @@ def _drop_scratch_database(
 def scratch_database(revision: str = "head") -> Generator[tuple[Engine, Config]]:
     settings = load_settings()
     test_database_url = settings.test_database_url
-    if test_database_url is None:
-        raise RuntimeError("DYNAMISRAG_TEST_DATABASE_URL must use the dedicated test role")
+    admin_database_url = settings.test_admin_database_url
+    if test_database_url is None or admin_database_url is None:
+        raise RuntimeError(
+            "DYNAMISRAG_TEST_DATABASE_URL and DYNAMISRAG_TEST_ADMIN_DATABASE_URL are required"
+        )
+    system_identifier = require_test_cluster_system_identifier(
+        settings.test_cluster_system_identifier
+    )
+    application_database, _ = validate_test_database_dsns(
+        str(settings.database_url),
+        str(test_database_url),
+        str(admin_database_url),
+        test_host_port=TEST_POSTGRES_HOST_PORT,
+    )
+    verify_test_compose_resources()
 
     test_dsn = str(test_database_url)
     test_url = urlsplit(test_dsn)
-    app_url = urlsplit(str(settings.database_url))
     database = f"dynamisrag_test_{uuid4().hex}"
-    if test_url.path.lstrip("/") == app_url.path.lstrip("/"):
+    if test_url.path.lstrip("/") == application_database:
         raise RuntimeError("The test database URL must not name the application database")
     scratch = urlunsplit(test_url._replace(path=f"/{database}", fragment=""))
     marker = f"{DISPOSABLE_DATABASE_MARKER_PREFIX}{uuid4().hex}"
@@ -242,6 +274,12 @@ def scratch_database(revision: str = "head") -> Generator[tuple[Engine, Config]]
     test_role: str | None = None
     try:
         with psycopg.connect(test_dsn, autocommit=True) as connection:
+            require_test_cluster_identity(
+                connection,
+                system_identifier,
+                expected_database="postgres",
+                expected_user=TEST_DATABASE_ROLE,
+            )
             role = connection.execute(
                 """
                 SELECT session_user, current_user, r.rolsuper, r.rolcreatedb,
@@ -302,7 +340,14 @@ def scratch_database(revision: str = "head") -> Generator[tuple[Engine, Config]]
         if engine is not None:
             engine.dispose()
         if created and database_oid is not None and test_role is not None:
-            _drop_scratch_database(test_dsn, database, database_oid, test_role, marker)
+            _drop_scratch_database(
+                test_dsn=test_dsn,
+                database=database,
+                database_oid=database_oid,
+                owner=test_role,
+                marker=marker,
+                system_identifier=system_identifier,
+            )
 
 
 def demonstrate() -> dict[str, object]:

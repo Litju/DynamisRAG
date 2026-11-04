@@ -254,6 +254,7 @@ def build_settings(
             "database_url": database_url,
             "test_database_url": None,
             "test_admin_database_url": None,
+            "test_cluster_system_identifier": None,
             "opensearch_url": opensearch_url,
             "opensearch_username": "admin",
             "opensearch_password": UNIT_TEST_PASSWORD,
