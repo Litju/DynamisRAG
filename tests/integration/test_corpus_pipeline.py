@@ -8,15 +8,9 @@ from collections.abc import Iterator
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit, urlunsplit
-from uuid import uuid4
 
 import httpx2
-import psycopg
 import pytest
-from alembic import command
-from alembic.config import Config
-from psycopg import sql
 from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session
 
@@ -42,31 +36,18 @@ from dynamisrag.domain.values import DocumentType
 from dynamisrag.ingestion.europe_pmc import EuropePmcClient
 from dynamisrag.storage import ObjectStoreIntegrityError
 from tests._corpus import DOI, PMCID, XML, CorpusTransport
-from tests._support import ALEMBIC_INI, REPO_ROOT, build_settings
 
 pytestmark = pytest.mark.integration
 
 
 @pytest.fixture
-def corpus_engine(live_settings: Settings, monkeypatch: pytest.MonkeyPatch) -> Iterator[Engine]:
-    """Isolated database: test commits never enter the existing scientific baseline."""
-    database = f"dynamisrag_res143_test_{uuid4().hex[:12]}"
-    dsn = urlsplit(str(live_settings.database_url))
-    maintenance = urlunsplit(dsn._replace(path="/postgres"))
-    scratch = urlunsplit(dsn._replace(path=f"/{database}"))
-    with psycopg.connect(maintenance, autocommit=True) as connection:
-        connection.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database)))
-    engine = create_database_engine(build_settings(database_url=scratch))
+def corpus_engine(live_settings: Settings) -> Iterator[Engine]:
+    """Use the per-test disposable database provided by live_settings."""
+    engine = create_database_engine(live_settings)
     try:
-        monkeypatch.setenv("DYNAMISRAG_DATABASE_URL", scratch)
-        config = Config(str(ALEMBIC_INI))
-        config.set_main_option("script_location", str(REPO_ROOT / "alembic"))
-        command.upgrade(config, "head")
         yield engine
     finally:
         engine.dispose()
-        with psycopg.connect(maintenance, autocommit=True) as connection:
-            connection.execute(sql.SQL("DROP DATABASE {}").format(sql.Identifier(database)))
 
 
 def _run(engine: Engine, root: Path, transport: CorpusTransport) -> dict[str, Any]:

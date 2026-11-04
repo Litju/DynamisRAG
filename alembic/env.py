@@ -23,6 +23,10 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.pool import NullPool
 
 from dynamisrag.config import load_settings, to_sqlalchemy_url
+from dynamisrag.db.migration_safety import (
+    offline_migration_guard_sql,
+    require_migration_target,
+)
 
 config = context.config
 
@@ -46,13 +50,17 @@ def database_url() -> str:
 
 
 def _run_migrations(connection: Connection) -> None:
-    context.configure(connection=connection, target_metadata=target_metadata)
-    with context.begin_transaction():
-        context.run_migrations()
+    maintenance_target = context.get_x_argument(as_dictionary=True).get("maintenance_target")
+    with connection.begin():
+        require_migration_target(connection, maintenance_target)
+        context.configure(connection=connection, target_metadata=target_metadata)
+        with context.begin_transaction():
+            context.run_migrations()
 
 
 def run_migrations_offline() -> None:
     """Render migration SQL to stdout without opening a connection."""
+    maintenance_target = context.get_x_argument(as_dictionary=True).get("maintenance_target")
     context.configure(
         url=database_url(),
         target_metadata=target_metadata,
@@ -62,6 +70,7 @@ def run_migrations_offline() -> None:
         compare_server_default=True,
     )
     with context.begin_transaction():
+        context.execute(offline_migration_guard_sql(maintenance_target))
         context.run_migrations()
 
 

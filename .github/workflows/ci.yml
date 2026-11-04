@@ -68,6 +68,18 @@ jobs:
       - name: Check out the repository
         uses: actions/checkout@v7
 
+      - name: Generate disposable PostgreSQL credentials
+        shell: bash
+        run: |
+          admin_password="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+          test_password="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+          {
+            echo "DYNAMISRAG_POSTGRES_PASSWORD=$admin_password"
+            echo "DYNAMISRAG_DATABASE_URL=postgresql://dynamisrag:$admin_password@127.0.0.1:55432/dynamisrag"
+            echo "DYNAMISRAG_TEST_DATABASE_URL=postgresql://dynamisrag_test:$test_password@127.0.0.1:55432/postgres"
+            echo "DYNAMISRAG_TEST_ADMIN_DATABASE_URL=postgresql://dynamisrag:$admin_password@127.0.0.1:55432/postgres"
+          } >> "$GITHUB_ENV"
+
       - name: Create .env from the committed template
         # The template holds published, local-only development passwords, which
         # is precisely why they are safe to materialise on a throwaway runner.
@@ -95,15 +107,8 @@ jobs:
       - name: Show service state
         run: docker compose ps
 
-      - name: Apply migrations to an empty database
-        run: uv run alembic upgrade head
-
-      - name: Prove migrations are reversible
-        run: |
-          set -euo pipefail
-          uv run alembic downgrade base
-          uv run alembic upgrade head
-          uv run alembic current
+      - name: Provision the isolated least-privilege test role
+        run: uv run --locked python scripts/provision_test_role.py
 
       - name: Integration tests
         run: uv run pytest -m integration -v
@@ -204,4 +209,4 @@ jobs:
 
       - name: Tear down
         if: always()
-        run: docker compose down -v
+        run: docker compose stop

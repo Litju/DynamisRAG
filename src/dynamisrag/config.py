@@ -78,6 +78,12 @@ class Settings(BaseSettings):
     in a log line.
     """
 
+    test_database_url: PostgresDsn | None = Field(default=None, repr=False)
+    """Dedicated non-superuser DSN for per-test disposable databases."""
+
+    test_admin_database_url: PostgresDsn | None = Field(default=None, repr=False)
+    """Admin DSN for provisioning only on a disposable test PostgreSQL cluster."""
+
     opensearch_url: AnyHttpUrl
     """Base URL of the OpenSearch node. Local and CI stacks expose HTTPS with a
     self-signed certificate, so ``opensearch_verify_tls`` must be relaxed

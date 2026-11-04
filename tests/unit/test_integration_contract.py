@@ -18,14 +18,12 @@ from typing import Final
 from tests._support import REPO_ROOT
 
 _BROKEN_INTEGRATION_ENVIRONMENT: Final[dict[str, str]] = {
-    # Environment variables outrank the repo's `.env` in pydantic-settings, so
-    # these two values guarantee `load_settings()` raises ValidationError no
-    # matter what the developer's local `.env` contains. The values are
-    # *invalid*, not absent: `Settings.from_mapping` also falls back to the
-    # process environment for keys a test omits, and the unit suite requires
-    # those fallbacks to keep failing validation.
-    "DYNAMISRAG_DATABASE_URL": "postgresql://",
-    "DYNAMISRAG_OPENSEARCH_URL": "opensearch://127.0.0.1:9200",
+    # Environment variables outrank the repo's `.env`. Valid application
+    # settings make the explicit integration run fail specifically because the
+    # dedicated test DSN is absent, before any service connection is attempted.
+    "DYNAMISRAG_DATABASE_URL": "postgresql://unit:unit@127.0.0.1:5432/dynamisrag",
+    "DYNAMISRAG_OPENSEARCH_URL": "https://127.0.0.1:9200",
+    "DYNAMISRAG_OPENSEARCH_PASSWORD": "unit-only-opensearch-password",
 }
 
 _SUBPROCESS_TIMEOUT_SECONDS: Final[int] = 120
@@ -34,6 +32,8 @@ _SUBPROCESS_TIMEOUT_SECONDS: Final[int] = 120
 def _run_pytest(*args: str) -> subprocess.CompletedProcess[str]:
     environment = os.environ.copy()
     environment.update(_BROKEN_INTEGRATION_ENVIRONMENT)
+    environment.pop("DYNAMISRAG_TEST_DATABASE_URL", None)
+    environment.pop("DYNAMISRAG_TEST_ADMIN_DATABASE_URL", None)
     temporary_root = REPO_ROOT / ".tmp"
     temporary_root.mkdir(parents=True, exist_ok=True)
     base_temp = temporary_root / "pytest-integration-contract"
@@ -54,6 +54,7 @@ def _run_pytest(*args: str) -> subprocess.CompletedProcess[str]:
         capture_output=True,
         text=True,
         encoding="utf-8",
+        errors="replace",
         timeout=_SUBPROCESS_TIMEOUT_SECONDS,
         check=False,
     )
@@ -64,17 +65,20 @@ def test_default_run_stays_green_without_integration_configuration() -> None:
     configuration is broken: `-m 'not integration'` deselects those tests."""
     completed = _run_pytest()
 
-    assert completed.returncode == 0, completed.stdout + completed.stderr
-    assert "skipped" not in completed.stdout.lower()
+    output = (completed.stdout or "") + (completed.stderr or "")
+    assert completed.returncode == 0, output
+    assert "skipped" not in (completed.stdout or "").lower()
 
 
 def test_explicit_integration_run_fails_loudly_without_configuration() -> None:
     """`uv run pytest -m integration` must exit non-zero with the actionable
     setup hint — never a successful all-skipped run."""
-    completed = _run_pytest("-m", "integration")
+    completed = _run_pytest("-m", "integration", "-x")
 
-    output = completed.stdout + completed.stderr
+    output = (completed.stdout or "") + (completed.stderr or "")
     assert completed.returncode != 0, output
-    assert "skipped" not in completed.stdout.lower()
-    assert "invalid setting" in completed.stdout
-    assert "Copy-Item .env.example .env" in completed.stdout
+    stdout = completed.stdout or ""
+    assert "skipped" not in stdout.lower()
+    assert "integration tests need isolated live services" in output.lower()
+    assert "DYNAMISRAG_TEST_DATABASE_URL" in output
+    assert "Copy-Item .env.example .env" in output

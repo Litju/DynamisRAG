@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from collections.abc import Generator
 from contextlib import contextmanager
 from hashlib import sha256
@@ -28,6 +29,11 @@ from dynamisrag.config import load_settings, to_sqlalchemy_url
 from dynamisrag.db import create_database_engine
 from dynamisrag.db.canonical import list_passage_projection_records
 from dynamisrag.db.evidence import canonical_member, get_graph, persist_graph, source_fingerprint
+from dynamisrag.db.migration_safety import (
+    DISPOSABLE_DATABASE_MARKER_PREFIX,
+    MAINTENANCE_ROLE,
+    TEST_DATABASE_ROLE,
+)
 from dynamisrag.db.models import (
     CitationRecord,
     CitationResolutionRecord,
@@ -163,30 +169,140 @@ def example_graph(member: EvidenceMember, version_key: str, span_key: str) -> Ev
     return EvidenceGraph(evidence_set=evidence_set, claims=(claim,), links=(link,))
 
 
+def _drop_scratch_database(
+    test_dsn: str, database: str, database_oid: int, owner: str, marker: str
+) -> None:
+    with psycopg.connect(test_dsn, autocommit=True) as connection:
+        identity_query = """
+            SELECT d.oid, pg_get_userbyid(d.datdba),
+                   shobj_description(d.oid, 'pg_database')
+            FROM pg_database AS d WHERE d.datname=%s
+            """
+        identity = connection.execute(identity_query, (database,)).fetchone()
+        if (
+            identity is None
+            or identity[0] != database_oid
+            or identity[1] != owner
+            or identity[2] != marker
+        ):
+            raise RuntimeError(
+                f"Leaving disposable database {database!r} (OID {database_oid}) "
+                "because its identity changed "
+                f"(oid_match={identity is not None and identity[0] == database_oid}, "
+                f"owner_match={identity is not None and identity[1] == owner}, "
+                f"marker_match={identity is not None and identity[2] == marker})"
+            )
+        sessions = 1
+        for _ in range(20):
+            sessions = connection.execute(
+                "SELECT count(*) FROM pg_stat_activity WHERE datname=%s AND pid<>pg_backend_pid()",
+                (database,),
+            ).fetchone()[0]
+            if sessions == 0:
+                break
+            time.sleep(0.1)
+        identity = connection.execute(identity_query, (database,)).fetchone()
+        if (
+            identity is None
+            or identity[0] != database_oid
+            or identity[1] != owner
+            or identity[2] != marker
+            or sessions
+        ):
+            raise RuntimeError(
+                f"Leaving disposable database {database!r} (OID {database_oid}) "
+                "because its identity or connection state changed "
+                f"(oid_match={identity is not None and identity[0] == database_oid}, "
+                f"owner_match={identity is not None and identity[1] == owner}, "
+                f"marker_match={identity is not None and identity[2] == marker}, "
+                f"active_sessions={sessions})"
+            )
+        connection.execute(sql.SQL("DROP DATABASE {}").format(sql.Identifier(database)))
+
+
 @contextmanager
-def scratch_database() -> Generator[tuple[Engine, Config]]:
-    dsn = urlsplit(str(load_settings().database_url))
-    database = f"res145_demo_{uuid4().hex}"
-    maintenance = urlunsplit(dsn._replace(path="/postgres"))
-    scratch = urlunsplit(dsn._replace(path=f"/{database}"))
-    with psycopg.connect(maintenance, autocommit=True) as connection:
-        connection.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database)))
+def scratch_database(revision: str = "head") -> Generator[tuple[Engine, Config]]:
+    settings = load_settings()
+    test_database_url = settings.test_database_url
+    if test_database_url is None:
+        raise RuntimeError("DYNAMISRAG_TEST_DATABASE_URL must use the dedicated test role")
+
+    test_dsn = str(test_database_url)
+    test_url = urlsplit(test_dsn)
+    app_url = urlsplit(str(settings.database_url))
+    database = f"dynamisrag_test_{uuid4().hex}"
+    if test_url.path.lstrip("/") == app_url.path.lstrip("/"):
+        raise RuntimeError("The test database URL must not name the application database")
+    scratch = urlunsplit(test_url._replace(path=f"/{database}", fragment=""))
+    marker = f"{DISPOSABLE_DATABASE_MARKER_PREFIX}{uuid4().hex}"
     previous = os.environ.get("DYNAMISRAG_DATABASE_URL")
-    engine = create_engine(to_sqlalchemy_url(PostgresDsn(scratch)))
+    engine: Engine | None = None
+    database_oid: int | None = None
+    created = False
+    test_role: str | None = None
     try:
+        with psycopg.connect(test_dsn, autocommit=True) as connection:
+            role = connection.execute(
+                """
+                SELECT session_user, current_user, r.rolsuper, r.rolcreatedb,
+                       r.rolcreaterole, r.rolreplication, r.rolbypassrls,
+                       r.rolinherit,
+                       EXISTS (
+                           SELECT 1 FROM pg_auth_members AS m
+                           JOIN pg_roles AS ops ON ops.oid=m.roleid
+                           WHERE m.member=r.oid AND ops.rolname=%s
+                       )
+                FROM pg_roles AS r WHERE r.rolname=current_user
+                """,
+                (MAINTENANCE_ROLE,),
+            ).fetchone()
+            if (
+                role is None
+                or role[0] != role[1]
+                or role[1] != TEST_DATABASE_ROLE
+                or role[2]
+                or not role[3]
+                or role[4]
+                or role[5]
+                or role[6]
+                or role[7]
+                or role[8]
+            ):
+                raise RuntimeError(
+                    "DYNAMISRAG_TEST_DATABASE_URL must use the unprivileged "
+                    "dynamisrag_test role with CREATEDB and without CREATEROLE"
+                )
+            test_role = role[1]
+            connection.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database)))
+            created = True
+            identity = connection.execute(
+                "SELECT oid, pg_get_userbyid(datdba) FROM pg_database WHERE datname=%s",
+                (database,),
+            ).fetchone()
+            if identity is None or identity[1] != test_role:
+                raise RuntimeError("The disposable database is not owned by dynamisrag_test")
+            database_oid = identity[0]
+            connection.execute(
+                sql.SQL("COMMENT ON DATABASE {} IS {}").format(
+                    sql.Identifier(database), sql.Literal(marker)
+                )
+            )
+
+        engine = create_engine(to_sqlalchemy_url(PostgresDsn(scratch)))
         os.environ["DYNAMISRAG_DATABASE_URL"] = scratch
         config = Config(str(ROOT / "alembic.ini"))
         config.set_main_option("script_location", str(ROOT / "alembic"))
-        command.upgrade(config, "head")
+        command.upgrade(config, revision)
         yield engine, config
     finally:
         if previous is None:
             os.environ.pop("DYNAMISRAG_DATABASE_URL", None)
         else:
             os.environ["DYNAMISRAG_DATABASE_URL"] = previous
-        engine.dispose()
-        with psycopg.connect(maintenance, autocommit=True) as connection:
-            connection.execute(sql.SQL("DROP DATABASE {}").format(sql.Identifier(database)))
+        if engine is not None:
+            engine.dispose()
+        if created and database_oid is not None and test_role is not None:
+            _drop_scratch_database(test_dsn, database, database_oid, test_role, marker)
 
 
 def demonstrate() -> dict[str, object]:

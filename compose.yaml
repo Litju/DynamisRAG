@@ -23,7 +23,6 @@ name: dynamisrag
 services:
   qdrant:
     image: qdrant/qdrant:v1.20.0@sha256:9bfc89f9914fc14876a88c05270685921a55b8877b254a98bcc1cc2f0a424cd2
-    container_name: dynamisrag-qdrant
     restart: unless-stopped
     environment:
       QDRANT__SERVICE__HOST: 0.0.0.0
@@ -35,7 +34,7 @@ services:
       QDRANT__STORAGE__PERFORMANCE__MAX_SEARCH_THREADS: 2
       QDRANT__TELEMETRY_DISABLED: 'true'
     ports:
-      - "127.0.0.1:6333:6333"
+      - "127.0.0.1:${DYNAMISRAG_QDRANT_HOST_PORT:-6333}:6333"
     volumes:
       - qdrant-data:/qdrant/storage
       - qdrant-snapshots:/qdrant/snapshots
@@ -49,7 +48,6 @@ services:
       - dynamisrag
   postgres:
     image: postgres:18.6-alpine
-    container_name: dynamisrag-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${DYNAMISRAG_POSTGRES_USER:?set DYNAMISRAG_POSTGRES_USER in .env}
@@ -65,7 +63,7 @@ services:
     # PostgreSQL would otherwise fail to start this stack. The in-container port
     # is the PostgreSQL default and the DSN addresses the host port.
     ports:
-      - "127.0.0.1:55432:5432"
+      - "127.0.0.1:${DYNAMISRAG_POSTGRES_HOST_PORT:-55432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql
     healthcheck:
@@ -83,7 +81,6 @@ services:
 
   opensearch:
     image: opensearchproject/opensearch:3.8.0
-    container_name: dynamisrag-opensearch
     restart: unless-stopped
     environment:
       OPENSEARCH_INITIAL_ADMIN_PASSWORD: ${DYNAMISRAG_OPENSEARCH_PASSWORD:?set DYNAMISRAG_OPENSEARCH_PASSWORD in .env}
@@ -100,7 +97,7 @@ services:
         soft: 65536
         hard: 65536
     ports:
-      - "127.0.0.1:9200:9200"
+      - "127.0.0.1:${DYNAMISRAG_OPENSEARCH_HOST_PORT:-9200}:9200"
     volumes:
       - opensearch-data:/usr/share/opensearch/data
     healthcheck:
@@ -125,5 +122,4 @@ volumes:
 
 networks:
   dynamisrag:
-    name: dynamisrag
     driver: bridge
