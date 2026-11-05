@@ -195,7 +195,7 @@ def _context(question: str, selected: list[EvidenceExcerpt]) -> str:
     )
 
 
-def _scientific_terms(text: str) -> set[str]:
+def scientific_terms(text: str) -> set[str]:
     """Whole Unicode tokens, retaining abbreviations, decimals and optional angle units."""
     normalized = unicodedata.normalize("NFKC", text).casefold()
     return {
@@ -209,7 +209,7 @@ def select_evidence(question: str, retrieval: ScientificResponse) -> EvidenceSel
     selected: list[PassageProvenance] = []
     excerpts: list[EvidenceExcerpt] = []
     excluded: list[EvidenceDecision] = []
-    terms = _scientific_terms(question)
+    terms = scientific_terms(question)
     for hit in retrieval.fusion.hits:
         p = hit.provenance
         prefix = p.text.encode("utf-8")[:800].decode("utf-8", errors="ignore")
@@ -230,7 +230,7 @@ def select_evidence(question: str, retrieval: ScientificResponse) -> EvidenceSel
             reason = "instruction_like_content"
         elif _HYPOTHESIS.search(p.text) or _NON_FINDING.search(p.section_title or ""):
             reason = "background_methods_or_hypothesis"
-        elif not terms or len(terms.intersection(_scientific_terms(p.title + " " + p.text))) < min(
+        elif not terms or len(terms.intersection(scientific_terms(p.title + " " + p.text))) < min(
             2, len(terms)
         ):
             reason = "insufficient_question_overlap"

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 from threading import BoundedSemaphore
 from typing import Literal
 
@@ -38,7 +37,9 @@ from dynamisrag.generation.provider import (
     GenerationProvider,
     GenerationSemantics,
     GenerationSettings,
+    serialize_generation_context,
 )
+from dynamisrag.generation.scientific import scientific_terms
 from dynamisrag.generation.structured import POLICY_SHA256, SYSTEM
 from dynamisrag.generation.validation import VerifiedSource, VerifiedSpan, build_graph
 from dynamisrag.search.qdrant import QdrantError, QdrantProjector
@@ -52,6 +53,125 @@ _LIMITATION = (
     "Structural source and quotation checks do not establish entailment, study validity,"
     " applicability, or scientific approval. All model relationships remain provisional."
 )
+_CONTEXT_POLICY_REVISION = "res147-context-span-first-v1"
+
+
+class ContextSpanCoverage(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+    span_key: str = Field(pattern=r"^[0-9a-f]{64}$")
+    start_char: int = Field(ge=0)
+    end_char: int = Field(gt=0)
+    query_overlap_terms: int = Field(ge=0)
+    text_bytes: int = Field(gt=0)
+    included: bool
+    inclusion_order: int | None = Field(default=None, ge=1)
+    byte_cost: int | None = Field(default=None, ge=1)
+    required_prompt_bytes: int | None = Field(default=None, ge=0)
+    reason: (
+        Literal[
+            "span_byte_limit",
+            "span_count_limit",
+            "passage_count_limit",
+            "prompt_byte_budget",
+        ]
+        | None
+    ) = None
+
+    @model_validator(mode="after")
+    def consistent_disposition(self) -> ContextSpanCoverage:
+        if self.included != (self.inclusion_order is not None and self.byte_cost is not None):
+            raise ValueError("included span requires its order and byte cost")
+        if self.included == (self.reason is not None):
+            raise ValueError("span exclusion reason must match its disposition")
+        if self.end_char <= self.start_char:
+            raise ValueError("span coordinates must be a non-empty half-open range")
+        return self
+
+
+class ContextPassageCoverage(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+    passage_key: str = Field(pattern=r"^[0-9a-f]{64}$")
+    document_version_key: str = Field(pattern=r"^[0-9a-f]{64}$")
+    fused_rank: int | None = Field(default=None, ge=1)
+    rrf_score: float | None = Field(default=None, ge=0)
+    bm25_rank: int | None = Field(default=None, ge=1)
+    bm25_score: float | None = Field(default=None, ge=0)
+    dense_rank: int | None = Field(default=None, ge=1)
+    dense_score: float | None = None
+    spans: tuple[ContextSpanCoverage, ...]
+
+
+class ContextParagraphCoverage(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+    paragraph_key: str = Field(pattern=r"^[0-9a-f]{64}$")
+    included: bool
+    inclusion_order: int | None = Field(default=None, ge=1)
+    byte_cost: int | None = Field(default=None, ge=1)
+    required_prompt_bytes: int | None = Field(default=None, ge=0)
+    reason: (
+        Literal[
+            "anchor_passage_not_included",
+            "paragraph_count_limit",
+            "paragraph_byte_limit",
+            "prompt_byte_budget",
+        ]
+        | None
+    ) = None
+
+    @model_validator(mode="after")
+    def consistent_disposition(self) -> ContextParagraphCoverage:
+        if self.included != (self.inclusion_order is not None and self.byte_cost is not None):
+            raise ValueError("included paragraph requires its order and byte cost")
+        if self.included == (self.reason is not None):
+            raise ValueError("paragraph exclusion reason must match its disposition")
+        return self
+
+
+class ContextCoverageReceipt(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+    policy_revision: Literal["res147-context-span-first-v1"] = _CONTEXT_POLICY_REVISION
+    context_identity: str = Field(pattern=r"^[0-9a-f]{64}$")
+    budget_bytes: int = Field(ge=1, le=PROMPT_BYTES)
+    base_prompt_bytes: int = Field(gt=0)
+    context_bytes: int = Field(gt=0)
+    selected_passages: tuple[ContextPassageCoverage, ...]
+    included_span_keys: tuple[str, ...]
+    excluded_span_keys: tuple[str, ...]
+    expanded_context: tuple[ContextParagraphCoverage, ...] = ()
+
+    @model_validator(mode="after")
+    def consistent_inventory(self) -> ContextCoverageReceipt:
+        all_spans = [span.span_key for passage in self.selected_passages for span in passage.spans]
+        if (
+            len(set(all_spans)) != len(all_spans)
+            or set(all_spans) != set(self.included_span_keys) | set(self.excluded_span_keys)
+            or set(self.included_span_keys) & set(self.excluded_span_keys)
+        ):
+            raise ValueError("context coverage span inventory is inconsistent")
+        if self.context_bytes > self.budget_bytes:
+            raise ValueError("context coverage exceeds its byte budget")
+        if (
+            self.base_prompt_bytes
+            + sum(
+                item.byte_cost or 0 for passage in self.selected_passages for item in passage.spans
+            )
+            + sum(item.byte_cost or 0 for item in self.expanded_context)
+            != self.context_bytes
+        ):
+            raise ValueError("context coverage byte accounting is inconsistent")
+        included_orders = [
+            item.inclusion_order
+            for passage in self.selected_passages
+            for item in passage.spans
+            if item.included and item.inclusion_order is not None
+        ] + [
+            item.inclusion_order
+            for item in self.expanded_context
+            if item.included and item.inclusion_order is not None
+        ]
+        if sorted(included_orders) != list(range(1, len(included_orders) + 1)):
+            raise ValueError("context coverage inclusion order is inconsistent")
+        return self
 
 
 class SynthesisRequest(BaseModel):
@@ -64,8 +184,13 @@ class SynthesisRequest(BaseModel):
     def bounded_question(self) -> SynthesisRequest:
         if len(self.selection.question) > 1000:
             raise ValueError("question exceeds generation context limit")
-        if self.max_context_bytes < len(SYSTEM.encode("utf-8")) + 2:
-            raise ValueError("generation context budget is smaller than the system prompt")
+        empty_context = GenerationContext(question=self.selection.question, evidence=(), context=())
+        if len((SYSTEM + serialize_generation_context(empty_context)).encode("utf-8")) > (
+            self.max_context_bytes
+        ):
+            raise ValueError(
+                "generation context budget cannot contain the system prompt and question"
+            )
         return self
 
 
@@ -94,6 +219,7 @@ class StructuredSynthesisResult(BaseModel):
     limitations: tuple[str, ...] = (_LIMITATION,)
     context_bytes: int = 0
     context_exclusions: tuple[str, ...] = ()
+    context_coverage: ContextCoverageReceipt | None = None
     generation_semantics: GenerationSemantics | None = None
     execution_conditions: ExecutionConditions | None = None
     execution_metrics: ExecutionMetrics | None = None
@@ -136,6 +262,7 @@ def _result(
     proposed_limitations: tuple[str, ...] = (),
     context_bytes: int = 0,
     context_exclusions: tuple[str, ...] | None = None,
+    context_coverage: ContextCoverageReceipt | None = None,
     generation_semantics: GenerationSemantics | None = None,
     execution_conditions: ExecutionConditions | None = None,
     execution_metrics: ExecutionMetrics | None = None,
@@ -167,6 +294,7 @@ def _result(
         context_exclusions=(
             selection.context_exclusions if context_exclusions is None else context_exclusions
         ),
+        context_coverage=context_coverage,
         generation_semantics=generation_semantics,
         execution_conditions=execution_conditions,
         execution_metrics=execution_metrics,
@@ -216,46 +344,192 @@ def materialize_sources(engine: Engine, selection: SelectionResult) -> tuple[Ver
         return tuple(result)
 
 
-def _context(
+def _context(  # noqa: PLR0912, PLR0915 -- emits per-item audit diagnostics
     engine: Engine,
     question: str,
     sources: tuple[VerifiedSource, ...],
     selection: SelectionResult,
     max_bytes: int,
-) -> tuple[GenerationContext, tuple[str, ...], int]:
-    """Pack only whole canonical spans and verified whole context paragraphs."""
+) -> tuple[GenerationContext, tuple[str, ...], int, ContextCoverageReceipt]:
+    """Pack complete canonical spans by query overlap, then verified context paragraphs."""
+    if selection.evidence_set is None:
+        raise InvalidProvenanceError("context packing requires a selected EvidenceSet")
+    members = {member.passage_key: member for member in selection.evidence_set.members}
+    decisions = {
+        decision.passage_key: decision
+        for decision in selection.decisions
+        if decision.disposition == "SELECTED"
+    }
+    by_key = {source.member.passage_key: source for source in sources}
+    if (
+        len(by_key) != len(sources)
+        or set(by_key) != set(members)
+        or set(decisions) != set(members)
+        or any(source.member != members[key] for key, source in by_key.items())
+        or any(decisions[key].version_key != member.version_key for key, member in members.items())
+    ):
+        raise InvalidProvenanceError("context sources differ from selected EvidenceSet")
+
+    ordered_sources = tuple(
+        sorted(
+            sources,
+            key=lambda source: (
+                decisions[source.member.passage_key].fused_rank
+                if decisions[source.member.passage_key].fused_rank is not None
+                else 2**31,
+                source.member.passage_key,
+            ),
+        )
+    )
+    terms = scientific_terms(question)
+    candidates: list[tuple[VerifiedSource, VerifiedSpan, SelectionDecision, int, int, int]] = []
+    overlap_by_span: dict[str, int] = {}
+    all_span_keys: list[str] = []
+    for source_order, source in enumerate(ordered_sources):
+        keys = tuple(span.span_key for span in source.spans)
+        if (
+            len(set(keys)) != len(keys)
+            or set(keys) != set(source.member.span_keys)
+            or any(
+                span.start_char < 0
+                or span.end_char <= span.start_char
+                or span.end_char > len(span.paragraph_text)
+                or span.paragraph_text[span.start_char : span.end_char] != span.text
+                for span in source.spans
+            )
+        ):
+            raise InvalidProvenanceError("canonical source span inventory or coordinates changed")
+        all_span_keys.extend(keys)
+        decision = decisions[source.member.passage_key]
+        for span_order, span in enumerate(source.spans):
+            overlap = len(terms.intersection(scientific_terms(span.text)))
+            overlap_by_span[span.span_key] = overlap
+            candidates.append((source, span, decision, overlap, source_order, span_order))
+    if len(set(all_span_keys)) != len(all_span_keys):
+        raise InvalidProvenanceError("canonical source span identity is duplicated")
+
+    def priority(
+        item: tuple[VerifiedSource, VerifiedSpan, SelectionDecision, int, int, int],
+    ) -> tuple[int, int, float, int, float, int, float, int, int, str]:
+        _source, span, decision, overlap, source_order, span_order = item
+        return (
+            -overlap,
+            decision.fused_rank if decision.fused_rank is not None else 2**31,
+            -(decision.rrf_score if decision.rrf_score is not None else float("-inf")),
+            decision.bm25_rank if decision.bm25_rank is not None else 2**31,
+            -(decision.bm25_score if decision.bm25_score is not None else float("-inf")),
+            decision.dense_rank if decision.dense_rank is not None else 2**31,
+            -(decision.dense_score if decision.dense_score is not None else float("-inf")),
+            source_order,
+            span_order,
+            span.span_key,
+        )
+
+    candidates.sort(key=priority)
     evidence: list[ContextEvidence] = []
     excluded: list[str] = []
-    for source in sources:
-        spans = tuple(
-            ContextSpan(span_key=s.span_key, text=s.text)
-            for s in source.spans
-            if len(s.text.encode("utf-8")) <= 12000
+    span_coverage: dict[str, ContextSpanCoverage] = {}
+    included_span_keys: list[str] = []
+    excluded_span_keys: list[str] = []
+    context = GenerationContext(question=question, evidence=(), context=())
+    encoded = serialize_generation_context(context)
+    current_bytes = len((SYSTEM + encoded).encode("utf-8"))
+    if current_bytes > max_bytes:
+        raise ValueError("generation context budget cannot contain the system prompt and question")
+    for source, span, _decision, overlap, _source_order, _span_order in candidates:
+        text_bytes = len(span.text.encode("utf-8"))
+        span_reason: (
+            Literal[
+                "span_byte_limit",
+                "span_count_limit",
+                "passage_count_limit",
+                "prompt_byte_budget",
+            ]
+            | None
+        ) = None
+        evidence_index = next(
+            (i for i, item in enumerate(evidence) if item.passage_key == source.member.passage_key),
+            None,
         )
-        if len(spans) != len(source.spans) or not spans or len(spans) > 16:
-            excluded.append(f"passage_context_budget:{source.member.passage_key}")
-            continue
-        item = ContextEvidence(
-            passage_key=source.member.passage_key,
-            document_version_key=source.member.version_key,
-            spans=spans,
+        if text_bytes > 12000 or len(span.text) > 12000:
+            span_reason = "span_byte_limit"
+        elif evidence_index is None and len(evidence) >= 8:
+            span_reason = "passage_count_limit"
+        elif evidence_index is not None and len(evidence[evidence_index].spans) >= 16:
+            span_reason = "span_count_limit"
+
+        required_prompt_bytes: int | None = None
+        if span_reason is None:
+            context_span = ContextSpan(span_key=span.span_key, text=span.text)
+            if evidence_index is None:
+                candidate_evidence = [
+                    *evidence,
+                    ContextEvidence(
+                        passage_key=source.member.passage_key,
+                        document_version_key=source.member.version_key,
+                        spans=(context_span,),
+                    ),
+                ]
+            else:
+                existing = evidence[evidence_index]
+                candidate_evidence = list(evidence)
+                candidate_evidence[evidence_index] = ContextEvidence(
+                    passage_key=existing.passage_key,
+                    document_version_key=existing.document_version_key,
+                    spans=(*existing.spans, context_span),
+                )
+            candidate = GenerationContext(
+                question=question, evidence=tuple(candidate_evidence), context=()
+            )
+            candidate_json = serialize_generation_context(candidate)
+            required_prompt_bytes = len((SYSTEM + candidate_json).encode("utf-8"))
+            if required_prompt_bytes > max_bytes:
+                span_reason = "prompt_byte_budget"
+            else:
+                evidence = candidate_evidence
+                context = candidate
+                incremental_cost = required_prompt_bytes - current_bytes
+                current_bytes = required_prompt_bytes
+                included_span_keys.append(span.span_key)
+                span_coverage[span.span_key] = ContextSpanCoverage(
+                    span_key=span.span_key,
+                    start_char=span.start_char,
+                    end_char=span.end_char,
+                    query_overlap_terms=overlap,
+                    text_bytes=text_bytes,
+                    included=True,
+                    inclusion_order=len(included_span_keys),
+                    byte_cost=incremental_cost,
+                )
+                continue
+
+        excluded_span_keys.append(span.span_key)
+        excluded.append(f"{span_reason}:{source.member.passage_key}:{span.span_key}")
+        span_coverage[span.span_key] = ContextSpanCoverage(
+            span_key=span.span_key,
+            start_char=span.start_char,
+            end_char=span.end_char,
+            query_overlap_terms=overlap,
+            text_bytes=text_bytes,
+            included=False,
+            required_prompt_bytes=required_prompt_bytes,
+            reason=span_reason,
         )
-        if len(evidence) >= 8:
-            excluded.append(f"passage_context_budget:{source.member.passage_key}")
-            continue
-        candidate = GenerationContext(question=question, evidence=(*evidence, item), context=())
-        payload = json.dumps(
-            candidate.model_dump(mode="json"), ensure_ascii=False, separators=(",", ":")
-        )
-        if len((SYSTEM + payload).encode("utf-8")) > max_bytes:
-            excluded.append(f"passage_context_budget:{source.member.passage_key}")
-            continue
-        evidence.append(item)
+
     allowed = {item.passage_key for item in evidence}
     paragraphs: list[ContextParagraph] = []
+    paragraph_coverage: list[ContextParagraphCoverage] = []
     with _read_only(engine) as session:
         for ref in selection.context:
             if ref.selected_passage_key not in allowed:
+                excluded.append(f"expanded_context_anchor_not_included:{ref.paragraph_key}")
+                paragraph_coverage.append(
+                    ContextParagraphCoverage(
+                        paragraph_key=ref.paragraph_key,
+                        included=False,
+                        reason="anchor_passage_not_included",
+                    )
+                )
                 continue
             paragraph = session.scalar(
                 select(ParagraphRecord).where(ParagraphRecord.paragraph_key == ref.paragraph_key)
@@ -288,29 +562,89 @@ def _context(
                 kind=ref.kind,
                 text=paragraph.text,
             )
-            if len(paragraphs) >= 12 or len(paragraph.text) > 12000:
-                excluded.append(f"expanded_context_budget:{ref.paragraph_key}")
-                continue
-            candidate = GenerationContext(
-                question=question, evidence=tuple(evidence), context=(*paragraphs, item)
+            paragraph_reason: (
+                Literal[
+                    "paragraph_count_limit",
+                    "paragraph_byte_limit",
+                    "prompt_byte_budget",
+                ]
+                | None
+            ) = None
+            if len(paragraphs) >= 12:
+                paragraph_reason = "paragraph_count_limit"
+            elif len(paragraph.text) > 12000:
+                paragraph_reason = "paragraph_byte_limit"
+            required_prompt_bytes: int | None = None
+            if paragraph_reason is None:
+                candidate = GenerationContext(
+                    question=question, evidence=tuple(evidence), context=(*paragraphs, item)
+                )
+                candidate_json = serialize_generation_context(candidate)
+                required_prompt_bytes = len((SYSTEM + candidate_json).encode("utf-8"))
+                if required_prompt_bytes > max_bytes:
+                    paragraph_reason = "prompt_byte_budget"
+                else:
+                    incremental_cost = required_prompt_bytes - current_bytes
+                    current_bytes = required_prompt_bytes
+                    context = candidate
+                    paragraphs.append(item)
+                    paragraph_coverage.append(
+                        ContextParagraphCoverage(
+                            paragraph_key=ref.paragraph_key,
+                            included=True,
+                            inclusion_order=len(included_span_keys) + len(paragraphs),
+                            byte_cost=incremental_cost,
+                        )
+                    )
+                    continue
+            excluded.append(f"expanded_context_budget:{ref.paragraph_key}")
+            paragraph_coverage.append(
+                ContextParagraphCoverage(
+                    paragraph_key=ref.paragraph_key,
+                    included=False,
+                    required_prompt_bytes=required_prompt_bytes,
+                    reason=paragraph_reason,
+                )
             )
-            payload = json.dumps(
-                candidate.model_dump(mode="json"), ensure_ascii=False, separators=(",", ":")
-            )
-            if len((SYSTEM + payload).encode("utf-8")) <= max_bytes:
-                paragraphs.append(item)
-            else:
-                excluded.append(f"expanded_context_budget:{ref.paragraph_key}")
-    context = GenerationContext(
-        question=question, evidence=tuple(evidence), context=tuple(paragraphs)
-    )
-    encoded = json.dumps(context.model_dump(mode="json"), ensure_ascii=False, separators=(",", ":"))
+
+    encoded = serialize_generation_context(context)
     size = len((SYSTEM + encoded).encode("utf-8"))
     if size > max_bytes:
         raise ValueError("generation context exceeds configured byte limit")
-    if len(evidence) != len(sources):
-        excluded.append("one_or_more_selected_passages_excluded_by_context_budget")
-    return context, tuple(excluded), size
+    passage_coverage = tuple(
+        ContextPassageCoverage(
+            passage_key=source.member.passage_key,
+            document_version_key=source.member.version_key,
+            fused_rank=decisions[source.member.passage_key].fused_rank,
+            rrf_score=decisions[source.member.passage_key].rrf_score,
+            bm25_rank=decisions[source.member.passage_key].bm25_rank,
+            bm25_score=decisions[source.member.passage_key].bm25_score,
+            dense_rank=decisions[source.member.passage_key].dense_rank,
+            dense_score=decisions[source.member.passage_key].dense_score,
+            spans=tuple(span_coverage[span.span_key] for span in source.spans),
+        )
+        for source in ordered_sources
+    )
+    coverage = ContextCoverageReceipt(
+        context_identity=context.key,
+        budget_bytes=max_bytes,
+        base_prompt_bytes=len(
+            (
+                SYSTEM
+                + serialize_generation_context(
+                    GenerationContext(question=question, evidence=(), context=())
+                )
+            ).encode("utf-8")
+        ),
+        context_bytes=size,
+        selected_passages=passage_coverage,
+        included_span_keys=tuple(included_span_keys),
+        excluded_span_keys=tuple(excluded_span_keys),
+        expanded_context=tuple(paragraph_coverage),
+    )
+    if not included_span_keys:
+        excluded.append("no_complete_source_span_fits_generation_budget")
+    return context, tuple(excluded), size, coverage
 
 
 class StructuredSynthesisService:
@@ -341,7 +675,7 @@ class StructuredSynthesisService:
         if selection.evidence_set is None:
             return _result(selection, "INSUFFICIENT_EVIDENCE")
         sources = materialize_sources(self.engine, selection)
-        context, exclusions, context_bytes = _context(
+        context, exclusions, context_bytes, coverage = _context(
             self.engine, request.selection.question, sources, selection, request.max_context_bytes
         )
         if not context.evidence:
@@ -350,6 +684,7 @@ class StructuredSynthesisService:
                 "INSUFFICIENT_EVIDENCE",
                 context_exclusions=exclusions,
                 context_bytes=context_bytes,
+                context_coverage=coverage,
                 missing_evidence=tuple(
                     dict.fromkeys((*selection.missing, "no_complete_source_fits_generation_budget"))
                 ),
@@ -360,6 +695,7 @@ class StructuredSynthesisService:
                 "PROVIDER_UNAVAILABLE",
                 context_exclusions=exclusions,
                 context_bytes=context_bytes,
+                context_coverage=coverage,
                 diagnostics=("generation_busy",),
             )
         try:
@@ -371,6 +707,7 @@ class StructuredSynthesisService:
                     "PROVIDER_UNAVAILABLE",
                     context_exclusions=exclusions,
                     context_bytes=context_bytes,
+                    context_coverage=coverage,
                     diagnostics=(error.code,),
                 )
         finally:
@@ -393,14 +730,14 @@ class StructuredSynthesisService:
             current = materialize_sources(self.engine, selection)
             if current != sources:
                 raise InvalidProvenanceError("canonical source changed during generation")
-            current_context, _, _ = _context(
+            current_context, _, _, current_coverage = _context(
                 self.engine,
                 request.selection.question,
                 current,
                 selection,
                 request.max_context_bytes,
             )
-            if current_context != context:
+            if current_context != context or current_coverage != coverage:
                 raise InvalidProvenanceError("canonical expanded context changed during generation")
             draft = DraftSynthesis.model_validate_json(attempt.draft.model_dump_json())
             if (
@@ -433,6 +770,7 @@ class StructuredSynthesisService:
                     "INSUFFICIENT_EVIDENCE",
                     context_exclusions=exclusions,
                     context_bytes=context_bytes,
+                    context_coverage=coverage,
                     missing_evidence=missing,
                     proposed_limitations=draft.limitations,
                     generation_semantics=attempt.semantics,
@@ -461,6 +799,7 @@ class StructuredSynthesisService:
                 proposed_claims=draft.claims,
                 context_exclusions=exclusions,
                 context_bytes=context_bytes,
+                context_coverage=coverage,
                 missing_evidence=missing,
                 proposed_limitations=draft.limitations,
                 generation_semantics=attempt.semantics,
@@ -475,6 +814,7 @@ class StructuredSynthesisService:
                 "INVALID_GENERATION",
                 context_exclusions=exclusions,
                 context_bytes=context_bytes,
+                context_coverage=coverage,
                 proposed_claims=attempt.draft.claims,
                 generation_semantics=attempt.semantics,
                 execution_conditions=attempt.conditions,

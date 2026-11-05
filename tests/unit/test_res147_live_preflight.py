@@ -2,11 +2,19 @@ from __future__ import annotations
 
 import json
 import subprocess
+from typing import cast
+from unittest.mock import Mock
 
 import pytest
 import scripts.res147_structured_synthesis as res147
 
 from dynamisrag.config import Settings
+from dynamisrag.generation.provider import (
+    ContextEvidence,
+    ContextSpan,
+    GenerationContext,
+    GenerationProvider,
+)
 from dynamisrag.generation.synthesis import StructuredSynthesisResult
 
 _SETTINGS = {
@@ -120,3 +128,26 @@ def test_public_receipt_keeps_model_missing_evidence_private() -> None:
     assert receipt["missing_evidence_count"] == 1
     assert receipt["automatic_persistence"] is False
     assert "PRIVATE_SOURCE_SENTENCE" not in rendered
+
+
+def test_live_prompt_gate_rejects_a_missing_required_span_before_inference() -> None:
+    context = GenerationContext(
+        question="What was reported?",
+        evidence=(
+            ContextEvidence(
+                passage_key="a" * 64,
+                document_version_key="b" * 64,
+                spans=(ContextSpan(span_key="c" * 64, text="A complete source sentence."),),
+            ),
+        ),
+        context=(),
+    )
+    delegate = Mock()
+    provider = res147.CapturingProvider(
+        cast(GenerationProvider, delegate), required_context_span="d" * 64
+    )
+
+    with pytest.raises(RuntimeError, match="required canonical span"):
+        provider.generate(context)
+
+    delegate.generate.assert_not_called()

@@ -1,0 +1,430 @@
+{
+  "disposition": "SAFETY_OR_PROVENANCE_BLOCKED",
+  "historical_input_audit": {
+    "answer_passage_key": "c7077e35bb0ca23d058955640190dc2f9a4ac066917a33c1fedc96008b89bb32",
+    "answer_quote_sha256": "208ded4aaedeb6363e2d0a5969a2ec43860a4d30b33b87f700fdb5bbf20ad91e",
+    "answer_span_key": "b5716ffb6e7e42661c11681075807ebb0349e8285ecdcccc71a0e5870f8f71e6",
+    "runs": [
+      {
+        "answer_passage_selected": true,
+        "answer_sentence_in_prompt": false,
+        "answer_span_included": false,
+        "answer_span_selected": true,
+        "base_prompt_bytes": 1094,
+        "budget_bytes": 6000,
+        "byte_accounting_matches_context_bytes": true,
+        "byte_accounting_total": 5703,
+        "capture_fidelity": {
+          "context_identity_matches_exact_user_json": true,
+          "raw_response_hash_matches_after_windows_newline_normalization": true,
+          "system_matches_pinned_prompt_after_windows_newline_normalization": true
+        },
+        "context_bytes": 5703,
+        "context_identity": "a75a6b06b98f790a37f9e5ea1d1f8b9e6ec70c1d69b91784251150297d24d51d",
+        "excluded_spans": [
+          {
+            "document_version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b",
+            "passage_key": "c7077e35bb0ca23d058955640190dc2f9a4ac066917a33c1fedc96008b89bb32",
+            "reason": "passage_context_budget",
+            "span_key": "3d2582fe9fc71f6eae7efe068f9ab90365701c3e23b2a054b3f482d15cea0c98"
+          },
+          {
+            "document_version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b",
+            "passage_key": "c7077e35bb0ca23d058955640190dc2f9a4ac066917a33c1fedc96008b89bb32",
+            "reason": "passage_context_budget",
+            "span_key": "b5716ffb6e7e42661c11681075807ebb0349e8285ecdcccc71a0e5870f8f71e6"
+          },
+          {
+            "document_version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b",
+            "passage_key": "c7077e35bb0ca23d058955640190dc2f9a4ac066917a33c1fedc96008b89bb32",
+            "reason": "passage_context_budget",
+            "span_key": "fb1c9cdc9ee390f3d87ada2bf8986fe2ae8ddfeb4aae53b9111c5beb30213044"
+          },
+          {
+            "document_version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b",
+            "passage_key": "c7077e35bb0ca23d058955640190dc2f9a4ac066917a33c1fedc96008b89bb32",
+            "reason": "passage_context_budget",
+            "span_key": "c6f0031f32f0d9025fd16d8bca81b6ffcc40489e137855c69075d983f557a23e"
+          },
+          {
+            "document_version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b",
+            "passage_key": "c7077e35bb0ca23d058955640190dc2f9a4ac066917a33c1fedc96008b89bb32",
+            "reason": "passage_context_budget",
+            "span_key": "e3f6b4c51a235837545c203107bef969c86f62ac56b02b4eb5483b373e32ba14"
+          },
+          {
+            "document_version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b",
+            "passage_key": "c7077e35bb0ca23d058955640190dc2f9a4ac066917a33c1fedc96008b89bb32",
+            "reason": "passage_context_budget",
+            "span_key": "9cac2e4b324e0748becde52e90faede55f6b158858badfcbe07bcbb63b56a961"
+          },
+          {
+            "document_version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b",
+            "passage_key": "c7077e35bb0ca23d058955640190dc2f9a4ac066917a33c1fedc96008b89bb32",
+            "reason": "passage_context_budget",
+            "span_key": "3ab5080605a75efd2d6a77263c80e3f7aff1c04cd231bc3244d14e9b67b1e4d2"
+          },
+          {
+            "document_version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b",
+            "passage_key": "c7077e35bb0ca23d058955640190dc2f9a4ac066917a33c1fedc96008b89bb32",
+            "reason": "passage_context_budget",
+            "span_key": "c1d51e86c92232623fc12ce4df551634c36723ebbc917af3c56caa9b01798278"
+          },
+          {
+            "document_version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b",
+            "passage_key": "c7077e35bb0ca23d058955640190dc2f9a4ac066917a33c1fedc96008b89bb32",
+            "reason": "passage_context_budget",
+            "span_key": "bff5d38d1ebe50b89a81852e7842c7a85aeedcde5c95634a6d9ec6a398e5d702"
+          },
+          {
+            "document_version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b",
+            "passage_key": "c7077e35bb0ca23d058955640190dc2f9a4ac066917a33c1fedc96008b89bb32",
+            "reason": "passage_context_budget",
+            "span_key": "63d30779ceea91af953bdd4689a7282cddbb5a6edc0884c73045dbc09eceb675"
+          },
+          {
+            "document_version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b",
+            "passage_key": "c7077e35bb0ca23d058955640190dc2f9a4ac066917a33c1fedc96008b89bb32",
+            "reason": "passage_context_budget",
+            "span_key": "33bfe60c84e9dcbe73527b733ad4ef4f688ba2b9eb77071ea2fa4f701db42ae0"
+          }
+        ],
+        "expanded_context": [],
+        "included_spans": [
+          {
+            "document_version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b",
+            "inclusion_order": 1,
+            "passage_key": "92eed038642d433d5d079750cfd4b427095726e2e546ecd3b834985639515fc4",
+            "prompt_byte_cost": 1543,
+            "span_key": "39c2a63080024ee1fe34e191ca33846b9ea2e64b870332cf8d0dd61e2eb50469",
+            "text_bytes": 1271
+          },
+          {
+            "document_version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e",
+            "inclusion_order": 2,
+            "passage_key": "8b8822ff7c198527bc63ef606c59e6e0486b3c22144207a2d10969d1c2796a35",
+            "prompt_byte_cost": 787,
+            "span_key": "de7c81eaef2d1049c363ee180ffbeac907fed5073e5c9bc578beff5139d5460c",
+            "text_bytes": 514
+          },
+          {
+            "document_version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643",
+            "inclusion_order": 3,
+            "passage_key": "be4b7e3581f0b808084165f5a7eb205ec4e8fedb3d9fbf28412dcc6d016270fd",
+            "prompt_byte_cost": 1292,
+            "span_key": "645900d0033ef3e192e28a87fca06bc5fdc9eda391811dbdef22c7e48c9c2c4b",
+            "text_bytes": 1019
+          },
+          {
+            "document_version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b",
+            "inclusion_order": 4,
+            "passage_key": "4f72bcf44071a4a1ebd326158834fefec6fee367b4331c07a03a42f66fcf6f7d",
+            "prompt_byte_cost": 987,
+            "span_key": "a68787d7c9945bc51ea6af37b0219be7a4487c4d3d51742ca745b7efc3090556",
+            "text_bytes": 714
+          }
+        ],
+        "message_sha256": "053185bc2711de3b9e69735c0987d101c485a7d9cdef3fd53594aaa683f50ebe",
+        "question": "What did the study report about differences in the descriptive baseline variables?",
+        "question_identity": "200f6522fa19daa77b25dbf10faa0969a6a03541098068f8bc41cee94a5ca2df",
+        "raw_response_sha256": "5f1839bbf019d8b9e48f57aa73ac3f76eab467e6acb0ab11505b91460786484b",
+        "selected_passages": [
+          {
+            "bm25_rank": 3,
+            "dense_rank": 1,
+            "document_version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b",
+            "fused_rank": 1,
+            "passage_key": "92eed038642d433d5d079750cfd4b427095726e2e546ecd3b834985639515fc4",
+            "rrf_score": 0.032266458495966696,
+            "selected_span_keys": [
+              "39c2a63080024ee1fe34e191ca33846b9ea2e64b870332cf8d0dd61e2eb50469"
+            ]
+          },
+          {
+            "bm25_rank": 1,
+            "dense_rank": 11,
+            "document_version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e",
+            "fused_rank": 4,
+            "passage_key": "8b8822ff7c198527bc63ef606c59e6e0486b3c22144207a2d10969d1c2796a35",
+            "rrf_score": 0.03047794966520434,
+            "selected_span_keys": [
+              "de7c81eaef2d1049c363ee180ffbeac907fed5073e5c9bc578beff5139d5460c"
+            ]
+          },
+          {
+            "bm25_rank": 8,
+            "dense_rank": 5,
+            "document_version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643",
+            "fused_rank": 5,
+            "passage_key": "be4b7e3581f0b808084165f5a7eb205ec4e8fedb3d9fbf28412dcc6d016270fd",
+            "rrf_score": 0.030090497737556562,
+            "selected_span_keys": [
+              "645900d0033ef3e192e28a87fca06bc5fdc9eda391811dbdef22c7e48c9c2c4b"
+            ]
+          },
+          {
+            "bm25_rank": 2,
+            "dense_rank": 2,
+            "document_version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b",
+            "fused_rank": 2,
+            "passage_key": "c7077e35bb0ca23d058955640190dc2f9a4ac066917a33c1fedc96008b89bb32",
+            "rrf_score": 0.03225806451612903,
+            "selected_span_keys": [
+              "3d2582fe9fc71f6eae7efe068f9ab90365701c3e23b2a054b3f482d15cea0c98",
+              "b5716ffb6e7e42661c11681075807ebb0349e8285ecdcccc71a0e5870f8f71e6",
+              "fb1c9cdc9ee390f3d87ada2bf8986fe2ae8ddfeb4aae53b9111c5beb30213044",
+              "c6f0031f32f0d9025fd16d8bca81b6ffcc40489e137855c69075d983f557a23e",
+              "e3f6b4c51a235837545c203107bef969c86f62ac56b02b4eb5483b373e32ba14",
+              "9cac2e4b324e0748becde52e90faede55f6b158858badfcbe07bcbb63b56a961",
+              "3ab5080605a75efd2d6a77263c80e3f7aff1c04cd231bc3244d14e9b67b1e4d2",
+              "c1d51e86c92232623fc12ce4df551634c36723ebbc917af3c56caa9b01798278",
+              "bff5d38d1ebe50b89a81852e7842c7a85aeedcde5c95634a6d9ec6a398e5d702",
+              "63d30779ceea91af953bdd4689a7282cddbb5a6edc0884c73045dbc09eceb675",
+              "33bfe60c84e9dcbe73527b733ad4ef4f688ba2b9eb77071ea2fa4f701db42ae0"
+            ]
+          },
+          {
+            "bm25_rank": 5,
+            "dense_rank": 6,
+            "document_version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b",
+            "fused_rank": 3,
+            "passage_key": "4f72bcf44071a4a1ebd326158834fefec6fee367b4331c07a03a42f66fcf6f7d",
+            "rrf_score": 0.030536130536130537,
+            "selected_span_keys": [
+              "a68787d7c9945bc51ea6af37b0219be7a4487c4d3d51742ca745b7efc3090556"
+            ]
+          }
+        ],
+        "status": "INSUFFICIENT_EVIDENCE"
+      },
+      {
+        "answer_passage_selected": true,
+        "answer_sentence_in_prompt": false,
+        "answer_span_included": false,
+        "answer_span_selected": true,
+        "base_prompt_bytes": 1091,
+        "budget_bytes": 6000,
+        "byte_accounting_matches_context_bytes": true,
+        "byte_accounting_total": 5700,
+        "capture_fidelity": {
+          "context_identity_matches_exact_user_json": true,
+          "raw_response_hash_matches_after_windows_newline_normalization": true,
+          "system_matches_pinned_prompt_after_windows_newline_normalization": true
+        },
+        "context_bytes": 5700,
+        "context_identity": "f353e8a638354d1f9f676e6cd02fe9b81349b421b93803beacc18629821558ff",
+        "excluded_spans": [
+          {
+            "document_version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b",
+            "passage_key": "c7077e35bb0ca23d058955640190dc2f9a4ac066917a33c1fedc96008b89bb32",
+            "reason": "passage_context_budget",
+            "span_key": "3d2582fe9fc71f6eae7efe068f9ab90365701c3e23b2a054b3f482d15cea0c98"
+          },
+          {
+            "document_version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b",
+            "passage_key": "c7077e35bb0ca23d058955640190dc2f9a4ac066917a33c1fedc96008b89bb32",
+            "reason": "passage_context_budget",
+            "span_key": "b5716ffb6e7e42661c11681075807ebb0349e8285ecdcccc71a0e5870f8f71e6"
+          },
+          {
+            "document_version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b",
+            "passage_key": "c7077e35bb0ca23d058955640190dc2f9a4ac066917a33c1fedc96008b89bb32",
+            "reason": "passage_context_budget",
+            "span_key": "fb1c9cdc9ee390f3d87ada2bf8986fe2ae8ddfeb4aae53b9111c5beb30213044"
+          },
+          {
+            "document_version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b",
+            "passage_key": "c7077e35bb0ca23d058955640190dc2f9a4ac066917a33c1fedc96008b89bb32",
+            "reason": "passage_context_budget",
+            "span_key": "c6f0031f32f0d9025fd16d8bca81b6ffcc40489e137855c69075d983f557a23e"
+          },
+          {
+            "document_version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b",
+            "passage_key": "c7077e35bb0ca23d058955640190dc2f9a4ac066917a33c1fedc96008b89bb32",
+            "reason": "passage_context_budget",
+            "span_key": "e3f6b4c51a235837545c203107bef969c86f62ac56b02b4eb5483b373e32ba14"
+          },
+          {
+            "document_version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b",
+            "passage_key": "c7077e35bb0ca23d058955640190dc2f9a4ac066917a33c1fedc96008b89bb32",
+            "reason": "passage_context_budget",
+            "span_key": "9cac2e4b324e0748becde52e90faede55f6b158858badfcbe07bcbb63b56a961"
+          },
+          {
+            "document_version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b",
+            "passage_key": "c7077e35bb0ca23d058955640190dc2f9a4ac066917a33c1fedc96008b89bb32",
+            "reason": "passage_context_budget",
+            "span_key": "3ab5080605a75efd2d6a77263c80e3f7aff1c04cd231bc3244d14e9b67b1e4d2"
+          },
+          {
+            "document_version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b",
+            "passage_key": "c7077e35bb0ca23d058955640190dc2f9a4ac066917a33c1fedc96008b89bb32",
+            "reason": "passage_context_budget",
+            "span_key": "c1d51e86c92232623fc12ce4df551634c36723ebbc917af3c56caa9b01798278"
+          },
+          {
+            "document_version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b",
+            "passage_key": "c7077e35bb0ca23d058955640190dc2f9a4ac066917a33c1fedc96008b89bb32",
+            "reason": "passage_context_budget",
+            "span_key": "bff5d38d1ebe50b89a81852e7842c7a85aeedcde5c95634a6d9ec6a398e5d702"
+          },
+          {
+            "document_version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b",
+            "passage_key": "c7077e35bb0ca23d058955640190dc2f9a4ac066917a33c1fedc96008b89bb32",
+            "reason": "passage_context_budget",
+            "span_key": "63d30779ceea91af953bdd4689a7282cddbb5a6edc0884c73045dbc09eceb675"
+          },
+          {
+            "document_version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b",
+            "passage_key": "c7077e35bb0ca23d058955640190dc2f9a4ac066917a33c1fedc96008b89bb32",
+            "reason": "passage_context_budget",
+            "span_key": "33bfe60c84e9dcbe73527b733ad4ef4f688ba2b9eb77071ea2fa4f701db42ae0"
+          }
+        ],
+        "expanded_context": [],
+        "included_spans": [
+          {
+            "document_version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b",
+            "inclusion_order": 1,
+            "passage_key": "92eed038642d433d5d079750cfd4b427095726e2e546ecd3b834985639515fc4",
+            "prompt_byte_cost": 1543,
+            "span_key": "39c2a63080024ee1fe34e191ca33846b9ea2e64b870332cf8d0dd61e2eb50469",
+            "text_bytes": 1271
+          },
+          {
+            "document_version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e",
+            "inclusion_order": 2,
+            "passage_key": "8b8822ff7c198527bc63ef606c59e6e0486b3c22144207a2d10969d1c2796a35",
+            "prompt_byte_cost": 787,
+            "span_key": "de7c81eaef2d1049c363ee180ffbeac907fed5073e5c9bc578beff5139d5460c",
+            "text_bytes": 514
+          },
+          {
+            "document_version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643",
+            "inclusion_order": 3,
+            "passage_key": "be4b7e3581f0b808084165f5a7eb205ec4e8fedb3d9fbf28412dcc6d016270fd",
+            "prompt_byte_cost": 1292,
+            "span_key": "645900d0033ef3e192e28a87fca06bc5fdc9eda391811dbdef22c7e48c9c2c4b",
+            "text_bytes": 1019
+          },
+          {
+            "document_version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b",
+            "inclusion_order": 4,
+            "passage_key": "4f72bcf44071a4a1ebd326158834fefec6fee367b4331c07a03a42f66fcf6f7d",
+            "prompt_byte_cost": 987,
+            "span_key": "a68787d7c9945bc51ea6af37b0219be7a4487c4d3d51742ca745b7efc3090556",
+            "text_bytes": 714
+          }
+        ],
+        "message_sha256": "3aff5b556393dfacb2d9391d76b1eeb808ee8e31d60e8e3182c8ce08964d2325",
+        "question": "Were the descriptive baseline variables statistically different between groups?",
+        "question_identity": "3cd1295bb05ce98a5e1bbfe823dc911eca79daf9c0edb00049acb1e1c6dcef68",
+        "raw_response_sha256": "4a9b266a442d25918fa4d6e9672728640ed81a2b14847e352fd7c6e1445fff15",
+        "selected_passages": [
+          {
+            "bm25_rank": 1,
+            "dense_rank": 1,
+            "document_version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b",
+            "fused_rank": 1,
+            "passage_key": "92eed038642d433d5d079750cfd4b427095726e2e546ecd3b834985639515fc4",
+            "rrf_score": 0.03278688524590164,
+            "selected_span_keys": [
+              "39c2a63080024ee1fe34e191ca33846b9ea2e64b870332cf8d0dd61e2eb50469"
+            ]
+          },
+          {
+            "bm25_rank": 3,
+            "dense_rank": 8,
+            "document_version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e",
+            "fused_rank": 4,
+            "passage_key": "8b8822ff7c198527bc63ef606c59e6e0486b3c22144207a2d10969d1c2796a35",
+            "rrf_score": 0.03057889822595705,
+            "selected_span_keys": [
+              "de7c81eaef2d1049c363ee180ffbeac907fed5073e5c9bc578beff5139d5460c"
+            ]
+          },
+          {
+            "bm25_rank": 14,
+            "dense_rank": 2,
+            "document_version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643",
+            "fused_rank": 6,
+            "passage_key": "be4b7e3581f0b808084165f5a7eb205ec4e8fedb3d9fbf28412dcc6d016270fd",
+            "rrf_score": 0.02964254577157803,
+            "selected_span_keys": [
+              "645900d0033ef3e192e28a87fca06bc5fdc9eda391811dbdef22c7e48c9c2c4b"
+            ]
+          },
+          {
+            "bm25_rank": 2,
+            "dense_rank": 4,
+            "document_version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b",
+            "fused_rank": 2,
+            "passage_key": "c7077e35bb0ca23d058955640190dc2f9a4ac066917a33c1fedc96008b89bb32",
+            "rrf_score": 0.031754032258064516,
+            "selected_span_keys": [
+              "3d2582fe9fc71f6eae7efe068f9ab90365701c3e23b2a054b3f482d15cea0c98",
+              "b5716ffb6e7e42661c11681075807ebb0349e8285ecdcccc71a0e5870f8f71e6",
+              "fb1c9cdc9ee390f3d87ada2bf8986fe2ae8ddfeb4aae53b9111c5beb30213044",
+              "c6f0031f32f0d9025fd16d8bca81b6ffcc40489e137855c69075d983f557a23e",
+              "e3f6b4c51a235837545c203107bef969c86f62ac56b02b4eb5483b373e32ba14",
+              "9cac2e4b324e0748becde52e90faede55f6b158858badfcbe07bcbb63b56a961",
+              "3ab5080605a75efd2d6a77263c80e3f7aff1c04cd231bc3244d14e9b67b1e4d2",
+              "c1d51e86c92232623fc12ce4df551634c36723ebbc917af3c56caa9b01798278",
+              "bff5d38d1ebe50b89a81852e7842c7a85aeedcde5c95634a6d9ec6a398e5d702",
+              "63d30779ceea91af953bdd4689a7282cddbb5a6edc0884c73045dbc09eceb675",
+              "33bfe60c84e9dcbe73527b733ad4ef4f688ba2b9eb77071ea2fa4f701db42ae0"
+            ]
+          },
+          {
+            "bm25_rank": 4,
+            "dense_rank": 5,
+            "document_version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b",
+            "fused_rank": 3,
+            "passage_key": "4f72bcf44071a4a1ebd326158834fefec6fee367b4331c07a03a42f66fcf6f7d",
+            "rrf_score": 0.031009615384615385,
+            "selected_span_keys": [
+              "a68787d7c9945bc51ea6af37b0219be7a4487c4d3d51742ca745b7efc3090556"
+            ]
+          }
+        ],
+        "status": "INSUFFICIENT_EVIDENCE"
+      }
+    ],
+    "unique_answer_sentence_hash_match_in_selected_passage": 1
+  },
+  "historical_packing_behavior": "The pre-repair packer admitted every verified span of a passage together or excluded the entire passage.",
+  "live_reexecution_block": {
+    "new_candidate_or_qdrant_identity_check": "not_run",
+    "pinned_ollama_invoked": false,
+    "quarantined_reference_database_accessed": false,
+    "reason": "No settings in the exact-head worktree target the attested 127.0.0.1:55433 dynamisrag_test_res147_candidate database. The available configuration was rejected by the preflight guard before any connection."
+  },
+  "local_verification": {
+    "affected_tests_passed": 37,
+    "database_connection_attempted": false,
+    "isolated_integration_suite": "blocked_at_settings_preflight_before_database_connection",
+    "new_live_generation": "not_run",
+    "ruff_check": "passed",
+    "ruff_format": "passed",
+    "strict_pyright": "passed",
+    "unit_tests_deselected": 287,
+    "unit_tests_passed": 2572,
+    "uv_lock_check": "passed"
+  },
+  "policy_revision": "res147-context-span-first-v1",
+  "repair": {
+    "automatic_persistence": false,
+    "citations_limited_to_included_span_keys": true,
+    "claim_origin": "MODEL_PROPOSED",
+    "coverage_receipt_contains_selected_passages_included_and_excluded_span_keys_inclusion_order_byte_costs_policy_revision_and_context_identity": true,
+    "maximum_prompt_bytes": 6000,
+    "original_character_coordinates_preserved": true,
+    "priority": "distinct NFKC/casefold question-token overlap, then fused rank, RRF score, BM25 rank/score, dense rank/score, and stable source/span order",
+    "review_state": "PROPOSED",
+    "source_text_or_raw_response_in_public_receipt": false,
+    "whole_canonical_spans_only": true
+  },
+  "reviewed_date": "2026-11-05",
+  "schema_revision": "res147-context-packing-repair-review-v1",
+  "starting_head": "c2c68386b0aaaeee951f9284072e33f8a511c420"
+}

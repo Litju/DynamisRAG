@@ -1,6 +1,5 @@
 """Adapter from the typed synthesis port to the repository's pinned Ollama client."""
 
-import json
 from threading import BoundedSemaphore
 
 from dynamisrag.generation.ollama import OPTIONS, GenerationUnavailableError, OllamaClient
@@ -13,6 +12,7 @@ from dynamisrag.generation.provider import (
     GenerationSemantics,
     GenerationSettings,
     ModelIdentity,
+    serialize_generation_context,
 )
 from dynamisrag.generation.structured import POLICY_SHA256, SYSTEM
 
@@ -26,9 +26,7 @@ class OllamaGenerationProvider:
         if not self.gate.acquire(blocking=False):
             raise GenerationUnavailableError("generation_busy")
         try:
-            serialized = json.dumps(
-                context.model_dump(mode="json"), ensure_ascii=False, separators=(",", ":")
-            )
+            serialized = serialize_generation_context(context)
             draft, identity, metrics, raw = self.client.generate_typed(
                 SYSTEM, serialized, DraftSynthesis
             )

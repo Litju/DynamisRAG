@@ -1,6 +1,7 @@
 """Structured proposal contracts; no model or database is used in unit tests."""
 
 import json
+from contextlib import AbstractContextManager, nullcontext
 from hashlib import sha256
 from types import SimpleNamespace
 from typing import cast
@@ -9,10 +10,11 @@ from unittest.mock import Mock
 import httpx2
 import pytest
 from pydantic import ValidationError
-from sqlalchemy import create_engine
+from sqlalchemy import Engine, create_engine
+from sqlalchemy.orm import Session
 
 from dynamisrag.domain.evidence import Claim, EvidenceGraph, EvidenceMember, EvidenceSet, Relation
-from dynamisrag.evidence.contracts import SelectionRequest, SelectionResult
+from dynamisrag.evidence.contracts import SelectionDecision, SelectionRequest, SelectionResult
 from dynamisrag.generation.ollama import (
     CONTEXT_TOKENS,
     DIGEST,
@@ -30,9 +32,15 @@ from dynamisrag.generation.provider import (
     DraftSynthesis,
     GenerationContext,
     GenerationProvider,
+    serialize_generation_context,
 )
 from dynamisrag.generation.structured import SYSTEM
-from dynamisrag.generation.synthesis import StructuredSynthesisService, SynthesisRequest
+from dynamisrag.generation.synthesis import (
+    ContextCoverageReceipt,
+    StructuredSynthesisService,
+    SynthesisRequest,
+    _context,  # pyright: ignore[reportPrivateUsage]
+)
 from dynamisrag.generation.validation import VerifiedSource, VerifiedSpan, build_graph
 from dynamisrag.search.scientific import ScientificRetrievalService
 from tests.unit.test_evidence_selection import request_for, response_fixture
@@ -111,6 +119,283 @@ def graph(candidate: DraftSynthesis) -> EvidenceGraph:
         policy_sha256=_POLICY,
         allowed_spans={_PASSAGE: frozenset({_SPAN, _OTHER_SPAN})},
     )
+
+
+def _no_read_only(_engine: Engine) -> AbstractContextManager[Session]:
+    return nullcontext(cast(Session, None))
+
+
+def _verified_source(texts: tuple[str, ...], *, label: str = "source") -> VerifiedSource:
+    passage_key = sha256(f"{label}:passage".encode()).hexdigest()
+    version_key = sha256(f"{label}:version".encode()).hexdigest()
+    spans = tuple(
+        VerifiedSpan(
+            sha256(f"{label}:{i}:{text}".encode()).hexdigest(),
+            text,
+            text,
+            0,
+            len(text),
+        )
+        for i, text in enumerate(texts)
+    )
+    member = EvidenceMember(
+        passage_key=passage_key,
+        version_key=version_key,
+        span_keys=tuple(span.span_key for span in spans),
+        provenance_sha256=sha256(f"{label}:provenance".encode()).hexdigest(),
+    )
+    return VerifiedSource(member, " ".join(texts), spans)
+
+
+def _context_selection(
+    question: str, sources: tuple[VerifiedSource, ...]
+) -> tuple[SelectionRequest, SelectionResult]:
+    request = request_for(response_fixture()).model_copy(update={"question": question})
+    members = tuple(source.member for source in sources)
+    evidence_set = EvidenceSet(
+        question_id=request.question_id,
+        question=question,
+        corpus_id=request.corpus.key,
+        selection_context="unit-context-packing",
+        members=members,
+    )
+    decisions = tuple(
+        SelectionDecision(
+            passage_key=source.member.passage_key,
+            fused_rank=rank,
+            rrf_score=1 / (60 + rank),
+            bm25_rank=rank,
+            bm25_score=float(100 - rank),
+            dense_rank=rank,
+            dense_score=1 / rank,
+            version_key=source.member.version_key,
+            document_key=f"document-{rank}",
+            section_key=None,
+            disposition="SELECTED",
+            reason="ranked",
+        )
+        for rank, source in enumerate(sources, 1)
+    )
+    selection = SelectionResult(
+        request_sha256=request.key,
+        question_id=request.question_id,
+        corpus_sha256=request.corpus.key,
+        policy_sha256=request.policy.key,
+        response_sha256="e" * 64,
+        authenticity="live-service-call",
+        evidence_set=evidence_set,
+        decisions=decisions,
+        context=(),
+        context_exclusions=(),
+        selected_bytes=0,
+        expanded_bytes=0,
+        documents=len(sources),
+        versions=len(sources),
+        sections=len(sources),
+        missing=(),
+    )
+    return request, selection
+
+
+def _pack_context(
+    monkeypatch: pytest.MonkeyPatch,
+    question: str,
+    sources: tuple[VerifiedSource, ...],
+    selection: SelectionResult,
+    max_bytes: int,
+) -> tuple[GenerationContext, tuple[str, ...], int, ContextCoverageReceipt]:
+    monkeypatch.setattr(
+        "dynamisrag.generation.synthesis._read_only",
+        _no_read_only,
+    )
+    return _context(cast(Engine, object()), question, sources, selection, max_bytes)
+
+
+def _single_span_budget(question: str, source: VerifiedSource, span: VerifiedSpan) -> int:
+    context = GenerationContext(
+        question=question,
+        evidence=(
+            ContextEvidence(
+                passage_key=source.member.passage_key,
+                document_version_key=source.member.version_key,
+                spans=(ContextSpan(span_key=span.span_key, text=span.text),),
+            ),
+        ),
+        context=(),
+    )
+    return len((SYSTEM + serialize_generation_context(context)).encode("utf-8"))
+
+
+def test_context_packing_keeps_whole_spans_when_a_passage_will_not_fit_whole(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    question = "Were baseline variables statistically different?"
+    relevant = "Baseline variables differed statistically between groups."
+    oversized = "Unrelated laboratory measurements were recorded. " * 170
+    source = _verified_source((relevant, oversized))
+    _, selection = _context_selection(question, (source,))
+
+    context, exclusions, byte_count, receipt = _pack_context(
+        monkeypatch, question, (source,), selection, max_bytes=6000
+    )
+
+    assert len(source.text.encode("utf-8")) > 6000
+    assert [span.span_key for span in context.evidence[0].spans] == [source.spans[0].span_key]
+    included = context.evidence[0].spans[0]
+    assert included.text == relevant
+    assert (
+        source.spans[0].paragraph_text[source.spans[0].start_char : source.spans[0].end_char]
+        == included.text
+    )
+    assert any(
+        "prompt_byte_budget" in item and source.spans[1].span_key in item for item in exclusions
+    )
+    assert receipt.included_span_keys == (source.spans[0].span_key,)
+    assert receipt.excluded_span_keys == (source.spans[1].span_key,)
+    assert byte_count == receipt.context_bytes <= receipt.budget_bytes
+    assert (
+        receipt.base_prompt_bytes
+        + sum(
+            span.byte_cost or 0 for passage in receipt.selected_passages for span in passage.spans
+        )
+        == byte_count
+    )
+
+
+def test_query_overlap_can_beat_retrieval_rank_and_excluded_spans_cannot_be_cited(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    question = "Were baseline variables statistically different?"
+    retrieved_first = _verified_source(
+        ("Instrument calibration was reported in the methods section.",), label="rank-one"
+    )
+    relevant = _verified_source(
+        ("Baseline variables differed statistically between groups.",), label="rank-two"
+    )
+    sources = (retrieved_first, relevant)
+    _, selection = _context_selection(question, sources)
+    budget = _single_span_budget(question, relevant, relevant.spans[0])
+
+    context, _, _, receipt = _pack_context(monkeypatch, question, sources, selection, budget)
+
+    assert [(item.fused_rank, item.passage_key) for item in receipt.selected_passages] == [
+        (1, retrieved_first.member.passage_key),
+        (2, relevant.member.passage_key),
+    ]
+    assert context.evidence[0].passage_key == relevant.member.passage_key
+    assert receipt.included_span_keys == (relevant.spans[0].span_key,)
+    assert (
+        next(
+            span.query_overlap_terms
+            for passage in receipt.selected_passages
+            for span in passage.spans
+            if span.span_key == relevant.spans[0].span_key
+        )
+        > 0
+    )
+
+    allowed = {
+        item.passage_key: frozenset(span.span_key for span in item.spans)
+        for item in context.evidence
+    }
+    evidence_set = selection.evidence_set
+    assert evidence_set is not None
+    included_graph = build_graph(
+        evidence_set,
+        sources,
+        draft(
+            proposition=relevant.spans[0].text,
+            quote=relevant.spans[0].text,
+            passage_key=relevant.member.passage_key,
+            span_key=relevant.spans[0].span_key,
+        ),
+        model_identity="f" * 64,
+        policy_sha256=_POLICY,
+        allowed_spans=allowed,
+    )
+    assert included_graph.links[0].span_key == relevant.spans[0].span_key
+    with pytest.raises(ValueError, match="unknown or nonmember"):
+        build_graph(
+            evidence_set,
+            sources,
+            draft(
+                proposition=retrieved_first.spans[0].text,
+                quote=retrieved_first.spans[0].text,
+                passage_key=retrieved_first.member.passage_key,
+                span_key=retrieved_first.spans[0].span_key,
+            ),
+            model_identity="f" * 64,
+            policy_sha256=_POLICY,
+            allowed_spans=allowed,
+        )
+
+
+def test_context_packing_rejects_bad_coordinates_and_is_deterministic(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    question = "What was reported?"
+    source = _verified_source(
+        ("The study reported a complete result.", "A second result was reported.")
+    )
+    _, selection = _context_selection(question, (source,))
+    first = _pack_context(monkeypatch, question, (source,), selection, 6000)
+    second = _pack_context(monkeypatch, question, (source,), selection, 6000)
+    assert first == second
+
+    span = source.spans[0]
+    incorrect = VerifiedSource(
+        source.member,
+        source.text,
+        (
+            VerifiedSpan(span.span_key, span.text, span.paragraph_text, 1, span.end_char),
+            *source.spans[1:],
+        ),
+    )
+    with pytest.raises(ValueError, match="span inventory or coordinates"):
+        _pack_context(monkeypatch, question, (incorrect,), selection, 6000)
+
+
+def test_no_complete_span_abstains_with_exact_budget_diagnostics(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    question = "What was the result?"
+    source = _verified_source(("The result was reported in the trial.",))
+    request, selection = _context_selection(question, (source,))
+    base_context = GenerationContext(question=question, evidence=(), context=())
+    budget = len((SYSTEM + serialize_generation_context(base_context)).encode("utf-8"))
+
+    def select_prepared(
+        _service: ScientificRetrievalService, _request: SelectionRequest
+    ) -> SelectionResult:
+        return selection
+
+    def materialize_prepared(
+        _engine: Engine, _selection: SelectionResult
+    ) -> tuple[VerifiedSource, ...]:
+        return (source,)
+
+    monkeypatch.setattr("dynamisrag.generation.synthesis.select_live", select_prepared)
+    monkeypatch.setattr("dynamisrag.generation.synthesis.materialize_sources", materialize_prepared)
+    monkeypatch.setattr("dynamisrag.generation.synthesis._read_only", _no_read_only)
+    provider = Mock()
+    service = StructuredSynthesisService(
+        cast(ScientificRetrievalService, SimpleNamespace(engine=cast(Engine, object()))),
+        cast(GenerationProvider, provider),
+    )
+
+    result = service.synthesize(SynthesisRequest(selection=request, max_context_bytes=budget))
+
+    assert result.status == "INSUFFICIENT_EVIDENCE"
+    assert result.context_bytes == budget
+    assert "no_complete_source_fits_generation_budget" in result.missing_evidence
+    assert result.context_coverage is not None
+    assert result.context_coverage.excluded_span_keys == (source.spans[0].span_key,)
+    required_prompt_bytes = (
+        result.context_coverage.selected_passages[0].spans[0].required_prompt_bytes
+    )
+    assert required_prompt_bytes is not None and required_prompt_bytes > budget
+    assert any("prompt_byte_budget" in item for item in result.context_exclusions)
+    provider.generate.assert_not_called()
 
 
 def test_exact_quote_reconstructs_proposed_graph() -> None:

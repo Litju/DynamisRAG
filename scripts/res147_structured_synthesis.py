@@ -27,9 +27,14 @@ from dynamisrag.db.test_cluster import (
 )
 from dynamisrag.domain.identity import evidence_identity
 from dynamisrag.evidence.contracts import RetrievalIdentity, SelectionRequest
-from dynamisrag.generation.ollama import OllamaClient
+from dynamisrag.generation.ollama import PROMPT_BYTES, OllamaClient
 from dynamisrag.generation.ollama_provider import OllamaGenerationProvider
-from dynamisrag.generation.provider import GenerationAttempt, GenerationContext, GenerationProvider
+from dynamisrag.generation.provider import (
+    GenerationAttempt,
+    GenerationContext,
+    GenerationProvider,
+    serialize_generation_context,
+)
 from dynamisrag.generation.structured import POLICY_SHA256, SYSTEM
 from dynamisrag.generation.synthesis import (
     StructuredSynthesisResult,
@@ -198,11 +203,50 @@ def source_files_receipt(evidence_directory: Path) -> str:
 
 
 class CapturingProvider:
-    def __init__(self, delegate: GenerationProvider) -> None:
+    def __init__(
+        self, delegate: GenerationProvider, required_context_span: str | None = None
+    ) -> None:
         self.delegate = delegate
+        self.required_context_span = required_context_span
         self.capture_dir: Path | None = None
+        self.required_span_verified = False
+        self.prompt_sha256: str | None = None
+        self.prompt_bytes: int | None = None
 
     def generate(self, context: GenerationContext) -> GenerationAttempt:
+        serialized = serialize_generation_context(context)
+        self.prompt_bytes = len((SYSTEM + serialized).encode("utf-8"))
+        if self.prompt_bytes > PROMPT_BYTES:
+            raise RuntimeError("serialized generation input exceeds the pinned prompt budget")
+        messages = json.dumps(
+            [
+                {"role": "system", "content": SYSTEM},
+                {"role": "user", "content": serialized},
+            ],
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        self.prompt_sha256 = hashlib.sha256(messages.encode("utf-8")).hexdigest()
+        if self.required_context_span is not None:
+            matching_spans = [
+                (evidence.passage_key, span)
+                for evidence in context.evidence
+                for span in evidence.spans
+                if span.span_key == self.required_context_span
+            ]
+            wire_context = json.loads(serialized)
+            wire_spans = {
+                (evidence["passage_key"], span["span_key"]): span["text"]
+                for evidence in wire_context["evidence"]
+                for span in evidence["spans"]
+            }
+            if (
+                len(matching_spans) != 1
+                or wire_spans.get((matching_spans[0][0], self.required_context_span))
+                != matching_spans[0][1].text
+            ):
+                raise RuntimeError("required canonical span is absent from serialized Ollama input")
+            self.required_span_verified = True
         private_root = PRIVATE_ROOT.resolve()
         if not private_root.is_relative_to(ROOT.resolve()):
             raise RuntimeError("private capture root resolved outside the repository")
@@ -218,22 +262,19 @@ class CapturingProvider:
         ).stdout
         if tracked:
             raise RuntimeError("private capture root is not ignored local evidence storage")
-        attempt = self.delegate.generate(context)
         self.capture_dir = private_root / uuid4().hex
         self.capture_dir.mkdir(parents=True, exist_ok=False)
-        (self.capture_dir / "system.txt").write_text(SYSTEM, encoding="utf-8")
-        (self.capture_dir / "user.json").write_text(
-            json.dumps(context.model_dump(mode="json"), ensure_ascii=False, separators=(",", ":")),
-            encoding="utf-8",
-        )
-        (self.capture_dir / "response.json").write_text(attempt.raw_output, encoding="utf-8")
+        (self.capture_dir / "system.txt").write_bytes(SYSTEM.encode("utf-8"))
+        (self.capture_dir / "user.json").write_bytes(serialized.encode("utf-8"))
+        attempt = self.delegate.generate(context)
+        (self.capture_dir / "response.json").write_bytes(attempt.raw_output.encode("utf-8"))
         return attempt
 
 
 def public_receipt(result: StructuredSynthesisResult, *, question: str) -> dict[str, object]:
     graph = result.graph
     return {
-        "schema_revision": "res147-public-receipt-v1",
+        "schema_revision": "res147-public-receipt-v2",
         "question": question,
         "status": result.status,
         "question_identity": result.question_identity,
@@ -287,6 +328,9 @@ def public_receipt(result: StructuredSynthesisResult, *, question: str) -> dict[
         "limitations": result.limitations,
         "context_bytes": result.context_bytes,
         "context_exclusions": result.context_exclusions,
+        "context_coverage": result.context_coverage.model_dump(mode="json")
+        if result.context_coverage
+        else None,
         "generation_invoked": result.generation_invoked,
         "diagnostics": result.diagnostics,
         "automatic_persistence": False,
@@ -298,14 +342,20 @@ def public_receipt(result: StructuredSynthesisResult, *, question: str) -> dict[
     }
 
 
-def main() -> None:
+def main() -> None:  # noqa: PLR0915 -- operator run brackets protected identities before output
     sys.path.insert(0, str(ROOT))
     from scripts.res145_evidence_demo import database_receipt, qdrant_receipt
     from scripts.res146_evidence_selection import protected_benchmark_files
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--question", default=QUESTION)
+    parser.add_argument("--require-context-span")
     args = parser.parse_args()
+    if args.require_context_span is not None and (
+        len(args.require_context_span) != 64
+        or any(character not in "0123456789abcdef" for character in args.require_context_span)
+    ):
+        parser.error("--require-context-span must be a lowercase SHA-256 key")
     settings = load_settings()
     require_isolated_targets(settings)
     before_sources = source_files_receipt(settings.scientific_evidence_directory)
@@ -338,11 +388,15 @@ def main() -> None:
                 projection_sha256=projection.passages.projection_sha256,
             ),
         )
-        provider = CapturingProvider(OllamaGenerationProvider(client))
+        provider = CapturingProvider(
+            OllamaGenerationProvider(client), required_context_span=args.require_context_span
+        )
         service = StructuredSynthesisService(retrieval, provider)
         synthesis_started = perf_counter()
         result = service.synthesize(SynthesisRequest(selection=selection))
         synthesis_wall_clock_ms = (perf_counter() - synthesis_started) * 1000
+        if args.require_context_span is not None and not provider.required_span_verified:
+            raise RuntimeError("required source span was not confirmed before generation")
         after_database_receipt = database_receipt(engine)
         after_database = evidence_identity("res147-canonical-db-v1", after_database_receipt)
         after_sources = source_files_receipt(settings.scientific_evidence_directory)
@@ -390,6 +444,15 @@ def main() -> None:
                 "benchmark_identity_before_after": [before_benchmark, after_benchmark],
                 "synthesis_wall_clock_ms": synthesis_wall_clock_ms,
                 "private_capture_id": provider.capture_dir.name if provider.capture_dir else None,
+                "model_prompt": {
+                    "messages_sha256": provider.prompt_sha256,
+                    "message_bytes": provider.prompt_bytes,
+                    "required_context_span_key": args.require_context_span,
+                    "required_context_span_verified_before_inference": (
+                        provider.required_span_verified
+                    ),
+                    "private_capture_created": provider.capture_dir is not None,
+                },
             }
         )
         print(json.dumps(receipt, ensure_ascii=False, indent=2, sort_keys=True))

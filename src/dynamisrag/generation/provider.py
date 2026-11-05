@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from dataclasses import dataclass
 from typing import Annotated, Literal, Protocol
 
@@ -41,7 +42,12 @@ class GenerationContext(BaseModel):
 
     @property
     def key(self) -> str:
-        return hashlib.sha256(self.model_dump_json().encode()).hexdigest()
+        return hashlib.sha256(serialize_generation_context(self).encode()).hexdigest()
+
+
+def serialize_generation_context(context: GenerationContext) -> str:
+    """Return the exact user message string used by the pinned Ollama adapter."""
+    return json.dumps(context.model_dump(mode="json"), ensure_ascii=False, separators=(",", ":"))
 
 
 class DraftEvidenceReference(BaseModel):

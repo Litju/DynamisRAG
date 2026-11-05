@@ -74,3 +74,19 @@ The selected question, “Were the descriptive baseline variables statistically 
 Neither live attempt wrote to the candidate database, source archives, Qdrant, or benchmark files; before/after identities match. No claim or EvidenceLink was accepted, so canonical quote revalidation was not applicable to these runs. The existing synthesis unit suite also passed the synthetic grounded-proposal, unsupported-quote, wrong-span citation, and insufficient-evidence cases; those structural tests are not live model successes. No scientific approval was issued, and no graph is persisted automatically.
 
 The full unit suite passed with a workspace-local pytest temp directory: **2,567 passed, 287 deselected**. Strict Pyright returned zero diagnostics; scoped Ruff lint and format checks passed. The first pytest attempt failed during fixture setup because the workstation denied access to its default temp directory; the workspace-local rerun passed. Exact-head CI for this qualification change is attached to draft PR #31. RES-147 remains In Progress, the baseline candidate and RES-583 admission decision are unchanged, no `1.0.0-rc.1` admission was made, and no PR was merged.
+
+## Context-packing repair review (2026-11-05)
+
+The exact private `system.txt` and `user.json` inputs for both prior answerable-question runs were checked against their context identities and the pinned system prompt. Both retrievals selected passage `c7077e35bb0ca23d058955640190dc2f9a4ac066917a33c1fedc96008b89bb32` and answer span `b5716ffb6e7e42661c11681075807ebb0349e8285ecdcccc71a0e5870f8f71e6`; neither span key appeared in the serialized user message. The unique sentence matching the verified quote hash was absent from every system, evidence, and expanded-context field. The prompts were 5,703 and 5,700 bytes, under the existing 6,000-byte ceiling. Both original model results remain valid `INSUFFICIENT_EVIDENCE` abstentions. The original receipt and private captures were not modified. See the [context-packing repair review](evidence/res147-context-packing-repair-review.json).
+
+The repair packs whole canonical spans individually. It prioritizes distinct question-token overlap, then the selected passage's fused/RRF, BM25, and dense retrieval signals, with stable source and span order for ties. It preserves source text and paragraph character coordinates, rejects nonmember or mismatched-version spans, records exact serialized prompt byte deltas and exclusion reasons, and limits citations to the spans actually included. The 6,000-byte limit is unchanged. A safe coverage receipt now carries selected passage/version identities, included and excluded span keys, inclusion order, byte costs, policy revision, and context identity without source text. The operator writes exact UTF-8 prompt and response bytes to ignored private storage and can require a span key; that guard verifies the exact serialized user message before invoking Ollama.
+
+Verification on the exact-head worktree:
+
+- Affected synthesis and live-preflight tests: **37 passed**.
+- Unit suite: **2,572 passed, 287 deselected** (workspace-local pytest temp directory).
+- Ruff check and format: passed; strict Pyright: **0 diagnostics**; `uv lock --check`: passed.
+- The isolated integration suite could not pass its settings preflight: this worktree has no integration DSNs. The only available database configuration was rejected by the RES-147 candidate guard before any database connection. The quarantined reference database was not contacted.
+- No new Qwen3 inference was invoked. No candidate, Qdrant, source-archive, PostgreSQL, or benchmark identities were re-read for a new live run. The answerable-case prompt gate is in place for the next run once the already-attested candidate settings are available.
+
+Disposition: `SAFETY_OR_PROVENANCE_BLOCKED`. PR #31 remains a draft; RES-147 remains In Progress. No merge, RES-583 governance change, baseline admission, or automatic persistence occurred.
