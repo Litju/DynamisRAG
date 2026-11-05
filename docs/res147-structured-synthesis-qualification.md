@@ -90,3 +90,28 @@ Verification on the exact-head worktree:
 - No new Qwen3 inference was invoked. No candidate, Qdrant, source-archive, PostgreSQL, or benchmark identities were re-read for a new live run. The answerable-case prompt gate is in place for the next run once the already-attested candidate settings are available.
 
 Disposition: `SAFETY_OR_PROVENANCE_BLOCKED`. PR #31 remains a draft; RES-147 remains In Progress. No merge, RES-583 governance change, baseline admission, or automatic persistence occurred.
+
+## Live synthesis after the context-packing repair (2026-11-05)
+
+This follow-up records the later live run. The preceding repair-review subsection preserves the earlier blocked state and its historical receipts.
+
+The exact-head worktree had no `.env`. The only available test DSN named `127.0.0.1:55432/postgres`, the retained development endpoint, so the RES-147 guard rejected it before connecting. The Compose check also lacked its required interpolation values, and the default evidence directory did not contain the content-addressed source files. Recovery used process-scoped settings: the existing test-role credential authenticated to the verified integration cluster, PostgreSQL and OpenSearch Compose values came from the running integration containers, and the source archive directory was resolved from the existing artifact URIs. The candidate DSN was constructed for `127.0.0.1:55433/dynamisrag_test_res147_candidate`; no `.env` was written and no protected-reference DSN was copied.
+
+The live PostgreSQL system identifier and DBA-owned marker both matched `7704293122131349543`. The existing candidate database remained owned by `dynamisrag_test`; its read-only session rejected a persistent-write probe with SQLSTATE `25006`, and rollback left no probe table. The source archive, candidate database, Qdrant, and benchmark fingerprints were unchanged across synthesis:
+
+| Protected artifact | Before and after fingerprint |
+| --- | --- |
+| 16 canonical source archives | `ac050bbe660743f7c868fdf5cde680d4ff1a85453f5cba8429767642788b43f3` |
+| Candidate canonical database | `2ea1d10c3a5998dec46db7b1d7523158e92b6aca3b90980d27c7eb7af68ebbd7` |
+| Isolated 75-point Qdrant collection | `3f2ead3786e04e42709195d569e58a30b5343565332ad583953d04c4970032f7` |
+| Protected benchmark files | `fce47be7337465a184d13d4de285f622b42af9150f22d5bbbb72b823c1308af1` |
+
+The candidate retained 16 source artifacts, 16 document versions, 47 identifiers, 676 paragraphs, 805 citations, 40 tables, 53 figures, 294 sections, 75 passages, and 146 source spans. OpenSearch was the isolated 3.8.0 service. TEI reported `Qwen/Qwen3-Embedding-0.6B` revision `97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3`, runtime 1.9.4 (`e80ef225ed0e6cb1717ce632a6a84b6cf211bb67`), CPU float32. Ollama reported `qwen3:4b`, digest `359d7dd4bcdab3d86b87d73ac27966f4dbb9f5efdfcc75d34a8764a09474fae7`, runtime 0.13.5, Q4_K_M, 4.0B, CPU. Its settings were `num_ctx=8192`, `num_predict=1024`, `num_gpu=0`, `num_thread=4`, `seed=42`, and `temperature=0`.
+
+For **“Were the descriptive baseline variables statistically different between groups?”**, the guarded pipeline serialized a 5,977-byte prompt under the existing 6,000-byte limit. It included the required span `b5716ffb6e7e42661c11681075807ebb0349e8285ecdcccc71a0e5870f8f71e6` with SHA-256 `208ded4aaedeb6363e2d0a5969a2ec43860a4d30b33b87f700fdb5bbf20ad91e`. The model input carried passage key `c7077e35bb0ca23d058955640190dc2f9a4ac066917a33c1fedc96008b89bb32`, document-version key `ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b`, and the required span key. The candidate database mapped that source to DOI `10.1186/s13102-023-00771-8`, PMCID `PMC10680285`, and PMID `38008712`; external DOI/PMCID/PMID fields are not part of the model message.
+
+The span text matched its canonical paragraph coordinates exactly: paragraph key `d70d35689288ed184536e8010bc3e628544a36611d6bbd5153c939af3943aa44`, characters 80–225. The private prompt capture hash matched the public receipt. Ollama returned a schema-valid `insufficient_evidence` response with one missing-evidence item, one limitation, and zero claims. The result is `INSUFFICIENT_EVIDENCE`; no EvidenceLink or graph was produced, so claim quotation and graph validation were not applicable. The model response, full prompt, and system prompt remain in ignored private capture storage. Generation used 1,996 prompt tokens and 163 output tokens; model time was 139.58 seconds, including 85.80 seconds prompt evaluation, 34.55 seconds generation, and 17.04 seconds model load.
+
+Affected synthesis, live-preflight, and evidence-context unit tests passed: **48 passed**. No application code or safety policy changed. The privacy-safe [live synthesis repair receipt](evidence/res147-live-synthesis-repair-receipt.json) records the service identities, span verification, response classification, metrics, and before/after fingerprints without source text or raw model output.
+
+Disposition: `RES147_LIVE_MODEL_ABSTAINED_WITH_EVIDENCE_PRESENT`. PR #31 remains a draft and unmerged; RES-147 remains In Progress; RES-583 remains unresolved; baseline `1.0.0-rc.1` remains unadmitted.

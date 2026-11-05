@@ -1,0 +1,1687 @@
+{
+  "automatic_persistence": false,
+  "benchmark_identity_before_after": [
+    "fce47be7337465a184d13d4de285f622b42af9150f22d5bbbb72b823c1308af1",
+    "fce47be7337465a184d13d4de285f622b42af9150f22d5bbbb72b823c1308af1"
+  ],
+  "candidate_database": {
+    "cluster_system_identifier": "7704293122131349543",
+    "database": "dynamisrag_test_res147_candidate",
+    "session_user": "dynamisrag_test"
+  },
+  "candidate_database_identity_before_after": [
+    "2ea1d10c3a5998dec46db7b1d7523158e92b6aca3b90980d27c7eb7af68ebbd7",
+    "2ea1d10c3a5998dec46db7b1d7523158e92b6aca3b90980d27c7eb7af68ebbd7"
+  ],
+  "candidate_database_receipt_before_after": [
+    {
+      "citation": {
+        "count": 805,
+        "sha256": "cf8349fc859e8c095dbce81a522403d0254f9271fa5391989fae347c3bafe61e"
+      },
+      "citation_resolution": {
+        "count": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "document": {
+        "count": 16,
+        "sha256": "2b36df08bec2744b82fe88137e59ecea7d836f553a18b77560ecace8cba998ac"
+      },
+      "document_identifier": {
+        "count": 47,
+        "sha256": "239dda630e21906e17465fa443d3b61071bbfac782dac3afe399917f6309f72b"
+      },
+      "document_table": {
+        "count": 40,
+        "sha256": "4d08875ded6ce108c98e2d6eb6c97367b68c4cafdd1c299e45df5c7c2deadec9"
+      },
+      "document_version": {
+        "count": 16,
+        "sha256": "7547989bf8e4430e51456e3fc79566a33aa23b5ab5bc3a8e9045b4d50838c8e7"
+      },
+      "figure": {
+        "count": 53,
+        "sha256": "163b3734ca4cbeb8d484dc7741a3db38a2a618b6dec3e0cdc0cf0a35cb25df67"
+      },
+      "paragraph": {
+        "count": 676,
+        "sha256": "b39a395a95da991e943b953126087c0e86612df995b1833fb2eee6e289606d28"
+      },
+      "passage": {
+        "count": 75,
+        "sha256": "d9b4d7b30faaf470ebf0e89f60113b388865b9065d53d03e4b7607734a464351"
+      },
+      "passage_source_span": {
+        "count": 146,
+        "sha256": "f5d93314d49bb35c1eed8a88ff3d1cd865131a40756f14c68f9fdadb47aceca6"
+      },
+      "section": {
+        "count": 294,
+        "sha256": "ed124f27cd88914d54940afe799b8abfc9c34d0fa3fd09721c075bc9122033f3"
+      },
+      "source_artifact": {
+        "count": 16,
+        "sha256": "ae4344ff9b84d46a59f2dc471c1f43c71d33f32d369912ce8bb7dd7e777efe0c"
+      }
+    },
+    {
+      "citation": {
+        "count": 805,
+        "sha256": "cf8349fc859e8c095dbce81a522403d0254f9271fa5391989fae347c3bafe61e"
+      },
+      "citation_resolution": {
+        "count": 0,
+        "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "document": {
+        "count": 16,
+        "sha256": "2b36df08bec2744b82fe88137e59ecea7d836f553a18b77560ecace8cba998ac"
+      },
+      "document_identifier": {
+        "count": 47,
+        "sha256": "239dda630e21906e17465fa443d3b61071bbfac782dac3afe399917f6309f72b"
+      },
+      "document_table": {
+        "count": 40,
+        "sha256": "4d08875ded6ce108c98e2d6eb6c97367b68c4cafdd1c299e45df5c7c2deadec9"
+      },
+      "document_version": {
+        "count": 16,
+        "sha256": "7547989bf8e4430e51456e3fc79566a33aa23b5ab5bc3a8e9045b4d50838c8e7"
+      },
+      "figure": {
+        "count": 53,
+        "sha256": "163b3734ca4cbeb8d484dc7741a3db38a2a618b6dec3e0cdc0cf0a35cb25df67"
+      },
+      "paragraph": {
+        "count": 676,
+        "sha256": "b39a395a95da991e943b953126087c0e86612df995b1833fb2eee6e289606d28"
+      },
+      "passage": {
+        "count": 75,
+        "sha256": "d9b4d7b30faaf470ebf0e89f60113b388865b9065d53d03e4b7607734a464351"
+      },
+      "passage_source_span": {
+        "count": 146,
+        "sha256": "f5d93314d49bb35c1eed8a88ff3d1cd865131a40756f14c68f9fdadb47aceca6"
+      },
+      "section": {
+        "count": 294,
+        "sha256": "ed124f27cd88914d54940afe799b8abfc9c34d0fa3fd09721c075bc9122033f3"
+      },
+      "source_artifact": {
+        "count": 16,
+        "sha256": "ae4344ff9b84d46a59f2dc471c1f43c71d33f32d369912ce8bb7dd7e777efe0c"
+      }
+    }
+  ],
+  "claim_identities": [],
+  "claim_origins": [],
+  "claim_review_states": [],
+  "context_bytes": 5977,
+  "context_coverage": {
+    "base_prompt_bytes": 1091,
+    "budget_bytes": 6000,
+    "context_bytes": 5977,
+    "context_identity": "33b41bf3e8e0e6f8d53b76325ecfccf86c59444982126bb7f7cafc7c7a2fef20",
+    "excluded_span_keys": [
+      "645900d0033ef3e192e28a87fca06bc5fdc9eda391811dbdef22c7e48c9c2c4b",
+      "9cac2e4b324e0748becde52e90faede55f6b158858badfcbe07bcbb63b56a961",
+      "c1d51e86c92232623fc12ce4df551634c36723ebbc917af3c56caa9b01798278",
+      "bff5d38d1ebe50b89a81852e7842c7a85aeedcde5c95634a6d9ec6a398e5d702",
+      "63d30779ceea91af953bdd4689a7282cddbb5a6edc0884c73045dbc09eceb675",
+      "33bfe60c84e9dcbe73527b733ad4ef4f688ba2b9eb77071ea2fa4f701db42ae0"
+    ],
+    "expanded_context": [
+      {
+        "byte_cost": null,
+        "included": false,
+        "inclusion_order": null,
+        "paragraph_key": "8836e86a0089bec03a8853f94153e4f483d305270bc1a8734aab0e29e882e0ab",
+        "reason": "prompt_byte_budget",
+        "required_prompt_bytes": 6416
+      },
+      {
+        "byte_cost": null,
+        "included": false,
+        "inclusion_order": null,
+        "paragraph_key": "fc55d2fa00cb60c9f9a847dbe94f26dcf24add51a46fd42614a40606c387aa8a",
+        "reason": "prompt_byte_budget",
+        "required_prompt_bytes": 7604
+      }
+    ],
+    "included_span_keys": [
+      "39c2a63080024ee1fe34e191ca33846b9ea2e64b870332cf8d0dd61e2eb50469",
+      "b5716ffb6e7e42661c11681075807ebb0349e8285ecdcccc71a0e5870f8f71e6",
+      "a68787d7c9945bc51ea6af37b0219be7a4487c4d3d51742ca745b7efc3090556",
+      "de7c81eaef2d1049c363ee180ffbeac907fed5073e5c9bc578beff5139d5460c",
+      "3ab5080605a75efd2d6a77263c80e3f7aff1c04cd231bc3244d14e9b67b1e4d2",
+      "3d2582fe9fc71f6eae7efe068f9ab90365701c3e23b2a054b3f482d15cea0c98",
+      "fb1c9cdc9ee390f3d87ada2bf8986fe2ae8ddfeb4aae53b9111c5beb30213044",
+      "c6f0031f32f0d9025fd16d8bca81b6ffcc40489e137855c69075d983f557a23e",
+      "e3f6b4c51a235837545c203107bef969c86f62ac56b02b4eb5483b373e32ba14"
+    ],
+    "policy_revision": "res147-context-span-first-v1",
+    "selected_passages": [
+      {
+        "bm25_rank": 1,
+        "bm25_score": 12.990527,
+        "dense_rank": 1,
+        "dense_score": 0.58100927,
+        "document_version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b",
+        "fused_rank": 1,
+        "passage_key": "92eed038642d433d5d079750cfd4b427095726e2e546ecd3b834985639515fc4",
+        "rrf_score": 0.03278688524590164,
+        "spans": [
+          {
+            "byte_cost": 1543,
+            "end_char": 1269,
+            "included": true,
+            "inclusion_order": 1,
+            "query_overlap_terms": 4,
+            "reason": null,
+            "required_prompt_bytes": null,
+            "span_key": "39c2a63080024ee1fe34e191ca33846b9ea2e64b870332cf8d0dd61e2eb50469",
+            "start_char": 0,
+            "text_bytes": 1271
+          }
+        ]
+      },
+      {
+        "bm25_rank": 2,
+        "bm25_score": 12.434107,
+        "dense_rank": 4,
+        "dense_score": 0.47828093,
+        "document_version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b",
+        "fused_rank": 2,
+        "passage_key": "c7077e35bb0ca23d058955640190dc2f9a4ac066917a33c1fedc96008b89bb32",
+        "rrf_score": 0.031754032258064516,
+        "spans": [
+          {
+            "byte_cost": 169,
+            "end_char": 79,
+            "included": true,
+            "inclusion_order": 6,
+            "query_overlap_terms": 0,
+            "reason": null,
+            "required_prompt_bytes": null,
+            "span_key": "3d2582fe9fc71f6eae7efe068f9ab90365701c3e23b2a054b3f482d15cea0c98",
+            "start_char": 0,
+            "text_bytes": 79
+          },
+          {
+            "byte_cost": 418,
+            "end_char": 225,
+            "included": true,
+            "inclusion_order": 2,
+            "query_overlap_terms": 4,
+            "reason": null,
+            "required_prompt_bytes": null,
+            "span_key": "b5716ffb6e7e42661c11681075807ebb0349e8285ecdcccc71a0e5870f8f71e6",
+            "start_char": 80,
+            "text_bytes": 145
+          },
+          {
+            "byte_cost": 360,
+            "end_char": 494,
+            "included": true,
+            "inclusion_order": 7,
+            "query_overlap_terms": 0,
+            "reason": null,
+            "required_prompt_bytes": null,
+            "span_key": "fb1c9cdc9ee390f3d87ada2bf8986fe2ae8ddfeb4aae53b9111c5beb30213044",
+            "start_char": 226,
+            "text_bytes": 270
+          },
+          {
+            "byte_cost": 220,
+            "end_char": 621,
+            "included": true,
+            "inclusion_order": 8,
+            "query_overlap_terms": 0,
+            "reason": null,
+            "required_prompt_bytes": null,
+            "span_key": "c6f0031f32f0d9025fd16d8bca81b6ffcc40489e137855c69075d983f557a23e",
+            "start_char": 495,
+            "text_bytes": 130
+          },
+          {
+            "byte_cost": 189,
+            "end_char": 719,
+            "included": true,
+            "inclusion_order": 9,
+            "query_overlap_terms": 0,
+            "reason": null,
+            "required_prompt_bytes": null,
+            "span_key": "e3f6b4c51a235837545c203107bef969c86f62ac56b02b4eb5483b373e32ba14",
+            "start_char": 622,
+            "text_bytes": 99
+          },
+          {
+            "byte_cost": null,
+            "end_char": 864,
+            "included": false,
+            "inclusion_order": null,
+            "query_overlap_terms": 0,
+            "reason": "prompt_byte_budget",
+            "required_prompt_bytes": 6215,
+            "span_key": "9cac2e4b324e0748becde52e90faede55f6b158858badfcbe07bcbb63b56a961",
+            "start_char": 720,
+            "text_bytes": 148
+          },
+          {
+            "byte_cost": 213,
+            "end_char": 986,
+            "included": true,
+            "inclusion_order": 5,
+            "query_overlap_terms": 1,
+            "reason": null,
+            "required_prompt_bytes": null,
+            "span_key": "3ab5080605a75efd2d6a77263c80e3f7aff1c04cd231bc3244d14e9b67b1e4d2",
+            "start_char": 865,
+            "text_bytes": 123
+          },
+          {
+            "byte_cost": null,
+            "end_char": 1119,
+            "included": false,
+            "inclusion_order": null,
+            "query_overlap_terms": 0,
+            "reason": "prompt_byte_budget",
+            "required_prompt_bytes": 6199,
+            "span_key": "c1d51e86c92232623fc12ce4df551634c36723ebbc917af3c56caa9b01798278",
+            "start_char": 987,
+            "text_bytes": 132
+          },
+          {
+            "byte_cost": null,
+            "end_char": 1219,
+            "included": false,
+            "inclusion_order": null,
+            "query_overlap_terms": 0,
+            "reason": "prompt_byte_budget",
+            "required_prompt_bytes": 6168,
+            "span_key": "bff5d38d1ebe50b89a81852e7842c7a85aeedcde5c95634a6d9ec6a398e5d702",
+            "start_char": 1120,
+            "text_bytes": 101
+          },
+          {
+            "byte_cost": null,
+            "end_char": 1286,
+            "included": false,
+            "inclusion_order": null,
+            "query_overlap_terms": 0,
+            "reason": "prompt_byte_budget",
+            "required_prompt_bytes": 6133,
+            "span_key": "63d30779ceea91af953bdd4689a7282cddbb5a6edc0884c73045dbc09eceb675",
+            "start_char": 1220,
+            "text_bytes": 66
+          },
+          {
+            "byte_cost": null,
+            "end_char": 1365,
+            "included": false,
+            "inclusion_order": null,
+            "query_overlap_terms": 0,
+            "reason": "prompt_byte_budget",
+            "required_prompt_bytes": 6146,
+            "span_key": "33bfe60c84e9dcbe73527b733ad4ef4f688ba2b9eb77071ea2fa4f701db42ae0",
+            "start_char": 1287,
+            "text_bytes": 79
+          }
+        ]
+      },
+      {
+        "bm25_rank": 4,
+        "bm25_score": 8.412744,
+        "dense_rank": 5,
+        "dense_score": 0.46836922,
+        "document_version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b",
+        "fused_rank": 3,
+        "passage_key": "4f72bcf44071a4a1ebd326158834fefec6fee367b4331c07a03a42f66fcf6f7d",
+        "rrf_score": 0.031009615384615385,
+        "spans": [
+          {
+            "byte_cost": 987,
+            "end_char": 714,
+            "included": true,
+            "inclusion_order": 3,
+            "query_overlap_terms": 3,
+            "reason": null,
+            "required_prompt_bytes": null,
+            "span_key": "a68787d7c9945bc51ea6af37b0219be7a4487c4d3d51742ca745b7efc3090556",
+            "start_char": 0,
+            "text_bytes": 714
+          }
+        ]
+      },
+      {
+        "bm25_rank": 3,
+        "bm25_score": 11.262476,
+        "dense_rank": 8,
+        "dense_score": 0.4415552,
+        "document_version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e",
+        "fused_rank": 4,
+        "passage_key": "8b8822ff7c198527bc63ef606c59e6e0486b3c22144207a2d10969d1c2796a35",
+        "rrf_score": 0.03057889822595705,
+        "spans": [
+          {
+            "byte_cost": 787,
+            "end_char": 514,
+            "included": true,
+            "inclusion_order": 4,
+            "query_overlap_terms": 3,
+            "reason": null,
+            "required_prompt_bytes": null,
+            "span_key": "de7c81eaef2d1049c363ee180ffbeac907fed5073e5c9bc578beff5139d5460c",
+            "start_char": 0,
+            "text_bytes": 514
+          }
+        ]
+      },
+      {
+        "bm25_rank": 14,
+        "bm25_score": 4.7307434,
+        "dense_rank": 2,
+        "dense_score": 0.5061207,
+        "document_version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643",
+        "fused_rank": 6,
+        "passage_key": "be4b7e3581f0b808084165f5a7eb205ec4e8fedb3d9fbf28412dcc6d016270fd",
+        "rrf_score": 0.02964254577157803,
+        "spans": [
+          {
+            "byte_cost": null,
+            "end_char": 1013,
+            "included": false,
+            "inclusion_order": null,
+            "query_overlap_terms": 1,
+            "reason": "prompt_byte_budget",
+            "required_prompt_bytes": 6331,
+            "span_key": "645900d0033ef3e192e28a87fca06bc5fdc9eda391811dbdef22c7e48c9c2c4b",
+            "start_char": 0,
+            "text_bytes": 1019
+          }
+        ]
+      }
+    ]
+  },
+  "context_exclusions": [
+    "prompt_byte_budget:be4b7e3581f0b808084165f5a7eb205ec4e8fedb3d9fbf28412dcc6d016270fd:645900d0033ef3e192e28a87fca06bc5fdc9eda391811dbdef22c7e48c9c2c4b",
+    "prompt_byte_budget:c7077e35bb0ca23d058955640190dc2f9a4ac066917a33c1fedc96008b89bb32:9cac2e4b324e0748becde52e90faede55f6b158858badfcbe07bcbb63b56a961",
+    "prompt_byte_budget:c7077e35bb0ca23d058955640190dc2f9a4ac066917a33c1fedc96008b89bb32:c1d51e86c92232623fc12ce4df551634c36723ebbc917af3c56caa9b01798278",
+    "prompt_byte_budget:c7077e35bb0ca23d058955640190dc2f9a4ac066917a33c1fedc96008b89bb32:bff5d38d1ebe50b89a81852e7842c7a85aeedcde5c95634a6d9ec6a398e5d702",
+    "prompt_byte_budget:c7077e35bb0ca23d058955640190dc2f9a4ac066917a33c1fedc96008b89bb32:63d30779ceea91af953bdd4689a7282cddbb5a6edc0884c73045dbc09eceb675",
+    "prompt_byte_budget:c7077e35bb0ca23d058955640190dc2f9a4ac066917a33c1fedc96008b89bb32:33bfe60c84e9dcbe73527b733ad4ef4f688ba2b9eb77071ea2fa4f701db42ae0",
+    "expanded_context_budget:8836e86a0089bec03a8853f94153e4f483d305270bc1a8734aab0e29e882e0ab",
+    "expanded_context_budget:fc55d2fa00cb60c9f9a847dbe94f26dcf24add51a46fd42614a40606c387aa8a"
+  ],
+  "diagnostics": [],
+  "evidence_link_identities": [],
+  "evidence_link_review_states": [],
+  "evidence_set_identity": "525d3f709143a1e4bc8c285b34772a58e454c182b61b12200d22d4fac5744de9",
+  "evidence_set_sufficiency": "UNASSESSED",
+  "execution_conditions": {
+    "attempts": 1,
+    "concurrency_limit": 1,
+    "endpoint": "http://127.0.0.1:11434",
+    "runtime_available": true,
+    "timeout_seconds": 300
+  },
+  "execution_metrics": {
+    "eval_count": 163,
+    "eval_duration": 34549968799,
+    "load_duration": 17044436885,
+    "prompt_eval_count": 1996,
+    "prompt_eval_duration": 85803493593,
+    "total_duration": 139576608878
+  },
+  "generation_invoked": true,
+  "generation_model": {
+    "device": "cpu",
+    "digest": "359d7dd4bcdab3d86b87d73ac27966f4dbb9f5efdfcc75d34a8764a09474fae7",
+    "model": "qwen3:4b",
+    "parameter_size": "4.0B",
+    "quantization": "Q4_K_M",
+    "runtime_version": "0.13.5"
+  },
+  "generation_policy_sha256": "dcdcedbb5585313d79849b7cec27ab9ca71c43e8f294e95d83fbf631ec4b906c",
+  "generation_semantics": {
+    "context_identity": "33b41bf3e8e0e6f8d53b76325ecfccf86c59444982126bb7f7cafc7c7a2fef20",
+    "model": {
+      "device": "cpu",
+      "digest": "359d7dd4bcdab3d86b87d73ac27966f4dbb9f5efdfcc75d34a8764a09474fae7",
+      "model": "qwen3:4b",
+      "parameter_size": "4.0B",
+      "quantization": "Q4_K_M",
+      "runtime_version": "0.13.5"
+    },
+    "output_schema_revision": "structured-draft-v1",
+    "prompt_policy_sha256": "dcdcedbb5585313d79849b7cec27ab9ca71c43e8f294e95d83fbf631ec4b906c",
+    "settings": {
+      "num_ctx": 8192,
+      "num_gpu": 0,
+      "num_predict": 1024,
+      "num_thread": 4,
+      "seed": 42,
+      "temperature": 0
+    }
+  },
+  "graph_identity": null,
+  "limitations": [
+    "Structural source and quotation checks do not establish entailment, study validity, applicability, or scientific approval. All model relationships remain provisional."
+  ],
+  "link_dispositions": [],
+  "members": [
+    {
+      "passage_key": "92eed038642d433d5d079750cfd4b427095726e2e546ecd3b834985639515fc4",
+      "provenance_sha256": "e42c9238ba55e09eb28e5ee3bb2443fa52ff672ed4cacc0f6e2cec6c427c50bd",
+      "span_keys": [
+        "39c2a63080024ee1fe34e191ca33846b9ea2e64b870332cf8d0dd61e2eb50469"
+      ],
+      "version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b"
+    },
+    {
+      "passage_key": "8b8822ff7c198527bc63ef606c59e6e0486b3c22144207a2d10969d1c2796a35",
+      "provenance_sha256": "d68d8a50e4bc967cb1e7fa351d43a20b332bc20548764a0ae610e2762897809a",
+      "span_keys": [
+        "de7c81eaef2d1049c363ee180ffbeac907fed5073e5c9bc578beff5139d5460c"
+      ],
+      "version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e"
+    },
+    {
+      "passage_key": "be4b7e3581f0b808084165f5a7eb205ec4e8fedb3d9fbf28412dcc6d016270fd",
+      "provenance_sha256": "4b55b1a3638ccb2c697dd284d716e77c742048981c1f0e495eaa4020fd9ac15d",
+      "span_keys": [
+        "645900d0033ef3e192e28a87fca06bc5fdc9eda391811dbdef22c7e48c9c2c4b"
+      ],
+      "version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643"
+    },
+    {
+      "passage_key": "c7077e35bb0ca23d058955640190dc2f9a4ac066917a33c1fedc96008b89bb32",
+      "provenance_sha256": "0e4950865abfc37b38bdbcba49a9a65497ff5f513a08680401fcefefc2e35687",
+      "span_keys": [
+        "3d2582fe9fc71f6eae7efe068f9ab90365701c3e23b2a054b3f482d15cea0c98",
+        "b5716ffb6e7e42661c11681075807ebb0349e8285ecdcccc71a0e5870f8f71e6",
+        "fb1c9cdc9ee390f3d87ada2bf8986fe2ae8ddfeb4aae53b9111c5beb30213044",
+        "c6f0031f32f0d9025fd16d8bca81b6ffcc40489e137855c69075d983f557a23e",
+        "e3f6b4c51a235837545c203107bef969c86f62ac56b02b4eb5483b373e32ba14",
+        "9cac2e4b324e0748becde52e90faede55f6b158858badfcbe07bcbb63b56a961",
+        "3ab5080605a75efd2d6a77263c80e3f7aff1c04cd231bc3244d14e9b67b1e4d2",
+        "c1d51e86c92232623fc12ce4df551634c36723ebbc917af3c56caa9b01798278",
+        "bff5d38d1ebe50b89a81852e7842c7a85aeedcde5c95634a6d9ec6a398e5d702",
+        "63d30779ceea91af953bdd4689a7282cddbb5a6edc0884c73045dbc09eceb675",
+        "33bfe60c84e9dcbe73527b733ad4ef4f688ba2b9eb77071ea2fa4f701db42ae0"
+      ],
+      "version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b"
+    },
+    {
+      "passage_key": "4f72bcf44071a4a1ebd326158834fefec6fee367b4331c07a03a42f66fcf6f7d",
+      "provenance_sha256": "e622fa1cf30b492651ed490b40cd63edbcf6694183d8262e5e325b412ede3d3d",
+      "span_keys": [
+        "a68787d7c9945bc51ea6af37b0219be7a4487c4d3d51742ca745b7efc3090556"
+      ],
+      "version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b"
+    }
+  ],
+  "missing_evidence_count": 1,
+  "model_prompt": {
+    "message_bytes": 5977,
+    "messages_sha256": "5b0c2918e8d8c80ec36c75c225df3ecb706912da5ee83ef808db8ac24fb1c84b",
+    "private_capture_created": true,
+    "required_context_span_key": "b5716ffb6e7e42661c11681075807ebb0349e8285ecdcccc71a0e5870f8f71e6",
+    "required_context_span_verified_before_inference": true
+  },
+  "observed_embedding_model": {
+    "deployment": {
+      "local_backend": "candle-mkl",
+      "local_device": "cpu",
+      "local_image_digest": "sha256:2538ea1c9640d3763b15af668039d24172d063b42337b0c27796fc2be180c78d",
+      "local_platform": "linux-amd64",
+      "local_threads": 4,
+      "tei_default_prompt_mode": "none",
+      "tei_default_prompt_name": null,
+      "tei_default_prompt_sha256": null,
+      "tei_dense_path": null
+    },
+    "max_batch_requests": 4,
+    "max_batch_tokens": 2048,
+    "max_client_batch_size": 1,
+    "max_input_length": 2048,
+    "model_dtype": "float32",
+    "model_id": "Qwen/Qwen3-Embedding-0.6B",
+    "model_pooling": "last_token",
+    "model_sha": "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
+    "protocol_revision": "tei-http-v1",
+    "provider": "tei",
+    "runtime_docker_label": "sha-e80ef22",
+    "runtime_sha": "e80ef225ed0e6cb1717ce632a6a84b6cf211bb67",
+    "runtime_version": "1.9.4"
+  },
+  "observed_generation_model": {
+    "device": "cpu",
+    "digest": "359d7dd4bcdab3d86b87d73ac27966f4dbb9f5efdfcc75d34a8764a09474fae7",
+    "model": "qwen3:4b",
+    "parameter_size": "4.0B",
+    "quantization": "Q4_K_M",
+    "runtime_version": "0.13.5"
+  },
+  "private_capture_id": "30e2ccc2d9b141d18685ac81932043df",
+  "proposed_claim_count": 0,
+  "qdrant_identity_before_after": [
+    "3f2ead3786e04e42709195d569e58a30b5343565332ad583953d04c4970032f7",
+    "3f2ead3786e04e42709195d569e58a30b5343565332ad583953d04c4970032f7"
+  ],
+  "question": "Were the descriptive baseline variables statistically different between groups?",
+  "question_identity": "3cd1295bb05ce98a5e1bbfe823dc911eca79daf9c0edb00049acb1e1c6dcef68",
+  "raw_output_sha256": "4fb451edd3e75eb06a2d52a72326fdc5571bc6562fbbd5e7ea512fd54376f428",
+  "recovery_and_runtime_verification": {
+    "candidate_read_only_probe": {
+      "default_transaction_read_only": "on",
+      "persistent_write_rejected_sqlstate": "25006",
+      "probe_absent_after_rollback": true
+    },
+    "configuration_recovered_process_scoped": true,
+    "inference_response_classification": {
+      "claim_count": 0,
+      "full_response_private": true,
+      "raw_response_sha256": "4fb451edd3e75eb06a2d52a72326fdc5571bc6562fbbd5e7ea512fd54376f428",
+      "status": "insufficient_evidence"
+    },
+    "isolated_compose_project": "dynamisrag-integration",
+    "model_output_contract_validation": {
+      "citation_validation": "not_applicable_no_claims",
+      "claim_count": 0,
+      "evidence_graph_identity": null,
+      "limitations_count": 1,
+      "missing_evidence_count": 1,
+      "model_status": "insufficient_evidence",
+      "raw_response_hash_matches_private_capture": true,
+      "structured_draft_schema_valid": true
+    },
+    "ollama_identity_before_after": {
+      "after": {
+        "device": "cpu",
+        "digest": "359d7dd4bcdab3d86b87d73ac27966f4dbb9f5efdfcc75d34a8764a09474fae7",
+        "model": "qwen3:4b",
+        "parameter_size": "4.0B",
+        "quantization": "Q4_K_M",
+        "runtime_version": "0.13.5"
+      },
+      "before": {
+        "device": "cpu",
+        "digest": "359d7dd4bcdab3d86b87d73ac27966f4dbb9f5efdfcc75d34a8764a09474fae7",
+        "model": "qwen3:4b",
+        "parameter_size": "4.0B",
+        "quantization": "Q4_K_M",
+        "runtime_version": "0.13.5"
+      }
+    },
+    "opensearch_identity": {
+      "cluster_name": "docker-cluster",
+      "distribution": "opensearch",
+      "version": "3.8.0"
+    },
+    "opensearch_identity_before_after": [
+      {
+        "cluster_name": "docker-cluster",
+        "distribution": "opensearch",
+        "version": "3.8.0"
+      },
+      {
+        "cluster_name": "docker-cluster",
+        "distribution": "opensearch",
+        "version": "3.8.0"
+      }
+    ],
+    "postgres_cluster_system_identifier": "7704293122131349543",
+    "protected_fingerprints_before_after": {
+      "benchmark": [
+        "fce47be7337465a184d13d4de285f622b42af9150f22d5bbbb72b823c1308af1",
+        "fce47be7337465a184d13d4de285f622b42af9150f22d5bbbb72b823c1308af1"
+      ],
+      "candidate_database": [
+        "2ea1d10c3a5998dec46db7b1d7523158e92b6aca3b90980d27c7eb7af68ebbd7",
+        "2ea1d10c3a5998dec46db7b1d7523158e92b6aca3b90980d27c7eb7af68ebbd7"
+      ],
+      "qdrant": [
+        "3f2ead3786e04e42709195d569e58a30b5343565332ad583953d04c4970032f7",
+        "3f2ead3786e04e42709195d569e58a30b5343565332ad583953d04c4970032f7"
+      ],
+      "source_archives": [
+        "ac050bbe660743f7c868fdf5cde680d4ff1a85453f5cba8429767642788b43f3",
+        "ac050bbe660743f7c868fdf5cde680d4ff1a85453f5cba8429767642788b43f3"
+      ]
+    },
+    "protected_fingerprints_match_preserved_evidence": true,
+    "protected_reference_dsn_used": false,
+    "qdrant_collection": {
+      "collection": "qdrant-passages-v1-5a20d2780fe6cd0ce0155ed7535c6507ec452f9ad4ae14cbd5990e13d7e8a709",
+      "points_count": 75,
+      "status": "green"
+    },
+    "qdrant_collection_before_after": [
+      {
+        "collection": "qdrant-passages-v1-5a20d2780fe6cd0ce0155ed7535c6507ec452f9ad4ae14cbd5990e13d7e8a709",
+        "points_count": 75,
+        "status": "green"
+      },
+      {
+        "collection": "qdrant-passages-v1-5a20d2780fe6cd0ce0155ed7535c6507ec452f9ad4ae14cbd5990e13d7e8a709",
+        "points_count": 75,
+        "status": "green"
+      }
+    ],
+    "required_span_canonical_check": {
+      "document_version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b",
+      "end_char": 225,
+      "paragraph_key": "d70d35689288ed184536e8010bc3e628544a36611d6bbd5153c939af3943aa44",
+      "passage_key": "c7077e35bb0ca23d058955640190dc2f9a4ac066917a33c1fedc96008b89bb32",
+      "prompt_capture_hash_verified": true,
+      "serialized_text_matches_canonical_coordinates": true,
+      "serialized_text_sha256": "208ded4aaedeb6363e2d0a5969a2ec43860a4d30b33b87f700fdb5bbf20ad91e",
+      "span_key": "b5716ffb6e7e42661c11681075807ebb0349e8285ecdcccc71a0e5870f8f71e6",
+      "start_char": 80
+    },
+    "serialized_model_input_source_identity": {
+      "document_version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b",
+      "external_doi_pmcid_pmid_fields_serialized": false,
+      "passage_key": "c7077e35bb0ca23d058955640190dc2f9a4ac066917a33c1fedc96008b89bb32",
+      "span_key": "b5716ffb6e7e42661c11681075807ebb0349e8285ecdcccc71a0e5870f8f71e6"
+    },
+    "source_identifiers_for_required_span": [
+      {
+        "namespace": "doi",
+        "value": "10.1186/s13102-023-00771-8"
+      },
+      {
+        "namespace": "pmcid",
+        "value": "PMC10680285"
+      },
+      {
+        "namespace": "pmid",
+        "value": "38008712"
+      }
+    ],
+    "tei_identity_before_after": {
+      "after": {
+        "deployment": {
+          "default_prompt_mode": "none",
+          "default_prompt_name": null,
+          "default_prompt_sha256": null,
+          "dense_path": null
+        },
+        "max_batch_requests": 4,
+        "max_batch_tokens": 2048,
+        "max_client_batch_size": 1,
+        "max_input_length": 2048,
+        "model_dtype": "float32",
+        "model_id": "Qwen/Qwen3-Embedding-0.6B",
+        "model_pooling": "last_token",
+        "model_sha": "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
+        "protocol_revision": "tei-http-v1",
+        "provider": "tei",
+        "runtime_docker_label": "sha-e80ef22",
+        "runtime_sha": "e80ef225ed0e6cb1717ce632a6a84b6cf211bb67",
+        "runtime_version": "1.9.4"
+      },
+      "before": {
+        "deployment": {
+          "default_prompt_mode": "none",
+          "default_prompt_name": null,
+          "default_prompt_sha256": null,
+          "dense_path": null
+        },
+        "max_batch_requests": 4,
+        "max_batch_tokens": 2048,
+        "max_client_batch_size": 1,
+        "max_input_length": 2048,
+        "model_dtype": "float32",
+        "model_id": "Qwen/Qwen3-Embedding-0.6B",
+        "model_pooling": "last_token",
+        "model_sha": "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
+        "protocol_revision": "tei-http-v1",
+        "provider": "tei",
+        "runtime_docker_label": "sha-e80ef22",
+        "runtime_sha": "e80ef225ed0e6cb1717ce632a6a84b6cf211bb67",
+        "runtime_version": "1.9.4"
+      }
+    }
+  },
+  "retrieval_identity": "611a46806a25fcfc38e93f117718be165a040fc823224d6a86df68c2b4253a35",
+  "retrieval_response_identity": "1353b1e5eaffc2a0ffe5ff552c1c6a75a510c1ebfdb574b9d43199469bb327f1",
+  "schema_revision": "res147-public-receipt-v2",
+  "scientific_approval": false,
+  "selection_identity": "5ad271714ac9d6c294aed9563ce2e5a78512ca733e56b11fa2ff94211eda1fe2",
+  "selection_trace": [
+    {
+      "bm25_rank": 1,
+      "bm25_score": 12.990527,
+      "dense_rank": 1,
+      "dense_score": 0.58100927,
+      "disposition": "SELECTED",
+      "document_key": "doi:10.1186/s13102-023-00771-8",
+      "fused_rank": 1,
+      "passage_key": "92eed038642d433d5d079750cfd4b427095726e2e546ecd3b834985639515fc4",
+      "reason": "ranked",
+      "rrf_score": 0.03278688524590164,
+      "section_key": "375233783f4e83cf4508ac0750fe2b5fe83b445f14196391a3027f1e51ab6481",
+      "version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b"
+    },
+    {
+      "bm25_rank": 2,
+      "bm25_score": 12.434107,
+      "dense_rank": 4,
+      "dense_score": 0.47828093,
+      "disposition": "SELECTED",
+      "document_key": "doi:10.1186/s13102-023-00771-8",
+      "fused_rank": 2,
+      "passage_key": "c7077e35bb0ca23d058955640190dc2f9a4ac066917a33c1fedc96008b89bb32",
+      "reason": "soft_quota_relaxed",
+      "rrf_score": 0.031754032258064516,
+      "section_key": "2f27c7bbcea9b6d6a04ed5bd6b86b9e5508da55e25c019639abc0f6ebf8728c8",
+      "version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b"
+    },
+    {
+      "bm25_rank": 4,
+      "bm25_score": 8.412744,
+      "dense_rank": 5,
+      "dense_score": 0.46836922,
+      "disposition": "SELECTED",
+      "document_key": "doi:10.1186/s13102-023-00771-8",
+      "fused_rank": 3,
+      "passage_key": "4f72bcf44071a4a1ebd326158834fefec6fee367b4331c07a03a42f66fcf6f7d",
+      "reason": "soft_quota_relaxed",
+      "rrf_score": 0.031009615384615385,
+      "section_key": "677db4d171a63fdbd6a46daaa6865b6f534a0bfdaf562aea1a69fe94914852fd",
+      "version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b"
+    },
+    {
+      "bm25_rank": 3,
+      "bm25_score": 11.262476,
+      "dense_rank": 8,
+      "dense_score": 0.4415552,
+      "disposition": "SELECTED",
+      "document_key": "doi:10.3389/fphys.2017.00016",
+      "fused_rank": 4,
+      "passage_key": "8b8822ff7c198527bc63ef606c59e6e0486b3c22144207a2d10969d1c2796a35",
+      "reason": "ranked",
+      "rrf_score": 0.03057889822595705,
+      "section_key": "e2bb4f3cf297483750b625f81dcfedff170af1b5291804c83ba3e805dc3212d9",
+      "version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e"
+    },
+    {
+      "bm25_rank": 8,
+      "bm25_score": 5.7324724,
+      "dense_rank": 3,
+      "dense_score": 0.48733273,
+      "disposition": "BUDGET_EXCEEDED",
+      "document_key": "doi:10.3389/fphys.2017.00016",
+      "fused_rank": 5,
+      "passage_key": "bd416d7c43d0832b9e4309622eacbc21eec4e385664d8782180854db5eb59a8a",
+      "reason": "passage_budget",
+      "rrf_score": 0.03057889822595705,
+      "section_key": "8d137a9b1c60de2dbe9008d5a858df1ad0d774381eadfc94acca2e64eef3cc01",
+      "version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e"
+    },
+    {
+      "bm25_rank": 14,
+      "bm25_score": 4.7307434,
+      "dense_rank": 2,
+      "dense_score": 0.5061207,
+      "disposition": "SELECTED",
+      "document_key": "doi:10.3390/s24010044",
+      "fused_rank": 6,
+      "passage_key": "be4b7e3581f0b808084165f5a7eb205ec4e8fedb3d9fbf28412dcc6d016270fd",
+      "reason": "ranked",
+      "rrf_score": 0.02964254577157803,
+      "section_key": "bb9d8eefa28e58a0077f4be5ca601a45d496e3ae5e84ace241d0393d455f1550",
+      "version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643"
+    },
+    {
+      "bm25_rank": 15,
+      "bm25_score": 4.1037683,
+      "dense_rank": 7,
+      "dense_score": 0.45072693,
+      "disposition": "BUDGET_EXCEEDED",
+      "document_key": "doi:10.1186/s13102-023-00771-8",
+      "fused_rank": 7,
+      "passage_key": "6fc111f3a62933d42c2d30af54144bb12a7c5815d4c2f796c9665fcf1ebab576",
+      "reason": "passage_budget",
+      "rrf_score": 0.028258706467661692,
+      "section_key": "677db4d171a63fdbd6a46daaa6865b6f534a0bfdaf562aea1a69fe94914852fd",
+      "version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b"
+    },
+    {
+      "bm25_rank": 12,
+      "bm25_score": 4.907654,
+      "dense_rank": 15,
+      "dense_score": 0.38665512,
+      "disposition": "BUDGET_EXCEEDED",
+      "document_key": "doi:10.3389/fphys.2017.00016",
+      "fused_rank": 8,
+      "passage_key": "b3054cca52f8534e5f1140541d072f651b61032b004e493b4070053bb5472d77",
+      "reason": "passage_budget",
+      "rrf_score": 0.027222222222222224,
+      "section_key": "213ed22e3935159d3ed29fada5ed44e7c1c9a5c40aed0dc3236c5fb9fa450e0f",
+      "version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e"
+    },
+    {
+      "bm25_rank": 7,
+      "bm25_score": 5.914775,
+      "dense_rank": 22,
+      "dense_score": 0.3535185,
+      "disposition": "BUDGET_EXCEEDED",
+      "document_key": "doi:10.3389/fphys.2017.00016",
+      "fused_rank": 9,
+      "passage_key": "1c65b46cc4008865e12b82dce31a2aa5f3b7edc44ac2345eb783231e6838db7f",
+      "reason": "passage_budget",
+      "rrf_score": 0.02712049508554787,
+      "section_key": "1f262e4f8007685589f33eedd2ce2a0c8caeaa7c75dbbc0709db64e7703b8c4a",
+      "version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e"
+    },
+    {
+      "bm25_rank": 20,
+      "bm25_score": 3.4790015,
+      "dense_rank": 9,
+      "dense_score": 0.42671007,
+      "disposition": "BUDGET_EXCEEDED",
+      "document_key": "doi:10.1186/s13102-023-00771-8",
+      "fused_rank": 10,
+      "passage_key": "3e70446abc81094002f983d350849237cf8acb3b3bac2db38ffbd973a2dbac46",
+      "reason": "passage_budget",
+      "rrf_score": 0.026992753623188405,
+      "section_key": "677db4d171a63fdbd6a46daaa6865b6f534a0bfdaf562aea1a69fe94914852fd",
+      "version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b"
+    },
+    {
+      "bm25_rank": 9,
+      "bm25_score": 5.329857,
+      "dense_rank": 23,
+      "dense_score": 0.3526691,
+      "disposition": "BUDGET_EXCEEDED",
+      "document_key": "doi:10.3390/s24010044",
+      "fused_rank": 11,
+      "passage_key": "3c1221391b9f47231c9e38b28253127bedfb1efe21e9d0c42486962d2c517e93",
+      "reason": "passage_budget",
+      "rrf_score": 0.026540946394272742,
+      "section_key": "d8708de24f5e911afca0517c5c540e4a847c1915979af65623d7866525fdf712",
+      "version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643"
+    },
+    {
+      "bm25_rank": 5,
+      "bm25_score": 6.20231,
+      "dense_rank": 35,
+      "dense_score": 0.3057426,
+      "disposition": "BUDGET_EXCEEDED",
+      "document_key": "doi:10.1186/s13102-023-00771-8",
+      "fused_rank": 12,
+      "passage_key": "15e2c1ed194cd4fee1c88834b4344082648e23c54b8d15207a292c8b53788f77",
+      "reason": "passage_budget",
+      "rrf_score": 0.025910931174089068,
+      "section_key": null,
+      "version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b"
+    },
+    {
+      "bm25_rank": 25,
+      "bm25_score": 2.3314476,
+      "dense_rank": 11,
+      "dense_score": 0.41439575,
+      "disposition": "BUDGET_EXCEEDED",
+      "document_key": "doi:10.3389/fphys.2017.00016",
+      "fused_rank": 13,
+      "passage_key": "83384294666b8b929530187f8fabe45c4f7967bc4f23ea77f8219c6141d6e663",
+      "reason": "passage_budget",
+      "rrf_score": 0.025849212924606464,
+      "section_key": "525bb9bc42d1d50153d9435393eb1fb0b03244a1d10a542ce613ab7c4edadf97",
+      "version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e"
+    },
+    {
+      "bm25_rank": 34,
+      "bm25_score": 1.3696736,
+      "dense_rank": 6,
+      "dense_score": 0.45703474,
+      "disposition": "BUDGET_EXCEEDED",
+      "document_key": "doi:10.1186/s13102-023-00771-8",
+      "fused_rank": 14,
+      "passage_key": "2a4582e728e39ff348d50fdca3fe675290af26650963ab2460b5bfbc1b64d86c",
+      "reason": "passage_budget",
+      "rrf_score": 0.02578981302385558,
+      "section_key": "2f27c7bbcea9b6d6a04ed5bd6b86b9e5508da55e25c019639abc0f6ebf8728c8",
+      "version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b"
+    },
+    {
+      "bm25_rank": 13,
+      "bm25_score": 4.8441544,
+      "dense_rank": 32,
+      "dense_score": 0.3222211,
+      "disposition": "BUDGET_EXCEEDED",
+      "document_key": "doi:10.1186/s13102-023-00771-8",
+      "fused_rank": 15,
+      "passage_key": "57766a0068dd6f6836acb3f47119b50bacdd45dd3d34a41ab9492bca60ccb92b",
+      "reason": "passage_budget",
+      "rrf_score": 0.024568195354377605,
+      "section_key": "e298d1cd2f596280d35f22f56cc5628377dfca2df24e7cfb5a1635679333c0b1",
+      "version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b"
+    },
+    {
+      "bm25_rank": 6,
+      "bm25_score": 6.164706,
+      "dense_rank": 50,
+      "dense_score": 0.2585709,
+      "disposition": "BUDGET_EXCEEDED",
+      "document_key": "doi:10.1186/s13102-023-00771-8",
+      "fused_rank": 16,
+      "passage_key": "3bc19674f9b0a1eb1b1cc3579f5b0c44906f379eed97622ea4b77826297a6ea0",
+      "reason": "passage_budget",
+      "rrf_score": 0.024242424242424242,
+      "section_key": "2f263ec582b9497c6bd833c991aebaa0b17c5b6c0f0a30fca04fef5b91e217d3",
+      "version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b"
+    },
+    {
+      "bm25_rank": 21,
+      "bm25_score": 3.4274497,
+      "dense_rank": 27,
+      "dense_score": 0.34028187,
+      "disposition": "BUDGET_EXCEEDED",
+      "document_key": "doi:10.1186/s13102-023-00771-8",
+      "fused_rank": 17,
+      "passage_key": "beccf1a49d011638455e8cbe7f0dac994af79f1ebcd51097dd383013db4fc163",
+      "reason": "passage_budget",
+      "rrf_score": 0.023839931885908897,
+      "section_key": "826e0b25ba2d9c39d8edb55e66759085c463b8cc781a2d03d9abdc81fed92865",
+      "version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b"
+    },
+    {
+      "bm25_rank": 23,
+      "bm25_score": 2.4929936,
+      "dense_rank": 28,
+      "dense_score": 0.3392777,
+      "disposition": "BUDGET_EXCEEDED",
+      "document_key": "doi:10.3390/s24010044",
+      "fused_rank": 18,
+      "passage_key": "5f373e88e61190196f81441dbcbfaf45e75f6237e227fec3f92615c7a2dd19d0",
+      "reason": "passage_budget",
+      "rrf_score": 0.023411829134720702,
+      "section_key": "c8d282be7b19cf8a5c5c1c6f049134fed9a2f3733a0e26d7f7ec1752fe1b5a08",
+      "version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643"
+    },
+    {
+      "bm25_rank": 19,
+      "bm25_score": 3.656567,
+      "dense_rank": 33,
+      "dense_score": 0.32205978,
+      "disposition": "BUDGET_EXCEEDED",
+      "document_key": "doi:10.1186/s13102-023-00771-8",
+      "fused_rank": 19,
+      "passage_key": "4e519e44328f8bd0cea5290a954cfa87b25db622cfda4778e048a24b77bbaf99",
+      "reason": "passage_budget",
+      "rrf_score": 0.02341091602014428,
+      "section_key": "5743b61cfcbfe12b5f9fafda6c380e2bc50b446d3b25d24ca24f5ad58ee4955a",
+      "version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b"
+    },
+    {
+      "bm25_rank": 28,
+      "bm25_score": 2.1821623,
+      "dense_rank": 24,
+      "dense_score": 0.34646946,
+      "disposition": "BUDGET_EXCEEDED",
+      "document_key": "doi:10.3389/fphys.2017.00016",
+      "fused_rank": 20,
+      "passage_key": "2d93a3067b2b97355f03feccf20efadd90e3c0d1dc0a23ea3c51ff0943da5f91",
+      "reason": "passage_budget",
+      "rrf_score": 0.023268398268398268,
+      "section_key": "d405cfa68008f3863cda3ba4663a7c20838eecae191d4c2bff99a306954cf442",
+      "version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e"
+    },
+    {
+      "bm25_rank": null,
+      "bm25_score": null,
+      "dense_rank": 44,
+      "dense_score": 0.27099824,
+      "disposition": "NOT_SELECTED",
+      "document_key": "doi:10.3390/s24010044",
+      "fused_rank": null,
+      "passage_key": "034f81e638cd16037e33b4ea9669884d2507ac086e6ce1437d4e074c498450d6",
+      "reason": "outside_fused_window",
+      "rrf_score": null,
+      "section_key": "d63c5e537d3d63352c196f8e28b2ff0e4d93ac6dd69650746ddf4d15678ed026",
+      "version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643"
+    },
+    {
+      "bm25_rank": 49,
+      "bm25_score": 0.78565466,
+      "dense_rank": null,
+      "dense_score": null,
+      "disposition": "NOT_SELECTED",
+      "document_key": "doi:10.3389/fphys.2017.00016",
+      "fused_rank": null,
+      "passage_key": "03ef314b00f7475e7e55d6d7aeeeda89d72fb7c0a7f392e376ebdf0fd35a67d5",
+      "reason": "outside_fused_window",
+      "rrf_score": null,
+      "section_key": "64e6a450e45143bd67d075453f2c1bcce7c2a3acb5145351de67cd3e0f28d084",
+      "version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e"
+    },
+    {
+      "bm25_rank": 17,
+      "bm25_score": 3.9748359,
+      "dense_rank": 48,
+      "dense_score": 0.259601,
+      "disposition": "NOT_SELECTED",
+      "document_key": "doi:10.3390/s24010044",
+      "fused_rank": null,
+      "passage_key": "0a0cfb976e7bd8ce7f592764f258accd073b5c9455a1b901fb965212fc2fb92c",
+      "reason": "outside_fused_window",
+      "rrf_score": null,
+      "section_key": "0e28cda5ac0ce507229df57c6f28a5d04b6aabf51cf94f17f1cd954deafd5adc",
+      "version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643"
+    },
+    {
+      "bm25_rank": null,
+      "bm25_score": null,
+      "dense_rank": 25,
+      "dense_score": 0.3415167,
+      "disposition": "NOT_SELECTED",
+      "document_key": "doi:10.3390/s24010044",
+      "fused_rank": null,
+      "passage_key": "0f2e84ab92f79422af7f94a5486bc9be61106d80409bf7c59d5cd9108a6b9fdc",
+      "reason": "outside_fused_window",
+      "rrf_score": null,
+      "section_key": "7bd0572c189b32dedc198f800d84402b3716bba07b33818948d6f3944b1611e1",
+      "version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643"
+    },
+    {
+      "bm25_rank": null,
+      "bm25_score": null,
+      "dense_rank": 20,
+      "dense_score": 0.36109942,
+      "disposition": "NOT_SELECTED",
+      "document_key": "doi:10.3390/s24010044",
+      "fused_rank": null,
+      "passage_key": "14131c1ee94c7774e44c4c5c37246137e894b05a1ecb672ebe91c265478a67d8",
+      "reason": "outside_fused_window",
+      "rrf_score": null,
+      "section_key": "50981bee9d55a8a0e7af8fbb98badb64c8c53b26975fd94ce44f435607cc84e9",
+      "version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643"
+    },
+    {
+      "bm25_rank": 47,
+      "bm25_score": 0.8128198,
+      "dense_rank": 46,
+      "dense_score": 0.26235396,
+      "disposition": "NOT_SELECTED",
+      "document_key": "doi:10.3389/fphys.2017.00016",
+      "fused_rank": null,
+      "passage_key": "1fab5010322a20942864efa1838766d23b1ce361445edc7436680ea462654e34",
+      "reason": "outside_fused_window",
+      "rrf_score": null,
+      "section_key": "4c91638274c6b97841b02d2d429fed0dbd0d4c34901c128108ba9514a18daa44",
+      "version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e"
+    },
+    {
+      "bm25_rank": 50,
+      "bm25_score": 0.07030573,
+      "dense_rank": null,
+      "dense_score": null,
+      "disposition": "NOT_SELECTED",
+      "document_key": "doi:10.3389/fphys.2017.00016",
+      "fused_rank": null,
+      "passage_key": "20b882b966e04387a69e3f80782fd9dd266642f4a492120b415f5156a6ba25e8",
+      "reason": "outside_fused_window",
+      "rrf_score": null,
+      "section_key": "621bee9a6b5d197214b934323d16fd8e87182ac9013e4ab2de9d7800e9da5f96",
+      "version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e"
+    },
+    {
+      "bm25_rank": 24,
+      "bm25_score": 2.3766365,
+      "dense_rank": 42,
+      "dense_score": 0.27579033,
+      "disposition": "NOT_SELECTED",
+      "document_key": "doi:10.1186/s13102-023-00771-8",
+      "fused_rank": null,
+      "passage_key": "2f7923951be48373ce9ea47a0f5d238d6c4ee69c0bc5052541ffc8a73e638b85",
+      "reason": "outside_fused_window",
+      "rrf_score": null,
+      "section_key": "5743b61cfcbfe12b5f9fafda6c380e2bc50b446d3b25d24ca24f5ad58ee4955a",
+      "version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b"
+    },
+    {
+      "bm25_rank": null,
+      "bm25_score": null,
+      "dense_rank": 36,
+      "dense_score": 0.30029917,
+      "disposition": "NOT_SELECTED",
+      "document_key": "doi:10.1186/s13102-023-00771-8",
+      "fused_rank": null,
+      "passage_key": "32c7908acca84eb07cbb378abfba2f50fdaf7f7ba6eefa87e73a713532c39b41",
+      "reason": "outside_fused_window",
+      "rrf_score": null,
+      "section_key": "e5dd6f6ba71b934411734f99017e86a48263d7a02b2aa3a6be74738739821bf2",
+      "version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b"
+    },
+    {
+      "bm25_rank": 18,
+      "bm25_score": 3.7040915,
+      "dense_rank": 47,
+      "dense_score": 0.2600711,
+      "disposition": "NOT_SELECTED",
+      "document_key": "doi:10.3390/s24010044",
+      "fused_rank": null,
+      "passage_key": "37ad148429ed0342fb2bc0e02fadc5194a4be1aa8f16bab1df8d433336a50144",
+      "reason": "outside_fused_window",
+      "rrf_score": null,
+      "section_key": "de1e4611a2d7b44c4e9d9e11daef7a003617ee0e05a92aed0476efdd645027bb",
+      "version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643"
+    },
+    {
+      "bm25_rank": 10,
+      "bm25_score": 5.177935,
+      "dense_rank": null,
+      "dense_score": null,
+      "disposition": "NOT_SELECTED",
+      "document_key": "doi:10.3389/fphys.2017.00016",
+      "fused_rank": null,
+      "passage_key": "3ccc3df6db5cafc562239b6c2188dd4eb3140d4c360d9f9fb49c8e7e9df83919",
+      "reason": "outside_fused_window",
+      "rrf_score": null,
+      "section_key": "817ae5080eb1187eeb31aad271037935740f254bd2f6ea5c27baab2a5b5b0a43",
+      "version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e"
+    },
+    {
+      "bm25_rank": 45,
+      "bm25_score": 0.90289307,
+      "dense_rank": null,
+      "dense_score": null,
+      "disposition": "NOT_SELECTED",
+      "document_key": "doi:10.3390/s24010044",
+      "fused_rank": null,
+      "passage_key": "3da0f42019e56d73cc2b3e8a6f860c4d53eed5fee4fcc1d58f77b195b20da41e",
+      "reason": "outside_fused_window",
+      "rrf_score": null,
+      "section_key": "0e28cda5ac0ce507229df57c6f28a5d04b6aabf51cf94f17f1cd954deafd5adc",
+      "version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643"
+    },
+    {
+      "bm25_rank": 48,
+      "bm25_score": 0.80330455,
+      "dense_rank": 12,
+      "dense_score": 0.4049802,
+      "disposition": "NOT_SELECTED",
+      "document_key": "doi:10.3390/s24010044",
+      "fused_rank": null,
+      "passage_key": "3e92f79d8580d4f364010975760f0a399447c8c55b0e4928035dc8e19362f760",
+      "reason": "outside_fused_window",
+      "rrf_score": null,
+      "section_key": "c11ceca4a84d6ba3b7b9935d097d8b9efb2470f6508e4dc5cd60727a97875317",
+      "version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643"
+    },
+    {
+      "bm25_rank": 16,
+      "bm25_score": 4.0947075,
+      "dense_rank": null,
+      "dense_score": null,
+      "disposition": "NOT_SELECTED",
+      "document_key": "doi:10.3390/s24010044",
+      "fused_rank": null,
+      "passage_key": "4028f46395328d7c94a3f5bce085ae356b552234edff5b6fcb233154f74f14c7",
+      "reason": "outside_fused_window",
+      "rrf_score": null,
+      "section_key": "2e3623f07f53a906a81532bf958812c73900ef7e72e7c94fa0e431e81a49ccb8",
+      "version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643"
+    },
+    {
+      "bm25_rank": 43,
+      "bm25_score": 0.9230602,
+      "dense_rank": 41,
+      "dense_score": 0.27828997,
+      "disposition": "NOT_SELECTED",
+      "document_key": "doi:10.3389/fphys.2017.00016",
+      "fused_rank": null,
+      "passage_key": "418af8928d919e2b4d9e887d1679ae1101b2768943433ca0e5d71b2e278ba002",
+      "reason": "outside_fused_window",
+      "rrf_score": null,
+      "section_key": "0a3a4188cc5c4932ed780d75024ab95097a61f40e70ef0438cde08b94b1e6d16",
+      "version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e"
+    },
+    {
+      "bm25_rank": 38,
+      "bm25_score": 1.0864149,
+      "dense_rank": null,
+      "dense_score": null,
+      "disposition": "NOT_SELECTED",
+      "document_key": "doi:10.3390/s24010044",
+      "fused_rank": null,
+      "passage_key": "437b1253f3d061912847c45637aefdd16ac52878be0f887aabe43d86a3ccc1f3",
+      "reason": "outside_fused_window",
+      "rrf_score": null,
+      "section_key": "95e95898429d46a661a449737b0d9a71ab74aa3a4211d5fffb1da2c89710e01c",
+      "version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643"
+    },
+    {
+      "bm25_rank": null,
+      "bm25_score": null,
+      "dense_rank": 10,
+      "dense_score": 0.42101443,
+      "disposition": "NOT_SELECTED",
+      "document_key": "doi:10.3390/s24010044",
+      "fused_rank": null,
+      "passage_key": "476fbd077540ac6c9f11d0860f7e34e62507fe059300cf3096ce7b8b7f0dc5e5",
+      "reason": "outside_fused_window",
+      "rrf_score": null,
+      "section_key": "b045be8529636c3221ef4b6ebe20e7a5c492cb2b6fc3e2d2bbaa05779a6d552d",
+      "version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643"
+    },
+    {
+      "bm25_rank": null,
+      "bm25_score": null,
+      "dense_rank": 39,
+      "dense_score": 0.285761,
+      "disposition": "NOT_SELECTED",
+      "document_key": "doi:10.3390/s24010044",
+      "fused_rank": null,
+      "passage_key": "48aa630f79851c2990f164c08e6dd4794024b8f8c9c594ed9642f2e65e1a4fbf",
+      "reason": "outside_fused_window",
+      "rrf_score": null,
+      "section_key": "047eb886762c1fc773ee0d5c78709a5d92261bdb40b4b22e68aba652814e87e5",
+      "version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643"
+    },
+    {
+      "bm25_rank": 40,
+      "bm25_score": 1.0264908,
+      "dense_rank": null,
+      "dense_score": null,
+      "disposition": "NOT_SELECTED",
+      "document_key": "doi:10.3389/fphys.2017.00016",
+      "fused_rank": null,
+      "passage_key": "4cce03640fc14755bb8c875d9ec6cd82b50413cb633176b3f53a0e2067c9b744",
+      "reason": "outside_fused_window",
+      "rrf_score": null,
+      "section_key": "6b121f9b7b9a5861f528928d01c57ff3c236fb4f22f53d1af7ca4ce85614943e",
+      "version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e"
+    },
+    {
+      "bm25_rank": null,
+      "bm25_score": null,
+      "dense_rank": 43,
+      "dense_score": 0.2742542,
+      "disposition": "NOT_SELECTED",
+      "document_key": "doi:10.3389/fphys.2017.00016",
+      "fused_rank": null,
+      "passage_key": "4f90bd9603475810e80898082a55911c3fcad15319249c84dd2f9d5e49f781c2",
+      "reason": "outside_fused_window",
+      "rrf_score": null,
+      "section_key": "cfef20095a006a1031ba88711b6b1274aacdd836d807fa0b246448787387cce2",
+      "version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e"
+    },
+    {
+      "bm25_rank": 27,
+      "bm25_score": 2.2701573,
+      "dense_rank": null,
+      "dense_score": null,
+      "disposition": "NOT_SELECTED",
+      "document_key": "doi:10.3389/fphys.2017.00016",
+      "fused_rank": null,
+      "passage_key": "52dd7ddbf821c16d5ee704ec0e934bb87a0e5824bb6d7b69d08083f91c9b053d",
+      "reason": "outside_fused_window",
+      "rrf_score": null,
+      "section_key": "3f47cc86e3144154820bff09cf7f4f1bf46f3e35d59d91df15838376198e802a",
+      "version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e"
+    },
+    {
+      "bm25_rank": null,
+      "bm25_score": null,
+      "dense_rank": 49,
+      "dense_score": 0.2586589,
+      "disposition": "NOT_SELECTED",
+      "document_key": "doi:10.3389/fphys.2017.00016",
+      "fused_rank": null,
+      "passage_key": "6fd7ffc760359aba9d63ba3870e34510691bb1051f03ba010dc10e84f0b5db19",
+      "reason": "outside_fused_window",
+      "rrf_score": null,
+      "section_key": "817ae5080eb1187eeb31aad271037935740f254bd2f6ea5c27baab2a5b5b0a43",
+      "version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e"
+    },
+    {
+      "bm25_rank": 37,
+      "bm25_score": 1.0916128,
+      "dense_rank": null,
+      "dense_score": null,
+      "disposition": "NOT_SELECTED",
+      "document_key": "doi:10.3389/fphys.2017.00016",
+      "fused_rank": null,
+      "passage_key": "7e765a236a54826ab5dc089a1ecdb41e288e78bee407a6c05da939b79038a151",
+      "reason": "outside_fused_window",
+      "rrf_score": null,
+      "section_key": "0363c0e94d7c56836bd4d31f44a47a70b042867b897e75fadfef61adec1c6e6d",
+      "version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e"
+    },
+    {
+      "bm25_rank": 26,
+      "bm25_score": 2.2810671,
+      "dense_rank": 38,
+      "dense_score": 0.28626686,
+      "disposition": "NOT_SELECTED",
+      "document_key": "doi:10.3389/fphys.2017.00016",
+      "fused_rank": null,
+      "passage_key": "910e004667e689e92322f4e876f8b6c12460c0dde2ad9f997fae6470830f26e5",
+      "reason": "outside_fused_window",
+      "rrf_score": null,
+      "section_key": "817ae5080eb1187eeb31aad271037935740f254bd2f6ea5c27baab2a5b5b0a43",
+      "version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e"
+    },
+    {
+      "bm25_rank": 44,
+      "bm25_score": 0.90997815,
+      "dense_rank": null,
+      "dense_score": null,
+      "disposition": "NOT_SELECTED",
+      "document_key": "doi:10.3389/fphys.2017.00016",
+      "fused_rank": null,
+      "passage_key": "9cbd015305b222b8ed8c37eb3b0ed0bb18b9847e13aaec41ae1f7410e9be7abe",
+      "reason": "outside_fused_window",
+      "rrf_score": null,
+      "section_key": null,
+      "version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e"
+    },
+    {
+      "bm25_rank": 41,
+      "bm25_score": 1.0175005,
+      "dense_rank": 18,
+      "dense_score": 0.37758148,
+      "disposition": "NOT_SELECTED",
+      "document_key": "doi:10.1186/s13102-023-00771-8",
+      "fused_rank": null,
+      "passage_key": "a5b8bdd7459fb17675db3956b5f6e1a088b69058d781c35f7fcd8c5703388196",
+      "reason": "outside_fused_window",
+      "rrf_score": null,
+      "section_key": null,
+      "version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b"
+    },
+    {
+      "bm25_rank": 35,
+      "bm25_score": 1.1639805,
+      "dense_rank": null,
+      "dense_score": null,
+      "disposition": "NOT_SELECTED",
+      "document_key": "doi:10.3390/s24010044",
+      "fused_rank": null,
+      "passage_key": "a73f69fb8c9eb8d3a4c266f8af55febd81c892052838fe2577fd8a2f7e79ca86",
+      "reason": "outside_fused_window",
+      "rrf_score": null,
+      "section_key": "0e28cda5ac0ce507229df57c6f28a5d04b6aabf51cf94f17f1cd954deafd5adc",
+      "version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643"
+    },
+    {
+      "bm25_rank": null,
+      "bm25_score": null,
+      "dense_rank": 29,
+      "dense_score": 0.3296963,
+      "disposition": "NOT_SELECTED",
+      "document_key": "doi:10.3390/s24010044",
+      "fused_rank": null,
+      "passage_key": "a9f58ada7e17a28a7da6a7b079432f87f2d0639d010180703cb9a2e767931cdf",
+      "reason": "outside_fused_window",
+      "rrf_score": null,
+      "section_key": "eb314590d3fb728b20386ee2ec70696914729430b1fbb1726ba38ebdebf73d8f",
+      "version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643"
+    },
+    {
+      "bm25_rank": 29,
+      "bm25_score": 1.6512005,
+      "dense_rank": 40,
+      "dense_score": 0.28208107,
+      "disposition": "NOT_SELECTED",
+      "document_key": "doi:10.1186/s13102-023-00771-8",
+      "fused_rank": null,
+      "passage_key": "b55b0b7f60d34f60bfedc6669bdaa84a45fd1c912e73b9226d3baedaa0565357",
+      "reason": "outside_fused_window",
+      "rrf_score": null,
+      "section_key": "2f263ec582b9497c6bd833c991aebaa0b17c5b6c0f0a30fca04fef5b91e217d3",
+      "version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b"
+    },
+    {
+      "bm25_rank": null,
+      "bm25_score": null,
+      "dense_rank": 21,
+      "dense_score": 0.35482177,
+      "disposition": "NOT_SELECTED",
+      "document_key": "doi:10.3389/fphys.2017.00016",
+      "fused_rank": null,
+      "passage_key": "b8f51f5037a64cb1fa0419eda42f489e0745e769b9ff8c2c6fbf12a51b0479cf",
+      "reason": "outside_fused_window",
+      "rrf_score": null,
+      "section_key": "009f27c95dba019b47962eaacf4cbcb95878cc620af494e85f02c6ab9dd8b73f",
+      "version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e"
+    },
+    {
+      "bm25_rank": null,
+      "bm25_score": null,
+      "dense_rank": 37,
+      "dense_score": 0.29384696,
+      "disposition": "NOT_SELECTED",
+      "document_key": "doi:10.3389/fphys.2017.00016",
+      "fused_rank": null,
+      "passage_key": "b96d0bddf9f3c6ca0bf443f03ac498c71f713d74e6e8768c75769e43ad79953a",
+      "reason": "outside_fused_window",
+      "rrf_score": null,
+      "section_key": "a3e42d52c44287446eef0453073c2c89d126b34b6e5790e7066749fe98b94a7c",
+      "version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e"
+    },
+    {
+      "bm25_rank": null,
+      "bm25_score": null,
+      "dense_rank": 26,
+      "dense_score": 0.3415167,
+      "disposition": "NOT_SELECTED",
+      "document_key": "doi:10.3390/s24010044",
+      "fused_rank": null,
+      "passage_key": "bcd389974e8a747c67759b6200fa223a8cb2cacfa5c8d2195c537d3ba2065e3d",
+      "reason": "outside_fused_window",
+      "rrf_score": null,
+      "section_key": "95cb4c1b586cff5c3ef0106e2d7ba4d74cf5f051edec42004f9a5865b85bef41",
+      "version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643"
+    },
+    {
+      "bm25_rank": null,
+      "bm25_score": null,
+      "dense_rank": 45,
+      "dense_score": 0.26392943,
+      "disposition": "NOT_SELECTED",
+      "document_key": "doi:10.3390/s24010044",
+      "fused_rank": null,
+      "passage_key": "be0ea51394c2a8b29ff6edab8d3528543c130212dbdef3b1b49df6f3896d178a",
+      "reason": "outside_fused_window",
+      "rrf_score": null,
+      "section_key": null,
+      "version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643"
+    },
+    {
+      "bm25_rank": 36,
+      "bm25_score": 1.140953,
+      "dense_rank": 19,
+      "dense_score": 0.36592746,
+      "disposition": "NOT_SELECTED",
+      "document_key": "doi:10.3389/fphys.2017.00016",
+      "fused_rank": null,
+      "passage_key": "c01aa00965aca618224d90cc26c8cdff1d0503eaa55db5c2afaf6306945ebf2b",
+      "reason": "outside_fused_window",
+      "rrf_score": null,
+      "section_key": "4bdded16953c4e5477853870c92b056a222d4c17db51ed00b4e78bb02b5e7f81",
+      "version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e"
+    },
+    {
+      "bm25_rank": 11,
+      "bm25_score": 5.1650248,
+      "dense_rank": null,
+      "dense_score": null,
+      "disposition": "NOT_SELECTED",
+      "document_key": "doi:10.3390/s24010044",
+      "fused_rank": null,
+      "passage_key": "c15877f3938f3a25bc734c99fe15cfb29a25805bdfc2ec7b124ea41e41295cf0",
+      "reason": "outside_fused_window",
+      "rrf_score": null,
+      "section_key": "0e28cda5ac0ce507229df57c6f28a5d04b6aabf51cf94f17f1cd954deafd5adc",
+      "version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643"
+    },
+    {
+      "bm25_rank": null,
+      "bm25_score": null,
+      "dense_rank": 17,
+      "dense_score": 0.38080126,
+      "disposition": "NOT_SELECTED",
+      "document_key": "doi:10.3389/fphys.2017.00016",
+      "fused_rank": null,
+      "passage_key": "c29d6ba374ca197aa0fd33cdc445a38df0ca61144306fdb63af5eef93e25dc82",
+      "reason": "outside_fused_window",
+      "rrf_score": null,
+      "section_key": "f18c1384fbd324c6a28ee17daa5ca86d77b476f92a299d5980088de2117a9547",
+      "version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e"
+    },
+    {
+      "bm25_rank": 32,
+      "bm25_score": 1.540711,
+      "dense_rank": 30,
+      "dense_score": 0.32868493,
+      "disposition": "NOT_SELECTED",
+      "document_key": "doi:10.3389/fphys.2017.00016",
+      "fused_rank": null,
+      "passage_key": "c6afa1726037565bfdc04bee6fd81c09a80195ef0d22ad52b87b9de8e5f50fec",
+      "reason": "outside_fused_window",
+      "rrf_score": null,
+      "section_key": "d405cfa68008f3863cda3ba4663a7c20838eecae191d4c2bff99a306954cf442",
+      "version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e"
+    },
+    {
+      "bm25_rank": 42,
+      "bm25_score": 0.9412537,
+      "dense_rank": null,
+      "dense_score": null,
+      "disposition": "NOT_SELECTED",
+      "document_key": "doi:10.3390/s24010044",
+      "fused_rank": null,
+      "passage_key": "c95fa67ff09a49666ee2640e5f34963bcc08e2e8036ccdc7e2c689e7e539e037",
+      "reason": "outside_fused_window",
+      "rrf_score": null,
+      "section_key": "0e28cda5ac0ce507229df57c6f28a5d04b6aabf51cf94f17f1cd954deafd5adc",
+      "version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643"
+    },
+    {
+      "bm25_rank": 46,
+      "bm25_score": 0.8192415,
+      "dense_rank": 13,
+      "dense_score": 0.39064586,
+      "disposition": "NOT_SELECTED",
+      "document_key": "doi:10.3389/fphys.2017.00016",
+      "fused_rank": null,
+      "passage_key": "d06672b802bc0d5975410a1e95fe4a0c5ec7bb069515ee6c4e792225b567ffaa",
+      "reason": "outside_fused_window",
+      "rrf_score": null,
+      "section_key": "3f47cc86e3144154820bff09cf7f4f1bf46f3e35d59d91df15838376198e802a",
+      "version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e"
+    },
+    {
+      "bm25_rank": 39,
+      "bm25_score": 1.0759842,
+      "dense_rank": 31,
+      "dense_score": 0.32303864,
+      "disposition": "NOT_SELECTED",
+      "document_key": "doi:10.3390/s24010044",
+      "fused_rank": null,
+      "passage_key": "d1ffeccb83e0f03b677707551d8f9b9bca39c9a262626260d70eca988e66d6b7",
+      "reason": "outside_fused_window",
+      "rrf_score": null,
+      "section_key": "bac55f182f3826fabf8da28d41147c1891f3568e5b6f1ab9def26bdaf56466d4",
+      "version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643"
+    },
+    {
+      "bm25_rank": 31,
+      "bm25_score": 1.5760512,
+      "dense_rank": null,
+      "dense_score": null,
+      "disposition": "NOT_SELECTED",
+      "document_key": "doi:10.3390/s24010044",
+      "fused_rank": null,
+      "passage_key": "d244797e4f462276cddf0ff7a723f617d71c2633d4e67ff1f48c45bb4e32e638",
+      "reason": "outside_fused_window",
+      "rrf_score": null,
+      "section_key": "2e3623f07f53a906a81532bf958812c73900ef7e72e7c94fa0e431e81a49ccb8",
+      "version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643"
+    },
+    {
+      "bm25_rank": 22,
+      "bm25_score": 2.991065,
+      "dense_rank": null,
+      "dense_score": null,
+      "disposition": "NOT_SELECTED",
+      "document_key": "doi:10.1186/s13102-023-00771-8",
+      "fused_rank": null,
+      "passage_key": "d670cd4ea42f408b698e99b50695a009d9a0a45486c4564dbdf05e7378c030b5",
+      "reason": "outside_fused_window",
+      "rrf_score": null,
+      "section_key": "e5dd6f6ba71b934411734f99017e86a48263d7a02b2aa3a6be74738739821bf2",
+      "version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b"
+    },
+    {
+      "bm25_rank": 30,
+      "bm25_score": 1.5858165,
+      "dense_rank": 34,
+      "dense_score": 0.31759083,
+      "disposition": "NOT_SELECTED",
+      "document_key": "doi:10.1186/s13102-023-00771-8",
+      "fused_rank": null,
+      "passage_key": "efdea100f6fa04f0f696d2a22c6fe5f522db570a754bc61cf7886893a8e58c09",
+      "reason": "outside_fused_window",
+      "rrf_score": null,
+      "section_key": "2f263ec582b9497c6bd833c991aebaa0b17c5b6c0f0a30fca04fef5b91e217d3",
+      "version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b"
+    },
+    {
+      "bm25_rank": null,
+      "bm25_score": null,
+      "dense_rank": 16,
+      "dense_score": 0.38098538,
+      "disposition": "NOT_SELECTED",
+      "document_key": "doi:10.3389/fphys.2017.00016",
+      "fused_rank": null,
+      "passage_key": "f2f9d68389de2fdf993be5f71471766585c77dbb8636b62cba1e0265ff0e4afc",
+      "reason": "outside_fused_window",
+      "rrf_score": null,
+      "section_key": "1e3fdb38087da3df72f84f417f882c480f6ae33a43e6fa2aa432643b12bd3ee0",
+      "version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e"
+    },
+    {
+      "bm25_rank": null,
+      "bm25_score": null,
+      "dense_rank": 14,
+      "dense_score": 0.3883943,
+      "disposition": "NOT_SELECTED",
+      "document_key": "doi:10.3390/s24010044",
+      "fused_rank": null,
+      "passage_key": "ff5941e21eb83304e6bfeb57390f75f18acf00a955a3f5b1190f21e8eed268cc",
+      "reason": "outside_fused_window",
+      "rrf_score": null,
+      "section_key": "9ecf1f96e96e677f805a2076b2621955ebe38262c6f6b9d71ac61ab9716bb205",
+      "version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643"
+    },
+    {
+      "bm25_rank": 33,
+      "bm25_score": 1.4110057,
+      "dense_rank": null,
+      "dense_score": null,
+      "disposition": "NOT_SELECTED",
+      "document_key": "doi:10.3389/fphys.2017.00016",
+      "fused_rank": null,
+      "passage_key": "ff98ea8cb2b6f9c9af22689a5b49868fcd816885ba0b2939ab5aae696deda73f",
+      "reason": "outside_fused_window",
+      "rrf_score": null,
+      "section_key": "6375aa7ccac7b1504224075d58c408a3ce09c7f39ac01fd0c1016a0414a44f9e",
+      "version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e"
+    }
+  ],
+  "source_files_identity_before_after": [
+    "ac050bbe660743f7c868fdf5cde680d4ff1a85453f5cba8429767642788b43f3",
+    "ac050bbe660743f7c868fdf5cde680d4ff1a85453f5cba8429767642788b43f3"
+  ],
+  "status": "INSUFFICIENT_EVIDENCE",
+  "synthesis_wall_clock_ms": 142114.05319999903
+}
