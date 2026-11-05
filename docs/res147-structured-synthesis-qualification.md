@@ -42,3 +42,19 @@ Separately, an isolated migrated PostgreSQL integration test constructed, persis
 ## Remaining review conditions
 
 The live model abstained twice, so the real run produced no graph. Exact original canonical row hashes are unavailable after recovery. Hosted exact-head CI is pending. These limitations must remain visible in the PR and Linear update; no benchmark superiority or scientific approval is claimed.
+
+## Recovery qualification on the protected main baseline (2026-11-05)
+
+The structured synthesis implementation was ported from PR #28 onto `main` at `0cedd18fa7e1325fdd68affcbe50379f2d861de9` in a separate worktree. PR #28 remains unchanged. Overlap with PR #30 was limited to four integration fixture files (`test_canonical_persistence.py`, `test_chunking_persistence.py`, `test_jats_canonical_import.py`, and `test_migrations.py`); the merged main-branch isolation and migration guards were retained in those files.
+
+Engineering qualification on the port:
+
+- Unit tests: **2,555 passed, 287 deselected**.
+- Isolated integration tests: **287 passed, 2,555 deselected**.
+- Ruff lint and formatting: passed (278 files formatted).
+- Strict Pyright: passed with zero errors, warnings, or information messages.
+- `uv lock --check` and `uv sync --locked`: passed.
+- Synthetic service-level RAG cases passed for a grounded proposal, explicit abstention, unsupported proposition, invented passage citation, and malformed provider response. Exact paragraph-coordinate rejection and provisional graph persistence/reconstruction also passed.
+- All generated claims and links remain `MODEL_PROPOSED` / `PROPOSED`; successful synthetic validation is a structural engineering result, not a scientific conclusion.
+
+No new live model inference ran in this recovery session: the Ollama executable was absent and `127.0.0.1:11434` was not listening. The preserved receipt still records two prior `insufficient_evidence` abstentions with zero claims, links, or graph identity. They remain abstentions and are not positive synthesis results. The branch is prepared for an exact-head hosted CI run; no merge is requested.

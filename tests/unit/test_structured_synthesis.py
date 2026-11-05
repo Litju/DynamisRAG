@@ -171,6 +171,26 @@ def test_sentence_fragment_cannot_become_an_extractive_claim() -> None:
         graph(draft(proposition=fragment, quote=fragment))
 
 
+def test_incorrect_paragraph_coordinates_reject_the_citation() -> None:
+    source = VerifiedSource(
+        member=_SET.members[0],
+        text=_TEXT,
+        spans=(
+            VerifiedSpan(_SPAN, _TEXT, _TEXT, 1, len(_TEXT)),
+            _SOURCE.spans[1],
+        ),
+    )
+    with pytest.raises(ValueError, match="absent from the cited"):
+        build_graph(
+            _SET,
+            (source,),
+            draft(),
+            model_identity="f" * 64,
+            policy_sha256=_POLICY,
+            allowed_spans={_PASSAGE: frozenset({_SPAN})},
+        )
+
+
 def test_unknown_span_excluded_from_generation_context_rejected() -> None:
     candidate = draft(span_key=_OTHER_SPAN)
     with pytest.raises(ValueError, match="unknown or nonmember"):

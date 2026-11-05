@@ -2,12 +2,13 @@
 
 from collections.abc import Iterator
 from hashlib import sha256
-from typing import Any
+from types import SimpleNamespace
+from typing import Any, cast
 from unittest.mock import Mock
 
 import pytest
 from scripts.res145_evidence_demo import database_receipt, scratch_database
-from sqlalchemy import Engine, select, update
+from sqlalchemy import Engine, select, text, update
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
@@ -26,12 +27,36 @@ from dynamisrag.domain.identity import evidence_identity
 from dynamisrag.domain.values import ParagraphRegion
 from dynamisrag.evidence.contracts import SelectionRequest
 from dynamisrag.evidence.service import select_live, select_offline
-from dynamisrag.generation.provider import DraftClaim, DraftEvidenceReference, DraftSynthesis
-from dynamisrag.generation.synthesis import materialize_sources
+from dynamisrag.generation.ollama import DIGEST, MODEL, OPTIONS, RUNTIME
+from dynamisrag.generation.provider import (
+    DraftClaim,
+    DraftEvidenceReference,
+    DraftSynthesis,
+    ExecutionConditions,
+    ExecutionMetrics,
+    GenerationAttempt,
+    GenerationContext,
+    GenerationProvider,
+    GenerationSemantics,
+    GenerationSettings,
+    ModelIdentity,
+)
+from dynamisrag.generation.structured import POLICY_SHA256
+from dynamisrag.generation.synthesis import (
+    StructuredSynthesisService,
+    SynthesisRequest,
+    materialize_sources,
+)
 from dynamisrag.generation.validation import build_graph
 from dynamisrag.search.projection import build_projection_manifest
+from dynamisrag.search.qdrant import QdrantProjector
 from dynamisrag.search.retrieval import PassageProvenance
-from dynamisrag.search.scientific import CHUNKER, ScientificResponse, ScientificRetrievalService
+from dynamisrag.search.scientific import (
+    CHUNKER,
+    ScientificReadiness,
+    ScientificResponse,
+    ScientificRetrievalService,
+)
 from tests.evidence_support import seed_source
 from tests.unit.test_evidence_selection import request_for, synthetic_response
 
@@ -213,6 +238,172 @@ def test_selected_passage_builds_and_reconstructs_provisional_graph(
         assert persisted == get_graph(session, selection.evidence_set.key)
     assert persisted.claims[0].review_state.value == "PROPOSED"
     assert persisted.links[0].member == source.member
+
+
+@pytest.mark.parametrize(
+    ("outcome", "expected_status"),
+    [
+        ("grounded", "CANDIDATE_GROUNDED"),
+        ("abstain", "INSUFFICIENT_EVIDENCE"),
+        ("unsupported", "INVALID_GENERATION"),
+        ("invented_citation", "INVALID_GENERATION"),
+        ("malformed", "INVALID_GENERATION"),
+    ],
+)
+def test_structured_synthesis_replays_synthetic_retrieval_end_to_end(
+    selection_engine: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+    outcome: str,
+    expected_status: str,
+) -> None:
+    with Session(selection_engine) as session:
+        records = list_passage_projection_records(session, chunker_revision=CHUNKER)
+    passages = build_projection_manifest(records, chunker_revision=CHUNKER)
+    sources = tuple(
+        PassageProvenance.model_validate(
+            {
+                key: value
+                for key, value in document.payload().items()
+                if key in PassageProvenance.model_fields
+            }
+        )
+        for document in passages.documents
+    )
+    embedding_sha256 = "e" * 64
+    response = synthetic_response(sources).model_copy(
+        update={
+            "embedding_manifest_sha256": embedding_sha256,
+            "projection_sha256": passages.projection_sha256,
+        }
+    )
+    request = request_for(response, max_passages=1, max_documents=1)
+    projection = SimpleNamespace(
+        passages=passages,
+        embeddings=SimpleNamespace(manifest_sha256=embedding_sha256),
+        collection_name=response.physical_collection,
+    )
+
+    def retrieve_fixture(
+        _question: str, _limit: int, _filters: dict[str, object]
+    ) -> ScientificResponse:
+        return response
+
+    retrieval = cast(
+        ScientificRetrievalService,
+        SimpleNamespace(
+            engine=selection_engine,
+            projection=projection,
+            client=object(),
+            retrieve=retrieve_fixture,
+            readiness=lambda: ScientificReadiness(physical_collection=response.physical_collection),
+        ),
+    )
+    qdrant_verifications: list[bool] = []
+
+    def verify_fixture_projection(_projector: QdrantProjector, actual: object) -> None:
+        assert actual is projection
+        qdrant_verifications.append(True)
+
+    monkeypatch.setattr(QdrantProjector, "verify", verify_fixture_projection)
+
+    class FixtureProvider:
+        calls = 0
+
+        def generate(self, context: GenerationContext) -> GenerationAttempt:
+            self.calls += 1
+            cited = context.evidence[0]
+            span = cited.spans[0]
+            quote = span.text.split(" Additional source marker", maxsplit=1)[0]
+            if outcome == "abstain":
+                draft = DraftSynthesis(
+                    status="insufficient_evidence",
+                    claims=(),
+                    missing_evidence=("sample size",),
+                    limitations=(),
+                )
+            else:
+                passage_key = "0" * 64 if outcome == "invented_citation" else cited.passage_key
+                proposition = (
+                    "The synthetic instrument proved causation."
+                    if outcome == "unsupported"
+                    else quote
+                )
+                draft = DraftSynthesis(
+                    status="candidate_grounded",
+                    claims=(
+                        DraftClaim(
+                            proposition=proposition,
+                            category="DESCRIPTIVE",
+                            evidence=(
+                                DraftEvidenceReference(
+                                    passage_key=passage_key,
+                                    span_key=span.span_key,
+                                    relation=Relation.SUPPORTS,
+                                    exact_quote=quote,
+                                ),
+                            ),
+                        ),
+                    ),
+                    missing_evidence=(),
+                    limitations=(),
+                )
+            return GenerationAttempt(
+                draft=draft,
+                semantics=GenerationSemantics(
+                    model=ModelIdentity(
+                        model=MODEL,
+                        digest=DIGEST,
+                        quantization="Q4_K_M",
+                        parameter_size="4.0B",
+                        runtime_version=RUNTIME,
+                    ),
+                    prompt_policy_sha256=POLICY_SHA256,
+                    context_identity=context.key,
+                    settings=GenerationSettings.model_validate(OPTIONS),
+                ),
+                conditions=ExecutionConditions(endpoint="http://127.0.0.1:11434"),
+                metrics=ExecutionMetrics(
+                    load_duration=1,
+                    prompt_eval_count=100,
+                    prompt_eval_duration=2,
+                    eval_count=10,
+                    eval_duration=3,
+                    total_duration=6,
+                ),
+                raw_output="not-json" if outcome == "malformed" else draft.model_dump_json(),
+            )
+
+    provider = FixtureProvider()
+    with selection_engine.connect() as connection:
+        graph_count_before = connection.execute(
+            text("SELECT count(*) FROM evidence_set")
+        ).scalar_one()
+    service = StructuredSynthesisService(retrieval, cast(GenerationProvider, provider))
+    result = service.synthesize(SynthesisRequest(selection=request))
+    replay = service.synthesize(SynthesisRequest(selection=request))
+    assert result == replay
+    assert result.status == expected_status
+    assert result.evidence_set_identity is not None
+    assert provider.calls == 2
+    assert len(qdrant_verifications) == 2
+    if outcome == "grounded":
+        assert result.graph is not None
+        assert len(result.graph.evidence_set.members) == 1
+        assert (
+            result.graph.evidence_set.members[0].passage_key == response.fusion.hits[0].passage_key
+        )
+        assert result.graph.claims[0].origin == "MODEL_PROPOSED"
+        assert result.graph.claims[0].review_state.value == "PROPOSED"
+        assert result.graph.links[0].member == result.graph.evidence_set.members[0]
+        assert result.graph.links[0].span_key == result.graph.evidence_set.members[0].span_keys[0]
+        assert result.graph.links[0].rationale == result.graph.claims[0].proposition
+    else:
+        assert result.graph is None and result.graph_identity is None
+    with selection_engine.connect() as connection:
+        assert (
+            connection.execute(text("SELECT count(*) FROM evidence_set")).scalar_one()
+            == graph_count_before
+        )
 
 
 @pytest.mark.parametrize(
