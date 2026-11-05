@@ -1,9 +1,7 @@
-"""Integration tests. Every test here requires the live local stack:
+"""Integration tests require isolated live services and a dedicated test DSN.
 
-Copy-Item .env.example .env
-docker compose up -d --wait
-uv run alembic upgrade head
-uv run pytest -m integration
+Provision a separate test cluster and role, then run ``uv run pytest -m integration``.
+Each integration test creates, identity-checks, and removes its own database.
 """
 
 from __future__ import annotations

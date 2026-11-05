@@ -61,7 +61,7 @@ fixtures.
 | TEI (optional) | 1.9.4      | `text-embeddings-inference:cpu-1.9.4`, separate compose file, not required to run anything |
 | SQLAlchemy     | 2.1.x      | 2.x API, `postgresql+psycopg` dialect              |
 | psycopg        | 3.3.x      | psycopg 3 only                                     |
-| Alembic        | 1.20.x     | Four revisions, head `0004_passage_source_spans` |
+| Alembic        | 1.20.x     | Five revisions, head `0005_evidence_graph`       |
 | Ruff           | 0.16.x     | Lint **and** format                                |
 | Pyright        | 1.1.414    | `typeCheckingMode = "strict"`                      |
 | pytest         | 9.x        | Unit suite needs no infrastructure                  |
@@ -118,7 +118,7 @@ Invoke-RestMethod http://127.0.0.1:8000/readyz
 ├── alembic/                   # migration environment and revisions
 │   ├── env.py                 # reads its DSN from dynamisrag.config, never alembic.ini
 │   ├── script.py.mako
-│   └── versions/                 # 0001_foundation_baseline → 0004_passage_source_spans
+│   └── versions/                 # 0001_foundation_baseline → 0005_evidence_graph
 ├── src/dynamisrag/
 │   ├── application.py         # create_app() factory; no I/O at construction
 │   ├── config.py              # strict, frozen, validated settings
@@ -415,6 +415,8 @@ working directory and behaves identically on Windows and Linux.
 | ----------------------------------------- | -------- | ----------- | ---------------------------------------- |
 | `DYNAMISRAG_ENVIRONMENT`                  | no       | `local`     | `local`, `test`, `ci`, `staging`, `production` |
 | `DYNAMISRAG_DATABASE_URL`                 | **yes**  | —           | PostgreSQL DSN (`postgresql://`)          |
+| `DYNAMISRAG_TEST_DATABASE_URL`             | integration | unset    | Non-superuser DSN to `postgres` on the isolated test cluster |
+| `DYNAMISRAG_TEST_ADMIN_DATABASE_URL`       | provisioning | unset   | Admin DSN to that test cluster's `postgres` database only |
 | `DYNAMISRAG_OPENSEARCH_URL`               | **yes**  | —           | OpenSearch base URL                       |
 | `DYNAMISRAG_OPENSEARCH_USERNAME`          | no       | `admin`     |                                          |
 | `DYNAMISRAG_OPENSEARCH_PASSWORD`          | **yes**  | —           | Wrapped in `SecretStr`; never logged      |
@@ -488,8 +490,12 @@ docker compose ps             # both services report (healthy)
 docker compose logs           # tail logs
 docker compose stop opensearch    # stop one dependency
 docker compose down           # stop and remove containers (volumes persist)
-docker compose down -v        # also delete the data volumes
 ```
+
+Do not use `docker compose down -v` with a retained PostgreSQL, Qdrant or
+OpenSearch volume. Integration qualification uses the separate
+`dynamisrag-integration` project, namespaced volumes, and attested disposable
+PostgreSQL databases; see [migration safety](docs/migration-safety.md).
 
 Only two services exist here. Temporal, Valkey, Keycloak, OpenFGA, vLLM,
 Kafka, Neon and Vercel integrations are explicitly **out of scope** and are
@@ -1172,14 +1178,23 @@ disagrees with the run refuses to be reused.
 ## Migrations
 
 ```powershell
-uv run alembic upgrade head      # apply
-uv run alembic current           # what is applied
-uv run alembic history           # revision graph
-uv run alembic downgrade base    # revert to an empty database
-uv run alembic upgrade head --sql   # render SQL, no database needed
+uv run alembic current
+uv run alembic history
+uv run alembic upgrade head --sql   # render guarded SQL without a connection
 ```
 
-The revision graph has four revisions, and the head is `0004_passage_source_spans`:
+Online Alembic runs fail closed before DDL. They are allowed only for a
+per-test database owned by `dynamisrag_test` with a random database-comment
+marker, or for an exact database name/OID whose non-superuser owner is a direct
+member of `dynamisrag_migration_operators`. Supplying the `maintenance_target`
+CLI value alone grants no authority. A DBA must provision the maintenance-role
+membership out of band; the test role is never granted that membership.
+
+Offline SQL includes the same check before its migration statements. Review the
+generated SQL as a guardrail; removing or executing it with a database owner
+that lacks the required role membership is not an authorized maintenance path.
+
+The revision graph has five revisions, and the head is `0005_evidence_graph`:
 
 | Revision                          | Effect                                          |
 | --------------------------------- | ----------------------------------------------- |
@@ -1187,6 +1202,7 @@ The revision graph has four revisions, and the head is `0004_passage_source_span
 | `0002_canonical_document_model`   | Canonical documents, versions and acquisition provenance |
 | `0003_jats_source_structure`      | Paragraphs and their JATS source anchors          |
 | `0004_passage_source_spans`       | Passages and their exact paragraph character ranges |
+| `0005_evidence_graph`             | Evidence sets, claims and source-linked evidence relationships |
 
 `0001_foundation_baseline` still asserts what it was built to assert: applying
 *only* that revision to an empty database succeeds and leaves `public` containing
@@ -1198,13 +1214,33 @@ later revisions, and every one of them is exercised against a real database.
 
 ```powershell
 uv run pytest                 # unit suite, no infrastructure, ~0.5s
-uv run pytest -m integration  # requires the live stack
+uv run python scripts/provision_test_role.py
+uv run pytest -m integration  # disposable database per test
 ```
 
 `-m 'not integration'` is set in `addopts`, so the default run cannot be broken
 by an absent database. The integration suite reads the same `.env` as the
-application. An explicit `uv run pytest -m integration` run fails loudly with
-an actionable message when configuration is missing or invalid — it can never
+application for ordinary service settings, but it connects to PostgreSQL only
+through `DYNAMISRAG_TEST_DATABASE_URL`. The test role must be a non-superuser
+with `CREATEDB`, without `CREATEROLE`, and cannot connect to the application
+database. `DYNAMISRAG_TEST_ADMIN_DATABASE_URL` is used only to provision the
+role on a separate disposable test cluster; it must connect to that cluster's
+`postgres` database, never the protected application database. Run
+`scripts/init-test-role.sh` (or the Python command above) after PostgreSQL is
+ready: provisioning is idempotent and does not rely on the first-time-only
+`docker-entrypoint-initdb.d` hook. Existing unmarked roles are adopted only
+when their privileges and memberships are safe; conflicting roles fail without
+being changed.
+
+For local integration work, use a unique Compose project name and host ports
+separate from any retained application services. Set both test DSNs to that
+project, then provision the role and run the suite. This creates new project
+volumes and does not reuse the application reference volume. Stop the project
+with `docker compose -p <unique-project> stop`; never remove its volumes as part
+of routine qualification.
+
+An explicit `uv run pytest -m integration` run fails loudly with an actionable
+message when the dedicated test DSN or services are missing; it can never
 degrade into a silent skip. Unit-level regression tests
 (`tests/unit/test_integration_contract.py`) prove both halves of that contract
 in a subprocess, with no live services required.

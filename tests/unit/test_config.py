@@ -19,6 +19,8 @@ from tests._support import REPO_ROOT, build_settings
 
 _MINIMAL_ENVIRONMENT: dict[str, str] = {
     "DYNAMISRAG_DATABASE_URL": "postgresql://user:pw@db.internal:5432/records",
+    "DYNAMISRAG_TEST_DATABASE_URL": "postgresql://dynamisrag_test:pw@db.internal:5432/postgres",
+    "DYNAMISRAG_TEST_ADMIN_DATABASE_URL": "postgresql://admin:pw@db.internal:5432/postgres",
     "DYNAMISRAG_OPENSEARCH_URL": "https://search.internal:9200",
     "DYNAMISRAG_OPENSEARCH_PASSWORD": "a-password-1A",
     "DYNAMISRAG_OPENSEARCH_VERIFY_TLS": "true",
@@ -28,6 +30,9 @@ _MINIMAL_ENVIRONMENT: dict[str, str] = {
 
 _MINIMAL_MAPPING: dict[str, object] = {
     "database_url": "postgresql://user:pw@db.internal:5432/records",
+    "test_database_url": None,
+    "test_admin_database_url": None,
+    "test_cluster_system_identifier": None,
     "opensearch_url": "https://search.internal:9200",
     "opensearch_password": "a-password-1A",
 }
@@ -53,6 +58,19 @@ def test_settings_are_loaded_from_prefixed_environment_variables(
 
     assert settings.environment is Environment.CI
     assert str(settings.database_url) == "postgresql://user:pw@db.internal:5432/records"
+    assert str(settings.test_database_url) == (
+        "postgresql://dynamisrag_test:pw@db.internal:5432/postgres"
+    )
+    assert str(settings.test_admin_database_url) == (
+        "postgresql://admin:pw@db.internal:5432/postgres"
+    )
+    assert (
+        str(settings.test_database_url)
+        == "postgresql://dynamisrag_test:pw@db.internal:5432/postgres"
+    )
+    assert (
+        str(settings.test_admin_database_url) == "postgresql://admin:pw@db.internal:5432/postgres"
+    )
     assert str(settings.opensearch_url) == "https://search.internal:9200/"
     assert settings.opensearch_username == "admin"
     assert settings.opensearch_verify_tls is True
@@ -81,7 +99,8 @@ def test_required_settings_have_no_defaults() -> None:
         assert Settings.model_fields[name].is_required()
 
 
-def test_missing_required_setting_is_rejected() -> None:
+def test_missing_required_setting_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("DYNAMISRAG_DATABASE_URL", raising=False)
     incomplete = {key: value for key, value in _MINIMAL_MAPPING.items() if key != "database_url"}
 
     with pytest.raises(ValidationError) as error:
@@ -103,6 +122,10 @@ def test_malformed_values_are_rejected() -> None:
         Settings.from_mapping({**_MINIMAL_MAPPING, "environment": "staging-ish"})
     with pytest.raises(ValidationError):
         Settings.from_mapping({**_MINIMAL_MAPPING, "log_level": "chatty"})
+    with pytest.raises(ValidationError):
+        Settings.from_mapping(
+            {**_MINIMAL_MAPPING, "test_cluster_system_identifier": "not-a-system-id"}
+        )
 
 
 def test_unknown_dynamisrag_variables_are_ignored() -> None:
@@ -135,6 +158,21 @@ def test_database_url_is_never_exposed_but_stays_debuggable() -> None:
     assert "hunter2" not in str(settings)
     assert "hunter2" not in redacted
     assert redacted == "postgresql+psycopg://user:***@db.internal:5432/r"
+
+
+def test_test_database_credentials_are_hidden_from_repr() -> None:
+    test_password = "test-database-secret"
+    admin_password = "admin-database-secret"
+    settings = Settings.from_mapping(
+        {
+            **_MINIMAL_MAPPING,
+            "test_database_url": f"postgresql://dynamisrag_test:{test_password}@db.internal:5432/postgres",
+            "test_admin_database_url": f"postgresql://admin:{admin_password}@db.internal:5432/postgres",
+        }
+    )
+
+    assert test_password not in repr(settings)
+    assert admin_password not in repr(settings)
 
 
 def test_settings_are_immutable() -> None:

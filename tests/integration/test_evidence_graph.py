@@ -2,14 +2,12 @@
 
 from collections.abc import Iterator
 from typing import Any
-from urllib.parse import urlsplit, urlunsplit
 from uuid import uuid4
 
-import psycopg
 import pytest
 from alembic import command
 from alembic.config import Config
-from psycopg import sql
+from scripts.res145_evidence_demo import scratch_database
 from sqlalchemy import Engine, delete, event, func, insert, select, text, update
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
@@ -17,8 +15,6 @@ from sqlalchemy.orm import Session
 from dynamisrag.chunking.config import ChunkerConfig
 from dynamisrag.chunking.materializer import PassageMaterializer
 from dynamisrag.chunking.planner import StructureAwareChunker
-from dynamisrag.config import load_settings
-from dynamisrag.db import create_database_engine
 from dynamisrag.db.evidence import canonical_member, get_graph, persist_graph
 from dynamisrag.db.evidence_models import (
     ClaimRecord,
@@ -34,7 +30,7 @@ from dynamisrag.domain.evidence import (
     ReviewState,
 )
 from dynamisrag.domain.identity import evidence_identity
-from tests._support import ALEMBIC_INI, REPO_ROOT, build_settings
+from tests._support import ALEMBIC_INI, REPO_ROOT
 from tests.evidence_support import seed_source
 from tests.unit.test_evidence_domain import graph
 
@@ -43,33 +39,17 @@ pytestmark = pytest.mark.integration
 
 @pytest.fixture(scope="module")
 def evidence_engine() -> Iterator[Engine]:
-    """Never migrate or write the populated reference database."""
-    dsn = urlsplit(str(load_settings().database_url))
-    database = f"res145_test_{uuid4().hex}"
-    maintenance = urlunsplit(dsn._replace(path="/postgres"))
-    scratch = urlunsplit(dsn._replace(path=f"/{database}"))
-    with psycopg.connect(maintenance, autocommit=True) as connection:
-        connection.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(database)))
-    engine = create_database_engine(build_settings(database_url=scratch))
-    try:
-        with pytest.MonkeyPatch.context() as patch:
-            patch.setenv("DYNAMISRAG_DATABASE_URL", scratch)
-            config = Config(str(ALEMBIC_INI))
-            config.set_main_option("script_location", str(REPO_ROOT / "alembic"))
-            command.upgrade(config, "head")
-            with Session(engine) as session, session.begin():
-                version, sections, paragraphs = seed_source(session)
-                chunker = StructureAwareChunker(
-                    ChunkerConfig(target_tokens=5, max_tokens=10, min_tokens=1)
-                )
-                PassageMaterializer(session).materialize(
-                    version, chunker.plan(version, sections, paragraphs)
-                )
-            yield engine
-    finally:
-        engine.dispose()
-        with psycopg.connect(maintenance, autocommit=True) as connection:
-            connection.execute(sql.SQL("DROP DATABASE {}").format(sql.Identifier(database)))
+    """Keep all evidence-graph writes and downgrades inside one disposable database."""
+    with scratch_database() as (engine, _):
+        with Session(engine) as session, session.begin():
+            version, sections, paragraphs = seed_source(session)
+            chunker = StructureAwareChunker(
+                ChunkerConfig(target_tokens=5, max_tokens=10, min_tokens=1)
+            )
+            PassageMaterializer(session).materialize(
+                version, chunker.plan(version, sections, paragraphs)
+            )
+        yield engine
 
 
 @pytest.fixture

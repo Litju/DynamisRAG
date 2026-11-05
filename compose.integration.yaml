@@ -1,0 +1,24 @@
+# Disposable integration services. Keep the project, volumes, and PostgreSQL
+# port separate from the retained local stack in compose.yaml.
+name: dynamisrag-integration
+
+services:
+  qdrant:
+    ports: !override
+      - "127.0.0.1:16333:6333"
+  postgres:
+    ports: !override
+      - "127.0.0.1:55433:5432"
+  opensearch:
+    ports: !override
+      - "127.0.0.1:19200:9200"
+
+volumes:
+  qdrant-data:
+    name: dynamisrag-integration_qdrant-data
+  qdrant-snapshots:
+    name: dynamisrag-integration_qdrant-snapshots
+  postgres-data:
+    name: dynamisrag-integration_postgres-data
+  opensearch-data:
+    name: dynamisrag-integration_opensearch-data

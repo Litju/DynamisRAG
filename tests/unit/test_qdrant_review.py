@@ -121,3 +121,22 @@ def test_readiness_deadline_fails_closed(monkeypatch: pytest.MonkeyPatch) -> Non
     with pytest.raises(RuntimeError, match="deadline"):
         wait_ready(timeout_seconds=1)
     assert client.get.call_count == 1
+
+
+def test_readiness_uses_the_isolated_compose_port(monkeypatch: pytest.MonkeyPatch) -> None:
+    client = Mock()
+    client.get.return_value = httpx2.Response(200)
+    monkeypatch.setattr(
+        httpx2,
+        "Client",
+        Mock(
+            return_value=Mock(__enter__=Mock(return_value=client), __exit__=Mock(return_value=None))
+        ),
+    )
+    wait_ready(timeout_seconds=1, port=16333)
+    assert client.get.call_args.args[0] == "http://127.0.0.1:16333/readyz"
+
+
+def test_readiness_rejects_an_invalid_port_before_connecting() -> None:
+    with pytest.raises(ValueError, match="port"):
+        wait_ready(port=65536)
