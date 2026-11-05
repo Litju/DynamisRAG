@@ -1,0 +1,37 @@
+{
+  "candidate_counts": {
+    "bm25": 50,
+    "dense": 50,
+    "fused": 5
+  },
+  "embedding_model": {
+    "model_id": "Qwen/Qwen3-Embedding-0.6B",
+    "model_sha": "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
+    "runtime_sha": "e80ef225ed0e6cb1717ce632a6a84b6cf211bb67",
+    "runtime_version": "1.9.4"
+  },
+  "generation_model": {
+    "device": "cpu",
+    "digest": "359d7dd4bcdab3d86b87d73ac27966f4dbb9f5efdfcc75d34a8764a09474fae7",
+    "model": "qwen3:4b",
+    "parameter_size": "4.0B",
+    "quantization": "Q4_K_M",
+    "runtime_version": "0.13.5"
+  },
+  "physical_collection": "qdrant-passages-v1-5a20d2780fe6cd0ce0155ed7535c6507ec452f9ad4ae14cbd5990e13d7e8a709",
+  "projection_identity": "c805183fa694986ea127fb62c9541b7acdcaa1c4af2fa8cfae5ee099fa9e0eb4",
+  "question": "Were the descriptive baseline variables statistically different between groups?",
+  "retrieval_identity": "46f96db3a02cf61374003475e3f006258ecbd790a4a78bd858b305c25f5104ff",
+  "schema_revision": "res147-live-retrieval-performance-v1",
+  "timings_ms": {
+    "bm25_ms": 11.125500001071487,
+    "citation_verification_ms": 30.375700000149664,
+    "database_retrieval_ms": 30.605800002376782,
+    "dense_ms": 10.252099997160258,
+    "hybrid_retrieval_ms": 30.605800002376782,
+    "query_embedding_ms": 560.0462000002153,
+    "query_inference_ms": 555.8205999986967,
+    "rrf_ms": 3.471600000921171,
+    "total_request_ms": 621.0277000027418
+  }
+}
