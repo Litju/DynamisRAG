@@ -141,3 +141,27 @@ The existing `/answer/scientific` path is not a deterministic fallback: its evid
 No application source code changed, so no tests or exact-head CI rerun was needed; the 48 focused tests and four CI checks previously passed on `680ae53`. PR #31 remains draft and unmerged; RES-147 remains In Progress; RES-583 remains unresolved; baseline `1.0.0-rc.1` remains unadmitted.
 
 Disposition: `MODEL_CAPABILITY_LIMITATION_IDENTIFIED`.
+
+## Controlled live-generation diagnosis (2026-11-06)
+
+The preserved full-context prompt/response hashes were rechecked. The canonical paragraph says the baseline variables were non-significant, with stationary vertical jump height as the exception. This directly answers the question with a qualification. The baseline model explanation instead required a literal yes/no and additional variable-level details or p-values; these are model-generated explanations, and the extra requirements are absent from the question.
+
+Four new pinned Ollama calls stayed within the requested limit. A and B shared one minimal canonical span; B changed only the output schema. C kept the original schema/context and changed only the system instructions to a focused complete-sentence extraction diagnostic. D changed only the question and tested for an exact BMI baseline p-value absent from the supplied span.
+
+| Condition | Prompt | Outcome | Prompt/output tokens | Model time |
+| --- | ---: | --- | ---: | ---: |
+| Preserved full-context baseline | 5,977 bytes; 4 evidence items / 9 spans | `INSUFFICIENT_EVIDENCE`, 0 claims | 1,996 / 163 | 139.58 s |
+| A: minimal context, original system/schema | 1,508 bytes; 1 evidence item / 1 span | `INSUFFICIENT_EVIDENCE`, 0 claims | 423 / 240 | 93.46 s |
+| B: simplified schema | 1,508 bytes; same context/system as A | `INSUFFICIENT_EVIDENCE`, 0 claims | 423 / 21 | 3.82 s |
+| C: focused extraction instructions | 1,428 bytes; same context/schema as A | `INSUFFICIENT_EVIDENCE`, 0 claims | 406 / 143 | 39.17 s |
+| D: insufficient-evidence control | 1,516 bytes; same span, exact-p-value question | `INSUFFICIENT_EVIDENCE`, 0 claims; control passed | 429 / 137 | 40.76 s |
+
+All outputs passed their assigned structured schemas. The four responses produced zero valid claims and zero invalid claims, no EvidenceLinks, and no EvidenceGraph. Canonical claim/graph validation was not applicable because no claims were generated. Source, candidate database, isolated Qdrant, and benchmark fingerprints remained unchanged. The full prompt, responses, and per-condition files remain in ignored private captures; the [diagnosis receipt](evidence/res147-controlled-live-generation-diagnosis.json) contains hashes, identities, metrics, and counts only.
+
+The results identify a model capability limit: Qwen3 4B still abstained with the single answer-bearing span, after ancillary schema fields were removed, and under focused extraction instructions. Its baseline rationale misread the exception-qualified non-significance finding and demanded evidence the question did not ask for. The verified missing-p-value control also abstained, so the sequence did not reward unsupported claims.
+
+A post-run read-only retrieval recheck matched the preserved five-member ordering and all 66 selection decisions. Response/selection/EvidenceSet identities nevertheless changed because the hashed retrieval response includes timing fields. No ranking or source record was changed. The existing `/answer/scientific` path performs deterministic passage filtering and citation checks but still invokes Ollama; it is not a guaranteed deterministic fallback. An exact canonical excerpt can be presented as provisional evidence with an unreviewed label, not as a scientifically reviewed claim.
+
+No application code or production policy changed, so no additional tests or source-code CI run was needed. The focused unit tests and four hosted checks previously passed on `680ae53`. PR #31 remains draft and unmerged; RES-147 remains In Progress; RES-583 remains unresolved; baseline `1.0.0-rc.1` remains unadmitted.
+
+Disposition: `MODEL_CAPABILITY_LIMITATION_IDENTIFIED`.
