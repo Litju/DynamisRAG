@@ -116,32 +116,6 @@ Affected synthesis, live-preflight, and evidence-context unit tests passed: **48
 
 Disposition: `RES147_LIVE_MODEL_ABSTAINED_WITH_EVIDENCE_PRESENT`. PR #31 remains a draft and unmerged; RES-147 remains In Progress; RES-583 remains unresolved; baseline `1.0.0-rc.1` remains unadmitted.
 
-## Controlled live generation diagnosis (2026-11-06)
-
-The preserved baseline prompt and response hashes were reverified. The original full input contained four evidence objects and nine spans in 5,977 bytes. Independent review of the canonical paragraph confirmed that the required source sentence directly answers the question, with an exception for stationary vertical jump height. The model's stored abstention explanation asked for a literal yes/no and additional variable-level details or p-values; those were model-generated explanations, not source facts.
-
-Four new pinned Ollama calls used one canonical selected span and never changed retrieval ranking. Conditions A, B, and C shared the same minimal evidence; each comparison changed one variable. D changed only the question and served as a verified insufficient-evidence control because the supplied span contains neither BMI nor an exact p-value.
-
-| Condition | Change from paired condition | Result | Prompt tokens / output tokens | Model time |
-| --- | --- | --- | ---: | ---: |
-| Preserved baseline | Full original context, original policy/schema | `insufficient_evidence`; 0 claims | 1,996 / 163 | 139.58 s |
-| A | Minimal one-span context; original policy/schema | `insufficient_evidence`; 0 claims | 423 / 240 | 93.46 s |
-| B | Schema reduced to status and claims; same context/system as A | `insufficient_evidence`; 0 claims | 423 / 21 | 3.82 s |
-| C | Focused sentence-extraction instructions; original schema and same context | `insufficient_evidence`; 0 claims | 406 / 143 | 39.17 s |
-| D control | Exact p-value question; same minimal context and original policy/schema | `insufficient_evidence`; 0 claims | 429 / 137 | 40.76 s |
-
-The focused extraction prompt explicitly allowed an exception-qualified statistical sentence to answer without a literal yes/no phrase, while retaining verbatim quotation and citation requirements. Qwen still abstained and did not copy the sentence. The simplified schema also did not change the outcome. The control abstained as expected. This identifies a **model capability limitation**: the pinned model fails to recognize the exception-qualified non-significance statement as an answer even when given only that source sentence and a focused extraction instruction. It also asks for details the question did not request.
-
-All four outputs passed their requested structured schemas and contained zero claims, so there were zero valid claims, zero invalid claims, zero EvidenceLinks, and no EvidenceGraph. Canonical claim/graph validation was not applicable because the model emitted no claims. No answer was accepted or persisted. Source, candidate DB, Qdrant, and benchmark fingerprints remained unchanged. The original schema/system, simplified schema, extraction system, context, and response identities are recorded separately in the [controlled diagnosis receipt](evidence/res147-controlled-live-generation-diagnosis.json); raw prompts and responses remain in ignored private captures.
-
-The fresh read-only retrieval recheck returned the same five EvidenceMembers in the same order and the same 66 selection decisions as the preserved run. Its response, selection, and EvidenceSet hashes differed. `ScientificResponse` includes timing fields in the payload used for the response digest, so run timing changes make those identities run-specific even when selected members and decisions match. No retrieval-order change was made.
-
-The existing `/answer/scientific` path is not a deterministic fallback: its evidence filtering and quote/provenance checks are deterministic, but it still invokes the same Ollama model to select findings. It can present an exact source excerpt with its citation and an explicit unreviewed label when the model returns one; its structural verification does not establish scientific entailment or approval. No fallback or production-policy change was made.
-
-No application source code changed, so no tests or exact-head CI rerun was needed; the 48 focused tests and four CI checks previously passed on `680ae53`. PR #31 remains draft and unmerged; RES-147 remains In Progress; RES-583 remains unresolved; baseline `1.0.0-rc.1` remains unadmitted.
-
-Disposition: `MODEL_CAPABILITY_LIMITATION_IDENTIFIED`.
-
 ## Controlled live-generation diagnosis (2026-11-06)
 
 The preserved full-context prompt/response hashes were rechecked. The canonical paragraph says the baseline variables were non-significant, with stationary vertical jump height as the exception. This directly answers the question with a qualification. The baseline model explanation instead required a literal yes/no and additional variable-level details or p-values; these are model-generated explanations, and the extra requirements are absent from the question.
