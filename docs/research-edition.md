@@ -205,8 +205,7 @@ $newWorkspace = (Resolve-Path (Join-Path $restoreRoot `
     'files/research-edition-sample-v1')).Path
 $oldPrefix = 'file:///' + ($oldWorkspace -replace '\\', '/')
 $newPrefix = 'file:///' + ($newWorkspace -replace '\\', '/')
-$env:DYNAMISRAG_DATABASE_URL = "postgresql://dynamisrag_owner:" +
-    "$($env:DYNAMISRAG_RESEARCH_OWNER_PASSWORD)@127.0.0.1:55435/dynamisrag_research_restore"
+$env:DYNAMISRAG_DATABASE_URL = "postgresql://dynamisrag_owner:$($env:DYNAMISRAG_RESEARCH_OWNER_PASSWORD)@127.0.0.1:55435/dynamisrag_research_restore"
 uv run --locked python scripts/research_edition_restore.py rewrite-sources `
     --database-url $env:DYNAMISRAG_DATABASE_URL `
     --old-prefix $oldPrefix --new-prefix $newPrefix

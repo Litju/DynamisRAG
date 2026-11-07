@@ -118,3 +118,16 @@ def test_manifest_schema_is_closed(tmp_path: Path) -> None:
 
     with pytest.raises(RestoreSafetyError, match="unsupported"):
         verify_manifest(manifest)
+
+
+def test_restore_documentation_never_overwrites_the_live_workspace() -> None:
+    documentation = (Path(__file__).resolve().parents[2] / "docs/research-edition.md").read_text(
+        encoding="utf-8"
+    )
+
+    lines = [line.strip() for line in documentation.splitlines()]
+    assert not any(line.startswith("Expand-Archive -Force") for line in lines)
+    assert not any(line.startswith("-DestinationPath .") for line in lines)
+    assert "research-edition-restore" in documentation
+    assert "pg_restore --list" in documentation
+    assert "all_passages_verified" in documentation
