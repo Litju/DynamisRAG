@@ -113,23 +113,54 @@ are called scientific gold.
 ## Backup and restore
 
 PostgreSQL is canonical; Qdrant vectors are a rebuildable projection. Back up the
-database and the local source-object workspace together. From the repository root
-with the `.env` values loaded as above:
+database and the local source-object workspace together. Never restore into the
+live application workspace and never use `Expand-Archive -Force` to overwrite it.
+The restore procedure below extracts into a new directory and starts a separate
+Compose project with its own named volumes and ports.
+
+Create a new backup directory and pin every byte that leaves the live project:
 
 ```powershell
-New-Item -ItemType Directory -Force backups | Out-Null
+$backupRoot = Join-Path (Resolve-Path .) ("backups/research-edition-" + `
+    (Get-Date -Format 'yyyyMMddTHHmmssZ'))
+if (Test-Path $backupRoot) { throw 'Backup directory already exists.' }
+New-Item -ItemType Directory -Path $backupRoot | Out-Null
+
 docker compose @compose exec -T postgres pg_dump -U dynamisrag_owner `
     -d dynamisrag_research --format=custom --file=/tmp/dynamisrag-research.dump
+if ($LASTEXITCODE -ne 0) { throw 'pg_dump failed.' }
 docker compose @compose cp postgres:/tmp/dynamisrag-research.dump `
-    backups/dynamisrag-research.dump
-Compress-Archive -Force -Path .dynamisrag/research-edition-sample-v1 `
-    -DestinationPath backups/research-edition-files.zip
+    (Join-Path $backupRoot 'dynamisrag-research.dump')
+docker compose @compose exec -T postgres rm -f /tmp/dynamisrag-research.dump
+
+Compress-Archive -Path .dynamisrag/research-edition-sample-v1 `
+    -DestinationPath (Join-Path $backupRoot 'research-edition-files.zip')
+uv run --locked python scripts/research_edition_restore.py manifest `
+    --backup-directory $backupRoot `
+    --workspace .dynamisrag/research-edition-sample-v1
+uv run --locked python scripts/research_edition_restore.py verify `
+    --manifest (Join-Path $backupRoot 'backup-manifest.json')
 ```
 
-For a non-destructive restore check, start a second isolated Compose project with
-unused loopback ports. Its project name gives it separate named volumes:
+`manifest` records the dump and archive SHA-256 digests and the original absolute
+workspace path. `verify` fails if either file is missing, resized or changed. Keep
+the manifest with the backup; it is the integrity receipt.
+
+For a non-destructive restore check, create a fresh restore directory and a second
+isolated Compose project. The project name gives it separate named volumes:
 
 ```powershell
+$manifestPath = Join-Path $backupRoot 'backup-manifest.json'
+$manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
+$restoreRoot = Join-Path (Resolve-Path .) ("backups/restore-" + `
+    (Get-Date -Format 'yyyyMMddTHHmmssZ'))
+if (Test-Path $restoreRoot) { throw 'Restore directory already exists.' }
+New-Item -ItemType Directory -Path $restoreRoot | Out-Null
+
+uv run --locked python scripts/research_edition_restore.py extract `
+    --manifest $manifestPath `
+    --destination (Join-Path $restoreRoot 'files')
+
 $env:DYNAMISRAG_POSTGRES_HOST_PORT = '55435'
 $env:DYNAMISRAG_QDRANT_HOST_PORT = '16335'
 $env:DYNAMISRAG_OPENSEARCH_HOST_PORT = '19202'
@@ -139,24 +170,96 @@ $restoreCompose = @('--project-name', 'dynamisrag-research-restore', '--env-file
     '--file', 'compose.yaml', '--file', 'compose.embedding.yaml',
     '--file', 'compose.research-edition.yaml')
 docker compose @restoreCompose up -d --wait --wait-timeout 420
-Expand-Archive -Force backups/research-edition-files.zip -DestinationPath .
-docker compose @restoreCompose cp backups/dynamisrag-research.dump `
+if ($LASTEXITCODE -ne 0) { throw 'Restore stack did not start.' }
+```
+
+The extractor refuses an existing destination, rejects absolute paths, `..`
+traversal and symlink members, and never overwrites a file. It writes only below
+`(Join-Path $restoreRoot 'files')`.
+
+Restore the dump into a new database, using the same non-superuser owner, and
+verify both the archive listing and the PG restore exit code:
+
+```powershell
+docker compose @restoreCompose cp `
+    (Join-Path $backupRoot 'dynamisrag-research.dump') `
     postgres:/tmp/dynamisrag-research.dump
+docker compose @restoreCompose exec -T postgres pg_restore --list `
+    /tmp/dynamisrag-research.dump | Out-Null
+if ($LASTEXITCODE -ne 0) { throw 'The dump is not a readable pg_dump archive.' }
 docker compose @restoreCompose exec -T postgres createdb -U dynamisrag `
     -O dynamisrag_owner dynamisrag_research_restore
 docker compose @restoreCompose exec -T postgres pg_restore -U dynamisrag_owner `
-    -d dynamisrag_research_restore /tmp/dynamisrag-research.dump
+    --exit-on-error -d dynamisrag_research_restore `
+    /tmp/dynamisrag-research.dump
+if ($LASTEXITCODE -ne 0) { throw 'pg_restore failed.' }
 ```
 
-Set `DYNAMISRAG_DATABASE_URL` to the restore database on port 55435,
-`DYNAMISRAG_SCIENTIFIC_QDRANT_URL` to port 16335,
-`DYNAMISRAG_OPENSEARCH_URL` to port 19202,
-`DYNAMISRAG_SCIENTIFIC_OLLAMA_URL` to port 11436, and both TEI URLs to port
-8083 before starting the application.
-Replay the retained vector receipts into this fresh Qdrant project with the
-`retrieve` command above. Pull and verify the pinned Ollama model on port 11436
-before generation. Source artifact rows contain absolute file URIs, so restore
-the source workspace at the same resolved checkout path; if that path changed,
-re-ingest from the bundled sample to create valid local URIs. Stop either stack
-with `docker compose @compose stop`; do not use `down -v` for a Research Edition
-database you need to keep.
+Source artifact rows contain absolute file URIs. Point the restored copy at the
+fresh extracted workspace before verification; this changes only the throwaway
+restore database:
+
+```powershell
+$oldWorkspace = [string]$manifest.workspace
+$newWorkspace = (Resolve-Path (Join-Path $restoreRoot `
+    'files/research-edition-sample-v1')).Path
+$oldPrefix = 'file:///' + ($oldWorkspace -replace '\\', '/')
+$newPrefix = 'file:///' + ($newWorkspace -replace '\\', '/')
+$env:DYNAMISRAG_DATABASE_URL = "postgresql://dynamisrag_owner:" +
+    "$($env:DYNAMISRAG_RESEARCH_OWNER_PASSWORD)@127.0.0.1:55435/dynamisrag_research_restore"
+uv run --locked python scripts/research_edition_restore.py rewrite-sources `
+    --database-url $env:DYNAMISRAG_DATABASE_URL `
+    --old-prefix $oldPrefix --new-prefix $newPrefix
+
+$counts = docker compose @restoreCompose exec -T postgres psql `
+    -U dynamisrag_owner -d dynamisrag_research_restore -Atc `
+    "SELECT (SELECT count(*) FROM source_artifact) || '|' ||
+            (SELECT count(*) FROM document) || '|' ||
+            (SELECT count(*) FROM document_version) || '|' ||
+            (SELECT count(*) FROM paragraph) || '|' ||
+            (SELECT count(*) FROM passage) || '|' ||
+            (SELECT count(*) FROM passage_source_span)"
+if ($counts -ne '3|3|3|117|75|146') {
+    throw "Restored canonical counts differ: $counts"
+}
+$head = docker compose @restoreCompose exec -T postgres psql `
+    -U dynamisrag_owner -d dynamisrag_research_restore -Atc `
+    "SELECT version_num FROM alembic_version"
+if ($head -ne '0005_evidence_graph') { throw "Unexpected migration head: $head" }
+```
+
+Now verify the restored source artifacts and vector projection against the
+restored PostgreSQL rows. `retrieve` checks every payload against canonical
+paragraph spans, re-parses each JATS source, verifies all 75 passage identities and
+publishes only the `research-edition-restore` profile:
+
+```powershell
+$env:DYNAMISRAG_SCIENTIFIC_QDRANT_URL = 'http://127.0.0.1:16335'
+$env:DYNAMISRAG_OPENSEARCH_URL = 'https://127.0.0.1:19202'
+$env:DYNAMISRAG_SCIENTIFIC_OLLAMA_URL = 'http://127.0.0.1:11436'
+$env:DYNAMISRAG_SCIENTIFIC_TEI_URL = 'http://127.0.0.1:8083'
+$env:DYNAMISRAG_TEI_URL = 'http://127.0.0.1:8083'
+$restoreWorkspace = Join-Path $restoreRoot 'files/research-edition-sample-v1'
+uv run --locked python scripts/real_scientific_retrieval.py retrieve `
+    --workspace $restoreWorkspace `
+    --qdrant-target research-edition-restore `
+    --receipt-sha256 8ede85766f656acccf7fd44b9c3fde627bd18289b74fe375dbf895d02ff4d240
+
+$retrieval = Get-Content (Join-Path $restoreWorkspace 'retrieval.json') -Raw |
+    ConvertFrom-Json
+if ($retrieval.all_passages_verified -ne 75 -or $retrieval.vectors -ne 75 -or
+    $retrieval.papers -ne 3 -or $retrieval.source_checks.Count -ne 3) {
+    throw 'Restored source or vector verification is incomplete.'
+}
+if (($retrieval.source_checks | Where-Object {
+        -not $_.jats_reparse_matches_postgresql }).Count -ne 0) {
+    throw 'A restored JATS source does not reparse to its PostgreSQL rows.'
+}
+```
+
+Only after those checks succeed should the restored database and Qdrant be used
+for a restore acceptance question. Pull and verify the pinned Ollama model on
+port 11436 before generation. Keep the restore stacks separate from the live
+Research Edition. Stop either stack with `docker compose @compose stop` or
+`docker compose @restoreCompose stop`; do not use `down -v` for a database you
+need to keep.
