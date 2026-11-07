@@ -6,6 +6,10 @@ always use `compose.yaml`, `compose.embedding.yaml` and
 `compose.research-edition.yaml` together.
 Running `compose.yaml` by itself uses the separate `dynamisrag` project.
 
+This is a candidate for owner approval, not an approved or published release.
+[`docs/research-preview-release.md`](research-preview-release.md) records the
+qualified scope, the evidence and the claims that are explicitly not made.
+
 ## Install and reproduce the sample
 
 Requirements: Windows 11 PowerShell, Docker Desktop with Docker Compose 2.24.4
@@ -60,10 +64,23 @@ if ($runtime.version -ne '0.13.5' -or
 uv run --locked python -m dynamisrag
 ```
 
+Before it creates, populates or publishes anything, `retrieve` attests the
+Research Edition Qdrant project, container name, pinned image, named volumes,
+loopback binding and endpoint. It rejects the retained `127.0.0.1:6333` service.
+The `integration` and `research-edition-restore` profiles must be selected
+explicitly with `--qdrant-target`; neither is inferred from the URL.
+
 Open `http://127.0.0.1:8001/research`. The local UI lists the three authorized
 paper versions, runs a question through scientific retrieval and the pinned
 generator, and shows exact source passages and citations or an explicit
 abstention. All scientific claims stay `MODEL_PROPOSED / PROPOSED`.
+
+The committed real-browser acceptance is
+[`docs/evidence/research-edition-sample-v1/browser-acceptance.json`](evidence/research-edition-sample-v1/browser-acceptance.json)
+with its screenshot. It records the live service ports, the answerable question,
+the returned claim, the DOI citation and the canonical character coordinates.
+The claim is model-proposed and unreviewed; the receipt does not qualify general
+grounded generation.
 
 The sample ingestion verifies the pinned manifest, CC BY 4.0 notices, source
 SHA-256 hashes, canonical document-version keys, passage counts and chunk

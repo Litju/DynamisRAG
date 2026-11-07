@@ -1322,9 +1322,10 @@ based on RES-138 Stage-A evidence. Formal Stage-B production qualification remai
 deferred; this repository does not claim that a frozen Stage-B selection
 completed. Reranking and agents remain out of scope. Local answer generation is
 extractive and checks canonical citations, but the pinned Qwen3 setup has not
-qualified a positive grounded answer on the preregistered case. Do not present
-model-proposed claims as reviewed science or release a Research Preview before
-the owner approves that scope in RES-166.
+qualified positive grounded generation as a general capability. Do not present
+model-proposed claims as reviewed science. A limited local Research Preview is
+packaged for owner review in RES-166; it is not approved or published. See
+[the Research Preview release record](docs/research-preview-release.md).
 
 What that means concretely. Embedding *generation* is implemented and
 reproducible: the adapter calls a TEI server you point it at, proves which model
