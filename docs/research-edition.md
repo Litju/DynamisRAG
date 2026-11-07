@@ -94,6 +94,14 @@ citation/span verification, one-run latency and the tested service configuration
 Those latency numbers are a single local sample, not percentiles or a performance
 claim.
 
+The retained `dynamisrag` Qdrant instance was inspected strictly read-only after
+the earlier replay. Its six collections, four aliases, point counts and stored
+point hashes are byte-identical to the last historical receipts; no additional
+collection or alias was introduced. The audit and its uncertainty statement are
+in
+[`docs/evidence/research-edition-sample-v1/retained-qdrant-audit.json`](evidence/research-edition-sample-v1/retained-qdrant-audit.json).
+Nothing on that instance was deleted, renamed, republished or modified.
+
 RES-147's bounded generation qualification did not produce a grounded answer for
 the positive answerable question. The pinned model/runtime can be installed and
 its abstention path exercised, but positive grounded generation is not qualified.
