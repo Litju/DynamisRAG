@@ -31,6 +31,22 @@ verbatim source sentence or abstains.
 | Real browser acceptance | `docs/evidence/research-edition-sample-v1/browser-acceptance.json` and `.png` record Chromium against the live `http://127.0.0.1:8001/research` page, PostgreSQL `55434`, Qdrant `16334`, OpenSearch `19201`, TEI `8082` and Ollama `11435`. The page displayed the claim, DOI link and canonical character coordinates for the real retrieved passage. |
 | Final integration | Unit, isolated integration, Chromium browser, Ruff, Pyright, lockfile and exact-head GitHub Actions results are recorded in the PR. |
 
+## Local qualification
+
+At code head `0387201` (the record-only documentation edits follow it):
+
+- `uv lock --check`: passed.
+- `uv run ruff format --check .`: 290 files already formatted.
+- `uv run ruff check .`: passed.
+- `uv run pyright`: 0 errors, 0 warnings.
+- Unit suite: **2,610 passed, 291 deselected**.
+- Isolated integration suite: **288 passed, 2,613 deselected**.
+- Chromium browser suite: **3 passed, 2,898 deselected**.
+- Real browser acceptance: **supported**, one claim, five retrieved evidence
+  passages, DOI link and 18 canonical coordinate lines.
+- Exact-head GitHub Actions results are recorded in PR #31 for the final pushed
+  head.
+
 ## Qualification result
 
 The real browser run used the question:
