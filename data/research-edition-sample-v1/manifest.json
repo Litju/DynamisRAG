@@ -1,0 +1,104 @@
+{
+  "schema": "dynamisrag.research-edition-sample-corpus/v1",
+  "corpus_id": "real-science-v1",
+  "license_policy": "The source JATS files are redistributed unchanged under CC BY 4.0. Retain author, title, source, license URI and any source notices; do not imply publisher endorsement.",
+  "articles": [
+    {
+      "pmcid": "PMC10680285",
+      "title": "Effect of plyometric versus complex training on core strength, lower limb, and upper limb power in male cricketers: a randomized controlled trial",
+      "authors": [
+        "Kamran Ali",
+        "Shubham Gupta",
+        "Mohammad E. Hussain",
+        "Msaad Alzhrani",
+        "Md. Dilshad Manzar",
+        "Masood Khan",
+        "Ahmad H. Alghadir"
+      ],
+      "article_url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10680285/",
+      "source_uri": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC10680285/fullTextXML",
+      "file": "sources/PMC10680285.xml",
+      "sha256": "b6b9627176702f66904fcd592c1f5ec4978a5db63f1f082477a40d71f7fe70e3",
+      "size_bytes": 75976,
+      "license_name": "Creative Commons Attribution 4.0 International (CC BY 4.0)",
+      "license_uri": "https://creativecommons.org/licenses/by/4.0/",
+      "license_evidence": {
+        "jats_statement": "Article-level JATS permissions include the CC BY 4.0 URI.",
+        "publisher_article": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10680285/",
+        "publisher_policy": "https://creativecommons.org/licenses/by/4.0/"
+      },
+      "modified": false,
+      "doi": "10.1186/s13102-023-00771-8",
+      "retrieved_at_utc": "2026-10-27T23:13:37.724077Z",
+      "external_figure_files_included": false,
+      "document_version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b",
+      "passages": 18,
+      "passage_manifest_sha256": "65a4d76480de1060c1cbdd5029e4ba5854c8b480e5586dbb153c8130ad757359"
+    },
+    {
+      "pmcid": "PMC10780924",
+      "title": "Impact of Starting Knee Flexion Angle on Muscle Activity and Performance during Plyometrics without Jumping",
+      "authors": [
+        "Maximiliano Torres-Banduc",
+        "Ignacio Chirosa-Ríos",
+        "Luis Chirosa-Ríos",
+        "Daniel Jerez-Mayorga",
+        "Hyungsoon Im",
+        "Georg Fischer"
+      ],
+      "article_url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10780924/",
+      "source_uri": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC10780924/fullTextXML",
+      "file": "sources/PMC10780924.xml",
+      "sha256": "1e21995a2aaf2c8444dd90d4295a0157097f74eab1f47b72f9666787a0c12477",
+      "size_bytes": 93259,
+      "license_name": "Creative Commons Attribution 4.0 International (CC BY 4.0)",
+      "license_uri": "https://creativecommons.org/licenses/by/4.0/",
+      "license_evidence": {
+        "jats_statement": "Article-level JATS permissions include the CC BY 4.0 URI.",
+        "publisher_article": "https://pmc.ncbi.nlm.nih.gov/articles/PMC10780924/",
+        "publisher_policy": "https://creativecommons.org/licenses/by/4.0/"
+      },
+      "modified": false,
+      "doi": "10.3390/s24010044",
+      "retrieved_at_utc": "2026-10-27T23:13:35.771968Z",
+      "external_figure_files_included": false,
+      "document_version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643",
+      "passages": 25,
+      "passage_manifest_sha256": "b442794b3173c05ed8844234fa6af4f4caa50c61d7c96139ed39d52e413d33d4"
+    },
+    {
+      "pmcid": "PMC5263151",
+      "title": "Plyometric Training Favors Optimizing Muscle–Tendon Behavior during Depth Jumping",
+      "authors": [
+        "Kuniaki Hirayama",
+        "Soichiro Iwanuma",
+        "Naoki Ikeda",
+        "Ayumi Yoshikawa",
+        "Ryoichi Ema",
+        "Yasuo Kawakami"
+      ],
+      "article_url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC5263151/",
+      "source_uri": "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC5263151/fullTextXML",
+      "file": "sources/PMC5263151.xml",
+      "sha256": "339647fafae9fa0207ea35e425ec75a50666a9a3fd205f1fea5a2e10212d3a65",
+      "size_bytes": 81483,
+      "license_name": "Creative Commons Attribution 4.0 International (CC BY 4.0)",
+      "license_uri": "https://creativecommons.org/licenses/by/4.0/",
+      "license_evidence": {
+        "jats_statement": "Creative Commons Attribution (CC BY).",
+        "publisher_article": "https://www.frontiersin.org/journals/physiology/articles/10.3389/fphys.2017.00016/full",
+        "publisher_policy": "https://www.frontiersin.org/guidelines/author-guidelines",
+        "basis": "Frontiers states that all its articles from July 2012 onward use its current CC BY 4.0 license; this article was published in 2017."
+      },
+      "modified": false,
+      "doi": "10.3389/fphys.2017.00016",
+      "retrieved_at_utc": "2026-10-27T23:13:39.101266Z",
+      "external_figure_files_included": false,
+      "document_version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e",
+      "passages": 32,
+      "passage_manifest_sha256": "a47e66c89be771979ae77113737b322d28e82cf4815a03e5a67a170d782f7306"
+    }
+  ],
+  "total_passages": 75,
+  "source_files_sha256": "ae79fa5c0467c03860b1499f2af02aafe086008d375606f268609953b0f37c4f"
+}
