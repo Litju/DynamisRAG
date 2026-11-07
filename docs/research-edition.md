@@ -60,7 +60,7 @@ if ($runtime.version -ne '0.13.5' -or
 uv run --locked python -m dynamisrag
 ```
 
-Open `http://127.0.0.1:8000/research`. The local UI lists the three authorized
+Open `http://127.0.0.1:8001/research`. The local UI lists the three authorized
 paper versions, runs a question through scientific retrieval and the pinned
 generator, and shows exact source passages and citations or an explicit
 abstention. All scientific claims stay `MODEL_PROPOSED / PROPOSED`.

@@ -1275,7 +1275,7 @@ uv run uvicorn --factory dynamisrag.application:create_app \
 ```
 
 When the opt-in scientific answer service is enabled, open
-`http://127.0.0.1:8000/research` for the local paper selector, cited answers and
+`http://127.0.0.1:8001/research` for the local paper selector, cited answers and
 explicit abstentions. Claims are labeled provisional and unreviewed.
 
 `create_app()` performs no I/O — the SQLAlchemy engine connects lazily and the

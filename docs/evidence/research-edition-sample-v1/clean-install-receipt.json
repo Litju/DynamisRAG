@@ -7,6 +7,7 @@
     "docker_compose": "5.5.1",
     "platform": "Windows 11 host, Docker Desktop linux/amd64",
     "ports_loopback_only": {
+      "application": 8001,
       "postgres": 55434,
       "qdrant": 16334,
       "opensearch": 19201,
