@@ -244,6 +244,21 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          owner_password="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+          echo "::add-mask::$owner_password"
+          docker compose --project-name dynamisrag-integration --file compose.yaml --file compose.integration.yaml exec -T postgres \
+            psql -U dynamisrag -d postgres --set ON_ERROR_STOP=1 --set owner_password="$owner_password" <<'SQL'
+          CREATE ROLE dynamisrag_owner
+            LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT
+            PASSWORD :'owner_password';
+          GRANT dynamisrag_migration_operators TO dynamisrag_owner;
+          CREATE DATABASE dynamisrag_research OWNER dynamisrag_owner;
+          SQL
+          database_oid="$(docker compose --project-name dynamisrag-integration --file compose.yaml --file compose.integration.yaml exec -T postgres \
+            psql -U dynamisrag -d postgres -Atc "SELECT oid::text FROM pg_database WHERE datname='dynamisrag_research'")"
+          test -n "$database_oid"
+          export DYNAMISRAG_DATABASE_URL="postgresql://dynamisrag_owner:${owner_password}@127.0.0.1:55433/dynamisrag_research"
+          uv run --locked alembic -x "maintenance_target=dynamisrag_research:$database_oid" upgrade head
           workspace='.tmp/research-edition-sample-v1'
           mkdir -p "$workspace"
           cp docs/evidence/real-science-v1/embedding-manifest.json \
