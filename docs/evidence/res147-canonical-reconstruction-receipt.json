@@ -1,0 +1,277 @@
+{
+  "benchmark_files_identity_unchanged": true,
+  "document_version_identities": [
+    {
+      "document_canonical_key": "doi:10.1002/ejsc.70159",
+      "version_key": "65f5acf0636824b3b37d47609d73ae1ff91717dc6d485ef8e7768869a764bdb9"
+    },
+    {
+      "document_canonical_key": "doi:10.1007/s40279-023-01925-x",
+      "version_key": "585b03a55c385a65e54a12b13b4215e3758ccaa0e0733189230c1dac688544e9"
+    },
+    {
+      "document_canonical_key": "doi:10.1038/s41598-017-15459-6",
+      "version_key": "288228d63b030158f88b6b8305ba3ed056e1ded3d941f18e29e46785f0bb2d90"
+    },
+    {
+      "document_canonical_key": "doi:10.1098/rsos.230086",
+      "version_key": "5390b639fe2f72101022bb0cc57fa578c2dcc208e5e15328efe77e8a67781895"
+    },
+    {
+      "document_canonical_key": "doi:10.1111/sms.70200",
+      "version_key": "4681eab4d320c6f11f3da5165a356e4fda1dd6548e0099323d062c5eca3fdd0d"
+    },
+    {
+      "document_canonical_key": "doi:10.1186/s13102-023-00771-8",
+      "version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b"
+    },
+    {
+      "document_canonical_key": "doi:10.3389/fbioe.2025.1735951",
+      "version_key": "75b04150eaa580e3d0f1c3dd3816e0de7a60dc4c9747fb55974aaf47a9fb5938"
+    },
+    {
+      "document_canonical_key": "doi:10.3389/fphys.2017.00016",
+      "version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e"
+    },
+    {
+      "document_canonical_key": "doi:10.3389/fphys.2026.1863791",
+      "version_key": "58a65c411ff1721549f4f5d29de903b3de9af9f18804bca3b407b72168b7b734"
+    },
+    {
+      "document_canonical_key": "doi:10.3389/fphys.2026.1888868",
+      "version_key": "021e75b1999aeff7fe71e83c29ca1bead6283d3d1d7e460bd676a95a36a48fb8"
+    },
+    {
+      "document_canonical_key": "doi:10.3389/fspor.2023.854442",
+      "version_key": "6bef5e95d11cfc0e596291e7512289af2ff96f7419dea625bd748ffacb0e93cf"
+    },
+    {
+      "document_canonical_key": "doi:10.3389/fspor.2025.1696505",
+      "version_key": "2479be620cd3302e29741f4e2a9d3f1f40ccb8193e40db381eccc65db1b46cc7"
+    },
+    {
+      "document_canonical_key": "doi:10.3389/fspor.2026.1838014",
+      "version_key": "064a536a7091616d2d377d5c4d16dcc47925729cf1d86852606ccb24b0e14947"
+    },
+    {
+      "document_canonical_key": "doi:10.3390/ijerph192214643",
+      "version_key": "515362d0d9eb5f4722123699dcadd9d8bec88917aa9b876a4aee5a9ed30db892"
+    },
+    {
+      "document_canonical_key": "doi:10.3390/metabo16100801",
+      "version_key": "6bb896e187e3932ae199a75cd643d6498ea95455fd31815afa92e2d7b71f3b24"
+    },
+    {
+      "document_canonical_key": "doi:10.3390/s24010044",
+      "version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643"
+    }
+  ],
+  "exact_original_row_hashes_restored": false,
+  "hash_limitation": "Exact hashes cannot be restored from retained JATS bytes because original surrogate row IDs and some acquisition timestamps were not retained. Deterministic document/version/passage identities and all table counts were verified.",
+  "live_projection": {
+    "collection": "qdrant-passages-v1-5a20d2780fe6cd0ce0155ed7535c6507ec452f9ad4ae14cbd5990e13d7e8a709",
+    "passages": 75,
+    "projection_sha256": "c805183fa694986ea127fb62c9541b7acdcaa1c4af2fa8cfae5ee099fa9e0eb4",
+    "qdrant_identity_unchanged": true
+  },
+  "migration_head": "0005_evidence_graph",
+  "original_reference_table_receipt": {
+    "citation": {
+      "count": 805,
+      "sha256": "0b7e75348c3a2485447755c4d0acb1c3a1736ac92d97c6d53e79088b87ccfad5"
+    },
+    "citation_resolution": {
+      "count": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "document": {
+      "count": 16,
+      "sha256": "4231d98a7cc77a9d54bfa406351cabb8c9b63a32f631248d3b62b827ed1301a6"
+    },
+    "document_identifier": {
+      "count": 47,
+      "sha256": "b02d643a14147cae57344d4684a13dbe61384f37790a77158119d0fd00a8cf21"
+    },
+    "document_table": {
+      "count": 40,
+      "sha256": "b08159519b0ace77addd3c970b24c2c49911d2dd2b7f24a8464683a49fb23602"
+    },
+    "document_version": {
+      "count": 16,
+      "sha256": "1330d9f65feb1a5ba06c6eed9e2fe7b306f3233c80df1748354fbb362b67b961"
+    },
+    "figure": {
+      "count": 53,
+      "sha256": "d42dce7aa95a016481bc15228b6993851a6aaafb7719144e239dff6ca582d656"
+    },
+    "paragraph": {
+      "count": 676,
+      "sha256": "4f9400340d5e4add9af32cbaa8db6e2db3fe13aa1680e22dca14356b5852f1d9"
+    },
+    "passage": {
+      "count": 75,
+      "sha256": "71e0bf67b3e11e11222c2dd1912321c45e4d10ec917fbdbb2707d6ea8b3379f3"
+    },
+    "passage_source_span": {
+      "count": 146,
+      "sha256": "8680fb015cf7c9d44ea76f04ce53adee9e7eed44aeb78a4b762d1df887ae87cd"
+    },
+    "section": {
+      "count": 294,
+      "sha256": "f157efe9e3df920a65846ea339879a70d05dba2c8f73a2309f07d3437f560be0"
+    },
+    "source_artifact": {
+      "count": 16,
+      "sha256": "efb4e77ab3b5662db08e844eb8bb9b4f38fbeb23f368a3e7aa31751b9a49e1f4"
+    }
+  },
+  "reconstructed_row_counts_match_original": {
+    "citation": true,
+    "citation_resolution": true,
+    "document": true,
+    "document_identifier": true,
+    "document_table": true,
+    "document_version": true,
+    "figure": true,
+    "paragraph": true,
+    "passage": true,
+    "passage_source_span": true,
+    "section": true,
+    "source_artifact": true
+  },
+  "reconstructed_table_receipt": {
+    "citation": {
+      "count": 805,
+      "sha256": "d3c7cfaabadb423063532ee10768e8d2e59432b5dfed16e0960d4391d8c808e9"
+    },
+    "citation_resolution": {
+      "count": 0,
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    "document": {
+      "count": 16,
+      "sha256": "dfff5ec407a76ccf9c910d1fc0ce73b171823dbbaeb16562f3029b7af977df3a"
+    },
+    "document_identifier": {
+      "count": 47,
+      "sha256": "a80089cfe5d8f0aab8a2297d5a2e53739f2c2dc4c2cd914464963df5bc170bd9"
+    },
+    "document_table": {
+      "count": 40,
+      "sha256": "8ee08201734d45c234a4ccb7d7f73ae633811ae766ff63577555485a0f3461dd"
+    },
+    "document_version": {
+      "count": 16,
+      "sha256": "5f8286e6138384c22666f32bbdb61fd115a4dd687d0a1b4b60df203e4c7caa29"
+    },
+    "figure": {
+      "count": 53,
+      "sha256": "74ed539947f5caef34fc4a7625ab2358d8e3880c29e243151ae11708935b82a2"
+    },
+    "paragraph": {
+      "count": 676,
+      "sha256": "422b862ac18054c15cbab96e3a21b78c9afbfdf6f750d5e3bcff05c472884a1b"
+    },
+    "passage": {
+      "count": 75,
+      "sha256": "e46bfc3791333cde7e9601d747e8337444e89e48201e97f59baa8ec4a6c5ae55"
+    },
+    "passage_source_span": {
+      "count": 146,
+      "sha256": "ff13f34680fdea1d5d8f9ce514b582c5f12f2ae7b533a6f3752fe3e675982a78"
+    },
+    "section": {
+      "count": 294,
+      "sha256": "11d8757fe75805b6e9b4b7c5faa54f8b0b6155f590ae63f712ccc0b5ca58e4d2"
+    },
+    "source_artifact": {
+      "count": 16,
+      "sha256": "8574b157a9c2537bdaed32a6f6e54834b64a84626c0475ee4ec0977b9b6f244e"
+    }
+  },
+  "schema_revision": "res147-canonical-reconstruction-v1",
+  "source_artifacts": [
+    {
+      "artifact_key": "67868c92afca87df88e98ca18344c63114e90da0a712762b17a3857ce94955e8",
+      "content_sha256": "a37bd4d8d25002ffa25c451bee01d34029d965a8eea5fdaf536737ef1879e7f7",
+      "external_id": "PMC10117840"
+    },
+    {
+      "artifact_key": "0926edffc92a08916b834ef6595b96d2c2d00b48586a550faaa0e05478b10054",
+      "content_sha256": "f97813cab7f95541e537ad5dcc9f8c1bb6c4035abbb2b65b1ce9fdd8afaacf10",
+      "external_id": "PMC10480691"
+    },
+    {
+      "artifact_key": "d10e0917d16fba3ed8bb10ba24a2be5f217b839b590ac87a510b3ecc3b640a6e",
+      "content_sha256": "b6b9627176702f66904fcd592c1f5ec4978a5db63f1f082477a40d71f7fe70e3",
+      "external_id": "PMC10680285"
+    },
+    {
+      "artifact_key": "b5a255b5b842fd92f8117942d7048d2109f22ced8659e11ebad4cfd712ce740d",
+      "content_sha256": "1e21995a2aaf2c8444dd90d4295a0157097f74eab1f47b72f9666787a0c12477",
+      "external_id": "PMC10780924"
+    },
+    {
+      "artifact_key": "e350f14f6373ea4df40f5e1c413d7c297b7abb3085e0e596a41a9de4fceba109",
+      "content_sha256": "e27e5e53b1ed0350038ca247b80c9ea21c3d569a50db075902eaa0462c91ddc9",
+      "external_id": "PMC11052868"
+    },
+    {
+      "artifact_key": "ae014ee78dec7bd4356ff891166df52073555e0d2248ab22788367b3644d35ed",
+      "content_sha256": "848fe68b22e84d96ea77d031f9bdf77f3526b14cfe49f65baf58ed64b027823c",
+      "external_id": "PMC12640931"
+    },
+    {
+      "artifact_key": "8afde697feef60fd81791ec11512202d3c386bea8a194df23bba9c2ec4ba166e",
+      "content_sha256": "c843b995551447f6e46e7df8956f15e7b731a54bcbbff33fbfd991319ba134d1",
+      "external_id": "PMC12791081"
+    },
+    {
+      "artifact_key": "4cf9f72c5ea90666324b1229ab92751cbf2ed5ee99c6d0534e7620c2cc35c18f",
+      "content_sha256": "98a1a919e48b8da0622dfd0455f44bfe5b7fcb6daeb853ed21d11cbeb2fab0c3",
+      "external_id": "PMC12819620"
+    },
+    {
+      "artifact_key": "dd8faf6445badabec4665cb12b3886a1b22964a73e21fe611137cccee5c3ff14",
+      "content_sha256": "c1024fe79beff0751061d5bc914ec757c3aad17dc5aff153ec017edb58458ffc",
+      "external_id": "PMC13042950"
+    },
+    {
+      "artifact_key": "7b14a067d9010890e8a1ee6b2a1900c9a20154b15ad2038d642a558b44fbc3cd",
+      "content_sha256": "1696b15858e8e097b6571e7936ab18cbf8958abdca1ab6b1b89c6737ca6c06f7",
+      "external_id": "PMC13364619"
+    },
+    {
+      "artifact_key": "499e16f5ffa11fc43757aaf1a82e85100090cf02cefff859e6af4f9be09f338c",
+      "content_sha256": "1dc893e38ec11e1b5912bd1a3477d280abef244d677446b5b84d44c035add695",
+      "external_id": "PMC13375495"
+    },
+    {
+      "artifact_key": "5189571501d94437554bb5b636525998967a9c1692017cd6fdc32dee56e4ccb8",
+      "content_sha256": "33a90452b9e2428cbe5f4b3db2857899393eefe4930557401f3e14c00c730787",
+      "external_id": "PMC13416682"
+    },
+    {
+      "artifact_key": "809710a26328cca53e4d236b9b506ea8962360728608458b1525048434d99b6e",
+      "content_sha256": "1a814d50a7e31bcf5400385c93055c15d993a3ca2627b684b528fd3acc4ee310",
+      "external_id": "PMC13707224"
+    },
+    {
+      "artifact_key": "dcf28c65b2848712ab481a8d435a5d6cc0fbfdbf1be6d3d8fec9090570255e4d",
+      "content_sha256": "339647fafae9fa0207ea35e425ec75a50666a9a3fd205f1fea5a2e10212d3a65",
+      "external_id": "PMC5263151"
+    },
+    {
+      "artifact_key": "531e152e18f2281f38e070bc3f573a45e81cf9eaee4fa41a6540b9a2811064c2",
+      "content_sha256": "e5660496dd3eb938798aeaae2eb2ec45a3eac628086a710054584cb3437652c2",
+      "external_id": "PMC5688112"
+    },
+    {
+      "artifact_key": "7f68756be2a073615f267cc2eea48c0ea2c0c63010299121fe0a9116ff6cd290",
+      "content_sha256": "3e486477d100fd623a02014af676950a4bd0f69a947ef724c909175508f5ea80",
+      "external_id": "PMC9691012"
+    }
+  ],
+  "source_files_identity_unchanged": true,
+  "status": "CANONICAL_SOURCES_RECONSTRUCTED"
+}

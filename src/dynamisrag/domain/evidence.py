@@ -85,6 +85,27 @@ class EvidenceSet(Contract):
     def key(self) -> str:
         return evidence_identity("evidence-set-v1", self.model_dump(mode="json"))
 
+    @property
+    def semantic_key(self) -> str:
+        """Stable v2 identity of the question and canonical source members."""
+        return evidence_identity(
+            "evidence-set-semantic-v2",
+            {
+                "question_id": self.question_id,
+                "question": self.question,
+                "corpus_id": self.corpus_id,
+                "retrieval_revision": self.retrieval_revision,
+                "constraints": sorted(self.constraints),
+                "sufficiency": self.sufficiency,
+                "members": [
+                    member.model_dump(mode="json")
+                    for member in sorted(
+                        self.members, key=lambda member: (member.passage_key, member.version_key)
+                    )
+                ],
+            },
+        )
+
 
 class Provisional(Contract):
     review_state: ReviewState = ReviewState.PROPOSED

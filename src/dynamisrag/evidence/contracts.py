@@ -184,3 +184,35 @@ class SelectionResult(Contract):
     @property
     def key(self) -> str:
         return evidence_identity(self.revision, self.model_dump(mode="json"))
+
+    @property
+    def semantic_key(self) -> str:
+        """Stable v2 identity of the request, verified members and exact context references."""
+        return evidence_identity(
+            "selection-result-semantic-v2",
+            {
+                "request_sha256": self.request_sha256,
+                "question_id": self.question_id,
+                "corpus_sha256": self.corpus_sha256,
+                "policy_sha256": self.policy_sha256,
+                "evidence_set_semantic_key": (
+                    self.evidence_set.semantic_key if self.evidence_set else None
+                ),
+                "context": [
+                    reference.model_dump(mode="json")
+                    for reference in sorted(
+                        self.context,
+                        key=lambda item: (
+                            item.selected_passage_key,
+                            item.paragraph_key,
+                            item.start,
+                            item.end,
+                            item.kind,
+                        ),
+                    )
+                ],
+                "context_exclusions": sorted(self.context_exclusions),
+                "missing": sorted(self.missing),
+                "scientific_sufficiency": self.scientific_sufficiency,
+            },
+        )

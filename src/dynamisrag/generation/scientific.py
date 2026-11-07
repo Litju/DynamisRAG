@@ -13,6 +13,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import Engine
 
+from dynamisrag.domain.values import Sha256Hex
 from dynamisrag.generation.ollama import (
     OPTIONS,
     PROMPT_BYTES,
@@ -125,6 +126,17 @@ LIMITATION = (
 )
 
 
+class AuthorizedPaper(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    document_version_key: Sha256Hex
+    document_canonical_key: str
+    title: str
+    doi: str | None
+    pmid: str | None
+    pmcid: str | None
+
+
 class EvidenceDecision(BaseModel):
     passage_key: str
     original_rrf_rank: int
@@ -195,7 +207,7 @@ def _context(question: str, selected: list[EvidenceExcerpt]) -> str:
     )
 
 
-def _scientific_terms(text: str) -> set[str]:
+def scientific_terms(text: str) -> set[str]:
     """Whole Unicode tokens, retaining abbreviations, decimals and optional angle units."""
     normalized = unicodedata.normalize("NFKC", text).casefold()
     return {
@@ -209,7 +221,7 @@ def select_evidence(question: str, retrieval: ScientificResponse) -> EvidenceSel
     selected: list[PassageProvenance] = []
     excerpts: list[EvidenceExcerpt] = []
     excluded: list[EvidenceDecision] = []
-    terms = _scientific_terms(question)
+    terms = scientific_terms(question)
     for hit in retrieval.fusion.hits:
         p = hit.provenance
         prefix = p.text.encode("utf-8")[:800].decode("utf-8", errors="ignore")
@@ -230,7 +242,7 @@ def select_evidence(question: str, retrieval: ScientificResponse) -> EvidenceSel
             reason = "instruction_like_content"
         elif _HYPOTHESIS.search(p.text) or _NON_FINDING.search(p.section_title or ""):
             reason = "background_methods_or_hypothesis"
-        elif not terms or len(terms.intersection(_scientific_terms(p.title + " " + p.text))) < min(
+        elif not terms or len(terms.intersection(scientific_terms(p.title + " " + p.text))) < min(
             2, len(terms)
         ):
             reason = "insufficient_question_overlap"
@@ -338,20 +350,53 @@ class ScientificAnswerService:
     def close(self) -> None:
         self.client.close()
 
-    def answer(self, question: str) -> ScientificAnswer:
+    def available_papers(self) -> tuple[AuthorizedPaper, ...]:
+        projection = self.retrieval.projection
+        if projection is None:
+            raise GenerationUnavailableError("retrieval_unavailable")
+        papers: dict[str, AuthorizedPaper] = {}
+        for document in projection.passages.documents:
+            paper = AuthorizedPaper(
+                document_version_key=document.document_version_key,
+                document_canonical_key=document.document_canonical_key,
+                title=document.title,
+                doi=document.doi,
+                pmid=document.pmid,
+                pmcid=document.pmcid,
+            )
+            previous = papers.setdefault(paper.document_version_key, paper)
+            if previous != paper:
+                raise GenerationUnavailableError("provenance_invalid")
+        return tuple(
+            sorted(
+                papers.values(),
+                key=lambda paper: (paper.title.casefold(), paper.document_version_key),
+            )
+        )
+
+    def answer(
+        self, question: str, document_version_key: Sha256Hex | None = None
+    ) -> ScientificAnswer:
         if not self.gate.acquire(blocking=False):
             raise GenerationUnavailableError("generation_busy")
         try:
-            return self._answer(question)
+            return self._answer(question, document_version_key)
         finally:
             self.gate.release()
 
-    def _answer(self, question: str) -> ScientificAnswer:
+    def _answer(self, question: str, document_version_key: Sha256Hex | None) -> ScientificAnswer:
         start = perf_counter()
         if self.identity is None:
             raise GenerationUnavailableError(self.unavailable_code)
+        filters: dict[str, str] = {}
+        if document_version_key is not None:
+            if document_version_key not in {
+                paper.document_version_key for paper in self.available_papers()
+            }:
+                raise GenerationUnavailableError("invalid_request")
+            filters["document_version_key"] = document_version_key
         try:
-            retrieval = self.retrieval.retrieve(question, 20, {})
+            retrieval = self.retrieval.retrieve(question, 20, filters)
         except ScientificUnavailable:
             raise GenerationUnavailableError("retrieval_unavailable") from None
         selection = select_evidence(question, retrieval)

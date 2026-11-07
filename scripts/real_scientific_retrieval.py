@@ -7,6 +7,7 @@ import json
 import time
 from collections.abc import Sequence
 from pathlib import Path
+from typing import cast
 from urllib.parse import urlparse
 from urllib.request import url2pathname
 
@@ -38,7 +39,7 @@ from dynamisrag.embedding import (
     embed_passages,
 )
 from dynamisrag.embedding.scientific_cpu import CpuDeployment
-from dynamisrag.ingestion import EuropePmcAcquisition, EuropePmcClient
+from dynamisrag.ingestion import AcquiredFulltext, EuropePmcAcquisition, EuropePmcClient
 from dynamisrag.jats import JatsCanonicalImporter, JatsParser
 from dynamisrag.search.projection import PassageProjectionManifest, build_projection_manifest
 from dynamisrag.search.qdrant import (
@@ -53,6 +54,8 @@ from dynamisrag.storage import FileSystemObjectStore
 
 PAPERS = ("PMC10780924", "PMC10680285", "PMC5263151")
 ROOT = Path(".dynamisrag/real-science-v1").resolve()
+SAMPLE_CORPUS = Path(__file__).resolve().parents[1] / "data/research-edition-sample-v1"
+SAMPLE_MANIFEST_SHA256 = "05e44a8196801cce41345703db417d48226b761d773bfa11b69663fe66f838c0"
 ALIAS = "dynamisrag-real-science-v1"
 QUESTION = "How does plyometric training change muscle and tendon behavior during depth jumping?"
 
@@ -71,16 +74,126 @@ class BudgetTei(TeiEmbeddingProvider):
         return tuple(vectors)
 
 
-def save(name: str, value: object) -> None:
-    ROOT.mkdir(parents=True, exist_ok=True)
-    (ROOT / name).write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8")
+def save(name: str, value: object, *, root: Path = ROOT) -> None:
+    root.mkdir(parents=True, exist_ok=True)
+    (root / name).write_text(json.dumps(value, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def ingest() -> None:
+def load_sample_payloads(
+    corpus_directory: Path = SAMPLE_CORPUS,
+) -> list[tuple[dict[str, object], AcquiredFulltext]]:
+    manifest_path = corpus_directory / "manifest.json"
+    raw_manifest = manifest_path.read_bytes()
+    if hashlib.sha256(raw_manifest).hexdigest() != SAMPLE_MANIFEST_SHA256:
+        raise ValueError("sample corpus manifest differs from the pinned receipt")
+    decoded: object = json.loads(raw_manifest)
+    if not isinstance(decoded, dict):
+        raise ValueError("unsupported sample corpus manifest")
+    manifest = cast(dict[str, object], decoded)
+    articles_value = manifest.get("articles")
+    if manifest.get("schema") != "dynamisrag.research-edition-sample-corpus/v1" or not isinstance(
+        articles_value, list
+    ):
+        raise ValueError("unsupported sample corpus manifest")
+    articles = cast(list[object], articles_value)
+
+    resolved_root = corpus_directory.resolve()
+    payloads: list[tuple[dict[str, object], AcquiredFulltext]] = []
+    for value in articles:
+        if not isinstance(value, dict):
+            raise ValueError("invalid sample article manifest")
+        article = cast(dict[str, object], value)
+        pmcid, relative_file = article.get("pmcid"), article.get("file")
+        source_uri, license_name = article.get("source_uri"), article.get("license_name")
+        license_uri = article.get("license_uri")
+        if (
+            not isinstance(pmcid, str)
+            or not isinstance(relative_file, str)
+            or not isinstance(source_uri, str)
+            or not isinstance(license_name, str)
+            or not isinstance(license_uri, str)
+            or license_uri != "https://creativecommons.org/licenses/by/4.0/"
+        ):
+            raise ValueError("sample article lacks the pinned CC BY 4.0 attribution")
+        source_path = (corpus_directory / relative_file).resolve()
+        if not source_path.is_relative_to(resolved_root):
+            raise ValueError("sample article path escapes corpus directory")
+        content = source_path.read_bytes()
+        if (
+            hashlib.sha256(content).hexdigest() != article.get("sha256")
+            or len(content) != article.get("size_bytes")
+            or article.get("modified") is not False
+        ):
+            raise ValueError(f"sample article bytes differ from manifest: {pmcid}")
+        root = fromstring(content)
+        notices = ["".join(node.itertext()) for node in root.iter("permissions")]
+        notice_text = " ".join(notices)
+        if not (
+            license_uri in notice_text
+            or (
+                pmcid == "PMC5263151"
+                and "Creative Commons Attribution License (CC BY)" in notice_text
+            )
+        ):
+            raise ValueError(f"source license notice is missing: {pmcid}")
+        payloads.append(
+            (
+                article,
+                AcquiredFulltext(
+                    pmcid=pmcid,
+                    source_uri=source_uri,
+                    content=content,
+                    media_type="application/xml",
+                    license_name=license_name,
+                    license_uri=license_uri,
+                ),
+            )
+        )
+    if {payload.pmcid for _, payload in payloads} != set(PAPERS):
+        raise ValueError("sample corpus paper sequence differs from the retained receipt")
+    by_pmcid = {payload.pmcid: (article, payload) for article, payload in payloads}
+    return [by_pmcid[pmcid] for pmcid in PAPERS]
+
+
+def import_payload(
+    session: Session, acquisition: EuropePmcAcquisition, payload: AcquiredFulltext
+) -> dict[str, object]:
+    acquired = acquisition.acquire_payload(session, payload)
+    content = Path(url2pathname(urlparse(acquired.artifact.storage_uri).path)).read_bytes()
+    if content != payload.content:
+        raise ValueError("source changed between verification and canonical import")
+    result = JatsCanonicalImporter(session).import_artifact(acquired.artifact, content)
+    sections = [
+        section_from_record(r, version_key=result.version.version_key)
+        for r in list_sections(session, result.version.id)
+    ]
+    paragraphs = [
+        paragraph_from_record(r, version_key=result.version.version_key)
+        for r in list_paragraphs(session, result.version.id)
+    ]
+    manifest = StructureAwareChunker().plan(result.version, sections, paragraphs)
+    materialized = PassageMaterializer(session).materialize(result.version, manifest)
+    return {
+        "pmcid": payload.pmcid,
+        "title": result.version.title,
+        "attribution": result.version.versioned_metadata.get("contributors"),
+        "article_url": f"https://pmc.ncbi.nlm.nih.gov/articles/{payload.pmcid}/",
+        "version_key": result.version.version_key,
+        "source": acquired.artifact.model_dump(mode="json"),
+        "permissions": [],
+        "passages": len(materialized.passages),
+        "import_created": result.created,
+        "passages_created": materialized.created,
+        "passage_manifest_sha256": manifest.manifest_sha256,
+    }
+
+
+def ingest(*, root: Path = ROOT) -> None:
     engine = create_database_engine(load_settings())
     client = EuropePmcClient()
-    store = FileSystemObjectStore(ROOT / "sources")
-    papers = []
+    store = FileSystemObjectStore(root / "sources")
+    acquisition = EuropePmcAcquisition(client, store)
+    papers: list[dict[str, object]] = []
     try:
         with Session(engine) as session, session.begin():
             for pmcid in PAPERS:
@@ -96,47 +209,43 @@ def ingest() -> None:
                     )
                 ):
                     raise ValueError(f"unapproved source license: {pmcid}")
-                acquired = EuropePmcAcquisition(client, store).acquire(session, pmcid)
-                content = Path(
-                    url2pathname(urlparse(acquired.artifact.storage_uri).path)
-                ).read_bytes()
-                if content != payload.content:
-                    raise ValueError("source changed between license check and acquisition")
-                result = JatsCanonicalImporter(session).import_artifact(acquired.artifact, content)
-                sections = [
-                    section_from_record(r, version_key=result.version.version_key)
-                    for r in list_sections(session, result.version.id)
-                ]
-                paragraphs = [
-                    paragraph_from_record(r, version_key=result.version.version_key)
-                    for r in list_paragraphs(session, result.version.id)
-                ]
-                manifest = StructureAwareChunker().plan(result.version, sections, paragraphs)
-                materialized = PassageMaterializer(session).materialize(result.version, manifest)
-                papers.append(
-                    {
-                        "pmcid": pmcid,
-                        "title": result.version.title,
-                        "attribution": result.version.versioned_metadata.get("contributors"),
-                        "article_url": f"https://pmc.ncbi.nlm.nih.gov/articles/{pmcid}/",
-                        "version_key": result.version.version_key,
-                        "source": acquired.artifact.model_dump(mode="json"),
-                        "permissions": notices,
-                        "passages": len(materialized.passages),
-                        "import_created": result.created,
-                        "passages_created": materialized.created,
-                        "passage_manifest_sha256": manifest.manifest_sha256,
-                    }
-                )
-        save("papers.json", papers)
+                paper = import_payload(session, acquisition, payload)
+                paper["permissions"] = notices
+                papers.append(paper)
+        save("papers.json", papers, root=root)
         print(json.dumps(papers, ensure_ascii=True, indent=2))
     finally:
         client.close()
         engine.dispose()
 
 
-def snapshot() -> PassageProjectionManifest:
-    selected = json.loads((ROOT / "papers.json").read_text(encoding="utf-8"))
+def ingest_sample(*, root: Path) -> None:
+    engine = create_database_engine(load_settings())
+    client = EuropePmcClient()
+    acquisition = EuropePmcAcquisition(client, FileSystemObjectStore(root / "sources"))
+    papers: list[dict[str, object]] = []
+    try:
+        with Session(engine) as session, session.begin():
+            for article, payload in load_sample_payloads():
+                paper = import_payload(session, acquisition, payload)
+                if (
+                    paper["version_key"] != article.get("document_version_key")
+                    or paper["passages"] != article.get("passages")
+                    or paper["passage_manifest_sha256"] != article.get("passage_manifest_sha256")
+                ):
+                    raise ValueError(
+                        f"sample canonical version differs from receipt: {payload.pmcid}"
+                    )
+                papers.append(paper)
+        save("papers.json", papers, root=root)
+        print(json.dumps(papers, ensure_ascii=True, indent=2))
+    finally:
+        client.close()
+        engine.dispose()
+
+
+def snapshot(root: Path = ROOT) -> PassageProjectionManifest:
+    selected = json.loads((root / "papers.json").read_text(encoding="utf-8"))
     versions = {paper["version_key"] for paper in selected}
     engine = create_database_engine(load_settings())
     try:
@@ -157,10 +266,10 @@ def snapshot() -> PassageProjectionManifest:
         engine.dispose()
 
 
-def embed() -> None:
-    if (ROOT / "receipt.json").exists():
+def embed(root: Path = ROOT) -> None:
+    if (root / "receipt.json").exists():
         raise FileExistsError("retained vectors already have a receipt; use retrieve to reuse them")
-    passages = snapshot()
+    passages = snapshot(root)
     if not 1 <= len(passages.documents) <= 150:
         raise ValueError("CPU budget: expected 1..150 real passages")
     started = time.monotonic()
@@ -205,7 +314,7 @@ def embed() -> None:
             if time.monotonic() - started > 1800:
                 raise TimeoutError("CPU inference exceeded 30-minute budget")
             name = "embedding-manifest.json" if kind == "document" else "query-manifest.json"
-            (ROOT / name).write_bytes(manifest.manifest_bytes)
+            (root / name).write_bytes(manifest.manifest_bytes)
             manifests.append(manifest)
             print(
                 kind,
@@ -227,6 +336,7 @@ def embed() -> None:
             "inference_seconds": time.monotonic() - started,
             "provider": documents.provider.payload(),
         },
+        root=root,
     )
 
 
@@ -309,11 +419,11 @@ def verify_point(session: Session, point: Point) -> dict[str, object]:
     }
 
 
-def verify_sources(session: Session) -> list[dict[str, object]]:
+def verify_sources(session: Session, root: Path = ROOT) -> list[dict[str, object]]:
     source_checks = []
     from dynamisrag.db.models import DocumentVersionRecord, SourceArtifactRecord
 
-    for paper in json.loads((ROOT / "papers.json").read_text(encoding="utf-8")):
+    for paper in json.loads((root / "papers.json").read_text(encoding="utf-8")):
         version = session.scalar(
             select(DocumentVersionRecord).where(
                 DocumentVersionRecord.version_key == paper["version_key"]
@@ -342,20 +452,21 @@ def verify_sources(session: Session) -> list[dict[str, object]]:
     return source_checks
 
 
-def retrieve(receipt_sha256: str) -> None:
-    raw_receipt = (ROOT / "receipt.json").read_bytes()
+def retrieve(receipt_sha256: str, root: Path = ROOT) -> None:
+    raw_receipt = (root / "receipt.json").read_bytes()
     if hashlib.sha256(raw_receipt).hexdigest() != receipt_sha256:
         raise ValueError("receipt differs from independently retained trusted digest")
     receipt = json.loads(raw_receipt)
     embeddings = load_embedding_manifest(
-        ROOT / "embedding-manifest.json", expected_sha256=receipt["embedding_manifest_sha256"]
+        root / "embedding-manifest.json", expected_sha256=receipt["embedding_manifest_sha256"]
     )
     query = load_embedding_manifest(
-        ROOT / "query-manifest.json", expected_sha256=receipt["query_manifest_sha256"]
+        root / "query-manifest.json", expected_sha256=receipt["query_manifest_sha256"]
     )
-    projection = QdrantProjection(snapshot(), embeddings, receipt["document_config_sha256"])
-    client = QdrantClient()
-    engine = create_database_engine(load_settings())
+    projection = QdrantProjection(snapshot(root), embeddings, receipt["document_config_sha256"])
+    settings = load_settings()
+    client = QdrantClient(str(settings.scientific_qdrant_url).rstrip("/"))
+    engine = create_database_engine(settings)
     try:
         before = {
             n: hashlib.sha256(
@@ -398,7 +509,7 @@ def retrieve(receipt_sha256: str) -> None:
                 p.payload["passage_key"]: verify_point(session, p)
                 for p in (*lexical.points, *dense.points, *lex_hybrid.points, *dense_hybrid.points)
             }
-            source_checks = verify_sources(session)
+            source_checks = verify_sources(session, root)
         after = {
             n: hashlib.sha256(
                 json.dumps(
@@ -424,7 +535,7 @@ def retrieve(receipt_sha256: str) -> None:
             "source_checks": source_checks,
             "existing_collection_hashes_unchanged": before,
         }
-        save("retrieval.json", result)
+        save("retrieval.json", result, root=root)
         print(
             json.dumps(
                 {
@@ -442,12 +553,16 @@ def retrieve(receipt_sha256: str) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("ingest", "embed", "retrieve"))
+    parser.add_argument("action", choices=("ingest", "ingest-sample", "embed", "retrieve"))
     parser.add_argument("--receipt-sha256", help="Required for retrieval; original receipt digest")
+    parser.add_argument("--workspace", type=Path, default=ROOT)
     args = parser.parse_args()
+    workspace = args.workspace.resolve()
     if args.action == "retrieve":
         if not args.receipt_sha256:
             parser.error("retrieve requires --receipt-sha256 from the original retained receipt")
-        retrieve(args.receipt_sha256)
+        retrieve(args.receipt_sha256, workspace)
+    elif args.action == "ingest-sample":
+        ingest_sample(root=workspace)
     else:
-        {"ingest": ingest, "embed": embed}[args.action]()
+        {"ingest": lambda: ingest(root=workspace), "embed": lambda: embed(workspace)}[args.action]()

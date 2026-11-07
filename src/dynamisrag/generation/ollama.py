@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Literal
+from typing import Literal, TypeVar
 from urllib.parse import urlsplit
 
 import httpx2
@@ -30,6 +30,7 @@ _CODES = {
     "generation_invalid_output",
     "generation_busy",
     "answer_disabled",
+    "invalid_request",
     "retrieval_unavailable",
     "provenance_invalid",
 }
@@ -110,6 +111,9 @@ class _Chat(GenerationMetrics):
     message: _Message
     done: bool
     done_reason: str
+
+
+_OutputT = TypeVar("_OutputT", bound=BaseModel)
 
 
 class OllamaClient:
@@ -224,5 +228,49 @@ class OllamaClient:
                 raise GenerationUnavailableError("generation_invalid_output")
             metrics = GenerationMetrics.model_validate(chat.model_dump())
             return draft, after, metrics
+        except (ValueError, ValidationError, json.JSONDecodeError):
+            raise GenerationUnavailableError("generation_invalid_output") from None
+
+    def generate_typed(
+        self, system: str, context: str, output_type: type[_OutputT]
+    ) -> tuple[_OutputT, GenerationIdentity, GenerationMetrics, str]:
+        """Generate one bounded, schema-constrained response using the same pinned runtime."""
+        if len((system + context).encode("utf-8")) > PROMPT_BYTES:
+            raise GenerationUnavailableError("generation_invalid_output")
+        before = self.describe()
+        schema = TypeAdapter(dict[str, JsonValue]).validate_python(output_type.model_json_schema())
+        body: dict[str, JsonValue] = {
+            "model": MODEL,
+            "stream": False,
+            "think": False,
+            "keep_alive": "10m",
+            "options": OPTIONS,
+            "format": schema,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": context},
+            ],
+        }
+        try:
+            chat = _Chat.model_validate(self._request("POST", "/api/chat", body))
+            after = self.describe()
+            running = _Running.model_validate(self._request("GET", "/api/ps"))
+            active = [m for m in running.models if m.name == MODEL]
+            if (
+                before != after
+                or chat.model != MODEL
+                or len(active) != 1
+                or active[0].digest != DIGEST
+                or active[0].size_vram != 0
+                or active[0].context_length != CONTEXT_TOKENS
+            ):
+                raise GenerationUnavailableError("generation_identity_mismatch")
+            if not chat.done or chat.done_reason != "stop" or chat.message.role != "assistant":
+                raise GenerationUnavailableError("generation_invalid_output")
+            output = output_type.model_validate_json(chat.message.content)
+            metrics = GenerationMetrics.model_validate(chat.model_dump())
+            return output, after, metrics, chat.message.content
+        except GenerationUnavailableError:
+            raise
         except (ValueError, ValidationError, json.JSONDecodeError):
             raise GenerationUnavailableError("generation_invalid_output") from None

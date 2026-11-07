@@ -161,9 +161,16 @@ def test_new_and_repeated_questions_embed_fresh_without_requalification(live_moc
         assert result.bm25.candidates[0].citation_verified
         assert result.timings.total_request_ms >= result.timings.query_embedding_ms
         assert 0 <= result.timings.query_inference_ms <= result.timings.query_embedding_ms
-        assert result.timings.hybrid_retrieval_ms == result.timings.database_retrieval_ms
         assert 0 <= result.timings.bm25_ms < result.timings.hybrid_retrieval_ms
         assert 0 <= result.timings.dense_ms < result.timings.hybrid_retrieval_ms
+        assert result.timings.database_retrieval_ms >= 0
+        assert result.timings.citation_verification_ms >= 0
+        assert result.timings.total_request_ms == pytest.approx(
+            result.timings.query_embedding_ms
+            + result.timings.hybrid_retrieval_ms
+            + result.timings.database_retrieval_ms
+            + result.timings.citation_verification_ms
+        )
     assert len(calls) == 3
     assert calls[0]["inputs"] != calls[1]["inputs"]
     assert calls[0]["inputs"] == calls[2]["inputs"]
@@ -179,6 +186,23 @@ def test_new_and_repeated_questions_embed_fresh_without_requalification(live_moc
     )
     assert canonical.call_count == 3
     assert client.aliases.call_count == 7
+
+
+def test_latency_boundaries_separate_hybrid_database_and_citation_time(
+    live_mock: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service, _, _, _, _ = live_mock
+    ticks = iter((0.0, 0.001, 0.003, 0.006, 0.010, 0.015, 0.021))
+    monkeypatch.setattr(scientific, "perf_counter", lambda: next(ticks))
+
+    result = service.retrieve("A timing boundary question?", 3, {})
+
+    assert result.timings.query_embedding_ms == pytest.approx(6.0)
+    assert result.timings.query_inference_ms == pytest.approx(2.0)
+    assert result.timings.hybrid_retrieval_ms == pytest.approx(4.0)
+    assert result.timings.database_retrieval_ms == pytest.approx(5.0)
+    assert result.timings.citation_verification_ms == pytest.approx(6.0)
+    assert result.timings.total_request_ms == pytest.approx(21.0)
 
 
 @pytest.mark.parametrize(
