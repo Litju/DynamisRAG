@@ -131,3 +131,5 @@ def test_restore_documentation_never_overwrites_the_live_workspace() -> None:
     assert "research-edition-restore" in documentation
     assert "pg_restore --list" in documentation
     assert "all_passages_verified" in documentation
+    assert "rewrite-sources" not in documentation
+    assert "sources/sha256" in documentation

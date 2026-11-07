@@ -557,6 +557,23 @@ def verify_point(session: Session, point: Point) -> dict[str, object]:
     }
 
 
+def resolve_source_path(storage_uri: str, content_sha256: str, root: Path) -> Path:
+    """Prefer the recorded URI; otherwise resolve a restored content-addressed file.
+
+    Canonical source-artifact rows are append-only, so a restore into a new
+    directory must not rewrite their absolute storage URIs. The content digest is
+    already part of the canonical row, which makes the restored file addressable
+    without changing that row.
+    """
+    stored = Path(url2pathname(urlparse(storage_uri).path))
+    if stored.is_file():
+        return stored
+    restored = root / "sources/sha256" / content_sha256[:2] / f"{content_sha256}.xml"
+    if restored.is_file():
+        return restored
+    raise ValueError("retained source artifact is missing at both its recorded and restored path")
+
+
 def verify_sources(session: Session, root: Path = ROOT) -> list[dict[str, object]]:
     source_checks = []
     from dynamisrag.db.models import DocumentVersionRecord, SourceArtifactRecord
@@ -568,7 +585,7 @@ def verify_sources(session: Session, root: Path = ROOT) -> list[dict[str, object
             )
         )
         artifact = session.get(SourceArtifactRecord, version.source_artifact_id)
-        raw = Path(url2pathname(urlparse(artifact.storage_uri).path)).read_bytes()
+        raw = resolve_source_path(artifact.storage_uri, artifact.content_sha256, root).read_bytes()
         parsed = JatsParser().parse(raw)
         paragraphs = list_paragraphs(session, version.id)
         if (

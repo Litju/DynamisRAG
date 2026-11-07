@@ -27,7 +27,7 @@ verbatim source sentence or abstains.
 | --- | --- |
 | Qdrant mutation safety | `scripts/real_scientific_retrieval.py` attests the allowlisted Compose project, exact container name, pinned image, named data/snapshot volumes, loopback binding and endpoint before creating a client. The retained `6333` endpoint is rejected. Tests: `tests/unit/test_research_edition_qdrant_target.py`. |
 | Retained Qdrant historical review | `docs/evidence/research-edition-sample-v1/retained-qdrant-audit.json` records a strictly read-only inventory. The six collections, four aliases, point counts and stored-point SHA-256 hashes match the last historical receipts; no additional collection or alias exists and nothing was modified. |
-| Backup and restore | `scripts/research_edition_restore.py` pins the dump and archive by SHA-256 and extracts only into a non-existent directory. `docs/research-edition.md` uses a separate `dynamisrag-research-restore` Compose project and verifies the dump archive listing, migration head, canonical row counts, JATS sources and all 75 vector projections. Tests: `tests/unit/test_research_edition_restore.py`. |
+| Backup and restore | A real backup and restore into `.tmp/res166/restore-<timestamp>/files` used a separate `dynamisrag-research-restore` project and the isolated `55435` / `16335` ports. The dump and archive passed SHA-256 and `pg_restore --list`; the restored database reported counts `3|3|3|117|75|146` at head `0005_evidence_graph`; all 75 passages and all three JATS sources verified against the restored rows. Canonical rows were not modified; restored sources resolve by content hash. Receipt: `docs/evidence/research-edition-sample-v1/restore-qualification.json`. Tests: `tests/unit/test_research_edition_restore.py`. |
 | Real browser acceptance | `docs/evidence/research-edition-sample-v1/browser-acceptance.json` and `.png` record Chromium against the live `http://127.0.0.1:8001/research` page, PostgreSQL `55434`, Qdrant `16334`, OpenSearch `19201`, TEI `8082` and Ollama `11435`. The page displayed the claim, DOI link and canonical character coordinates for the real retrieved passage. |
 | Final integration | Unit, isolated integration, Chromium browser, Ruff, Pyright, lockfile and exact-head GitHub Actions results are recorded in the PR. |
 
@@ -44,6 +44,8 @@ At code head `0387201` (the record-only documentation edits follow it):
 - Chromium browser suite: **3 passed, 2,898 deselected**.
 - Real browser acceptance: **supported**, one claim, five retrieved evidence
   passages, DOI link and 18 canonical coordinate lines.
+- Real restore: **passed**, counts `3|3|3|117|75|146`, 75 verified projections,
+  three JATS re-parses, and no canonical row modification.
 - Exact-head GitHub Actions results are recorded in PR #31 for the final pushed
   head.
 

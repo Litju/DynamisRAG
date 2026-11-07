@@ -212,21 +212,14 @@ docker compose @restoreCompose exec -T postgres pg_restore -U dynamisrag_owner `
 if ($LASTEXITCODE -ne 0) { throw 'pg_restore failed.' }
 ```
 
-Source artifact rows contain absolute file URIs. Point the restored copy at the
-fresh extracted workspace before verification; this changes only the throwaway
-restore database:
+Canonical source-artifact rows are append-only and keep the original absolute
+`file:///` URI in the dump. Do not update those rows. Verification first looks
+for the recorded path and, when it is absent, resolves the restored bytes by the
+canonical content hash at
+`$restoreRoot/files/research-edition-sample-v1/sources/sha256/<prefix>/<hash>.xml`.
+The canonical row and its digest never change.
 
 ```powershell
-$oldWorkspace = [string]$manifest.workspace
-$newWorkspace = (Resolve-Path (Join-Path $restoreRoot `
-    'files/research-edition-sample-v1')).Path
-$oldPrefix = 'file:///' + ($oldWorkspace -replace '\\', '/')
-$newPrefix = 'file:///' + ($newWorkspace -replace '\\', '/')
-$env:DYNAMISRAG_DATABASE_URL = "postgresql://dynamisrag_owner:$($env:DYNAMISRAG_RESEARCH_OWNER_PASSWORD)@127.0.0.1:55435/dynamisrag_research_restore"
-uv run --locked python scripts/research_edition_restore.py rewrite-sources `
-    --database-url $env:DYNAMISRAG_DATABASE_URL `
-    --old-prefix $oldPrefix --new-prefix $newPrefix
-
 $counts = docker compose @restoreCompose exec -T postgres psql `
     -U dynamisrag_owner -d dynamisrag_research_restore -Atc `
     "SELECT (SELECT count(*) FROM source_artifact) || '|' ||
@@ -250,6 +243,7 @@ paragraph spans, re-parses each JATS source, verifies all 75 passage identities 
 publishes only the `research-edition-restore` profile:
 
 ```powershell
+$env:DYNAMISRAG_DATABASE_URL = "postgresql://dynamisrag_owner:$($env:DYNAMISRAG_RESEARCH_OWNER_PASSWORD)@127.0.0.1:55435/dynamisrag_research_restore"
 $env:DYNAMISRAG_SCIENTIFIC_QDRANT_URL = 'http://127.0.0.1:16335'
 $env:DYNAMISRAG_OPENSEARCH_URL = 'https://127.0.0.1:19202'
 $env:DYNAMISRAG_SCIENTIFIC_OLLAMA_URL = 'http://127.0.0.1:11436'
@@ -279,3 +273,10 @@ port 11436 before generation. Keep the restore stacks separate from the live
 Research Edition. Stop either stack with `docker compose @compose stop` or
 `docker compose @restoreCompose stop`; do not use `down -v` for a database you
 need to keep.
+
+The isolated qualification run is recorded in
+[`docs/evidence/research-edition-sample-v1/restore-qualification.json`](evidence/research-edition-sample-v1/restore-qualification.json).
+It verified the backup hashes, the archive listing, restored counts
+`3|3|3|117|75|146`, the `0005_evidence_graph` head, all three JATS source
+re-parses and all 75 vector projections. The canonical source-artifact rows were
+not updated; the restored files were resolved by content hash.

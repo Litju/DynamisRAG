@@ -12,10 +12,6 @@ import zipfile
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 
-from sqlalchemy import create_engine, text
-
-from dynamisrag.config import to_sqlalchemy_url
-
 SCHEMA = "dynamisrag.research-edition-backup/v1"
 DUMP_NAME = "dynamisrag-research.dump"
 ARCHIVE_NAME = "research-edition-files.zip"
@@ -142,28 +138,6 @@ def extract_fresh(archive: Path, destination: Path) -> int:
     return extracted
 
 
-def rewrite_source_prefix(database_url: str, *, old_prefix: str, new_prefix: str) -> int:
-    """Point restored source artifact rows at the fresh extracted workspace."""
-    engine = create_engine(to_sqlalchemy_url(database_url), future=True)
-    try:
-        with engine.begin() as connection:
-            result = connection.execute(
-                text(
-                    "UPDATE source_artifact "
-                    "SET storage_uri = replace(storage_uri, :old_prefix, :new_prefix) "
-                    "WHERE storage_uri LIKE :pattern"
-                ),
-                {
-                    "old_prefix": old_prefix,
-                    "new_prefix": new_prefix,
-                    "pattern": f"{old_prefix}%",
-                },
-            )
-            return result.rowcount or 0
-    finally:
-        engine.dispose()
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -178,13 +152,6 @@ def main() -> None:
     extract = commands.add_parser("extract", help="extract into a fresh directory")
     extract.add_argument("--manifest", type=Path, required=True)
     extract.add_argument("--destination", type=Path, required=True)
-
-    rewrite = commands.add_parser(
-        "rewrite-sources", help="rewrite restored source URIs to the fresh workspace"
-    )
-    rewrite.add_argument("--database-url", required=True)
-    rewrite.add_argument("--old-prefix", required=True)
-    rewrite.add_argument("--new-prefix", required=True)
 
     args = parser.parse_args()
     if args.command == "manifest":
@@ -204,11 +171,6 @@ def main() -> None:
         archive = args.manifest.parent / str(archive_entry["name"])
         count = extract_fresh(archive, args.destination)
         print(json.dumps({"destination": str(args.destination), "files": count}, indent=2))
-    else:
-        updated = rewrite_source_prefix(
-            args.database_url, old_prefix=args.old_prefix, new_prefix=args.new_prefix
-        )
-        print(json.dumps({"rewritten_source_artifacts": updated}, indent=2))
 
 
 if __name__ == "__main__":
