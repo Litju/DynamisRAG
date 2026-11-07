@@ -195,6 +195,26 @@ def test_canonical_replay_context_and_read_only(selection_engine: Engine) -> Non
     assert database_receipt(selection_engine) == before
 
 
+def test_semantic_identity_ignores_retrieval_timing(selection_engine: Engine) -> None:
+    request, response = inputs(selection_engine)
+    first = select_offline(selection_engine, request, response)
+    slower = response.model_copy(
+        update={
+            "timings": response.timings.model_copy(
+                update={"query_embedding_ms": response.timings.query_embedding_ms + 10.0}
+            )
+        }
+    )
+    second = select_offline(selection_engine, request, slower)
+
+    assert first.response_sha256 != second.response_sha256
+    assert first.key != second.key
+    assert first.evidence_set is not None and second.evidence_set is not None
+    assert first.evidence_set.key != second.evidence_set.key
+    assert first.evidence_set.semantic_key == second.evidence_set.semantic_key
+    assert first.semantic_key == second.semantic_key
+
+
 def test_selected_passage_builds_and_reconstructs_provisional_graph(
     selection_engine: Engine,
 ) -> None:

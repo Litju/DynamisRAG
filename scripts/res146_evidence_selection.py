@@ -164,7 +164,11 @@ def _compare(
                     "selection_ms": elapsed if mode != "rank_order" else None,
                     "replay_stable": result == replay,
                     "selection_key": result.key if mode != "rank_order" else None,
+                    "selection_semantic_key": result.semantic_key if mode != "rank_order" else None,
                     "evidence_set_key": result.evidence_set.key
+                    if result.evidence_set and mode != "rank_order"
+                    else None,
+                    "evidence_set_semantic_key": result.evidence_set.semantic_key
                     if result.evidence_set and mode != "rank_order"
                     else None,
                 }
@@ -174,7 +178,11 @@ def _compare(
                     "question_id": question.id,
                     "query_sha256": run.results[spec.questions.index(question)].query_sha256,
                     "selection_key": result.key,
+                    "selection_semantic_key": result.semantic_key,
                     "evidence_set_key": result.evidence_set.key if result.evidence_set else None,
+                    "evidence_set_semantic_key": (
+                        result.evidence_set.semantic_key if result.evidence_set else None
+                    ),
                     "authenticity": result.authenticity,
                     "context_items": len(result.context),
                     "trace": result.model_dump(mode="json"),
@@ -225,6 +233,10 @@ def demonstrate() -> dict[str, object]:
                 "live_status": "completed",
                 "selection_key": result.key,
                 "evidence_set_key": result.evidence_set.key if result.evidence_set else None,
+                "evidence_set_semantic_key": (
+                    result.evidence_set.semantic_key if result.evidence_set else None
+                ),
+                "selection_semantic_key": result.semantic_key,
                 "authenticity": result.authenticity,
             }
         except ScientificUnavailable as error:
