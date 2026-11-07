@@ -1,0 +1,202 @@
+{
+  "schema": "dynamisrag.research-edition-browser-acceptance/v1",
+  "observed_at_utc": "2026-11-07T14:25:37.426098+00:00",
+  "application": {
+    "url": "http://127.0.0.1:8001",
+    "health": {
+      "status": "up",
+      "service": "dynamisrag",
+      "version": "0.1.0",
+      "environment": "local"
+    },
+    "readiness": {
+      "status": "up",
+      "service": "dynamisrag",
+      "version": "0.1.0",
+      "environment": "local",
+      "dependencies": {
+        "postgres": {
+          "name": "postgres",
+          "status": "up",
+          "latency_ms": 643,
+          "version": "18.6",
+          "detail": null
+        },
+        "opensearch": {
+          "name": "opensearch",
+          "status": "up",
+          "latency_ms": 2687,
+          "version": "3.8.0",
+          "detail": null
+        }
+      }
+    },
+    "qdrant_readiness": {
+      "status": "ready",
+      "physical_collection": "qdrant-passages-v1-5a20d2780fe6cd0ce0155ed7535c6507ec452f9ad4ae14cbd5990e13d7e8a709",
+      "document_embedding_config_sha256": "8438d37d8e8c8f975f62cbc6f6c644abc27304b18b7a330d9157a70f21c9c1f7",
+      "query_embedding_config_sha256": "94245fa64ff582ab1428c7aea38387e9091a23e538c96d7fbf7b48e1755da8fd"
+    },
+    "authorized_papers": [
+      {
+        "document_version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b",
+        "doi": "10.1186/s13102-023-00771-8",
+        "pmcid": "PMC10680285",
+        "title": "Effect of plyometric versus complex training on core strength, lower limb, and upper limb power in male cricketers: a randomized controlled trial"
+      },
+      {
+        "document_version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643",
+        "doi": "10.3390/s24010044",
+        "pmcid": "PMC10780924",
+        "title": "Impact of Starting Knee Flexion Angle on Muscle Activity and Performance during Plyometrics without Jumping"
+      },
+      {
+        "document_version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e",
+        "doi": "10.3389/fphys.2017.00016",
+        "pmcid": "PMC5263151",
+        "title": "Plyometric Training Favors Optimizing Muscle–Tendon Behavior during Depth Jumping"
+      }
+    ]
+  },
+  "services": {
+    "postgres": "127.0.0.1:55434",
+    "qdrant": "127.0.0.1:16334",
+    "opensearch": "127.0.0.1:19201",
+    "tei": "127.0.0.1:8082",
+    "ollama": "127.0.0.1:11435",
+    "chromium": "156.0.8078.4"
+  },
+  "question": "Were the descriptive baseline variables statistically different between groups?",
+  "document_version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b",
+  "api": {
+    "status": "supported",
+    "reason": "supported",
+    "generation_invoked": true,
+    "claim_count": 1,
+    "evidence_count": 5,
+    "timings": {
+      "retrieval_ms": 1225.0044000102207,
+      "generation_ms": 43293.61179997795,
+      "citation_validation_ms": 69.42870002239943,
+      "total_ms": 44588.04490001057
+    },
+    "generation_metrics": {
+      "load_duration": 148467806,
+      "prompt_eval_count": 1340,
+      "prompt_eval_duration": 467593007,
+      "eval_count": 113,
+      "eval_duration": 45077120712,
+      "total_duration": 46044937581
+    },
+    "claims": [
+      {
+        "text": "All the descriptive baseline variables had non-significant differences among the three groups at baseline except stationary vertical jump height.",
+        "passage_key": "c7077e35bb0ca23d058955640190dc2f9a4ac066917a33c1fedc96008b89bb32",
+        "title": "Effect of plyometric versus complex training on core strength, lower limb, and upper limb power in male cricketers: a randomized controlled trial",
+        "doi": "10.1186/s13102-023-00771-8",
+        "pmcid": "PMC10680285",
+        "document_version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b",
+        "excerpt_start": 80,
+        "excerpt_end": 225,
+        "source_spans": [
+          {
+            "source_order": 0,
+            "paragraph_key": "d70d35689288ed184536e8010bc3e628544a36611d6bbd5153c939af3943aa44",
+            "paragraph_source_anchor": "jats:#Par20",
+            "start_char": 0,
+            "end_char": 79
+          },
+          {
+            "source_order": 1,
+            "paragraph_key": "d70d35689288ed184536e8010bc3e628544a36611d6bbd5153c939af3943aa44",
+            "paragraph_source_anchor": "jats:#Par20",
+            "start_char": 80,
+            "end_char": 225
+          },
+          {
+            "source_order": 2,
+            "paragraph_key": "d70d35689288ed184536e8010bc3e628544a36611d6bbd5153c939af3943aa44",
+            "paragraph_source_anchor": "jats:#Par20",
+            "start_char": 226,
+            "end_char": 494
+          },
+          {
+            "source_order": 3,
+            "paragraph_key": "d70d35689288ed184536e8010bc3e628544a36611d6bbd5153c939af3943aa44",
+            "paragraph_source_anchor": "jats:#Par20",
+            "start_char": 495,
+            "end_char": 621
+          },
+          {
+            "source_order": 4,
+            "paragraph_key": "d70d35689288ed184536e8010bc3e628544a36611d6bbd5153c939af3943aa44",
+            "paragraph_source_anchor": "jats:#Par20",
+            "start_char": 622,
+            "end_char": 719
+          },
+          {
+            "source_order": 5,
+            "paragraph_key": "d70d35689288ed184536e8010bc3e628544a36611d6bbd5153c939af3943aa44",
+            "paragraph_source_anchor": "jats:#Par20",
+            "start_char": 720,
+            "end_char": 864
+          },
+          {
+            "source_order": 6,
+            "paragraph_key": "d70d35689288ed184536e8010bc3e628544a36611d6bbd5153c939af3943aa44",
+            "paragraph_source_anchor": "jats:#Par20",
+            "start_char": 865,
+            "end_char": 986
+          },
+          {
+            "source_order": 7,
+            "paragraph_key": "d70d35689288ed184536e8010bc3e628544a36611d6bbd5153c939af3943aa44",
+            "paragraph_source_anchor": "jats:#Par20",
+            "start_char": 987,
+            "end_char": 1119
+          },
+          {
+            "source_order": 8,
+            "paragraph_key": "d70d35689288ed184536e8010bc3e628544a36611d6bbd5153c939af3943aa44",
+            "paragraph_source_anchor": "jats:#Par20",
+            "start_char": 1120,
+            "end_char": 1219
+          },
+          {
+            "source_order": 9,
+            "paragraph_key": "d70d35689288ed184536e8010bc3e628544a36611d6bbd5153c939af3943aa44",
+            "paragraph_source_anchor": "jats:#Par20",
+            "start_char": 1220,
+            "end_char": 1286
+          },
+          {
+            "source_order": 10,
+            "paragraph_key": "d70d35689288ed184536e8010bc3e628544a36611d6bbd5153c939af3943aa44",
+            "paragraph_source_anchor": "jats:#Par20",
+            "start_char": 1287,
+            "end_char": 1365
+          }
+        ]
+      }
+    ]
+  },
+  "browser": {
+    "heading": "Answer - provisional",
+    "message": "Structurally verified extractive claims; not scientifically reviewed.",
+    "claim_blocks": 1,
+    "evidence_articles": 5,
+    "coordinate_lines": 18,
+    "citation_links": 5,
+    "first_citation_href": "https://doi.org/10.1186/s13102-023-00771-8",
+    "first_coordinate_text": "Canonical paragraph jats:#Par20, characters 0-79 (0-based, half-open) | d70d35689288ed184536e8010bc3e628544a36611d6bbd5153c939af3943aa44",
+    "body_text": "Answer - provisional\n\nStructurally verified extractive claims; not scientifically reviewed.\n\nMODEL_PROPOSED / PROPOSED\nRetrieved evidence\nEffect of plyometric versus complex training on core strength, lower limb, and upper limb power in male cricketers: a randomized controlled trial\nOpen DOI\n\nDOI: 10.1186/s13102-023-00771-8\n\nDocument version: ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b\n\nPassage: c7077e35bb0ca23d058955640190dc2f9a4ac066917a33c1fedc96008b89bb32\n\nAll the descriptive baseline variables had non-significant differences among the three groups at baseline except stationary vertical jump height.\n\nCanonical paragraph jats:#Par20, characters 0-79 (0-based, half-open) | d70d35689288ed184536e8010bc3e628544a36611d6bbd5153c939af3943aa44\n\nCanonical paragraph jats:#Par20, characters 80-225 (0-based, half-open) | d70d35689288ed184536e8010bc3e628544a36611d6bbd5153c939af3943aa44\n\nCanonical paragraph jats:#Par20, characters 226-494 (0-based, half-open) | d70d35689288ed184536e8010bc3e628544a36611d6bbd5153c939af3943aa44\n\nCanonical paragraph jats:#Par20, characters 495-621 (0-based, half-open) | d70d35689288ed184536e8010bc3e628544a36611d6bbd5153c939af3943aa44\n\nCanonical paragraph jats:#Par20, characters 622-719 (0-based, half-open) | d70d35689288ed184536e8010bc3e628544a36611d6bbd5153c939af3943aa44\n\nCanonical paragraph jats:#Par20, characters 720-864 (0-based, half-open) | d70d35689288ed184536e8010bc3e628544a36611d6bbd5153c939af3943aa44\n\nCanonical paragraph jats:#Par20, characters 865-986 (0-based, half-open) | d70d35689288ed184536e8010bc3e628544a36611d6bbd5153c939af3943aa44\n\nCanonical paragraph jats:#Par20, characters 987-1119 (0-based, half-open) | d70d35689288ed184536e8010bc3e628544a36611d6bbd5153c939af3943aa44\n\nCanonical paragraph jats:#Par20, characters 1120-1219 (0-based, half-open) | d70d35689288ed184536e8010bc3e628544a36611d6bbd5153c939af3943aa44\n\nCanonical paragraph jats:#Par20, characters 1220-1286 (0-based, half-open) | d70d35689288ed184536e8010bc3e628544a36611d6bbd5153c939af3943aa44\n\nCanonical paragraph jats:#Par20, characters 1287-1365 (0-based, half-open) | d70d35689288ed184536e8010bc3e628544a36611d6bbd5153c939af3943aa44\n\nEffect of plyometric versus complex training on core strength, lower limb, and upper limb power in male cricketers: a randomized controlled trial\nOpen DOI\n\nDOI: 10.1186/s13102-023-00771-8\n\nDocument version: ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b\n\nPassage: 92eed038642d433d5d079750cfd4b427095726e2e546ecd3b834985639515fc4\n\nStatistical analysis was done using SPSS version 21.0 (SPSS Inc., Chicago, IL, USA). Data were assessed by a Shapiro–Wilk test for the normality of the distribution scores (p > 0.05). The demographic characteristics and the baseline criterion measures were compared among the three groups at the study entry by one-way analyses of variance (ANOVA). One-way ANCOVA was employed to determine the effect of different regimens on core muscle strength, multistage fitness, push-ups, lateral cone jump, and stationary vertical jump. The baseline readings were used as covariates, post-test assessments as dependent variables, and three exercise groups (CG, CTG, and PTG) as independent variables.\n\nCanonical paragraph jats:#Par19, characters 0-1269 (0-based, half-open) | 34ba6ffbffbe05614806d308aa3a0c014ea39959a966f0bdddfa22c52242bd77\n\nEffect of plyometric versus complex training on core strength, lower limb, and upper limb power in male cricketers: a randomized controlled trial\nOpen DOI\n\nDOI: 10.1186/s13102-023-00771-8\n\nDocument version: ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b\n\nPassage: 4f72bcf44071a4a1ebd326158834fefec6fee367b4331c07a03a42f66fcf6f7d\n\nA familiarization session was conducted to make the subjects aware of the testing and training procedures before the commencement of the study. A computer-generated random number table was generated, and subjects were randomly assigned into three groups, viz. control group (CG), complex training group (CTG), and plyometric training group (PTG). Randomization and allocation of participants were performed by an independent examiner not associated with the study. Each group comprised 14 participants. Independent assessments were carried out for the dependent variables at the baseline and following the completion of the training protocols. The outcome assessor was kept blind to the allocation of participants.\n\nCanonical paragraph jats:#Par11, characters 0-714 (0-based, half-open) | a6a79671f697b0768a86932c27e4163d3aa77de14dc6722b26ff392a7740161a\n\nEffect of plyometric versus complex training on core strength, lower limb, and upper limb power in male cricketers: a randomized controlled trial\nOpen DOI\n\nDOI: 10.1186/s13102-023-00771-8\n\nDocument version: ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b\n\nPassage: 6fc111f3a62933d42c2d30af54144bb12a7c5815d4c2f796c9665fcf1ebab576\n\nInclusion criteria for this study were as follows: Male subjects in the age group of 18 to 26 years, playing competitively at least once a month, involved in resistance training for at least six months, with working knowledge of the English language. Exclusion criteria were: a history of severe neurological deficit, injury or concussion in the past six months, operative treatment for lower or upper limb in the past six months, and current musculoskeletal pain (any level of chronicity). The demographic details of the participants in the three groups are summarized in Table 1.\n\nCanonical paragraph jats:#Par10, characters 0-1486 (0-based, half-open) | fc55d2fa00cb60c9f9a847dbe94f26dcf24add51a46fd42614a40606c387aa8a\n\nEffect of plyometric versus complex training on core strength, lower limb, and upper limb power in male cricketers: a randomized controlled trial\nOpen DOI\n\nDOI: 10.1186/s13102-023-00771-8\n\nDocument version: ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b\n\nPassage: 15e2c1ed194cd4fee1c88834b4344082648e23c54b8d15207a292c8b53788f77\n\nComplex training is found effective in improving physical performance in various sports. There is a paucity of research evidence comparing the efficacy of complex vs. plyometric training in cricket players. The study aimed to compare the efficacy of complex and plyometric training on physical performance parameters in cricket players. Participants (n = 42 Male; age group = 18–26 years) were randomly allocated into three groups, complex training group (CTG) (n = 14; BMI = 20.51 ± 2.23), plyometric training group (PTG) (n = 14; BMI = 20.57 ± 2.82), and control group (CG) (n = 14; BMI = 20.51 ± 2.23). CTG and PTG received their respective training twice weekly, and CG received routine training for four weeks.\n\nCanonical paragraph jats:#Par1, characters 0-336 (0-based, half-open) | 3a7dbcccc9fde50b7b4a4094da009711bee74d641e6b83187e51a0b59cc801be\n\nCanonical paragraph jats:#Par2, characters 0-648 (0-based, half-open) | d2336b4adbb98d8457427f5403ef395332bf147786b0f3fdcdeea0996bbf72d8\n\nCanonical paragraph jats:#Par3, characters 0-369 (0-based, half-open) | 57dd4f0568431263e7cc5e860696aa8cbabd9e41ed1e44daac67b5e98531fd6c\n\nCanonical paragraph jats:#Par4, characters 0-189 (0-based, half-open) | 46d08bd0e54a255bfcbe96ebbce2a0aa4e417bd8cc0f452df567581e235a50ba",
+    "screenshot": "docs\\evidence\\research-edition-sample-v1\\browser-acceptance.png"
+  },
+  "real_services": true,
+  "mocked_services": false,
+  "limitations": [
+    "Model-proposed extractive claims are unreviewed and do not establish scientific entailment.",
+    "The browser and API are exercised against the local Research Edition stack, not a hosted service.",
+    "The screenshot is a single local observation, not a performance or usability benchmark."
+  ]
+}
