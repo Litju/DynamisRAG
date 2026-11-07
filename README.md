@@ -1291,6 +1291,10 @@ uv run uvicorn --factory dynamisrag.application:create_app \
   --host 0.0.0.0 --port 8000                                   # production-shaped
 ```
 
+When the opt-in scientific answer service is enabled, open
+`http://127.0.0.1:8000/research` for the local paper selector, cited answers and
+explicit abstentions. Claims are labeled provisional and unreviewed.
+
 `create_app()` performs no I/O — the SQLAlchemy engine connects lazily and the
 OpenSearch client opens no socket until the first probe — so the application
 can be constructed before any infrastructure exists. `create_app` is a factory

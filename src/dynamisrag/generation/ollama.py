@@ -30,6 +30,7 @@ _CODES = {
     "generation_invalid_output",
     "generation_busy",
     "answer_disabled",
+    "invalid_request",
     "retrieval_unavailable",
     "provenance_invalid",
 }

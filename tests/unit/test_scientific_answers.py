@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import Mock
 
@@ -30,7 +31,7 @@ from dynamisrag.generation.ollama import (
     GenerationUnavailableError,
     OllamaClient,
 )
-from dynamisrag.generation.router import PATH, build_answer_router
+from dynamisrag.generation.router import PAPERS_PATH, PATH, build_answer_router
 from dynamisrag.generation.scientific import (
     ScientificAnswerService,
     select_evidence,
@@ -476,6 +477,50 @@ def test_endpoint_validation_and_error_privacy(
         {"question": QUESTION, "model": "other"},
     ):
         assert client.post(PATH, json=data).status_code == 422
+
+
+def test_authorized_paper_list_and_filtered_answer_fail_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, retrieval, generator, _ = service_mock(monkeypatch)
+    version_key = "a" * 64
+    document = SimpleNamespace(
+        document_version_key=version_key,
+        document_canonical_key="doi:10.1000/test",
+        title="Synthetic authorized paper",
+        doi="10.1000/test",
+        pmid=None,
+        pmcid="PMC12345",
+    )
+    retrieval.projection = SimpleNamespace(passages=SimpleNamespace(documents=(document, document)))
+    app = FastAPI()
+    app.include_router(build_answer_router(service))
+
+    with TestClient(app) as client:
+        listed = client.get(PAPERS_PATH)
+        assert listed.status_code == 200
+        assert len(listed.json()) == 1
+        assert listed.json()[0]["document_version_key"] == version_key
+        assert listed.headers["cache-control"] == "no-store"
+
+        answer = client.post(
+            PATH,
+            json={"question": QUESTION, "document_version_key": version_key},
+        )
+        assert answer.status_code == 200
+        retrieval.retrieve.assert_called_once_with(
+            QUESTION, 20, {"document_version_key": version_key}
+        )
+
+        retrieval.retrieve.reset_mock()
+        rejected = client.post(
+            PATH,
+            json={"question": QUESTION, "document_version_key": "f" * 64},
+        )
+        assert rejected.status_code == 422
+        assert rejected.json() == {"detail": {"code": "invalid_request"}}
+        retrieval.retrieve.assert_not_called()
+        generator.generate.assert_called_once()
 
 
 def test_disabled_endpoint_and_missing_citation_schema() -> None:
