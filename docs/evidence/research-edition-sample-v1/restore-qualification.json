@@ -10,7 +10,7 @@
     "pg_restore_list": "passed"
   },
   "restore": {
-    "fresh_destination": "backups/restore-<timestamp>/files (local ignored path)",
+    "fresh_destination": "restore-<timestamp>/files under the ignored local .tmp/res166 directory",
     "destination_was_absent_before_extraction": true,
     "compose_project": "dynamisrag-research-restore",
     "separate_named_volumes": [
