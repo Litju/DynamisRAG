@@ -1,4 +1,4 @@
-# DynamisRAG Research Preview release record
+﻿# DynamisRAG Research Preview release record
 
 Status: **candidate for owner approval**. This record does not approve, publish,
 merge or change the release scope. Those decisions remain with the repository
@@ -33,13 +33,13 @@ verbatim source sentence or abstains.
 
 ## Local qualification
 
-At code head `0387201` (the record-only documentation edits follow it):
+At code head `7ee8a45` (the record-only documentation edits follow it):
 
 - `uv lock --check`: passed.
 - `uv run ruff format --check .`: 290 files already formatted.
 - `uv run ruff check .`: passed.
 - `uv run pyright`: 0 errors, 0 warnings.
-- Unit suite: **2,610 passed, 291 deselected**.
+- Unit suite: **2,613 passed, 291 deselected**.
 - Isolated integration suite: **288 passed, 2,613 deselected**.
 - Chromium browser suite: **3 passed, 2,898 deselected**.
 - Real browser acceptance: **supported**, one claim, five retrieved evidence
@@ -56,7 +56,7 @@ The real browser run used the question:
 > Were the descriptive baseline variables statistically different between groups?
 
 The application returned `supported` with one structurally verified extractive
-claim from passage `c7077e35…`; it displayed the claim, the DOI
+claim from passage `c7077e35â€¦`; it displayed the claim, the DOI
 `10.1186/s13102-023-00771-8`, the exact document version and the canonical span
 `jats:#Par20, characters 80-225 (0-based, half-open)`. A separate negative
 question had already shown the explicit abstention path. The browser never turned
@@ -105,3 +105,4 @@ is still required before benchmark questions are called scientific gold.
 ## Result
 
 `RESEARCH_PREVIEW_READY_FOR_OWNER_APPROVAL`
+
