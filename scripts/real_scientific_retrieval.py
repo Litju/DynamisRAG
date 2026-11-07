@@ -4,10 +4,13 @@
 import argparse
 import hashlib
 import json
+import shutil
+import subprocess
 import time
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 from urllib.parse import urlparse
 from urllib.request import url2pathname
 
@@ -17,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from dynamisrag.chunking.materializer import PassageMaterializer
 from dynamisrag.chunking.planner import StructureAwareChunker
-from dynamisrag.config import load_settings
+from dynamisrag.config import Settings, load_settings
 from dynamisrag.db import (
     create_database_engine,
     get_document_identifiers,
@@ -53,11 +56,146 @@ from dynamisrag.search.qdrant_artifact import load_embedding_manifest
 from dynamisrag.storage import FileSystemObjectStore
 
 PAPERS = ("PMC10780924", "PMC10680285", "PMC5263151")
+REPO_ROOT = Path(__file__).resolve().parents[1]
 ROOT = Path(".dynamisrag/real-science-v1").resolve()
-SAMPLE_CORPUS = Path(__file__).resolve().parents[1] / "data/research-edition-sample-v1"
+SAMPLE_CORPUS = REPO_ROOT / "data/research-edition-sample-v1"
 SAMPLE_MANIFEST_SHA256 = "05e44a8196801cce41345703db417d48226b761d773bfa11b69663fe66f838c0"
 ALIAS = "dynamisrag-real-science-v1"
 QUESTION = "How does plyometric training change muscle and tendon behavior during depth jumping?"
+
+
+@dataclass(frozen=True)
+class QdrantTarget:
+    """One explicitly allowlisted, positively attested local Qdrant stack."""
+
+    name: str
+    endpoint: str
+    compose_project: str
+    container_name: str
+    image: str
+    data_volume: str
+    snapshots_volume: str
+    host_port: int
+
+
+QDRANT_TARGETS: dict[str, QdrantTarget] = {
+    "research-edition": QdrantTarget(
+        name="research-edition",
+        endpoint="http://127.0.0.1:16334",
+        compose_project="dynamisrag-research-edition",
+        container_name="dynamisrag-research-edition-qdrant-1",
+        image=(
+            "qdrant/qdrant:v1.20.0@sha256:"
+            "9bfc89f9914fc14876a88c05270685921a55b8877b254a98bcc1cc2f0a424cd2"
+        ),
+        data_volume="dynamisrag-research-edition_qdrant-data",
+        snapshots_volume="dynamisrag-research-edition_qdrant-snapshots",
+        host_port=16334,
+    ),
+    "research-edition-restore": QdrantTarget(
+        name="research-edition-restore",
+        endpoint="http://127.0.0.1:16335",
+        compose_project="dynamisrag-research-restore",
+        container_name="dynamisrag-research-restore-qdrant-1",
+        image=(
+            "qdrant/qdrant:v1.20.0@sha256:"
+            "9bfc89f9914fc14876a88c05270685921a55b8877b254a98bcc1cc2f0a424cd2"
+        ),
+        data_volume="dynamisrag-research-restore_qdrant-data",
+        snapshots_volume="dynamisrag-research-restore_qdrant-snapshots",
+        host_port=16335,
+    ),
+    # The protected CI stack is the only other mutation target the exact-head
+    # integration job may use. It is still positively attested; port 6333 is not.
+    "integration": QdrantTarget(
+        name="integration",
+        endpoint="http://127.0.0.1:16333",
+        compose_project="dynamisrag-integration",
+        container_name="dynamisrag-integration-qdrant-1",
+        image=(
+            "qdrant/qdrant:v1.20.0@sha256:"
+            "9bfc89f9914fc14876a88c05270685921a55b8877b254a98bcc1cc2f0a424cd2"
+        ),
+        data_volume="dynamisrag-integration_qdrant-data",
+        snapshots_volume="dynamisrag-integration_qdrant-snapshots",
+        host_port=16333,
+    ),
+}
+
+
+def require_qdrant_target(settings: Settings, target_name: str) -> QdrantTarget:
+    """Parse and attest the allowlisted stack before a Qdrant client is created."""
+    try:
+        target = QDRANT_TARGETS[target_name]
+    except KeyError:
+        raise RuntimeError("unknown Qdrant target profile") from None
+    configured = str(settings.scientific_qdrant_url).rstrip("/")
+    endpoint = urlparse(configured)
+    expected = urlparse(target.endpoint)
+    try:
+        endpoint_port = endpoint.port
+    except ValueError:
+        endpoint_port = -1
+    if (
+        endpoint.scheme != expected.scheme
+        or endpoint.hostname != expected.hostname
+        or endpoint_port != expected.port
+        or endpoint.path not in ("", "/")
+        or endpoint.username
+        or endpoint.password
+        or endpoint.query
+        or endpoint.fragment
+    ):
+        raise RuntimeError(f"configured Qdrant endpoint is not the attested {target.name} target")
+    verify_qdrant_container(target)
+    return target
+
+
+def verify_qdrant_container(target: QdrantTarget) -> None:
+    """Require the exact Compose project, container, image, volumes and loopback binding."""
+    docker = shutil.which("docker")
+    if docker is None:
+        raise RuntimeError("Docker is required to attest the Qdrant mutation target")
+    try:
+        inspected = json.loads(
+            subprocess.run(  # noqa: S603 -- inspect only the fixed expected container name
+                [docker, "inspect", target.container_name],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=20,
+            ).stdout
+        )
+        if not isinstance(inspected, list):
+            raise RuntimeError("Docker returned an ambiguous Qdrant identity")
+        results = cast(list[object], inspected)
+        if len(results) != 1 or not isinstance(results[0], dict):
+            raise RuntimeError("Docker returned an ambiguous Qdrant identity")
+        container = cast(dict[str, Any], results[0])
+    except (OSError, subprocess.SubprocessError, json.JSONDecodeError) as error:
+        raise RuntimeError("could not attest the Qdrant container") from error
+
+    labels = cast(dict[str, str], container.get("Config", {}).get("Labels") or {})
+    mounts = {
+        mount.get("Destination"): mount.get("Name")
+        for mount in cast(list[dict[str, Any]], container.get("Mounts", []))
+    }
+    bindings = cast(
+        list[dict[str, str]],
+        container.get("HostConfig", {}).get("PortBindings", {}).get("6333/tcp") or [],
+    )
+    if (
+        not container.get("State", {}).get("Running")
+        or container.get("Name") != f"/{target.container_name}"
+        or container.get("Config", {}).get("Image") != target.image
+        or labels.get("com.docker.compose.project") != target.compose_project
+        or labels.get("com.docker.compose.service") != "qdrant"
+        or mounts.get("/qdrant/storage") != target.data_volume
+        or mounts.get("/qdrant/snapshots") != target.snapshots_volume
+        or {(binding.get("HostIp"), binding.get("HostPort")) for binding in bindings}
+        != {("127.0.0.1", str(target.host_port))}
+    ):
+        raise RuntimeError(f"Qdrant is not the attested {target.name} service")
 
 
 class BudgetTei(TeiEmbeddingProvider):
@@ -452,7 +590,16 @@ def verify_sources(session: Session, root: Path = ROOT) -> list[dict[str, object
     return source_checks
 
 
-def retrieve(receipt_sha256: str, root: Path = ROOT) -> None:
+def retrieve(
+    receipt_sha256: str,
+    root: Path = ROOT,
+    *,
+    qdrant_target: str = "research-edition",
+) -> None:
+    settings = load_settings()
+    # Fail closed before reading a receipt, constructing a client or creating,
+    # populating or publishing any collection or alias.
+    target = require_qdrant_target(settings, qdrant_target)
     raw_receipt = (root / "receipt.json").read_bytes()
     if hashlib.sha256(raw_receipt).hexdigest() != receipt_sha256:
         raise ValueError("receipt differs from independently retained trusted digest")
@@ -464,8 +611,10 @@ def retrieve(receipt_sha256: str, root: Path = ROOT) -> None:
         root / "query-manifest.json", expected_sha256=receipt["query_manifest_sha256"]
     )
     projection = QdrantProjection(snapshot(root), embeddings, receipt["document_config_sha256"])
-    settings = load_settings()
     client = QdrantClient(str(settings.scientific_qdrant_url).rstrip("/"))
+    if client.request("GET", "/").get("version") != "1.20.0":
+        client.close()
+        raise RuntimeError(f"endpoint at {target.endpoint} is not Qdrant 1.20.0")
     engine = create_database_engine(settings)
     try:
         before = {
@@ -556,12 +705,18 @@ if __name__ == "__main__":
     parser.add_argument("action", choices=("ingest", "ingest-sample", "embed", "retrieve"))
     parser.add_argument("--receipt-sha256", help="Required for retrieval; original receipt digest")
     parser.add_argument("--workspace", type=Path, default=ROOT)
+    parser.add_argument(
+        "--qdrant-target",
+        choices=tuple(QDRANT_TARGETS),
+        default="research-edition",
+        help="Allowlisted isolated Qdrant stack that may receive the projection",
+    )
     args = parser.parse_args()
     workspace = args.workspace.resolve()
     if args.action == "retrieve":
         if not args.receipt_sha256:
             parser.error("retrieve requires --receipt-sha256 from the original retained receipt")
-        retrieve(args.receipt_sha256, workspace)
+        retrieve(args.receipt_sha256, workspace, qdrant_target=args.qdrant_target)
     elif args.action == "ingest-sample":
         ingest_sample(root=workspace)
     else:

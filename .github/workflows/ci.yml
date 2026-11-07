@@ -268,6 +268,7 @@ jobs:
             ingest-sample --workspace "$workspace"
           uv run --locked python scripts/real_scientific_retrieval.py retrieve \
             --workspace "$workspace" \
+            --qdrant-target integration \
             --receipt-sha256 8ede85766f656acccf7fd44b9c3fde627bd18289b74fe375dbf895d02ff4d240
 
       - name: Dump service logs
