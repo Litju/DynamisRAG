@@ -58,6 +58,27 @@ At code head `7ee8a45` (the record-only documentation edits follow it):
   [run 42388786262](https://github.com/Litju/DynamisRAG/actions/runs/42388786262),
   all four jobs succeeded.
 
+## Post-merge qualification
+
+On `main` at merge commit `1d53d0fa393bbe2d6e41e820a8cb8a19c4871653`:
+
+- Exact-head GitHub Actions
+  [run 42590615352](https://github.com/Litju/DynamisRAG/actions/runs/42590615352):
+  Ubuntu and Windows quality, Chromium browser, and migrations/integration/live
+  server jobs all succeeded. The last job includes the citation-verified
+  licensed sample replay into a fresh, disposable database.
+- Local, at `a1a38e9` (application code identical to `1d53d0f`; only the release
+  documentation differs): `uv lock --check` passed; Ruff format (290 files) and
+  lint passed; strict Pyright 0 errors, 0 warnings; unit **2,613 passed, 291
+  deselected**; isolated integration **288 passed, 2,616 deselected**; Chromium
+  **3 passed, 2,901 deselected**.
+- The local sample replay was not repeated. `retrieve` creates and publishes a
+  projection, and the only allowlisted local targets already hold earlier
+  sessions' state, so CI's fresh-database replay is the qualifying run. The
+  protected reference database and the retained Qdrant instance were not used.
+
+Proposed prerelease notes: [`research-preview-release-notes.md`](research-preview-release-notes.md).
+
 ## Qualification result
 
 The real browser run used the question:
