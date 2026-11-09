@@ -443,6 +443,7 @@ def demonstrate() -> dict[str, object]:
         "span_key": span_key,
         "artifact_sha256": artifact_hash,
         "evidence_set_key": evidence_set.key,
+        "evidence_set_semantic_key": evidence_set.semantic_key,
         "claim_key": claim.key,
         "link_key": link.key,
         "provenance_sha256": member.provenance_sha256,

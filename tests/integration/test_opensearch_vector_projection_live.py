@@ -56,11 +56,12 @@ from typing import Any, Final
 
 import httpx2
 import pytest
+from scripts.res145_evidence_demo import scratch_database
+from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
 from dynamisrag.chunking import ChunkerConfig, PassageMaterializer, StructureAwareChunker
 from dynamisrag.config import Settings
-from dynamisrag.db import create_database_engine
 from dynamisrag.db.canonical import (
     insert_document,
     insert_document_version,
@@ -179,18 +180,23 @@ _PMC_PASSAGE_COUNT: Final[int] = 19
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture(scope="module")
+def vector_projection_engine() -> Iterator[Engine]:
+    """A disposable migrated database for dense-index projection tests."""
+    with scratch_database() as (engine, _):
+        yield engine
+
+
 @pytest.fixture
-def db_session(live_settings: Settings) -> Iterator[Session]:
-    """A session whose transaction is always rolled back (never DELETE)."""
-    engine = create_database_engine(live_settings)
-    session = Session(bind=engine)
+def db_session(vector_projection_engine: Engine) -> Iterator[Session]:
+    """Roll back each vector fixture in its disposable database."""
+    session = Session(bind=vector_projection_engine)
     transaction = session.begin()
     try:
         yield session
     finally:
         transaction.rollback()
         session.close()
-        engine.dispose()
 
 
 @dataclass(frozen=True)

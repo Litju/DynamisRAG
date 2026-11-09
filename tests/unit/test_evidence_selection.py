@@ -6,8 +6,14 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from dynamisrag.domain.evidence import EvidenceMember
-from dynamisrag.evidence.contracts import RetrievalIdentity, SelectionPolicy, SelectionRequest
+from dynamisrag.domain.evidence import EvidenceMember, EvidenceSet
+from dynamisrag.evidence.contracts import (
+    RetrievalIdentity,
+    SelectionDecision,
+    SelectionPolicy,
+    SelectionRequest,
+    SelectionResult,
+)
 from dynamisrag.evidence.retrieval import verify_response
 from dynamisrag.evidence.selection import choose
 from dynamisrag.search.bm25 import SearchHit
@@ -32,6 +38,68 @@ def request_for(response: ScientificResponse, **policy: Any) -> SelectionRequest
             {"retrieval_limit": len(response.fusion.hits)} | policy
         ),
     )
+
+
+def test_selection_semantic_identity_ignores_response_timing_and_authenticity() -> None:
+    source = EvidenceMember(
+        passage_key="a" * 64,
+        version_key="b" * 64,
+        span_keys=("c" * 64,),
+        provenance_sha256="d" * 64,
+    )
+    evidence_set = EvidenceSet(
+        question_id="q1",
+        question="Synthetic question?",
+        corpus_id="corpus-v1",
+        selection_context="execution: 5 ms",
+        members=(source,),
+    )
+    decision = SelectionDecision(
+        passage_key=source.passage_key,
+        fused_rank=1,
+        rrf_score=0.1,
+        bm25_rank=1,
+        bm25_score=1.0,
+        dense_rank=1,
+        dense_score=1.0,
+        version_key=source.version_key,
+        document_key="doc-a",
+        section_key=None,
+        disposition="SELECTED",
+        reason="ranked",
+    )
+    first = SelectionResult(
+        request_sha256="1" * 64,
+        question_id="2" * 64,
+        corpus_sha256="3" * 64,
+        policy_sha256="4" * 64,
+        response_sha256="5" * 64,
+        authenticity="live-service-call",
+        evidence_set=evidence_set,
+        decisions=(decision,),
+        context=(),
+        context_exclusions=(),
+        selected_bytes=1,
+        expanded_bytes=0,
+        documents=1,
+        versions=1,
+        sections=0,
+        missing=(),
+    )
+    second = first.model_copy(
+        update={
+            "response_sha256": "6" * 64,
+            "authenticity": "offline-operator-replay",
+            "evidence_set": evidence_set.model_copy(
+                update={"selection_context": "execution: 900 ms"}
+            ),
+        }
+    )
+
+    assert first.key != second.key
+    assert first.evidence_set is not None and second.evidence_set is not None
+    assert first.evidence_set.semantic_key == second.evidence_set.semantic_key
+    assert first.semantic_key == second.semantic_key
 
 
 def synthetic_response(sources: tuple[PassageProvenance, ...]) -> ScientificResponse:

@@ -1,4 +1,4 @@
-"""Integration tests proving idempotent Europe PMC acquisition against live
+"""Integration tests proving idempotent Europe PMC acquisition against isolated
 PostgreSQL 18, a temporary filesystem object store and a mocked Europe PMC
 HTTP response.
 
@@ -17,12 +17,12 @@ from typing import Final
 
 import httpx2
 import pytest
-from sqlalchemy import func, select
+from scripts.res145_evidence_demo import scratch_database
+from sqlalchemy import Engine, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from dynamisrag.config import Settings
-from dynamisrag.db import create_database_engine, get_source_artifact_by_key
+from dynamisrag.db import get_source_artifact_by_key
 from dynamisrag.db.models import SourceArtifactRecord
 from dynamisrag.domain.contracts import SourceArtifact
 from dynamisrag.ingestion import EuropePmcAcquisition, EuropePmcClient
@@ -91,19 +91,23 @@ class _ScriptedTransport(httpx2.BaseTransport):
         )
 
 
+@pytest.fixture(scope="module")
+def acquisition_engine() -> Iterator[Engine]:
+    """A disposable migrated database for acquisition rows."""
+    with scratch_database() as (engine, _):
+        yield engine
+
+
 @pytest.fixture
-def db_session(live_settings: Settings) -> Iterator[Session]:
-    """A session whose transaction is always rolled back, keeping the
-    canonical database pristine between tests."""
-    engine = create_database_engine(live_settings)
-    session = Session(bind=engine)
+def db_session(acquisition_engine: Engine) -> Iterator[Session]:
+    """Roll each acquisition transaction back in the disposable database."""
+    session = Session(bind=acquisition_engine)
     transaction = session.begin()
     try:
         yield session
     finally:
         transaction.rollback()
         session.close()
-        engine.dispose()
 
 
 @pytest.fixture

@@ -61,6 +61,31 @@ jobs:
       - name: Unit tests
         run: uv run pytest
 
+  browser:
+    name: Browser research UI (Chromium)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.2.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+
+      - name: Install Python 3.12.13
+        run: uv python install 3.12.13
+
+      - name: Install locked dependencies
+        run: uv sync --locked
+
+      - name: Install Chromium
+        run: uv run playwright install --with-deps chromium
+
+      - name: Browser end-to-end tests
+        run: uv run pytest -q -o "addopts=-ra --strict-config --strict-markers" -m browser
+
   integration:
     name: Migrations, integration tests, live server
     runs-on: ubuntu-latest
@@ -100,6 +125,9 @@ jobs:
 
       - name: Install locked dependencies
         run: uv sync --locked
+
+      - name: Validate the isolated Research Edition Compose configuration
+        run: docker compose --project-name dynamisrag-research-edition --env-file .env.research-edition.example --file compose.yaml --file compose.embedding.yaml --file compose.research-edition.yaml config --quiet
 
       - name: Start PostgreSQL 18, OpenSearch 3 and Qdrant 1.20
         # The overlay pins a separate project, named-volume namespace, and
@@ -211,6 +239,37 @@ jobs:
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/readyz)" = "200"
           cat recovered.json
           grep -q '"opensearch":{"name":"opensearch","status":"up"' recovered.json
+
+      - name: Reproduce licensed sample ingestion and citation-verified retrieval
+        shell: bash
+        run: |
+          set -euo pipefail
+          owner_password="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+          echo "::add-mask::$owner_password"
+          docker compose --project-name dynamisrag-integration --file compose.yaml --file compose.integration.yaml exec -T postgres \
+            psql -U dynamisrag -d postgres --set ON_ERROR_STOP=1 --set owner_password="$owner_password" <<'SQL'
+          CREATE ROLE dynamisrag_owner
+            LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS NOINHERIT
+            PASSWORD :'owner_password';
+          GRANT dynamisrag_migration_operators TO dynamisrag_owner;
+          CREATE DATABASE dynamisrag_research OWNER dynamisrag_owner;
+          SQL
+          database_oid="$(docker compose --project-name dynamisrag-integration --file compose.yaml --file compose.integration.yaml exec -T postgres \
+            psql -U dynamisrag -d postgres -Atc "SELECT oid::text FROM pg_database WHERE datname='dynamisrag_research'")"
+          test -n "$database_oid"
+          export DYNAMISRAG_DATABASE_URL="postgresql://dynamisrag_owner:${owner_password}@127.0.0.1:55433/dynamisrag_research"
+          uv run --locked alembic -x "maintenance_target=dynamisrag_research:$database_oid" upgrade head
+          workspace='.tmp/research-edition-sample-v1'
+          mkdir -p "$workspace"
+          cp docs/evidence/real-science-v1/embedding-manifest.json \
+            docs/evidence/real-science-v1/query-manifest.json \
+            docs/evidence/real-science-v1/receipt.json "$workspace/"
+          uv run --locked python scripts/real_scientific_retrieval.py \
+            ingest-sample --workspace "$workspace"
+          uv run --locked python scripts/real_scientific_retrieval.py retrieve \
+            --workspace "$workspace" \
+            --qdrant-target integration \
+            --receipt-sha256 8ede85766f656acccf7fd44b9c3fde627bd18289b74fe375dbf895d02ff4d240
 
       - name: Dump service logs
         if: always()

@@ -1,0 +1,152 @@
+{
+  "schema": "dynamisrag.retained-qdrant-read-only-audit/v1",
+  "observed_at_utc": "2026-11-07T13:48:51.318629+00:00",
+  "scope": "strictly read-only inventory of the retained Qdrant instance",
+  "operations": [
+    "GET /collections",
+    "GET /aliases",
+    "POST /collections/{collection}/points/scroll (with_payload=true, with_vector=true)",
+    "docker inspect dynamisrag-qdrant"
+  ],
+  "retained_target": {
+    "endpoint": "http://127.0.0.1:6333",
+    "compose_project": "dynamisrag",
+    "compose_service": "qdrant",
+    "container_name": "dynamisrag-qdrant",
+    "image": "qdrant/qdrant:v1.20.0@sha256:9bfc89f9914fc14876a88c05270685921a55b8877b254a98bcc1cc2f0a424cd2",
+    "running": true,
+    "named_volumes": {
+      "/qdrant/snapshots": "dynamisrag_qdrant-snapshots",
+      "/qdrant/storage": "dynamisrag_qdrant-data"
+    },
+    "host_binding": [
+      {
+        "HostIp": "127.0.0.1",
+        "HostPort": "6333"
+      }
+    ]
+  },
+  "current": {
+    "aliases": {
+      "dynamisrag-synthetic-ties-reverse": "qdrant-passages-v1-17b7d64f742182919fa9313ff8695ce0366ed8ffc09e1eff80c171e4f558c0a7",
+      "dynamisrag-synthetic-database-tests": "qdrant-passages-v1-22ce4f03b2280fd63c06a993b79fbbceece3180f08d3050b6fd55d6f6187e21d",
+      "dynamisrag-real-science-v1": "qdrant-passages-v1-5a20d2780fe6cd0ce0155ed7535c6507ec452f9ad4ae14cbd5990e13d7e8a709",
+      "dynamisrag-synthetic-ties-forward": "qdrant-passages-v1-618f0f47a167afade3ef607b8c866eea85955de2280c04ce1b3ece19f1054877"
+    },
+    "collections": {
+      "qdrant-passages-v1-17b7d64f742182919fa9313ff8695ce0366ed8ffc09e1eff80c171e4f558c0a7": {
+        "points": 2,
+        "stored_points_sha256": "9bc40e10ea0aeb84e6918be0176bfa6f7d37fe2d5557f8da2767c705cc1b4783"
+      },
+      "qdrant-passages-v1-22ce4f03b2280fd63c06a993b79fbbceece3180f08d3050b6fd55d6f6187e21d": {
+        "points": 2,
+        "stored_points_sha256": "f2de5199fabe7dfbcf8cc7372792ee7c4f70690ad388d5b9f5e31e25c25f5d0d"
+      },
+      "qdrant-passages-v1-5a20d2780fe6cd0ce0155ed7535c6507ec452f9ad4ae14cbd5990e13d7e8a709": {
+        "points": 75,
+        "stored_points_sha256": "2640a00053e5c8231e7db28873a42e7b9465830693f6c4c56f722c7ba2f78d2a"
+      },
+      "qdrant-passages-v1-618f0f47a167afade3ef607b8c866eea85955de2280c04ce1b3ece19f1054877": {
+        "points": 2,
+        "stored_points_sha256": "af59ebdf36eaf3fe241d4ad6b9a9fbba2f794143e4f776174a0f7f3116dc23ee"
+      },
+      "qdrant-passages-v1-635b92e9da271b6655319aca948be86639bb497a872b9df4f5f3482ab313cae8": {
+        "points": 0,
+        "stored_points_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+      },
+      "qdrant-passages-v1-cffdc46774f6fa5b6b06c02d8fcb52b89c5764bfe2d8c00848d4fc2ea1ad9dfb": {
+        "points": 2,
+        "stored_points_sha256": "4fda877afb11f9599d3e9fe34d231b5e49a2e4a53c25cec2f459ba3b3f887efc"
+      }
+    }
+  },
+  "historical_reference": {
+    "path": "docs/evidence/live-rag-002/state-unchanged.json",
+    "before_collections": {
+      "qdrant-passages-v1-17b7d64f742182919fa9313ff8695ce0366ed8ffc09e1eff80c171e4f558c0a7": "9bc40e10ea0aeb84e6918be0176bfa6f7d37fe2d5557f8da2767c705cc1b4783",
+      "qdrant-passages-v1-22ce4f03b2280fd63c06a993b79fbbceece3180f08d3050b6fd55d6f6187e21d": "f2de5199fabe7dfbcf8cc7372792ee7c4f70690ad388d5b9f5e31e25c25f5d0d",
+      "qdrant-passages-v1-5a20d2780fe6cd0ce0155ed7535c6507ec452f9ad4ae14cbd5990e13d7e8a709": "2640a00053e5c8231e7db28873a42e7b9465830693f6c4c56f722c7ba2f78d2a",
+      "qdrant-passages-v1-618f0f47a167afade3ef607b8c866eea85955de2280c04ce1b3ece19f1054877": "af59ebdf36eaf3fe241d4ad6b9a9fbba2f794143e4f776174a0f7f3116dc23ee",
+      "qdrant-passages-v1-635b92e9da271b6655319aca948be86639bb497a872b9df4f5f3482ab313cae8": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "qdrant-passages-v1-cffdc46774f6fa5b6b06c02d8fcb52b89c5764bfe2d8c00848d4fc2ea1ad9dfb": "4fda877afb11f9599d3e9fe34d231b5e49a2e4a53c25cec2f459ba3b3f887efc"
+    },
+    "before_aliases": {
+      "dynamisrag-synthetic-ties-reverse": "qdrant-passages-v1-17b7d64f742182919fa9313ff8695ce0366ed8ffc09e1eff80c171e4f558c0a7",
+      "dynamisrag-synthetic-database-tests": "qdrant-passages-v1-22ce4f03b2280fd63c06a993b79fbbceece3180f08d3050b6fd55d6f6187e21d",
+      "dynamisrag-real-science-v1": "qdrant-passages-v1-5a20d2780fe6cd0ce0155ed7535c6507ec452f9ad4ae14cbd5990e13d7e8a709",
+      "dynamisrag-synthetic-ties-forward": "qdrant-passages-v1-618f0f47a167afade3ef607b8c866eea85955de2280c04ce1b3ece19f1054877"
+    },
+    "collection_points_sha256": {
+      "qdrant-passages-v1-17b7d64f742182919fa9313ff8695ce0366ed8ffc09e1eff80c171e4f558c0a7": "9bc40e10ea0aeb84e6918be0176bfa6f7d37fe2d5557f8da2767c705cc1b4783",
+      "qdrant-passages-v1-22ce4f03b2280fd63c06a993b79fbbceece3180f08d3050b6fd55d6f6187e21d": "f2de5199fabe7dfbcf8cc7372792ee7c4f70690ad388d5b9f5e31e25c25f5d0d",
+      "qdrant-passages-v1-5a20d2780fe6cd0ce0155ed7535c6507ec452f9ad4ae14cbd5990e13d7e8a709": "2640a00053e5c8231e7db28873a42e7b9465830693f6c4c56f722c7ba2f78d2a",
+      "qdrant-passages-v1-618f0f47a167afade3ef607b8c866eea85955de2280c04ce1b3ece19f1054877": "af59ebdf36eaf3fe241d4ad6b9a9fbba2f794143e4f776174a0f7f3116dc23ee",
+      "qdrant-passages-v1-635b92e9da271b6655319aca948be86639bb497a872b9df4f5f3482ab313cae8": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "qdrant-passages-v1-cffdc46774f6fa5b6b06c02d8fcb52b89c5764bfe2d8c00848d4fc2ea1ad9dfb": "4fda877afb11f9599d3e9fe34d231b5e49a2e4a53c25cec2f459ba3b3f887efc"
+    },
+    "note": "The same file records an identical after-state, so this is the last observed retained state."
+  },
+  "historical_receipts": [
+    {
+      "path": "docs/evidence/live-rag-001/execution-receipt.json",
+      "observed_at_utc": "2026-10-28T00:41:17.453465+00:00",
+      "collections": 6,
+      "aliases": 4,
+      "matches_current": true,
+      "note": "before and after states are identical and already contain all six collections and four aliases."
+    },
+    {
+      "path": "docs/evidence/real-science-v1/retrieval.json",
+      "observed_at_utc": null,
+      "collections": 5,
+      "aliases": null,
+      "matches_current": true,
+      "note": "records the five pre-existing collections besides the real-science projection; all five hashes equal current hashes."
+    },
+    {
+      "path": "docs/evidence/live-rag-002/state-unchanged.json",
+      "observed_at_utc": null,
+      "collections": 6,
+      "aliases": 4,
+      "matches_current": true,
+      "note": "before and after states are identical; used as the direct comparison baseline."
+    },
+    {
+      "path": "docs/evidence/qdrant-local.json",
+      "observed_at_utc": "2026-10-27",
+      "collections": 3,
+      "aliases": 1,
+      "matches_current": true,
+      "note": "partial synthetic-only inventory: 22ce, 635b and cffd with the synthetic-database-tests alias."
+    }
+  ],
+  "comparison": {
+    "collections_added_since_receipt": [],
+    "collections_removed_since_receipt": [],
+    "aliases_added_since_receipt": [],
+    "aliases_removed_since_receipt": [],
+    "collection_content_hashes_identical": true,
+    "alias_targets_identical": true,
+    "state_identical_to_last_historical_receipt": true
+  },
+  "ownership": {
+    "established": true,
+    "evidence": [
+      "docs/evidence/res147-qdrant-restore-receipt.json: source.endpoint is http://127.0.0.1:6333, source.compose_project is dynamisrag, and source.alias is dynamisrag-real-science-v1.",
+      "docs/evidence/live-rag-002/state-unchanged.json: the same four aliases and six collections are recorded before and after the live answer run.",
+      "docker inspect dynamisrag-qdrant: compose project dynamisrag, service qdrant, named volumes dynamisrag_qdrant-data and dynamisrag_qdrant-snapshots, loopback binding 127.0.0.1:6333."
+    ],
+    "owner": "retained local dynamisrag Compose project"
+  },
+  "conclusion": {
+    "additional_collection_introduced": false,
+    "additional_alias_introduced": false,
+    "reason": "The current six collections, four aliases, point counts and stored-point SHA-256 hashes are byte-identical to the last historical receipt. In particular, the deterministic research-edition projection name qdrant-passages-v1-5a20... already existed on the retained instance and the alias dynamisrag-real-science-v1 already targeted it, so a replay would resolve to the same physical collection and alias rather than create another one.",
+    "mutation_required": false
+  },
+  "uncertainty": [
+    "A read-only inventory cannot prove whether an idempotent write occurred between historical receipts; it proves that no additional collection or alias exists and that every stored point currently matches the last recorded state.",
+    "No deletion, rename, republish or modification was performed on the retained instance.",
+    "If future receipts establish a different original owner for any retained object, preserve the current state and escalate before changing it."
+  ]
+}

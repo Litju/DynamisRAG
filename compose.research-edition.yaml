@@ -1,0 +1,65 @@
+# Fresh local Research Edition resources. This project does not reuse the
+# retained `dynamisrag` stack or the `dynamisrag-integration` test volumes.
+name: dynamisrag-research-edition
+
+services:
+  tei:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.9.4@sha256:2538ea1c9640d3763b15af668039d24172d063b42337b0c27796fc2be180c78d
+    container_name: !reset null
+    command: !override
+      - --model-id
+      - ${DYNAMISRAG_TEI_MODEL_ID:?set the pinned embedding model id}
+      - --revision
+      - ${DYNAMISRAG_TEI_MODEL_SHA:?set the pinned embedding model revision}
+      - --port
+      - "80"
+      - --dtype
+      - float32
+      - --max-batch-tokens
+      - "2048"
+      - --max-client-batch-size
+      - "1"
+      - --tokenization-workers
+      - "1"
+    environment:
+      OMP_NUM_THREADS: "4"
+      MKL_NUM_THREADS: "4"
+    ports: !override
+      - "127.0.0.1:${DYNAMISRAG_TEI_HOST_PORT:-8082}:80"
+  postgres:
+    ports: !override
+      - "127.0.0.1:${DYNAMISRAG_POSTGRES_HOST_PORT:-55434}:5432"
+    environment:
+      DYNAMISRAG_RESEARCH_OWNER_PASSWORD: ${DYNAMISRAG_RESEARCH_OWNER_PASSWORD:?set local owner password}
+    volumes:
+      - ./scripts/research-edition-postgres-init.sh:/docker-entrypoint-initdb.d/10-research-edition.sh:ro
+  qdrant:
+    ports: !override
+      - "127.0.0.1:${DYNAMISRAG_QDRANT_HOST_PORT:-16334}:6333"
+  opensearch:
+    ports: !override
+      - "127.0.0.1:${DYNAMISRAG_OPENSEARCH_HOST_PORT:-19201}:9200"
+  ollama:
+    image: ollama/ollama@sha256:2c9595c555fd70a28363489ac03bd5bf9e7c5bdf2890373c3a830ffd7252ce6d
+    restart: unless-stopped
+    environment:
+      OLLAMA_HOST: 0.0.0.0:11434
+    ports:
+      - "127.0.0.1:${DYNAMISRAG_OLLAMA_HOST_PORT:-11435}:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    healthcheck:
+      test: [CMD-SHELL, "ollama list >/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    networks:
+      - dynamisrag
+
+volumes:
+  postgres-data:
+  qdrant-data:
+  qdrant-snapshots:
+  opensearch-data:
+  ollama-data:

@@ -18,12 +18,14 @@ ENV/
 .env
 .env.*
 !.env.example
+!.env.research-edition.example
 *.pem
 *.key
 secrets/
 
 # Test and tooling caches
 .pytest_cache/
+.pytest-tmp-*/
 .ruff_cache/
 .mypy_cache/
 .pyright/

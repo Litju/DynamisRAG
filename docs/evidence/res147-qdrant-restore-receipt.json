@@ -1,0 +1,120 @@
+{
+  "integration_qdrant_preexisting_identity_before_after": [
+    "9eae0b47de1a28ae7acdef51c9145be0852719a5b77d1792845a17c52b99df36",
+    "9eae0b47de1a28ae7acdef51c9145be0852719a5b77d1792845a17c52b99df36"
+  ],
+  "private_export_id": "qdrant-export-e215ad4acc264a4e945e4e76e37950f4",
+  "restored": {
+    "alias": "dynamisrag-real-science-v1",
+    "alias_target": "qdrant-passages-v1-5a20d2780fe6cd0ce0155ed7535c6507ec452f9ad4ae14cbd5990e13d7e8a709",
+    "collection": "qdrant-passages-v1-5a20d2780fe6cd0ce0155ed7535c6507ec452f9ad4ae14cbd5990e13d7e8a709",
+    "collection_config": {
+      "hnsw_config": {
+        "ef_construct": 100,
+        "full_scan_threshold": 10000,
+        "m": 16,
+        "max_indexing_threads": 0,
+        "on_disk": true
+      },
+      "optimizer_config": {
+        "default_segment_number": 0,
+        "deleted_threshold": 0.2,
+        "flush_interval_sec": 5,
+        "indexing_threshold": 10000,
+        "max_optimization_threads": null,
+        "max_segment_size": null,
+        "memmap_threshold": null,
+        "prevent_unoptimized": null,
+        "vacuum_min_vector_number": 1000
+      },
+      "params": {
+        "on_disk_payload": true,
+        "replication_factor": 1,
+        "shard_number": 1,
+        "vectors": {
+          "dense": {
+            "distance": "Cosine",
+            "on_disk": true,
+            "size": 512
+          }
+        },
+        "write_consistency_factor": 1
+      },
+      "quantization_config": null,
+      "wal_config": {
+        "wal_capacity_mb": 32,
+        "wal_retain_closed": 1,
+        "wal_segments_ahead": 0
+      }
+    },
+    "collection_identity": "3f2ead3786e04e42709195d569e58a30b5343565332ad583953d04c4970032f7",
+    "compose_project": "dynamisrag-integration",
+    "embedding_manifest_sha256": "46f96db3a02cf61374003475e3f006258ecbd790a4a78bd858b305c25f5104ff",
+    "endpoint": "http://127.0.0.1:16333/",
+    "payloads_exact_match_source": true,
+    "payloads_sha256": "22c4ee286d238fb9e4179eda2eab2601e5ffe6a45c82d5a834df9f6f54b30d2e",
+    "point_ids_sha256": "a71eb0a994c60e236f24c0f585fb37816e7e333608420310c051d72b06c82a5c",
+    "points": 75,
+    "projection_sha256": "c805183fa694986ea127fb62c9541b7acdcaa1c4af2fa8cfae5ee099fa9e0eb4",
+    "vectors_normalized_max_delta": 0.0,
+    "vectors_sha256": "39b00f6073613dbf8331170794e6cd69747276a047e4222cb83db158b413451a",
+    "verified_against_canonical_records": true
+  },
+  "restored_point_ids_sha256": "a71eb0a994c60e236f24c0f585fb37816e7e333608420310c051d72b06c82a5c",
+  "schema_revision": "res147-qdrant-restore-v1",
+  "source": {
+    "alias": "dynamisrag-real-science-v1",
+    "collection": "qdrant-passages-v1-5a20d2780fe6cd0ce0155ed7535c6507ec452f9ad4ae14cbd5990e13d7e8a709",
+    "collection_config": {
+      "hnsw_config": {
+        "ef_construct": 100,
+        "full_scan_threshold": 10000,
+        "m": 16,
+        "max_indexing_threads": 0,
+        "on_disk": true
+      },
+      "optimizer_config": {
+        "default_segment_number": 0,
+        "deleted_threshold": 0.2,
+        "flush_interval_sec": 5,
+        "indexing_threshold": 10000,
+        "max_optimization_threads": null,
+        "max_segment_size": null,
+        "memmap_threshold": null,
+        "prevent_unoptimized": null,
+        "vacuum_min_vector_number": 1000
+      },
+      "params": {
+        "on_disk_payload": true,
+        "replication_factor": 1,
+        "shard_number": 1,
+        "vectors": {
+          "dense": {
+            "distance": "Cosine",
+            "on_disk": true,
+            "size": 512
+          }
+        },
+        "write_consistency_factor": 1
+      },
+      "quantization_config": null,
+      "wal_config": {
+        "wal_capacity_mb": 32,
+        "wal_retain_closed": 1,
+        "wal_segments_ahead": 0
+      }
+    },
+    "compose_project": "dynamisrag",
+    "endpoint": "http://127.0.0.1:6333",
+    "identity": [
+      "3f2ead3786e04e42709195d569e58a30b5343565332ad583953d04c4970032f7",
+      "3f2ead3786e04e42709195d569e58a30b5343565332ad583953d04c4970032f7"
+    ],
+    "identity_after_restore": "3f2ead3786e04e42709195d569e58a30b5343565332ad583953d04c4970032f7",
+    "payloads_sha256": "22c4ee286d238fb9e4179eda2eab2601e5ffe6a45c82d5a834df9f6f54b30d2e",
+    "point_ids_sha256": "a71eb0a994c60e236f24c0f585fb37816e7e333608420310c051d72b06c82a5c",
+    "points": 75,
+    "points_export_sha256": "ff2bcbc76104868ced2d7f1a420de66be904bf45a8cd68b3db6b7f40adffcbe4",
+    "vectors_sha256": "39b00f6073613dbf8331170794e6cd69747276a047e4222cb83db158b413451a"
+  }
+}

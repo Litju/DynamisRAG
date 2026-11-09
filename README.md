@@ -32,7 +32,10 @@ Qwen led RES-138 Stage-A quality, and its 512/1024 dimensions were effectively
 tied; 512 is selected provisionally for engineering and storage efficiency.
 Formal Stage-B production qualification is deferred, so this is not a
 statistically proven winner. Passage vectors are still supplied to the existing
-projector. Reranking, generation and agents remain out of scope.
+projector. Reranking, generation and agents remain out of scope for the qualified
+production profile. The local answer route uses the pinned Qwen3 generator, but
+positive grounded generation has not qualified; model-proposed claims remain
+unreviewed.
 
 ---
 
@@ -44,8 +47,8 @@ applicable law or GitHub's Terms of Service provide otherwise.
 
 The all-rights-reserved notice applies to original DynamisRAG code and
 documentation only. Third-party materials retain their own copyright and
-license terms. See `tests/fixtures/README.md` for notices applicable to test
-fixtures.
+license terms. See `tests/fixtures/README.md` and
+`data/research-edition-sample-v1/LICENSES.md` for their notices.
 
 ---
 
@@ -58,7 +61,8 @@ fixtures.
 | FastAPI        | 0.141.x    | Application factory, sync endpoints                |
 | PostgreSQL     | 18.6       | `postgres:18.6-alpine`, container port 5432        |
 | OpenSearch     | 3.8.0      | `opensearchproject/opensearch:3.8.0`               |
-| TEI (optional) | 1.9.4      | `text-embeddings-inference:cpu-1.9.4`, separate compose file, not required to run anything |
+| TEI             | 1.9.4      | Optional in the base stack; pinned CPU service is included in Research Edition |
+| Ollama (Research Edition) | 0.13.5 | pinned local `qwen3:4b` Q4_K_M model, verified by digest |
 | SQLAlchemy     | 2.1.x      | 2.x API, `postgresql+psycopg` dialect              |
 | psycopg        | 3.3.x      | psycopg 3 only                                     |
 | Alembic        | 1.20.x     | Five revisions, head `0005_evidence_graph`       |
@@ -77,38 +81,14 @@ fixtures.
   virtualization backend internally.
 - [uv](https://docs.astral.sh/uv/) on `PATH`.
 
-There is exactly one checkout of this repository, at
-`E:\Data\Projects\DynamisRAG`, and no second worktree.
+Run commands from the repository root. The Research Edition uses its own Compose
+project, ports and named volumes.
 
 ## Quick start
 
-```powershell
-Set-Location "E:\Data\Projects\DynamisRAG"
-
-# 1. Dependencies (creates .venv and installs the locked set)
-uv python install 3.12.13
-uv sync
-
-# 2. Local configuration. .env is git-ignored; never commit it.
-Copy-Item .env.example .env
-
-# 3. Infrastructure
-docker compose up -d
-docker compose ps
-
-# 4. Migrations
-uv run alembic upgrade head
-
-# 5. Serve
-uv run python -m dynamisrag
-```
-
-Then, from another PowerShell window:
-
-```powershell
-Invoke-RestMethod http://127.0.0.1:8000/healthz
-Invoke-RestMethod http://127.0.0.1:8000/readyz
-```
+Follow the [Research Edition clean-install guide](docs/research-edition.md). It
+uses `compose.research-edition.yaml` with an isolated volume namespace. Do not
+start `compose.yaml` alone for Research Edition work.
 
 ## Repository layout
 
@@ -172,8 +152,11 @@ Invoke-RestMethod http://127.0.0.1:8000/readyz
 │   ├── unit/                  # no infrastructure required
 │   └── integration/           # requires the live stack
 ├── .env.example
+├── .env.research-edition.example
 ├── alembic.ini
-├── compose.yaml               # the default stack: postgres + opensearch
+├── compose.yaml               # base stack: postgres + qdrant + opensearch
+├── compose.research-edition.yaml # isolated PostgreSQL, Qdrant, OpenSearch, Ollama
+├── data/research-edition-sample-v1/ # licensed, hash-pinned JATS sample
 ├── compose.embedding.yaml     # optional, TEI; never a default-stack dependency
 ├── pyproject.toml
 ├── uv.lock
@@ -1291,6 +1274,10 @@ uv run uvicorn --factory dynamisrag.application:create_app \
   --host 0.0.0.0 --port 8000                                   # production-shaped
 ```
 
+When the opt-in scientific answer service is enabled, open
+`http://127.0.0.1:8001/research` for the local paper selector, cited answers and
+explicit abstentions. Claims are labeled provisional and unreviewed.
+
 `create_app()` performs no I/O — the SQLAlchemy engine connects lazily and the
 OpenSearch client opens no socket until the first probe — so the application
 can be constructed before any infrastructure exists. `create_app` is a factory
@@ -1306,11 +1293,14 @@ process.
   leg is not decoration: this project is developed natively on Windows, and
   path handling, `pathlib` resolution and subprocess-free configuration are
   exactly the things that break on one platform only.
-- **integration** — starts this repository's own `compose.yaml` via Docker
-  Compose, applies migrations to an empty database, exercises
+- **integration** — starts `compose.yaml` with `compose.integration.yaml` via
+  Docker Compose, applies migrations to an empty database, exercises
   `downgrade base` / `upgrade head` again to prove reversibility, runs the
-  integration suite, and boots the real uvicorn server to exercise
-  `/healthz` and `/readyz` over HTTP.
+  integration suite, boots the real uvicorn server to exercise `/healthz` and
+  `/readyz`, then ingests and retrieves the licensed 75-passage Research Edition
+  sample with citation/span verification.
+- **browser** — runs the local research workflow in Chromium against the answer
+  and paper-list routes.
 
 ## Scope
 
@@ -1330,7 +1320,12 @@ The engineering profile is provisionally `Qwen/Qwen3-Embedding-0.6B` at revision
 `97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3`, 512 dimensions and cosine space,
 based on RES-138 Stage-A evidence. Formal Stage-B production qualification remains
 deferred; this repository does not claim that a frozen Stage-B selection
-completed. Reranking, generation and agents belong to later issues.
+completed. Reranking and agents remain out of scope. Local answer generation is
+extractive and checks canonical citations, but the pinned Qwen3 setup has not
+qualified positive grounded generation as a general capability. Do not present
+model-proposed claims as reviewed science. A limited local Research Preview is
+packaged for owner review in RES-166; it is not approved or published. See
+[the Research Preview release record](docs/research-preview-release.md).
 
 What that means concretely. Embedding *generation* is implemented and
 reproducible: the adapter calls a TEI server you point it at, proves which model

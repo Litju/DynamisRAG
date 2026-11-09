@@ -1,0 +1,21 @@
+{
+  "canonical_span_matches": [
+    {
+      "passage_key": "c7077e35bb0ca23d058955640190dc2f9a4ac066917a33c1fedc96008b89bb32",
+      "quote_sha256": "208ded4aaedeb6363e2d0a5969a2ec43860a4d30b33b87f700fdb5bbf20ad91e",
+      "span_key": "b5716ffb6e7e42661c11681075807ebb0349e8285ecdcccc71a0e5870f8f71e6",
+      "version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b"
+    }
+  ],
+  "exact_quote_in_verified_selected_span": true,
+  "question": "Were the descriptive baseline variables statistically different between groups?",
+  "question_identity": "3cd1295bb05ce98a5e1bbfe823dc911eca79daf9c0edb00049acb1e1c6dcef68",
+  "retrieval_identity": "611a46806a25fcfc38e93f117718be165a040fc823224d6a86df68c2b4253a35",
+  "retrieval_response_identity": "b1146989e884af9607c97973e9a7b1e11b9b109cefc22d72f221a48cf12cb7f3",
+  "schema_revision": "res147-answerable-question-v1",
+  "selected_member_count": 5,
+  "selected_members": 5,
+  "selection_identity": "a2d92fd41beb723e0ecc0a1271ff41d1abb4f4de5bfdfce4aa9ea9b5a3c05eef",
+  "source_version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b",
+  "verified_span_match": true
+}

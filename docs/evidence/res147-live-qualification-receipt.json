@@ -1,0 +1,461 @@
+{
+  "attempts": [
+    {
+      "claim_count": 0,
+      "context_bytes": 5821,
+      "context_evidence": [
+        {
+          "document_version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643",
+          "passage_key": "3c1221391b9f47231c9e38b28253127bedfb1efe21e9d0c42486962d2c517e93",
+          "span_keys": [
+            "a1a82205c9e078b872803d072fb0012a4fdf848c6bb5e7b1bd8ab9eb4b707e68",
+            "fd6ca78d6c316e827887014eaceaed3b3187b1d374350d58be60c263f6a758aa"
+          ]
+        },
+        {
+          "document_version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e",
+          "passage_key": "910e004667e689e92322f4e876f8b6c12460c0dde2ad9f997fae6470830f26e5",
+          "span_keys": [
+            "cb97e93dc062094f3f8cfddd836600504068bf24d917b329440d3fb5e743cf79",
+            "b3b093f4a1994fa834c6380d4d728a92cc617f7db0cb423ef66f565f2e978e76"
+          ]
+        }
+      ],
+      "context_exclusions": [
+        "passage_context_budget:4e519e44328f8bd0cea5290a954cfa87b25db622cfda4778e048a24b77bbaf99",
+        "passage_context_budget:c15877f3938f3a25bc734c99fe15cfb29a25805bdfc2ec7b124ea41e41295cf0",
+        "passage_context_budget:be0ea51394c2a8b29ff6edab8d3528543c130212dbdef3b1b49df6f3896d178a",
+        "expanded_context_budget:9e9acd702b7fbf2c72f49cfd02d04550e008e8ee00a9d0ecf4c18b9e0bf96a84",
+        "one_or_more_selected_passages_excluded_by_context_budget"
+      ],
+      "context_identity": "8b4c96ae1e3ebdb4ee37b1a4309947573f08fce0d205bb8dd6e3a4a8a0af05f5",
+      "context_paragraphs": [
+        {
+          "kind": "sibling",
+          "paragraph_key": "f6414269bb990d55581c88f05e02633423d2e71beead073c5eff307c3bf9d986"
+        }
+      ],
+      "evidence_link_identities": [],
+      "evidence_set_identity": "fea6d466cf40f9cfa8a56f70e0b979f39dae68f39c6e0c9b5ab681feb3d742c9",
+      "execution_metrics": {
+        "eval_count": 199,
+        "eval_duration": 34060625736,
+        "load_duration": 72357652,
+        "prompt_eval_count": 1664,
+        "prompt_eval_duration": 54228086133,
+        "total_duration": 89001692559
+      },
+      "generation_model": {
+        "device": "cpu",
+        "digest": "359d7dd4bcdab3d86b87d73ac27966f4dbb9f5efdfcc75d34a8764a09474fae7",
+        "model": "qwen3:4b",
+        "parameter_size": "4.0B",
+        "quantization": "Q4_K_M",
+        "runtime_version": "0.13.5"
+      },
+      "generation_policy_sha256": "dcdcedbb5585313d79849b7cec27ab9ca71c43e8f294e95d83fbf631ec4b906c",
+      "generation_settings": {
+        "num_ctx": 8192,
+        "num_gpu": 0,
+        "num_predict": 1024,
+        "num_thread": 4,
+        "seed": 42,
+        "temperature": 0
+      },
+      "generation_status": "insufficient_evidence",
+      "graph_identity": null,
+      "members": [
+        {
+          "passage_key": "3c1221391b9f47231c9e38b28253127bedfb1efe21e9d0c42486962d2c517e93",
+          "provenance_sha256": "0fb33cd75b9be7d04565a5acc411ec936c2d13939bb5a2c889bf5cd6133cd4f5",
+          "span_keys": [
+            "a1a82205c9e078b872803d072fb0012a4fdf848c6bb5e7b1bd8ab9eb4b707e68",
+            "fd6ca78d6c316e827887014eaceaed3b3187b1d374350d58be60c263f6a758aa"
+          ],
+          "version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643"
+        },
+        {
+          "passage_key": "910e004667e689e92322f4e876f8b6c12460c0dde2ad9f997fae6470830f26e5",
+          "provenance_sha256": "7a8e3f5b9db6a52b4c1ccf139557ae78bf5a18600a573ea62e94af15452a6580",
+          "span_keys": [
+            "cb97e93dc062094f3f8cfddd836600504068bf24d917b329440d3fb5e743cf79",
+            "b3b093f4a1994fa834c6380d4d728a92cc617f7db0cb423ef66f565f2e978e76"
+          ],
+          "version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e"
+        },
+        {
+          "passage_key": "4e519e44328f8bd0cea5290a954cfa87b25db622cfda4778e048a24b77bbaf99",
+          "provenance_sha256": "094e4dd389ef0bfe5cb2d0d3bdae18c5b663f0dc13ce6eaf09c2584728a00eb4",
+          "span_keys": [
+            "bfe5eb28911ef1415365203a4b7d722e6ed94498f9ea7f45b4163e81cb71e053"
+          ],
+          "version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b"
+        },
+        {
+          "passage_key": "c15877f3938f3a25bc734c99fe15cfb29a25805bdfc2ec7b124ea41e41295cf0",
+          "provenance_sha256": "8c64a09feeb22bb196291e850b1351de3c65b8ff72e45452975c581743b5f30a",
+          "span_keys": [
+            "aa10e2c165161918d1685d187f3a9cc4373f896d7001c25d04ae47d91a5b0862",
+            "e6f155ea9f29f181aadc248df33de048f9126e620fe0cd05ecdd0f746c7a571b",
+            "749735aba8646792ba78fa92122e8b4061376ab799c3b7f583b9bef56efddaef"
+          ],
+          "version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643"
+        },
+        {
+          "passage_key": "be0ea51394c2a8b29ff6edab8d3528543c130212dbdef3b1b49df6f3896d178a",
+          "provenance_sha256": "ee8fd4697a78a3f47ebd05814fc142cbece4ddaade1019390ceaa3434197be5d",
+          "span_keys": [
+            "b2ddcd7ebb5a02f289d82d54896e997c63e94b366d104a128dd8cf1f64508e30",
+            "8e31e9073b4936f0eb499d9448f1a4855ae5d050ba2343071e4f9b5bd91694a8",
+            "b0e3a54d26357565cc2a2c36d332f7f96ee085673476efbf2efc0e71b3101fdc",
+            "68aa17d145d242d54bd0213684ea822448390d4e39c6046d1d4b2286c130dfa0"
+          ],
+          "version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643"
+        }
+      ],
+      "missing_evidence": [
+        "The question asks about instruments that measured muscle activity in the knee-angle experiment. The evidence spans provided do not explicitly mention any instruments used to measure muscle activity in the knee-angle experiment. The first span describes a study that used wireless surface electromyography electrodes, but does not specify the instruments used for measuring muscle activity in the knee-angle experiment. The second span describes surface electromyography (EMG) with Delsys EMG data, as"
+      ],
+      "output_schema_revision": "structured-draft-v1",
+      "private_capture_id": "6e76ece0adda4db6865272f67d6aa2e5",
+      "prompt_byte_limit": 6000,
+      "proposed_limitations": [
+        "The evidence spans do not provide specific information about instruments used to measure muscle activity in the knee-angle experiment. The study described uses wireless surface electromyography electrodes and Delsys EMG data acquisition system, but the context does not specify the instruments used for measuring muscle activity in the knee-angle experiment."
+      ],
+      "question_identity": "a5d21470cbe7368cb8b30ccbf2bf29de3edd68ed79ba5f71151fb77c6fd003c9",
+      "raw_output_sha256": "05ea8af4c929dd33a8ab463ab84900918ce6a501c22c293c6494e1e020ee986d",
+      "retrieval_identity": "611a46806a25fcfc38e93f117718be165a040fc823224d6a86df68c2b4253a35",
+      "retrieval_response_identity": "d6488a62937ebd0fb83fab8642595185e1cb8ce4da6d6786b44c4592fe0df257",
+      "selection_identity": "02b51522095a7442d10df2b39fa3ba8d6be0cb3f782028f08d3b5b6bef299383",
+      "selection_trace": {
+        "dispositions": {
+          "BUDGET_EXCEEDED": 15,
+          "NOT_SELECTED": 39,
+          "SELECTED": 5
+        },
+        "selected": [
+          {
+            "bm25_rank": 6,
+            "bm25_score": 7.529684,
+            "dense_rank": 1,
+            "dense_score": 0.6583191,
+            "disposition": "SELECTED",
+            "document_key": "doi:10.3390/s24010044",
+            "fused_rank": 1,
+            "passage_key": "3c1221391b9f47231c9e38b28253127bedfb1efe21e9d0c42486962d2c517e93",
+            "reason": "ranked",
+            "rrf_score": 0.031544957774465976,
+            "section_key": "d8708de24f5e911afca0517c5c540e4a847c1915979af65623d7866525fdf712",
+            "version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643"
+          },
+          {
+            "bm25_rank": 1,
+            "bm25_score": 10.323008,
+            "dense_rank": 6,
+            "dense_score": 0.6238226,
+            "disposition": "SELECTED",
+            "document_key": "doi:10.3390/s24010044",
+            "fused_rank": 2,
+            "passage_key": "c15877f3938f3a25bc734c99fe15cfb29a25805bdfc2ec7b124ea41e41295cf0",
+            "reason": "soft_quota_relaxed",
+            "rrf_score": 0.031544957774465976,
+            "section_key": "0e28cda5ac0ce507229df57c6f28a5d04b6aabf51cf94f17f1cd954deafd5adc",
+            "version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643"
+          },
+          {
+            "bm25_rank": 7,
+            "bm25_score": 7.4037457,
+            "dense_rank": 4,
+            "dense_score": 0.6364552,
+            "disposition": "SELECTED",
+            "document_key": "doi:10.3389/fphys.2017.00016",
+            "fused_rank": 3,
+            "passage_key": "910e004667e689e92322f4e876f8b6c12460c0dde2ad9f997fae6470830f26e5",
+            "reason": "ranked",
+            "rrf_score": 0.03055037313432836,
+            "section_key": "817ae5080eb1187eeb31aad271037935740f254bd2f6ea5c27baab2a5b5b0a43",
+            "version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e"
+          },
+          {
+            "bm25_rank": 11,
+            "bm25_score": 5.7295723,
+            "dense_rank": 2,
+            "dense_score": 0.6535347,
+            "disposition": "SELECTED",
+            "document_key": "doi:10.3390/s24010044",
+            "fused_rank": 4,
+            "passage_key": "be0ea51394c2a8b29ff6edab8d3528543c130212dbdef3b1b49df6f3896d178a",
+            "reason": "soft_quota_relaxed",
+            "rrf_score": 0.03021353930031804,
+            "section_key": null,
+            "version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643"
+          },
+          {
+            "bm25_rank": 21,
+            "bm25_score": 3.4335647,
+            "dense_rank": 20,
+            "dense_score": 0.5455755,
+            "disposition": "SELECTED",
+            "document_key": "doi:10.1186/s13102-023-00771-8",
+            "fused_rank": 17,
+            "passage_key": "4e519e44328f8bd0cea5290a954cfa87b25db622cfda4778e048a24b77bbaf99",
+            "reason": "ranked",
+            "rrf_score": 0.02484567901234568,
+            "section_key": "5743b61cfcbfe12b5f9fafda6c380e2bc50b446d3b25d24ca24f5ad58ee4955a",
+            "version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b"
+          }
+        ]
+      },
+      "validation_disposition": "abstention_no_claims_or_graph"
+    },
+    {
+      "claim_count": 0,
+      "context_bytes": 5817,
+      "context_evidence": [
+        {
+          "document_version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643",
+          "passage_key": "3c1221391b9f47231c9e38b28253127bedfb1efe21e9d0c42486962d2c517e93",
+          "span_keys": [
+            "a1a82205c9e078b872803d072fb0012a4fdf848c6bb5e7b1bd8ab9eb4b707e68",
+            "fd6ca78d6c316e827887014eaceaed3b3187b1d374350d58be60c263f6a758aa"
+          ]
+        },
+        {
+          "document_version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e",
+          "passage_key": "3ccc3df6db5cafc562239b6c2188dd4eb3140d4c360d9f9fb49c8e7e9df83919",
+          "span_keys": [
+            "299dbddb4f861c3e6524f9d9f2953e5429556d5a9a6184a9f6b672d87b78a642",
+            "4001c76922ee8fcc834087fb6b0b2c73c03d5c4da72a9ec77b888ffc44ab0fa8",
+            "b472f9227679bc397583eb9d1b3cd58ba6c8caf0f3d7434697035dd9ea383688"
+          ]
+        }
+      ],
+      "context_exclusions": [
+        "passage_context_budget:3bc19674f9b0a1eb1b1cc3579f5b0c44906f379eed97622ea4b77826297a6ea0",
+        "passage_context_budget:be0ea51394c2a8b29ff6edab8d3528543c130212dbdef3b1b49df6f3896d178a",
+        "passage_context_budget:c15877f3938f3a25bc734c99fe15cfb29a25805bdfc2ec7b124ea41e41295cf0",
+        "one_or_more_selected_passages_excluded_by_context_budget"
+      ],
+      "context_identity": "68e5a84492a723778d6ddaed4fe077eb18dc34954044eb0a136edf2acffc4a78",
+      "context_paragraphs": [
+        {
+          "kind": "sibling",
+          "paragraph_key": "a24ccd3e932552cd23138fdace616b870f37b2c284605f8ab3970a5a19b8af5f"
+        }
+      ],
+      "evidence_link_identities": [],
+      "evidence_set_identity": "e26914e89f14a8852139b2c3eef336ce5f25143a5e0c6d3498ae624446485fb6",
+      "execution_metrics": {
+        "eval_count": 159,
+        "eval_duration": 27460074896,
+        "load_duration": 6439907832,
+        "prompt_eval_count": 1685,
+        "prompt_eval_duration": 61033372321,
+        "total_duration": 95635687404
+      },
+      "generation_model": {
+        "device": "cpu",
+        "digest": "359d7dd4bcdab3d86b87d73ac27966f4dbb9f5efdfcc75d34a8764a09474fae7",
+        "model": "qwen3:4b",
+        "parameter_size": "4.0B",
+        "quantization": "Q4_K_M",
+        "runtime_version": "0.13.5"
+      },
+      "generation_policy_sha256": "dcdcedbb5585313d79849b7cec27ab9ca71c43e8f294e95d83fbf631ec4b906c",
+      "generation_settings": {
+        "num_ctx": 8192,
+        "num_gpu": 0,
+        "num_predict": 1024,
+        "num_thread": 4,
+        "seed": 42,
+        "temperature": 0
+      },
+      "generation_status": "insufficient_evidence",
+      "graph_identity": null,
+      "members": [
+        {
+          "passage_key": "3c1221391b9f47231c9e38b28253127bedfb1efe21e9d0c42486962d2c517e93",
+          "provenance_sha256": "0fb33cd75b9be7d04565a5acc411ec936c2d13939bb5a2c889bf5cd6133cd4f5",
+          "span_keys": [
+            "a1a82205c9e078b872803d072fb0012a4fdf848c6bb5e7b1bd8ab9eb4b707e68",
+            "fd6ca78d6c316e827887014eaceaed3b3187b1d374350d58be60c263f6a758aa"
+          ],
+          "version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643"
+        },
+        {
+          "passage_key": "3ccc3df6db5cafc562239b6c2188dd4eb3140d4c360d9f9fb49c8e7e9df83919",
+          "provenance_sha256": "da812ea4dffeed067dd6c0eb71140c0f209f85c22bd3ddc1298a5657839e125b",
+          "span_keys": [
+            "299dbddb4f861c3e6524f9d9f2953e5429556d5a9a6184a9f6b672d87b78a642",
+            "4001c76922ee8fcc834087fb6b0b2c73c03d5c4da72a9ec77b888ffc44ab0fa8",
+            "b472f9227679bc397583eb9d1b3cd58ba6c8caf0f3d7434697035dd9ea383688"
+          ],
+          "version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e"
+        },
+        {
+          "passage_key": "3bc19674f9b0a1eb1b1cc3579f5b0c44906f379eed97622ea4b77826297a6ea0",
+          "provenance_sha256": "fbce9327af3ba2ff14ea95f2ddbe1783eb468bea21564ae797cf219b8b45899e",
+          "span_keys": [
+            "5fb16bfc13cfb08b846c7fc9a7a40ed15982f1fb0841154ac5cdb906f8535274"
+          ],
+          "version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b"
+        },
+        {
+          "passage_key": "be0ea51394c2a8b29ff6edab8d3528543c130212dbdef3b1b49df6f3896d178a",
+          "provenance_sha256": "ee8fd4697a78a3f47ebd05814fc142cbece4ddaade1019390ceaa3434197be5d",
+          "span_keys": [
+            "b2ddcd7ebb5a02f289d82d54896e997c63e94b366d104a128dd8cf1f64508e30",
+            "8e31e9073b4936f0eb499d9448f1a4855ae5d050ba2343071e4f9b5bd91694a8",
+            "b0e3a54d26357565cc2a2c36d332f7f96ee085673476efbf2efc0e71b3101fdc",
+            "68aa17d145d242d54bd0213684ea822448390d4e39c6046d1d4b2286c130dfa0"
+          ],
+          "version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643"
+        },
+        {
+          "passage_key": "c15877f3938f3a25bc734c99fe15cfb29a25805bdfc2ec7b124ea41e41295cf0",
+          "provenance_sha256": "8c64a09feeb22bb196291e850b1351de3c65b8ff72e45452975c581743b5f30a",
+          "span_keys": [
+            "aa10e2c165161918d1685d187f3a9cc4373f896d7001c25d04ae47d91a5b0862",
+            "e6f155ea9f29f181aadc248df33de048f9126e620fe0cd05ecdd0f746c7a571b",
+            "749735aba8646792ba78fa92122e8b4061376ab799c3b7f583b9bef56efddaef"
+          ],
+          "version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643"
+        }
+      ],
+      "missing_evidence": [
+        "population",
+        "load",
+        "instruments"
+      ],
+      "output_schema_revision": "structured-draft-v1",
+      "private_capture_id": "f7b1c7cab36f4b429f426edb1d588409",
+      "prompt_byte_limit": 6000,
+      "proposed_limitations": [
+        "The question asks for population, load, and instruments used in the knee-angle experiment. The evidence spans provided do not contain a complete quote that directly addresses all three aspects. The first span mentions 'a group of healthy subjects' for population, 'load equivalent to 80% of their body weight' for load, and 'wireless surface electromyography electrodes' for instruments. However, the question specifies 'knee-angle experiment', and the evidence spans do not explicitly state that the"
+      ],
+      "question_identity": "d4a29e38dcfdd79411382aa631192aeecda84b6850271bcdd4c7b5dae9804c64",
+      "raw_output_sha256": "078a249b980568a30e5a6bcf1402475af9fbfe670877396f1c45aaeb161e079e",
+      "retrieval_identity": "611a46806a25fcfc38e93f117718be165a040fc823224d6a86df68c2b4253a35",
+      "retrieval_response_identity": "83da51986c5afeaae0fbf48e87a73fa2d21da19aeb078784f750910fbe609835",
+      "selection_identity": "617c23311f2334a4ee61bcc61ed8e31433055f904be133f901f21f234891e5cd",
+      "selection_trace": {
+        "dispositions": {
+          "BUDGET_EXCEEDED": 15,
+          "NOT_SELECTED": 38,
+          "SELECTED": 5
+        },
+        "selected": [
+          {
+            "bm25_rank": 1,
+            "bm25_score": 6.556799,
+            "dense_rank": 1,
+            "dense_score": 0.59462035,
+            "disposition": "SELECTED",
+            "document_key": "doi:10.3390/s24010044",
+            "fused_rank": 1,
+            "passage_key": "3c1221391b9f47231c9e38b28253127bedfb1efe21e9d0c42486962d2c517e93",
+            "reason": "ranked",
+            "rrf_score": 0.03278688524590164,
+            "section_key": "d8708de24f5e911afca0517c5c540e4a847c1915979af65623d7866525fdf712",
+            "version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643"
+          },
+          {
+            "bm25_rank": 3,
+            "bm25_score": 6.4344263,
+            "dense_rank": 3,
+            "dense_score": 0.5474015,
+            "disposition": "SELECTED",
+            "document_key": "doi:10.3390/s24010044",
+            "fused_rank": 2,
+            "passage_key": "be0ea51394c2a8b29ff6edab8d3528543c130212dbdef3b1b49df6f3896d178a",
+            "reason": "soft_quota_relaxed",
+            "rrf_score": 0.031746031746031744,
+            "section_key": null,
+            "version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643"
+          },
+          {
+            "bm25_rank": 4,
+            "bm25_score": 6.131681,
+            "dense_rank": 6,
+            "dense_score": 0.5238961,
+            "disposition": "SELECTED",
+            "document_key": "doi:10.3390/s24010044",
+            "fused_rank": 3,
+            "passage_key": "c15877f3938f3a25bc734c99fe15cfb29a25805bdfc2ec7b124ea41e41295cf0",
+            "reason": "soft_quota_relaxed",
+            "rrf_score": 0.030776515151515152,
+            "section_key": "0e28cda5ac0ce507229df57c6f28a5d04b6aabf51cf94f17f1cd954deafd5adc",
+            "version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643"
+          },
+          {
+            "bm25_rank": 5,
+            "bm25_score": 5.922735,
+            "dense_rank": 7,
+            "dense_score": 0.51855266,
+            "disposition": "SELECTED",
+            "document_key": "doi:10.3389/fphys.2017.00016",
+            "fused_rank": 4,
+            "passage_key": "3ccc3df6db5cafc562239b6c2188dd4eb3140d4c360d9f9fb49c8e7e9df83919",
+            "reason": "ranked",
+            "rrf_score": 0.030309988518943745,
+            "section_key": "817ae5080eb1187eeb31aad271037935740f254bd2f6ea5c27baab2a5b5b0a43",
+            "version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e"
+          },
+          {
+            "bm25_rank": 2,
+            "bm25_score": 6.4733295,
+            "dense_rank": 25,
+            "dense_score": 0.45403555,
+            "disposition": "SELECTED",
+            "document_key": "doi:10.1186/s13102-023-00771-8",
+            "fused_rank": 8,
+            "passage_key": "3bc19674f9b0a1eb1b1cc3579f5b0c44906f379eed97622ea4b77826297a6ea0",
+            "reason": "ranked",
+            "rrf_score": 0.027893738140417457,
+            "section_key": "2f263ec582b9497c6bd833c991aebaa0b17c5b6c0f0a30fca04fef5b91e217d3",
+            "version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b"
+          }
+        ]
+      },
+      "validation_disposition": "abstention_no_claims_or_graph"
+    }
+  ],
+  "execution_conditions": {
+    "attempts": 1,
+    "concurrency_limit": 1,
+    "device": "cpu",
+    "endpoint": "http://127.0.0.1:11434",
+    "timeout_seconds": 300
+  },
+  "generation_model": {
+    "device": "cpu",
+    "digest": "359d7dd4bcdab3d86b87d73ac27966f4dbb9f5efdfcc75d34a8764a09474fae7",
+    "model": "qwen3:4b",
+    "parameter_size": "4.0B",
+    "quantization": "Q4_K_M",
+    "runtime_version": "0.13.5"
+  },
+  "generation_policy_sha256": "dcdcedbb5585313d79849b7cec27ab9ca71c43e8f294e95d83fbf631ec4b906c",
+  "live_execution": "TEI query embedding -> Qdrant RRF -> RES-146 selection -> pinned Ollama CPU",
+  "output_schema_revision": "structured-draft-v1",
+  "protected_identity_before_after": {
+    "benchmark_files": [
+      "f836688c06c5a57acc9f62cec41c08ee7442d42dcf3d8b9291b62d3624638175",
+      "f836688c06c5a57acc9f62cec41c08ee7442d42dcf3d8b9291b62d3624638175"
+    ],
+    "canonical_database": [
+      "e928188f29c8bfd249f299739aa790b75a32881c81bec8e1f201fc6a08a11bfa",
+      "e928188f29c8bfd249f299739aa790b75a32881c81bec8e1f201fc6a08a11bfa"
+    ],
+    "qdrant": [
+      "3f2ead3786e04e42709195d569e58a30b5343565332ad583953d04c4970032f7",
+      "3f2ead3786e04e42709195d569e58a30b5343565332ad583953d04c4970032f7"
+    ],
+    "source_files": [
+      "8ee7f34b09f869f9e39544bc97ff95fd37626e452723f9635c9415c2cbd09fe0",
+      "8ee7f34b09f869f9e39544bc97ff95fd37626e452723f9635c9415c2cbd09fe0"
+    ]
+  },
+  "receipt_revision": "res147-live-qualification-v1",
+  "structural_limit": "No entailment, scientific validity, or applicability was assessed."
+}

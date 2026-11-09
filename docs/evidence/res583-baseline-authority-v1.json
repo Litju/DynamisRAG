@@ -1,0 +1,89 @@
+{
+  "schema": "dynamisrag.baseline-authority/v1",
+  "authority_version": 1,
+  "authority_state": "ADMITTED_AS_NEW_RECONSTRUCTED_LINEAGE",
+  "scope": "DynamisRAG Research Edition baseline for downstream qualification",
+  "candidate": {
+    "lineage_id": "dynamisrag-reconstructed-baseline-1.0.0-rc.1",
+    "candidate_version": "1.0.0-rc.1",
+    "candidate_manifest_file": "baseline-candidate-manifest-v1.0.0-rc.1.json",
+    "candidate_manifest_sha256": "f19934b99ce20b6c747b0b4478d75fbebf0135b9638346430ce3b629fedfa09c",
+    "candidate_fingerprint_sha256": "4869754d80225495a7ce4f6cad3016d596467de7b2082d83e1953144fcb35555",
+    "candidate_fingerprint_file_sha256": "29f0f1f8d944fe899515859cf52e9bb375a4a013a1ad9873a4413fc87cdf3adb",
+    "qualification_report_sha256": "1197b36c891d71a867c38c983b1b0c47304c38b3a78187d11bb67737466767d7",
+    "baseline_main_sha": "0cedd18fa7e1325fdd68affcbe50379f2d861de9",
+    "migration_revision": "0005_evidence_graph"
+  },
+  "transition": {
+    "from": "no_admitted_reconstructed_lineage; original historical lineage remains quarantined",
+    "to": "dynamisrag-reconstructed-baseline-1.0.0-rc.1",
+    "performed_at_utc": "2026-11-07T03:34:47Z",
+    "owner_decision": "ADMIT_AS_NEW_RECONSTRUCTED_LINEAGE",
+    "owner": "Julio Rodriguez",
+    "linear_issue": "RES-583",
+    "linear_approval_comment_id": "e8189d70-c5db-46fe-8f3d-a77f8c3d1f9c",
+    "prior_current_authority_pointer_existed": false
+  },
+  "before_after_verification": {
+    "candidate_manifest_sha256_before": "f19934b99ce20b6c747b0b4478d75fbebf0135b9638346430ce3b629fedfa09c",
+    "candidate_manifest_sha256_after": "f19934b99ce20b6c747b0b4478d75fbebf0135b9638346430ce3b629fedfa09c",
+    "candidate_fingerprint_sha256_before": "4869754d80225495a7ce4f6cad3016d596467de7b2082d83e1953144fcb35555",
+    "candidate_fingerprint_sha256_after": "4869754d80225495a7ce4f6cad3016d596467de7b2082d83e1953144fcb35555",
+    "historical_reconstruction_receipt_sha256_before": "3ce9aa74ae9d7270aa711ca0e67a6e76f56371a140932d3f388e81f57683fd88",
+    "historical_reconstruction_receipt_sha256_after": "3ce9aa74ae9d7270aa711ca0e67a6e76f56371a140932d3f388e81f57683fd88",
+    "retained_xml_artifacts_verified_before": 16,
+    "retained_xml_artifacts_verified_after": 16,
+    "candidate_database_mutated": false,
+    "quarantined_original_connected": false
+  },
+  "qualification_evidence": {
+    "historical_table_counts_match": "12/12",
+    "historical_full_row_hashes_match": "1/12; only citation_resolution, which is empty",
+    "historical_full_row_hashes_differ": 11,
+    "foreign_keys_validated": "25/25",
+    "document_version_pairs": 16,
+    "passages": 75,
+    "source_spans": 146,
+    "evidence_member_fingerprints": 75,
+    "qdrant_prior_isolated_readback_points": 75,
+    "qdrant_prior_copy_points_sha256": "b45d8d692e37db90d8afdea1d7ea683cc35a94b0b44a666c84e4c72e0f2a0ecc",
+    "qdrant_candidate_projection_sha256": "c805183fa694986ea127fb62c9541b7acdcaa1c4af2fa8cfae5ee099fa9e0eb4",
+    "qdrant_preserved_source_receipt_sha256": "3f2ead3786e04e42709195d569e58a30b5343565332ad583953d04c4970032f7",
+    "qdrant_source_collection_present_in_integration_cluster": false,
+    "synthetic_offline_selection_replays": 3,
+    "persisted_claims": 0,
+    "persisted_evidence_links": 0,
+    "res147_prior_attempts": 2,
+    "res147_prior_attempts_were_insufficient_evidence": true
+  },
+  "historical_receipts_preserved": {
+    "reconstruction_receipt_sha256": "3ce9aa74ae9d7270aa711ca0e67a6e76f56371a140932d3f388e81f57683fd88",
+    "res145_demo_receipt_sha256": "b78fa68a59cee48c92239016d737a9daa42d14c2c1c938d792cfbf0673fa0efb",
+    "res146_selection_receipt_sha256": "41dbf7f81f5ecc9193d69d5435aa02e561453e0612b5eb095e2f1ad8db38d2f4",
+    "res147_live_receipt_sha256": "391b96c5c6795171f682df34e178906b2385ced3faf2c66b9b34301014f897e6",
+    "dossier_manifest_sha256": "a02a3c0f8958543a3b3fe167c07d45a8931c14a210441b7c9f3bbbfa32b233fc",
+    "incident_manifest_sha256": "e0b4946b6e70737329c7fe6712c252f0baebc7c689cf4d6aa651dc48bd0f703c"
+  },
+  "limitations": [
+    "Original surrogate UUIDs and some acquisition timestamps were not recovered; reconstruction-derived UUID5/ctime values remain labelled as such.",
+    "This admission does not assert historical PostgreSQL row identity or byte equivalence.",
+    "The original Qdrant collection is absent from the current integration service; the 75-point readback is from the separately isolated retained copy.",
+    "RES-146 judgments remain exploratory and unsigned; RES-147 has no qualified positive grounded answer.",
+    "No generated claim is scientifically approved."
+  ],
+  "required_downstream_requalification": [
+    "RES-145: qualify stable evidence identities, exact source spans, citation reconstruction, stale/mismatched reference rejection, and truthful latency on this lineage.",
+    "RES-146: refresh selection and retrieval fingerprints against the admitted lineage.",
+    "RES-147: qualify a real grounded positive answer and an insufficient-evidence abstention against the admitted lineage; claims remain MODEL_PROPOSED/PROPOSED."
+  ],
+  "release_state": {
+    "runtime_activation": false,
+    "production_cutover": false,
+    "release_qualified": false,
+    "claims_approved": false
+  },
+  "reversal": {
+    "procedure": "Revert the current-baseline-authority.json pointer commit to restore the prior no-admitted-lineage state. Retain this immutable v1 receipt and all historical evidence; do not reconnect or restore onto the quarantined original database.",
+    "restores_historical_identity": false
+  }
+}

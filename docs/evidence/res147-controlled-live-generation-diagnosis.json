@@ -1,0 +1,442 @@
+{
+  "abstention_reason_assessment": {
+    "independent_source_review": "The canonical sentence directly says the baseline variables were non-significant except stationary vertical jump height.",
+    "interpretation": "The model misread the exception-qualified negative finding and imposed requirements the question did not ask for.",
+    "model_generated_explanation": "The model said the evidence lacked a clear yes/no quote and asked for more variable-specific results or p-values.",
+    "statement_is_model_explanation_not_fact": true
+  },
+  "automatic_persistence": false,
+  "baseline": {
+    "claim_count": 0,
+    "condition": "preserved full context",
+    "context_identity": "33b41bf3e8e0e6f8d53b76325ecfccf86c59444982126bb7f7cafc7c7a2fef20",
+    "evidence_items": 4,
+    "evidence_set_identity": "525d3f709143a1e4bc8c285b34772a58e454c182b61b12200d22d4fac5744de9",
+    "execution_metrics": {
+      "eval_count": 163,
+      "eval_duration": 34549968799,
+      "load_duration": 17044436885,
+      "prompt_eval_count": 1996,
+      "prompt_eval_duration": 85803493593,
+      "total_duration": 139576608878
+    },
+    "experiment_id": "RES147-BASELINE-680ae53",
+    "limitations_count": 1,
+    "messages_sha256": "5b0c2918e8d8c80ec36c75c225df3ecb706912da5ee83ef808db8ac24fb1c84b",
+    "missing_evidence_count": 1,
+    "model": {
+      "device": "cpu",
+      "digest": "359d7dd4bcdab3d86b87d73ac27966f4dbb9f5efdfcc75d34a8764a09474fae7",
+      "model": "qwen3:4b",
+      "parameter_size": "4.0B",
+      "quantization": "Q4_K_M",
+      "runtime_version": "0.13.5"
+    },
+    "model_status": "insufficient_evidence",
+    "prompt_bytes": 5977,
+    "raw_response_sha256": "4fb451edd3e75eb06a2d52a72326fdc5571bc6562fbbd5e7ea512fd54376f428",
+    "schema_sha256": "dda2dd562ea807737d17ee8120f2b03b2daaf9b50224888d847491d59f6981d9",
+    "selection_identity": "5ad271714ac9d6c294aed9563ce2e5a78512ca733e56b11fa2ff94211eda1fe2",
+    "span_count": 9,
+    "system_policy_sha256": "dcdcedbb5585313d79849b7cec27ab9ca71c43e8f294e95d83fbf631ec4b906c",
+    "system_sha256": "358f6189362c319fa452d81b0705d5d7780f7b9f9b3c1997d51e4d369d44a13b",
+    "target_span_present": true
+  },
+  "baseline_head": "680ae53472b563cbf739523bb9eb3a98f2c1c397",
+  "candidate_read_only": "on",
+  "canonical_source_identity": {
+    "direct_answer_assessment": "direct, exception-qualified; non-significant baseline differences except stationary vertical jump height",
+    "document_version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b",
+    "end_char": 225,
+    "external_identifiers": [
+      {
+        "namespace": "doi",
+        "value": "10.1186/s13102-023-00771-8"
+      },
+      {
+        "namespace": "pmcid",
+        "value": "PMC10680285"
+      },
+      {
+        "namespace": "pmid",
+        "value": "38008712"
+      }
+    ],
+    "paragraph_key": "d70d35689288ed184536e8010bc3e628544a36611d6bbd5153c939af3943aa44",
+    "passage_key": "c7077e35bb0ca23d058955640190dc2f9a4ac066917a33c1fedc96008b89bb32",
+    "span_key": "b5716ffb6e7e42661c11681075807ebb0349e8285ecdcccc71a0e5870f8f71e6",
+    "start_char": 80,
+    "text_sha256": "208ded4aaedeb6363e2d0a5969a2ec43860a4d30b33b87f700fdb5bbf20ad91e"
+  },
+  "conditions": [
+    {
+      "active_context_length": 8192,
+      "answer_relevant_claims": 0,
+      "canonical_invalid_claims": 0,
+      "canonical_valid_claims": 0,
+      "claim_count": 0,
+      "condition": "A-MINIMAL-FULL-POLICY",
+      "context_identity": "9f32ffa495b8aa35952d828b66d3e058d1a37bf34c1f35b526186799a60e5788",
+      "diagnostic_policy_sha256": "ebb7e6d213de9ea0d723d863876f433ce24e58177c196d7101b4a4c166022dcb",
+      "evidence_link_count": 0,
+      "execution_metrics": {
+        "eval_count": 240,
+        "eval_duration": 42374654840,
+        "load_duration": 34027495875,
+        "prompt_eval_count": 423,
+        "prompt_eval_duration": 14079059353,
+        "total_duration": 93458386317
+      },
+      "experiment_id": "RES147-51aeee65228546cf91aa466e7ad50b21-A-MINIMAL-FULL-POLICY",
+      "graph_identity": null,
+      "graph_valid": false,
+      "limitations_count": 3,
+      "messages_sha256": "e5eba21ae15495d995742c66a26397ab44168f8d3be91706bd7568fc2129f884",
+      "missing_evidence_count": 2,
+      "model": {
+        "device": "cpu",
+        "digest": "359d7dd4bcdab3d86b87d73ac27966f4dbb9f5efdfcc75d34a8764a09474fae7",
+        "model": "qwen3:4b",
+        "parameter_size": "4.0B",
+        "quantization": "Q4_K_M",
+        "runtime_version": "0.13.5"
+      },
+      "model_status": "insufficient_evidence",
+      "output_schema_valid": true,
+      "private_capture_id": "RES147-51aeee65228546cf91aa466e7ad50b21-A-MINIMAL-FULL-POLICY",
+      "prompt_bytes": 1508,
+      "question_sha256": "d2f8117df13e63dd13ac8371a6eeeffea8add6c34fc10a16ad7b76d1c1ae00c3",
+      "raw_response_sha256": "a66cc9966793c4a58c9f324c35f3b1142e098acb53da270c807f51201171282a",
+      "role": "target",
+      "runtime_identity_verified": true,
+      "schema_sha256": "dda2dd562ea807737d17ee8120f2b03b2daaf9b50224888d847491d59f6981d9",
+      "settings": {
+        "num_ctx": 8192,
+        "num_gpu": 0,
+        "num_predict": 1024,
+        "num_thread": 4,
+        "seed": 42,
+        "temperature": 0
+      },
+      "size_vram": 0,
+      "system_sha256": "358f6189362c319fa452d81b0705d5d7780f7b9f9b3c1997d51e4d369d44a13b",
+      "validation_errors": []
+    },
+    {
+      "active_context_length": 8192,
+      "answer_relevant_claims": 0,
+      "canonical_invalid_claims": 0,
+      "canonical_valid_claims": 0,
+      "claim_count": 0,
+      "condition": "B-SIMPLIFIED-SCHEMA",
+      "context_identity": "9f32ffa495b8aa35952d828b66d3e058d1a37bf34c1f35b526186799a60e5788",
+      "diagnostic_policy_sha256": "410525ed24075dce2c69b589c132816ddcccd7d67a9a8c666c948a8babe014ac",
+      "evidence_link_count": 0,
+      "execution_metrics": {
+        "eval_count": 21,
+        "eval_duration": 3162771693,
+        "load_duration": 153072127,
+        "prompt_eval_count": 423,
+        "prompt_eval_duration": 165261323,
+        "total_duration": 3822776393
+      },
+      "experiment_id": "RES147-51aeee65228546cf91aa466e7ad50b21-B-SIMPLIFIED-SCHEMA",
+      "graph_identity": null,
+      "graph_valid": false,
+      "limitations_count": 0,
+      "messages_sha256": "e5eba21ae15495d995742c66a26397ab44168f8d3be91706bd7568fc2129f884",
+      "missing_evidence_count": 0,
+      "model": {
+        "device": "cpu",
+        "digest": "359d7dd4bcdab3d86b87d73ac27966f4dbb9f5efdfcc75d34a8764a09474fae7",
+        "model": "qwen3:4b",
+        "parameter_size": "4.0B",
+        "quantization": "Q4_K_M",
+        "runtime_version": "0.13.5"
+      },
+      "model_status": "insufficient_evidence",
+      "output_schema_valid": true,
+      "private_capture_id": "RES147-51aeee65228546cf91aa466e7ad50b21-B-SIMPLIFIED-SCHEMA",
+      "prompt_bytes": 1508,
+      "question_sha256": "d2f8117df13e63dd13ac8371a6eeeffea8add6c34fc10a16ad7b76d1c1ae00c3",
+      "raw_response_sha256": "2ab3fbac2e61422091a16ed9790226410b6e505c53409a1e3f8d6fbdffd06253",
+      "role": "target",
+      "runtime_identity_verified": true,
+      "schema_sha256": "9b3c3d8269e087e9532aa7785384db406cc8237b8f12c44344ab135bfcfd3cf6",
+      "settings": {
+        "num_ctx": 8192,
+        "num_gpu": 0,
+        "num_predict": 1024,
+        "num_thread": 4,
+        "seed": 42,
+        "temperature": 0
+      },
+      "size_vram": 0,
+      "system_sha256": "358f6189362c319fa452d81b0705d5d7780f7b9f9b3c1997d51e4d369d44a13b",
+      "validation_errors": []
+    },
+    {
+      "active_context_length": 8192,
+      "answer_relevant_claims": 0,
+      "canonical_invalid_claims": 0,
+      "canonical_valid_claims": 0,
+      "claim_count": 0,
+      "condition": "C-EXTRACTION-DIAGNOSTIC",
+      "context_identity": "9f32ffa495b8aa35952d828b66d3e058d1a37bf34c1f35b526186799a60e5788",
+      "diagnostic_policy_sha256": "dcf220c89cf2b3fd117fe469eb6396002632c5b30aec5152942f77ea5edd6fc8",
+      "evidence_link_count": 0,
+      "execution_metrics": {
+        "eval_count": 143,
+        "eval_duration": 25151322694,
+        "load_duration": 73524358,
+        "prompt_eval_count": 406,
+        "prompt_eval_duration": 13096348979,
+        "total_duration": 39172391064
+      },
+      "experiment_id": "RES147-51aeee65228546cf91aa466e7ad50b21-C-EXTRACTION-DIAGNOSTIC",
+      "graph_identity": null,
+      "graph_valid": false,
+      "limitations_count": 1,
+      "messages_sha256": "1eadd8dc9f3e80511f99872a2b95a93f041bb8e9aa1d5de5c112acedbaffabcf",
+      "missing_evidence_count": 1,
+      "model": {
+        "device": "cpu",
+        "digest": "359d7dd4bcdab3d86b87d73ac27966f4dbb9f5efdfcc75d34a8764a09474fae7",
+        "model": "qwen3:4b",
+        "parameter_size": "4.0B",
+        "quantization": "Q4_K_M",
+        "runtime_version": "0.13.5"
+      },
+      "model_status": "insufficient_evidence",
+      "output_schema_valid": true,
+      "private_capture_id": "RES147-51aeee65228546cf91aa466e7ad50b21-C-EXTRACTION-DIAGNOSTIC",
+      "prompt_bytes": 1428,
+      "question_sha256": "d2f8117df13e63dd13ac8371a6eeeffea8add6c34fc10a16ad7b76d1c1ae00c3",
+      "raw_response_sha256": "3c1a4414b6658880b660f758bd76033019bc2a4203fe2a2eede81f2232dfc6e0",
+      "role": "extraction-diagnostic",
+      "runtime_identity_verified": true,
+      "schema_sha256": "dda2dd562ea807737d17ee8120f2b03b2daaf9b50224888d847491d59f6981d9",
+      "settings": {
+        "num_ctx": 8192,
+        "num_gpu": 0,
+        "num_predict": 1024,
+        "num_thread": 4,
+        "seed": 42,
+        "temperature": 0
+      },
+      "size_vram": 0,
+      "system_sha256": "459ac9518140536a9994b211f8c0ef44507c1bb39b914bbf2862f49d464b3144",
+      "validation_errors": []
+    },
+    {
+      "active_context_length": 8192,
+      "answer_relevant_claims": 0,
+      "canonical_invalid_claims": 0,
+      "canonical_valid_claims": 0,
+      "claim_count": 0,
+      "condition": "D-INSUFFICIENT-CONTROL",
+      "context_identity": "3484608790e5ce5ec77e03e0b534d4af0308af6b04e82f9ae98de785ee9728d2",
+      "diagnostic_policy_sha256": "b3b7d97064351da677055fe846788259a65860f993c68766e1d05b0c9ba53591",
+      "evidence_link_count": 0,
+      "execution_metrics": {
+        "eval_count": 137,
+        "eval_duration": 25277073793,
+        "load_duration": 75200866,
+        "prompt_eval_count": 429,
+        "prompt_eval_duration": 14324379459,
+        "total_duration": 40757388121
+      },
+      "experiment_id": "RES147-51aeee65228546cf91aa466e7ad50b21-D-INSUFFICIENT-CONTROL",
+      "graph_identity": null,
+      "graph_valid": false,
+      "limitations_count": 1,
+      "messages_sha256": "bc0d2c53081f8206124e0b70ced699d078c00a9133425d2fdac529fb693ef43a",
+      "missing_evidence_count": 1,
+      "model": {
+        "device": "cpu",
+        "digest": "359d7dd4bcdab3d86b87d73ac27966f4dbb9f5efdfcc75d34a8764a09474fae7",
+        "model": "qwen3:4b",
+        "parameter_size": "4.0B",
+        "quantization": "Q4_K_M",
+        "runtime_version": "0.13.5"
+      },
+      "model_status": "insufficient_evidence",
+      "output_schema_valid": true,
+      "private_capture_id": "RES147-51aeee65228546cf91aa466e7ad50b21-D-INSUFFICIENT-CONTROL",
+      "prompt_bytes": 1516,
+      "question_sha256": "4dce7cc5487448300c7d18a9ab6f6ac832bf74bd950365a8cf07e08d01836f4e",
+      "raw_response_sha256": "767174d79a983958bc981f472fccecab18f03d0ecb0bcc369508b6a8d96241df",
+      "role": "control",
+      "runtime_identity_verified": true,
+      "schema_sha256": "dda2dd562ea807737d17ee8120f2b03b2daaf9b50224888d847491d59f6981d9",
+      "settings": {
+        "num_ctx": 8192,
+        "num_gpu": 0,
+        "num_predict": 1024,
+        "num_thread": 4,
+        "seed": 42,
+        "temperature": 0
+      },
+      "size_vram": 0,
+      "system_sha256": "358f6189362c319fa452d81b0705d5d7780f7b9f9b3c1997d51e4d369d44a13b",
+      "validation_errors": []
+    }
+  ],
+  "date": "2026-11-06",
+  "diagnosis_id": "51aeee65228546cf91aa466e7ad50b21",
+  "diagnosis_summary": "model capability limit under minimal evidence and controlled schema/instruction conditions",
+  "diagnostic_scope": {
+    "all_outputs_schema_valid": true,
+    "canonical_claim_validation": "not_applicable_no_claims",
+    "evidence_graphs": 0,
+    "evidence_links": 0,
+    "invalid_claims": 0,
+    "new_ollama_calls": 4,
+    "production_policy_or_code_changed": false,
+    "valid_claims": 0
+  },
+  "early_stop_rule": "B/C omitted if an earlier condition produced a canonical-valid, directly relevant claim; control D always runs.",
+  "extractive_fallback_assessment": {
+    "deterministic_components": [
+      "evidence filtering",
+      "sentence-boundary excerpting",
+      "canonical provenance verification",
+      "exact quotation validation"
+    ],
+    "existing_route": "/answer/scientific",
+    "implementation_changed": false,
+    "model_invocation": "The route still calls the pinned Ollama generation client.",
+    "reliable_fallback_for_this_abstention": false,
+    "safe_presentation": "An exact source excerpt may be shown as extractive evidence with its canonical citation and an explicit unreviewed/provisional label; it must not be represented as a scientifically reviewed claim."
+  },
+  "generation_calls": 4,
+  "generation_settings": {
+    "num_ctx": 8192,
+    "num_gpu": 0,
+    "num_predict": 1024,
+    "num_thread": 4,
+    "seed": 42,
+    "temperature": 0
+  },
+  "insufficient_evidence_control": {
+    "experiment_id": "RES147-51aeee65228546cf91aa466e7ad50b21-D-INSUFFICIENT-CONTROL",
+    "no_numeric_p_value_or_bmi_in_supplied_span": true,
+    "passed": true,
+    "question_sha256": "4dce7cc5487448300c7d18a9ab6f6ac832bf74bd950365a8cf07e08d01836f4e",
+    "scope": "verified for supplied minimal context, not a corpus-wide adjudication"
+  },
+  "model_abstention_reason": {
+    "canonical_sentence_directly_answers_with_exception": true,
+    "claimed_no_clear_yes_no_quote": true,
+    "classification": "model-generated explanation, not fact",
+    "model_explanation_conflicts_with_canonical_sentence": true
+  },
+  "ollama_identity_before_after": {
+    "after": {
+      "device": "cpu",
+      "digest": "359d7dd4bcdab3d86b87d73ac27966f4dbb9f5efdfcc75d34a8764a09474fae7",
+      "model": "qwen3:4b",
+      "parameter_size": "4.0B",
+      "quantization": "Q4_K_M",
+      "runtime_version": "0.13.5"
+    },
+    "before": {
+      "device": "cpu",
+      "digest": "359d7dd4bcdab3d86b87d73ac27966f4dbb9f5efdfcc75d34a8764a09474fae7",
+      "model": "qwen3:4b",
+      "parameter_size": "4.0B",
+      "quantization": "Q4_K_M",
+      "runtime_version": "0.13.5"
+    }
+  },
+  "postgres_cluster_system_identifier": "7704293122131349543",
+  "protected_fingerprints_before_after": {
+    "benchmark": [
+      "fce47be7337465a184d13d4de285f622b42af9150f22d5bbbb72b823c1308af1",
+      "fce47be7337465a184d13d4de285f622b42af9150f22d5bbbb72b823c1308af1"
+    ],
+    "candidate_database": [
+      "2ea1d10c3a5998dec46db7b1d7523158e92b6aca3b90980d27c7eb7af68ebbd7",
+      "2ea1d10c3a5998dec46db7b1d7523158e92b6aca3b90980d27c7eb7af68ebbd7"
+    ],
+    "qdrant": [
+      "3f2ead3786e04e42709195d569e58a30b5343565332ad583953d04c4970032f7",
+      "3f2ead3786e04e42709195d569e58a30b5343565332ad583953d04c4970032f7"
+    ],
+    "source_archives": [
+      "ac050bbe660743f7c868fdf5cde680d4ff1a85453f5cba8429767642788b43f3",
+      "ac050bbe660743f7c868fdf5cde680d4ff1a85453f5cba8429767642788b43f3"
+    ]
+  },
+  "protected_fingerprints_unchanged": true,
+  "scientific_approval": false,
+  "selection": {
+    "evidence_set_identity": "734a733f67461bd360dd080817f3e202a830afc0f5a6e417112808e3d164d94a",
+    "identity": "ac96e404cb3fecc127fbef9457ecd06f9414944ed7a4fc6674b9808fbc43a406",
+    "matches_preserved_run": false,
+    "member_count": 5,
+    "minimal_context_evidence_count": 1,
+    "minimal_context_identity": "9f32ffa495b8aa35952d828b66d3e058d1a37bf34c1f35b526186799a60e5788",
+    "minimal_context_span_count": 1,
+    "response_identity": "8aae1878b778d5f00c1334bba2c3822a1896221ac2759a49e5755bbfa02af057"
+  },
+  "selection_repeatability_check": {
+    "compared_with_preserved_run": true,
+    "diagnostic_selection_identity": "ac96e404cb3fecc127fbef9457ecd06f9414944ed7a4fc6674b9808fbc43a406",
+    "identity_note": "Response identity hashes the full ScientificResponse, including timings; the repeated live query retained the same selected members and decisions while producing a different response and EvidenceSet identity.",
+    "preserved_response_identity": "1353b1e5eaffc2a0ffe5ff552c1c6a75a510c1ebfdb574b9d43199469bb327f1",
+    "preserved_selection_identity": "5ad271714ac9d6c294aed9563ce2e5a78512ca733e56b11fa2ff94211eda1fe2",
+    "requery_all_selection_decisions_equal": true,
+    "requery_member_order_equal": true,
+    "requery_member_set_equal": true,
+    "requery_response_identity": "25729ef42fdcde8a134c1be2e0e42c456beec2be150d03249f2fb9f4a6dd1bb4",
+    "requery_selection_identity": "fd8dc283a5111fe61dcc21b187ff994abc6b27c7ea97df72d7da4321da89e7db",
+    "selected_members": 5,
+    "selection_decision_count": 66,
+    "target_member_present": true
+  },
+  "tei_identity_before_after": {
+    "after": {
+      "deployment": {
+        "default_prompt_mode": "none",
+        "default_prompt_name": null,
+        "default_prompt_sha256": null,
+        "dense_path": null
+      },
+      "max_batch_requests": 4,
+      "max_batch_tokens": 2048,
+      "max_client_batch_size": 1,
+      "max_input_length": 2048,
+      "model_dtype": "float32",
+      "model_id": "Qwen/Qwen3-Embedding-0.6B",
+      "model_pooling": "last_token",
+      "model_sha": "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
+      "protocol_revision": "tei-http-v1",
+      "provider": "tei",
+      "runtime_docker_label": "sha-e80ef22",
+      "runtime_sha": "e80ef225ed0e6cb1717ce632a6a84b6cf211bb67",
+      "runtime_version": "1.9.4"
+    },
+    "before": {
+      "deployment": {
+        "default_prompt_mode": "none",
+        "default_prompt_name": null,
+        "default_prompt_sha256": null,
+        "dense_path": null
+      },
+      "max_batch_requests": 4,
+      "max_batch_tokens": 2048,
+      "max_client_batch_size": 1,
+      "max_input_length": 2048,
+      "model_dtype": "float32",
+      "model_id": "Qwen/Qwen3-Embedding-0.6B",
+      "model_pooling": "last_token",
+      "model_sha": "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
+      "protocol_revision": "tei-http-v1",
+      "provider": "tei",
+      "runtime_docker_label": "sha-e80ef22",
+      "runtime_sha": "e80ef225ed0e6cb1717ce632a6a84b6cf211bb67",
+      "runtime_version": "1.9.4"
+    }
+  }
+}

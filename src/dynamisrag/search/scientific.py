@@ -401,6 +401,7 @@ class ScientificRetrievalService:
         retrieved = perf_counter()
         points = tuple({p.id: p for p in (*lexical.points, *dense.points)}.values())
         records = read_canonical(self.engine, tuple(str(p.payload["passage_key"]) for p in points))
+        database_retrieved = perf_counter()
         try:
             verify_canonical(records, points)
             bm25_trace, dense_trace = lane_trace(lexical), lane_trace(dense)
@@ -421,8 +422,8 @@ class ScientificRetrievalService:
                 dense_ms=lane_timings["dense_ms"],
                 rrf_ms=lane_timings["rrf_ms"],
                 hybrid_retrieval_ms=(retrieved - embedded) * 1000,
-                database_retrieval_ms=(retrieved - embedded) * 1000,
-                citation_verification_ms=(verified - retrieved) * 1000,
+                database_retrieval_ms=(database_retrieved - retrieved) * 1000,
+                citation_verification_ms=(verified - database_retrieved) * 1000,
                 total_request_ms=(verified - start) * 1000,
             ),
         )

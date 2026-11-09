@@ -1,0 +1,135 @@
+{
+  "schema": "dynamisrag.research-edition-clean-install/v1",
+  "observed_at_utc": "2026-11-07T06:59:33Z",
+  "environment": {
+    "installation": "fresh isolated worktree",
+    "compose_project": "dynamisrag-research-edition",
+    "docker_compose": "5.5.1",
+    "platform": "Windows 11 host, Docker Desktop linux/amd64",
+    "ports_loopback_only": {
+      "application": 8001,
+      "postgres": 55434,
+      "qdrant": 16334,
+      "opensearch": 19201,
+      "tei": 8082,
+      "ollama": 11435
+    },
+    "named_volume_prefix": "dynamisrag-research-edition_"
+  },
+  "services": {
+    "postgres": {
+      "image": "postgres:18.6-alpine",
+      "version": "18.6",
+      "database": "dynamisrag_research",
+      "application_role": "dynamisrag_owner",
+      "application_role_superuser": false,
+      "migration_head": "0005_evidence_graph"
+    },
+    "qdrant": {
+      "image": "qdrant/qdrant:v1.20.0@sha256:9bfc89f9914fc14876a88c05270685921a55b8877b254a98bcc1cc2f0a424cd2",
+      "version": "1.20.0"
+    },
+    "opensearch": {
+      "image": "opensearchproject/opensearch:3.8.0",
+      "version": "3.8.0"
+    },
+    "tei": {
+      "image": "ghcr.io/huggingface/text-embeddings-inference:cpu-1.9.4@sha256:2538ea1c9640d3763b15af668039d24172d063b42337b0c27796fc2be180c78d",
+      "version": "1.9.4",
+      "model_id": "Qwen/Qwen3-Embedding-0.6B",
+      "model_revision": "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
+      "dtype": "float32",
+      "pooling": "last_token",
+      "device": "cpu"
+    },
+    "ollama": {
+      "image": "ollama/ollama@sha256:2c9595c555fd70a28363489ac03bd5bf9e7c5bdf2890373c3a830ffd7252ce6d",
+      "version": "0.13.5",
+      "model": "qwen3:4b",
+      "model_digest": "359d7dd4bcdab3d86b87d73ac27966f4dbb9f5efdfcc75d34a8764a09474fae7",
+      "quantization": "Q4_K_M",
+      "device": "cpu"
+    }
+  },
+  "sample_corpus": {
+    "manifest_sha256": "05e44a8196801cce41345703db417d48226b761d773bfa11b69663fe66f838c0",
+    "source_files_sha256": "ae79fa5c0467c03860b1499f2af02aafe086008d375606f268609953b0f37c4f",
+    "source_bytes": 250718,
+    "license": "CC BY 4.0",
+    "articles": [
+      {
+        "pmcid": "PMC10780924",
+        "document_version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643",
+        "source_sha256": "1e21995a2aaf2c8444dd90d4295a0157097f74eab1f47b72f9666787a0c12477",
+        "passages": 25,
+        "paragraphs": 34
+      },
+      {
+        "pmcid": "PMC10680285",
+        "document_version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b",
+        "source_sha256": "b6b9627176702f66904fcd592c1f5ec4978a5db63f1f082477a40d71f7fe70e3",
+        "passages": 18,
+        "paragraphs": 36
+      },
+      {
+        "pmcid": "PMC5263151",
+        "document_version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e",
+        "source_sha256": "339647fafae9fa0207ea35e425ec75a50666a9a3fd205f1fea5a2e10212d3a65",
+        "passages": 32,
+        "paragraphs": 47
+      }
+    ],
+    "canonical_rows": {
+      "source_artifacts": 3,
+      "documents": 3,
+      "document_versions": 3,
+      "paragraphs": 117,
+      "passages": 75,
+      "passage_source_spans": 146
+    }
+  },
+  "vector_projection": {
+    "receipt_sha256": "8ede85766f656acccf7fd44b9c3fde627bd18289b74fe375dbf895d02ff4d240",
+    "document_embedding_manifest_sha256": "46f96db3a02cf61374003475e3f006258ecbd790a4a78bd858b305c25f5104ff",
+    "query_embedding_manifest_sha256": "4ac70bedcc23ffc2d3acfcba46ffb42ad1b68de55e0cbad782678f1f4b83fb29",
+    "collection": "qdrant-passages-v1-5a20d2780fe6cd0ce0155ed7535c6507ec452f9ad4ae14cbd5990e13d7e8a709",
+    "vectors": 75,
+    "independently_verified_passages": 75,
+    "all_source_reparses_match_postgresql": true,
+    "citation_and_source_span_verification": "passed",
+    "preexisting_collections_unchanged": true,
+    "one_run_retrieval_latency_ms": {
+      "bm25": 19.9327,
+      "dense": 12.7904,
+      "hybrid": 23.0354
+    }
+  },
+  "application_smoke": {
+    "health": "up",
+    "readiness": "up",
+    "authorized_papers": 3,
+    "browser": "Chromium",
+    "route": "/research",
+    "negative_question": "What was the average serum sodium concentration for the melanoma cohort?",
+    "outcome": "insufficient_evidence",
+    "reason": "No admissible evidence directly answered the question.",
+    "retrieved_canonical_evidence": 0
+  },
+  "resource_snapshot": {
+    "docker_container_memory": {
+      "postgres": "51.88 MiB",
+      "qdrant": "68.94 MiB",
+      "opensearch": "1.587 GiB",
+      "ollama_idle": "47.73 MiB",
+      "tei_warm_cpu": "2.964 GiB"
+    },
+    "host_application_working_set": "104837120 bytes",
+    "scope": "single warmed local snapshot; not a benchmark or capacity claim"
+  },
+  "release_limitations": {
+    "positive_grounded_generation_qualified": false,
+    "model_proposed_claims_approved_automatically": false,
+    "extractive_preview_requires_owner_scope_approval": true,
+    "expert_reviewed_scientific_gold_included": false
+  }
+}

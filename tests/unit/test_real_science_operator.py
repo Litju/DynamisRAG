@@ -1,11 +1,17 @@
 """Local operator safeguards, without inference, downloads or live services."""
 
 import time
+from pathlib import Path
 from typing import cast
 from unittest.mock import Mock, patch
 
 import pytest
-from scripts.real_scientific_retrieval import BudgetTei, CpuDeployment, verify_point
+from scripts.real_scientific_retrieval import (
+    BudgetTei,
+    CpuDeployment,
+    resolve_source_path,
+    verify_point,
+)
 from sqlalchemy.orm import Session
 
 from dynamisrag.embedding import (
@@ -19,6 +25,33 @@ from dynamisrag.embedding import (
 )
 from dynamisrag.embedding.contracts import passage_content_sha256
 from dynamisrag.search.qdrant import Point
+
+
+def test_restored_source_resolves_by_content_hash_when_original_uri_is_absent(
+    tmp_path: Path,
+) -> None:
+    digest = "ab" * 32
+    restored = tmp_path / "sources" / "sha256" / digest[:2] / f"{digest}.xml"
+    restored.parent.mkdir(parents=True)
+    restored.write_text("<article/>", encoding="utf-8")
+
+    assert resolve_source_path("file:///missing/original/source.xml", digest, tmp_path) == restored
+
+
+def test_recorded_source_path_is_preferred_when_it_still_exists(tmp_path: Path) -> None:
+    digest = "cd" * 32
+    recorded = tmp_path / "recorded.xml"
+    recorded.write_text("<article/>", encoding="utf-8")
+    fallback = tmp_path / "sources" / "sha256" / digest[:2] / f"{digest}.xml"
+    fallback.parent.mkdir(parents=True)
+    fallback.write_text("<other/>", encoding="utf-8")
+
+    assert resolve_source_path(recorded.as_uri(), digest, tmp_path) == recorded
+
+
+def test_missing_source_is_rejected_instead_of_silently_passing(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="missing"):
+        resolve_source_path("file:///missing/original/source.xml", "ef" * 32, tmp_path)
 
 
 def test_cpu_deployment_changes_fingerprint_without_claiming_gpu_equivalence() -> None:

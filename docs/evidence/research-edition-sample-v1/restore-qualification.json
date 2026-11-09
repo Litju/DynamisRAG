@@ -1,0 +1,75 @@
+{
+  "schema": "dynamisrag.research-edition-restore-qualification/v1",
+  "observed_at_utc": "2026-11-07T15:39:54.320366+00:00",
+  "backup": {
+    "manifest_schema": "dynamisrag.research-edition-backup/v1",
+    "manifest_sha256": "e41e3e497c839ac24a8cd48f8589acf804d7589ac14cfed46e969168851c8bd3",
+    "database_sha256": "1ae74a09aada4887b6cb1a111a7edc1277e18eb812d66c42b5ca74f6d361e522",
+    "workspace_archive_sha256": "18d29f5e4fed1ef0a1af3d8db5ba470485869a3cefcaf67b8b05a44183882066",
+    "integrity_verification": "passed",
+    "pg_restore_list": "passed"
+  },
+  "restore": {
+    "fresh_destination": "restore-<timestamp>/files under the ignored local .tmp/res166 directory",
+    "destination_was_absent_before_extraction": true,
+    "compose_project": "dynamisrag-research-restore",
+    "separate_named_volumes": [
+      "dynamisrag-research-restore_postgres-data",
+      "dynamisrag-research-restore_qdrant-data",
+      "dynamisrag-research-restore_qdrant-snapshots"
+    ],
+    "ports": {
+      "postgres": 55435,
+      "qdrant": 16335
+    },
+    "database": "dynamisrag_research_restore",
+    "migration_head": "0005_evidence_graph",
+    "canonical_counts": {
+      "source_artifact": 3,
+      "document": 3,
+      "document_version": 3,
+      "paragraph": 117,
+      "passage": 75,
+      "passage_source_span": 146
+    },
+    "canonical_rows_modified": false,
+    "source_uri_policy": "Canonical source_artifact rows remain append-only with their original absolute file:// URIs. Verification resolves the restored content-addressed file under the fresh workspace when the original path is absent."
+  },
+  "verification": {
+    "all_passages_verified": 75,
+    "papers": 3,
+    "vectors": 75,
+    "collection": "qdrant-passages-v1-5a20d2780fe6cd0ce0155ed7535c6507ec452f9ad4ae14cbd5990e13d7e8a709",
+    "source_checks": [
+      {
+        "pmcid": "PMC10780924",
+        "version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643",
+        "paragraphs": 34,
+        "raw_xml_sha256": "1e21995a2aaf2c8444dd90d4295a0157097f74eab1f47b72f9666787a0c12477",
+        "jats_reparse_matches_postgresql": true
+      },
+      {
+        "pmcid": "PMC10680285",
+        "version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b",
+        "paragraphs": 36,
+        "raw_xml_sha256": "b6b9627176702f66904fcd592c1f5ec4978a5db63f1f082477a40d71f7fe70e3",
+        "jats_reparse_matches_postgresql": true
+      },
+      {
+        "pmcid": "PMC5263151",
+        "version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e",
+        "paragraphs": 47,
+        "raw_xml_sha256": "339647fafae9fa0207ea35e425ec75a50666a9a3fd205f1fea5a2e10212d3a65",
+        "jats_reparse_matches_postgresql": true
+      }
+    ],
+    "all_jats_reparses_match_postgresql": true,
+    "result": "passed"
+  },
+  "live_resources": {
+    "live_research_edition_left_running": true,
+    "retained_qdrant_mutated": false,
+    "restore_containers_stopped_after_verification": true,
+    "restore_named_volumes_preserved": true
+  }
+}

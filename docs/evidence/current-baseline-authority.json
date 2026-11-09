@@ -1,0 +1,34 @@
+{
+  "schema": "dynamisrag.baseline-authority-pointer/v1",
+  "pointer_version": 1,
+  "current_authority": {
+    "authority_version": 1,
+    "authority_state": "ADMITTED_AS_NEW_RECONSTRUCTED_LINEAGE",
+    "lineage_id": "dynamisrag-reconstructed-baseline-1.0.0-rc.1",
+    "candidate_version": "1.0.0-rc.1",
+    "receipt_path": "res583-baseline-authority-v1.json",
+    "receipt_sha256": "9f273233ecde3a31ed823ec3801a058b4b4e9e086facd78ae9dc3c7064460186",
+    "candidate_manifest_sha256": "f19934b99ce20b6c747b0b4478d75fbebf0135b9638346430ce3b629fedfa09c",
+    "candidate_fingerprint_sha256": "4869754d80225495a7ce4f6cad3016d596467de7b2082d83e1953144fcb35555",
+    "baseline_main_sha": "0cedd18fa7e1325fdd68affcbe50379f2d861de9"
+  },
+  "transition": {
+    "from": "no admitted reconstructed lineage",
+    "to": "dynamisrag-reconstructed-baseline-1.0.0-rc.1",
+    "linear_issue": "RES-583",
+    "owner_decision": "ADMIT_AS_NEW_RECONSTRUCTED_LINEAGE",
+    "owner": "Julio Rodriguez",
+    "linear_approval_comment_id": "e8189d70-c5db-46fe-8f3d-a77f8c3d1f9c",
+    "performed_at_utc": "2026-11-07T03:34:47Z",
+    "candidate_manifest_sha256_before": "f19934b99ce20b6c747b0b4478d75fbebf0135b9638346430ce3b629fedfa09c",
+    "candidate_manifest_sha256_after": "f19934b99ce20b6c747b0b4478d75fbebf0135b9638346430ce3b629fedfa09c",
+    "candidate_fingerprint_sha256_before": "4869754d80225495a7ce4f6cad3016d596467de7b2082d83e1953144fcb35555",
+    "candidate_fingerprint_sha256_after": "4869754d80225495a7ce4f6cad3016d596467de7b2082d83e1953144fcb35555",
+    "previous_pointer_existed": false
+  },
+  "runtime_activation": false,
+  "production_cutover": false,
+  "release_qualified": false,
+  "claims_approved": false,
+  "reversal": "Revert the pointer activation commit to restore the prior no-admitted-lineage state; retain the immutable v1 receipt and all historical evidence."
+}

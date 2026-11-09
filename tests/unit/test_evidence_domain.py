@@ -13,6 +13,7 @@ from dynamisrag.domain.evidence import (
     EvidenceSet,
     Relation,
 )
+from dynamisrag.domain.identity import evidence_identity
 
 
 def member() -> EvidenceMember:
@@ -94,6 +95,36 @@ def test_membership_order_and_changes_matter() -> None:
         EvidenceSet.model_validate(original.model_dump() | {"members": (member(), member())})
     with pytest.raises(ValidationError, match="duplicate source"):
         EvidenceMember.model_validate(member().model_dump() | {"span_keys": ("c" * 64, "c" * 64)})
+
+
+def test_semantic_v2_is_timing_independent_and_preserves_v1_identity() -> None:
+    base = graph().evidence_set
+    first_member = member()
+    second_member = first_member.model_copy(
+        update={"passage_key": "e" * 64, "version_key": "f" * 64}
+    )
+    first = EvidenceSet.model_validate(
+        base.model_dump()
+        | {"members": (first_member, second_member), "selection_context": "execution: 5 ms"}
+    )
+    reordered = EvidenceSet.model_validate(
+        base.model_dump()
+        | {
+            "members": (second_member, first_member),
+            "selection_context": "execution: 900 ms",
+        }
+    )
+
+    assert first.key == evidence_identity("evidence-set-v1", first.model_dump(mode="json"))
+    assert first.key != reordered.key
+    assert first.semantic_key == reordered.semantic_key
+
+    changed_span = second_member.model_copy(update={"span_keys": ("a" * 64,)})
+    changed = EvidenceSet.model_validate(
+        base.model_dump()
+        | {"members": (first_member, changed_span), "selection_context": "execution: 5 ms"}
+    )
+    assert first.semantic_key != changed.semantic_key
 
 
 @pytest.mark.parametrize("factory", [lambda: graph().claims[0], lambda: graph().links[0]])

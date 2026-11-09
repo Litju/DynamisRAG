@@ -31,6 +31,7 @@ from dynamisrag.generation.router import build_answer_router
 from dynamisrag.generation.scientific import ScientificAnswerService
 from dynamisrag.health.router import LIVENESS_PATH, READINESS_PATH, build_health_router
 from dynamisrag.logging_config import APP_LOGGER_NAME
+from dynamisrag.research_ui import build_research_ui_router
 from dynamisrag.search.bm25 import Bm25SearchService
 from dynamisrag.search.client import OpenSearchClient
 from dynamisrag.search.opensearch import OpenSearchProbe
@@ -129,6 +130,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(build_retrieval_router(retrieval=retrieval))
     app.include_router(build_scientific_router(scientific))
     app.include_router(build_answer_router(answers))
+    app.include_router(build_research_ui_router())
 
     _logger.debug(
         "application created: health=%s,%s search=%s retrieve=%s",
