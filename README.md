@@ -1323,8 +1323,9 @@ deferred; this repository does not claim that a frozen Stage-B selection
 completed. Reranking and agents remain out of scope. Local answer generation is
 extractive and checks canonical citations, but the pinned Qwen3 setup has not
 qualified positive grounded generation as a general capability. Do not present
-model-proposed claims as reviewed science. A limited local Research Preview is
-packaged for owner review in RES-166; it is not approved or published. See
+model-proposed claims as reviewed science. The owner approved the scope of a
+limited local Research Preview in RES-166 and its implementation is merged; it is
+not yet published. See
 [the Research Preview release record](docs/research-preview-release.md).
 
 What that means concretely. Embedding *generation* is implemented and
@@ -1348,7 +1349,8 @@ reserved. See the notice at the top of this README.
 The all-rights-reserved notice applies to original DynamisRAG code and
 documentation only. Third-party materials retain their own copyright and
 license terms. See `tests/fixtures/README.md` for notices applicable to test
-fixtures.
+fixtures and `data/research-edition-sample-v1/LICENSES.md` for the bundled
+Research Edition sample corpus.
 
 ## Qdrant retrieval backend
 

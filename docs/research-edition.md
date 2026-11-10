@@ -6,9 +6,10 @@ always use `compose.yaml`, `compose.embedding.yaml` and
 `compose.research-edition.yaml` together.
 Running `compose.yaml` by itself uses the separate `dynamisrag` project.
 
-This is a candidate for owner approval, not an approved or published release.
+The owner approved the limited extractive Research Preview scope in RES-166 and
+the implementation is merged, but the Preview is not yet published.
 [`docs/research-preview-release.md`](research-preview-release.md) records the
-qualified scope, the evidence and the claims that are explicitly not made.
+approved scope, the evidence and the claims that are explicitly not made.
 
 ## Install and reproduce the sample
 
@@ -122,8 +123,10 @@ Nothing on that instance was deleted, renamed, republished or modified.
 RES-147's bounded generation qualification did not produce a grounded answer for
 the positive answerable question. The pinned model/runtime can be installed and
 its abstention path exercised, but positive grounded generation is not qualified.
-Do not present this build as a qualified grounded-answer release. A limited
-extractive Research Preview requires explicit owner approval in RES-166.
+Do not present this build as a qualified grounded-answer release. The owner
+approved only a limited extractive Research Preview in RES-166
+(`APPROVE_EXTRACTIVE_RESEARCH_PREVIEW`); that approval does not qualify positive
+grounded generation.
 `RES-578` expert adjudication is still required before any benchmark questions
 are called scientific gold.
 
