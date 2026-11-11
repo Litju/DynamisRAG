@@ -273,6 +273,18 @@ def build_settings(
             "host": "127.0.0.1",
             "port": 8000,
             "log_level": "INFO",
+            "agent_enabled": True,
+            "agent_provider": "deterministic",
+            "agent_model_name": "deterministic-scientific-researcher-v2",
+            "agent_model_revision": None,
+            "agent_model_base_url": None,
+            "agent_model_api_key": None,
+            "agent_postgres_enabled": False,
+            "agent_postgres_schema": "agent_v2",
+            "agent_api_token": None,
+            "agent_rate_limit_per_minute": 60,
+            "agent_langsmith_tracing_enabled": False,
+            "agent_langsmith_project": "dynamisrag-res637-eval",
         }
     )
 

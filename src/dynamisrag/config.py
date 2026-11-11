@@ -125,6 +125,32 @@ class Settings(BaseSettings):
     scientific_tei_url: AnyHttpUrl = AnyHttpUrl("http://127.0.0.1:8081")
     scientific_evidence_directory: Path = _PROJECT_ROOT / "docs/evidence/real-science-v1"
 
+    # ------------------------------------------------------------------
+    # Conversational Scientific Research Agent (RES-637, /api/v2)
+    # ------------------------------------------------------------------
+    agent_enabled: bool = True
+    agent_provider: str = Field(
+        default="ollama",
+        pattern=r"^(ollama|openai|anthropic|deterministic)$",
+    )
+    agent_model_name: str = Field(default="qwen3:4b", min_length=1, max_length=200)
+    agent_model_revision: str | None = None
+    agent_model_base_url: str | None = "http://127.0.0.1:11435"
+    agent_model_api_key: SecretStr | None = Field(default=None, repr=False)
+    agent_postgres_enabled: bool = False
+    agent_postgres_schema: str = Field(
+        default="agent_v2",
+        pattern=r"^[a-zA-Z_][a-zA-Z0-9_]{0,62}$",
+    )
+    agent_api_token: SecretStr | None = Field(default=None, repr=False)
+    agent_rate_limit_per_minute: int = Field(default=60, ge=1, le=600)
+    agent_langsmith_tracing_enabled: bool = False
+    agent_langsmith_project: str = Field(
+        default="dynamisrag-res637-eval",
+        min_length=1,
+        max_length=120,
+    )
+
     @field_validator("scientific_evidence_directory")
     @classmethod
     def anchor_scientific_evidence(cls, value: Path) -> Path:
