@@ -1,20 +1,55 @@
 # DynamisRAG Research Edition
 
-This guide installs the local scientific workflow from a clean checkout. The
-Research Edition Compose project has its own loopback ports and named volumes;
-always use `compose.yaml`, `compose.embedding.yaml` and
-`compose.research-edition.yaml` together.
-Running `compose.yaml` by itself uses the separate `dynamisrag` project.
+This guide installs the published Research Preview from the released source and
+reproduces the bundled sample. It is written for a native Windows 11 PowerShell
+session. The Research Edition Compose project has its own loopback ports and
+named volumes; always use `compose.yaml`, `compose.embedding.yaml` and
+`compose.research-edition.yaml` together. Running `compose.yaml` by itself uses
+the separate `dynamisrag` project.
 
-The owner approved the limited extractive Research Preview scope in RES-166 and
-the implementation is merged, but the Preview is not yet published.
-[`docs/research-preview-release.md`](research-preview-release.md) records the
-approved scope, the evidence and the claims that are explicitly not made.
+**Publication status.** `v0.1.0-research-preview.1` was published on 2026-11-10
+as a GitHub prerelease at commit
+`a0832cde054d05382c4cc89248423165cbed8e0f`; RES-166 is Done. The GitHub Release
+page is authoritative:
+<https://github.com/Litju/DynamisRAG/releases/tag/v0.1.0-research-preview.1>.
+The [release record](research-preview-release.md) retains the pre-publication
+decision history and the current publication evidence.
+
+## Reproduce the released source
+
+Run from a fresh PowerShell session:
+
+```powershell
+git clone https://github.com/Litju/DynamisRAG.git
+cd DynamisRAG
+git fetch --tags
+git checkout --detach v0.1.0-research-preview.1
+```
+
+Checking out the tag reproduces the released source. Following `main` may expose
+newer, unreleased changes. The tag is immutable; do not retag or amend it.
+
+## Prerequisites
+
+- Windows 11 with PowerShell.
+- Docker Desktop using the Linux container engine, with Docker Compose 2.24.4 or
+  newer. Docker Desktop's own virtualization backend is fine; a user WSL
+  distribution or WSL-hosted checkout is not required.
+- `uv` 0.12+ on `PATH`. `uv` installs the pinned Python 3.12.13.
+- CPU-only inference is the documented Research Edition profile. Observed
+  memory and unmeasured values are in
+  [hardware and runtime requirements](hardware-requirements.md).
+
+These commands are technical reproduction steps, not a license grant. The
+repository is all rights reserved; the bundled articles keep their separate
+CC BY 4.0 terms. See the licensing notice in the [repository README](../README.md).
 
 ## Install and reproduce the sample
 
-Requirements: Windows 11 PowerShell, Docker Desktop with Docker Compose 2.24.4
-or newer, and `uv`. Start in a fresh PowerShell session at the repository root.
+Start at the repository root in the same PowerShell session. The commands below
+target only the isolated `dynamisrag-research-edition` project and its loopback
+ports. Do not substitute the retained `dynamisrag` project, the protected
+`dynamisrag_research` database, or the historical evidence directories.
 
 ```powershell
 uv python install 3.12.13
@@ -64,6 +99,10 @@ if ($runtime.version -ne '0.13.5' -or
 
 uv run --locked python -m dynamisrag
 ```
+
+The server runs in the foreground. Stop it with `Ctrl+C`, then stop the isolated
+stack with `docker compose @compose stop`. Never use `docker compose down -v`
+for a database or volume set you need to keep.
 
 Before it creates, populates or publishes anything, `retrieve` attests the
 Research Edition Qdrant project, container name, pinned image, named volumes,
@@ -121,14 +160,14 @@ in
 Nothing on that instance was deleted, renamed, republished or modified.
 
 RES-147's bounded generation qualification did not produce a grounded answer for
-the positive answerable question. The pinned model/runtime can be installed and
-its abstention path exercised, but positive grounded generation is not qualified.
-Do not present this build as a qualified grounded-answer release. The owner
-approved only a limited extractive Research Preview in RES-166
-(`APPROVE_EXTRACTIVE_RESEARCH_PREVIEW`); that approval does not qualify positive
-grounded generation.
-`RES-578` expert adjudication is still required before any benchmark questions
-are called scientific gold.
+its positive answerable question. The later real-browser acceptance recorded one
+supported extractive answer and an explicit abstention. Neither result qualifies
+general positive grounded generation. Do not present this build as a generally
+qualified grounded-answer system. The owner approved only a limited extractive
+Research Preview in RES-166 (`APPROVE_EXTRACTIVE_RESEARCH_PREVIEW`); that approval
+does not qualify positive grounded generation as a general capability. `RES-578`
+expert adjudication is still required before any benchmark questions are called
+scientific gold.
 
 ## Backup and restore
 

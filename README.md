@@ -2,6 +2,169 @@
 
 Evaluation-first RAG platform for auditable retrieval and evidence-grounded AI.
 
+DynamisRAG Research Preview is a local scientific retrieval application. It
+installs from released source, ingests a bundled licensed three-article corpus,
+keeps canonical evidence in PostgreSQL, projects it into Qdrant and OpenSearch,
+and serves a browser interface with exact source provenance. It is a research
+preview, not a production service.
+
+## Publication status
+
+`v0.1.0-research-preview.1` was published on 2026-11-10 as a GitHub prerelease at
+commit `a0832cde054d05382c4cc89248423165cbed8e0f`; RES-166 is Done. The
+[GitHub Release page](https://github.com/Litju/DynamisRAG/releases/tag/v0.1.0-research-preview.1)
+is authoritative for publication metadata and source archives. The
+[release record](docs/research-preview-release.md) retains the pre-publication
+decision history and the qualification evidence.
+
+`main` may contain documentation or code newer than the published tag. To
+reproduce the released source exactly, check out the tag rather than following
+`main`:
+
+```powershell
+git clone https://github.com/Litju/DynamisRAG.git
+cd DynamisRAG
+git fetch --tags
+git checkout --detach v0.1.0-research-preview.1
+```
+
+## What it does
+
+- **Canonical scientific ingestion** — imports JATS articles and produces
+  structure-aware passages keyed by document version and chunker revision.
+- **Deterministic passages** — the same version and chunker always yield
+  byte-identical passages and `passage_key`s.
+- **PostgreSQL as the authority** — canonical state is read from PostgreSQL;
+  every hit addresses the exact rows and character ranges it came from.
+- **Rebuildable projections** — OpenSearch serves versioned BM25 and
+  vector-capable indexes; Qdrant provides an opt-in alternative dense and hybrid
+  projection. Both are caches that can be rebuilt from canonical state.
+- **Exact provenance** — results carry the DOI/PMCID, document-version identity,
+  canonical paragraph anchor and 0-based, half-open character coordinates.
+- **Local answer or abstention** — a pinned local generator returns a
+  structurally verified extractive claim or an explicit abstention.
+- **Browser interface** — `http://127.0.0.1:8001/research` lists the authorized
+  papers and shows retrieved evidence, claims and citations.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    JATS["Licensed JATS articles"] --> Parser["JATS parser"] --> Chunker["Structure-aware chunker"]
+    Chunker --> PG[("PostgreSQL\ncanonical authority")]
+    PG -->|"projection"| OS[("OpenSearch\nBM25 + vector indexes")]
+    PG -->|"projection + vectors"| QD[("Qdrant\ndense / hybrid index")]
+
+    UI["Research UI\n/research"] --> API["FastAPI"]
+    API -->|"/search, /retrieve"| OS
+    API -->|"scientific retrieval"| QD
+    API -->|"query embedding"| TEI["TEI\nQwen3 Embedding 0.6B"]
+    API -->|"extractive answer"| OLL["Ollama\nQwen3 4B"]
+    API -->|"canonical evidence"| PG
+```
+
+PostgreSQL owns canonical state; OpenSearch and Qdrant are rebuildable
+projections. The browser talks only to FastAPI. The scientific answer path uses
+Qdrant hybrid retrieval, verifies canonical rows and source spans in PostgreSQL,
+and calls the pinned local TEI and Ollama services. See
+[architecture details](docs/architecture.md) for the ingestion and answer-path
+diagrams.
+
+## Current limitations
+
+- The bundled corpus is **three scientific articles / 75 passages**.
+- The documented runtime is **CPU-only** and pinned to Qwen3 Embedding 0.6B and
+  Qwen3 4B. It is not a general-purpose or model-independent system.
+- **General positive grounded generation is not qualified.** The real-system
+  acceptance recorded one supported extractive answer and one explicit
+  abstention. That is a bounded observation, not a success rate.
+- Every generated claim is `MODEL_PROPOSED / PROPOSED` and unreviewed.
+  Citation checking proves that a claim is copied from the cited span; it does
+  not prove scientific entailment or truth.
+- There is no expert-reviewed scientific gold. RES-578 adjudication is required
+  before any benchmark question is called scientific gold.
+- The Qwen3 Embedding 0.6B profile is provisional. RES-138 Stage B production
+  qualification is deferred, so the profile is not a statistically proven
+  winner.
+- This preview makes no production-readiness, availability, capacity,
+  performance-percentile or benchmark-superiority claim. Hardware figures are
+  observations, not minimum requirements.
+
+## Licensing
+
+Copyright © 2026 Julio Rodriguez. All rights reserved.
+
+The source code is publicly viewable, but public visibility is not a license. No
+license is granted to use, copy, modify, redistribute, sublicense, or create
+derivative works except where applicable law or GitHub's Terms of Service
+provide otherwise. The installation and runtime instructions in this repository
+describe technical reproduction steps; they do not grant legal permission to
+install, run, modify, or redistribute the software. No software-use license,
+evaluation license, or open-source license is granted.
+
+This notice applies to original DynamisRAG code and documentation only.
+Third-party materials retain their own copyright and license terms. The three
+bundled JATS articles are redistributed unchanged under CC BY 4.0; see
+`data/research-edition-sample-v1/LICENSES.md` and `tests/fixtures/README.md` for
+their attribution and terms.
+
+## Requirements
+
+- **Windows 11 with PowerShell.** The documented commands are PowerShell and are
+  what CI mirrors. A WSL distribution or WSL-hosted checkout is not required.
+- **Docker Desktop** with the Linux container engine and Docker Compose 2.24.4 or
+  newer.
+- **uv 0.12+** on `PATH`; `uv` installs the pinned Python 3.12.13.
+- **CPU-only inference** is the documented Research Edition profile. No GPU is
+  required for the preview.
+
+Run commands from the repository root. Observed memory, storage and timing
+figures, including values marked `NOT MEASURED`, are in
+[hardware and runtime requirements](docs/hardware-requirements.md).
+
+## Quick start
+
+After the tag checkout above:
+
+```powershell
+uv python install 3.12.13
+uv sync --locked
+```
+
+Then follow the [Research Edition clean-install guide](docs/research-edition.md).
+It starts the isolated `dynamisrag-research-edition` Compose project, migrates
+its dedicated database, verifies and ingests the sample, verifies the pinned
+generator and opens the browser interface. Do not start `compose.yaml` alone for
+Research Edition work; it uses a separate project.
+
+## Documentation
+
+| Document | Purpose |
+| --- | --- |
+| [Research Edition guide](docs/research-edition.md) | Clean install, sample reproduction, backup and restore |
+| [Architecture](docs/architecture.md) | System context, ingestion/projection, and answer-path diagrams |
+| [Hardware and runtime requirements](docs/hardware-requirements.md) | Observed memory, storage, CPU profile and `NOT MEASURED` values |
+| [Testing and evidence boundaries](docs/testing-and-evidence.md) | What CI proves, what recorded acceptance proves, and what neither proves |
+| [Release record](docs/research-preview-release.md) | Publication facts, decision history and qualification evidence |
+| [Release notes](docs/research-preview-release-notes.md) | Published Research Preview notes |
+| [Qdrant backend](docs/qdrant.md) | Opt-in local Qdrant retrieval layer |
+| [Migration safety](docs/migration-safety.md) | Online migration boundary and protected database rules |
+| [Evidence receipts](docs/evidence/) | Committed acceptance, restore and benchmark receipts |
+
+Research records retained for audit include [LIVE-RAG-001](docs/live-rag-001.md),
+[LIVE-RAG-002](docs/live-rag-002.md),
+[real scientific retrieval](docs/real-scientific-retrieval.md),
+[RES-140 IR evaluation](docs/res140-ir.md),
+[RES-141 datasets](docs/res141-datasets.md),
+[RES-143 corpus snapshot](docs/res143-corpus-snapshot.md),
+[RES-144 DynamisBench](docs/res144-dynamisbench-v0.md),
+[RES-145 evidence graph](docs/res145-evidence-graph-qualification.md),
+[RES-146 selection](docs/res146-evidence-selection-qualification.md) and
+[RES-147 structured synthesis](docs/res147-structured-synthesis-qualification.md).
+They describe historical evidence and do not expand the current release scope.
+
+## Design in brief
+
 This repository implements the retrieval path end to end, from a scientific
 document to a ranked, auditable hit:
 
@@ -33,24 +196,10 @@ tied; 512 is selected provisionally for engineering and storage efficiency.
 Formal Stage-B production qualification is deferred, so this is not a
 statistically proven winner. Passage vectors are still supplied to the existing
 projector. Reranking, generation and agents remain out of scope for the qualified
-production profile. The local answer route uses the pinned Qwen3 generator, but
-positive grounded generation has not qualified; model-proposed claims remain
-unreviewed.
-
----
-
-Copyright © 2026 Julio Rodriguez. All rights reserved.
-
-The source code is publicly viewable. No license is granted to use, copy,
-modify, redistribute, sublicense, or create derivative works except where
-applicable law or GitHub's Terms of Service provide otherwise.
-
-The all-rights-reserved notice applies to original DynamisRAG code and
-documentation only. Third-party materials retain their own copyright and
-license terms. See `tests/fixtures/README.md` and
-`data/research-edition-sample-v1/LICENSES.md` for their notices.
-
----
+production profile. The local answer route uses the pinned Qwen3 generator. One
+supported extractive answer and one explicit abstention were recorded in the
+real-system browser acceptance, but general positive grounded generation has
+not qualified; model-proposed claims remain unreviewed.
 
 ## Platform
 
@@ -69,26 +218,6 @@ license terms. See `tests/fixtures/README.md` and
 | Ruff           | 0.16.x     | Lint **and** format                                |
 | Pyright        | 1.1.414    | `typeCheckingMode = "strict"`                      |
 | pytest         | 9.x        | Unit suite needs no infrastructure                  |
-
-## Requirements
-
-- Windows 11 with **PowerShell** — the documented commands are PowerShell and
-  are what CI mirrors.
-- [Docker Desktop](https://docs.docker.com/desktop/install/windows-install/)
-  with the Linux container engine. DynamisRAG development is native
-  Windows/PowerShell and does not depend on a user WSL distribution, WSL paths,
-  WSL shells, or a WSL-hosted checkout. Docker Desktop may use its own configured
-  virtualization backend internally.
-- [uv](https://docs.astral.sh/uv/) on `PATH`.
-
-Run commands from the repository root. The Research Edition uses its own Compose
-project, ports and named volumes.
-
-## Quick start
-
-Follow the [Research Edition clean-install guide](docs/research-edition.md). It
-uses `compose.research-edition.yaml` with an isolated volume namespace. Do not
-start `compose.yaml` alone for Research Edition work.
 
 ## Repository layout
 
@@ -469,7 +598,7 @@ port; nothing inside the network uses `55432`.
 
 ```powershell
 docker compose up -d          # start
-docker compose ps             # both services report (healthy)
+docker compose ps             # all three services report (healthy)
 docker compose logs           # tail logs
 docker compose stop opensearch    # stop one dependency
 docker compose down           # stop and remove containers (volumes persist)
@@ -480,9 +609,10 @@ OpenSearch volume. Integration qualification uses the separate
 `dynamisrag-integration` project, namespaced volumes, and attested disposable
 PostgreSQL databases; see [migration safety](docs/migration-safety.md).
 
-Only two services exist here. Temporal, Valkey, Keycloak, OpenFGA, vLLM,
-Kafka, Neon and Vercel integrations are explicitly **out of scope** and are
-deliberately absent. TEI is the one optional service, and it lives in a separate
+The base stack has three services: PostgreSQL, Qdrant and OpenSearch. Temporal,
+Valkey, Keycloak, OpenFGA, vLLM, Kafka, Neon and Vercel integrations are
+explicitly **out of scope** and are deliberately absent. TEI is the one optional
+service, and it lives in a separate
 `compose.embedding.yaml` precisely so that the default stack cannot depend on a
 model server — see [Serving an embedding model](#serving-an-embedding-model).
 
@@ -1196,7 +1326,7 @@ later revisions, and every one of them is exercised against a real database.
 ## Tests
 
 ```powershell
-uv run pytest                 # unit suite, no infrastructure, ~0.5s
+uv run pytest                 # unit suite, no infrastructure
 uv run python scripts/provision_test_role.py
 uv run pytest -m integration  # disposable database per test
 ```
@@ -1270,8 +1400,8 @@ dependency the repository refuses to depend on. Nothing else is excluded.
 
 ```powershell
 uv run python -m dynamisrag                                    # local development
-uv run uvicorn --factory dynamisrag.application:create_app \
-  --host 0.0.0.0 --port 8000                                   # production-shaped
+uv run uvicorn --factory dynamisrag.application:create_app `
+  --host 127.0.0.1 --port 8000                                 # explicit loopback bind
 ```
 
 When the opt-in scientific answer service is enabled, open
@@ -1324,8 +1454,9 @@ completed. Reranking and agents remain out of scope. Local answer generation is
 extractive and checks canonical citations, but the pinned Qwen3 setup has not
 qualified positive grounded generation as a general capability. Do not present
 model-proposed claims as reviewed science. The owner approved the scope of a
-limited local Research Preview in RES-166 and its implementation is merged; it is
-not yet published. See
+limited local Research Preview in RES-166. It was published on 2026-11-10 as
+GitHub prerelease `v0.1.0-research-preview.1` at commit
+`a0832cde054d05382c4cc89248423165cbed8e0f`; RES-166 is Done. See
 [the Research Preview release record](docs/research-preview-release.md).
 
 What that means concretely. Embedding *generation* is implemented and
@@ -1339,18 +1470,6 @@ keeps the query prompt digest distinct from the indexed document embedding
 digest. Passage indexing still uses the existing projector and caller-supplied
 vectors; no corpus embedding job is part of this retrieval slice. BM25 search
 continues to serve both schema revisions and never selects a vector.
-
-## Copyright
-
-This repository is public-source: the code is publicly viewable, but no
-software licence is granted. Copyright © 2026 Julio Rodriguez. All rights
-reserved. See the notice at the top of this README.
-
-The all-rights-reserved notice applies to original DynamisRAG code and
-documentation only. Third-party materials retain their own copyright and
-license terms. See `tests/fixtures/README.md` for notices applicable to test
-fixtures and `data/research-edition-sample-v1/LICENSES.md` for the bundled
-Research Edition sample corpus.
 
 ## Qdrant retrieval backend
 
