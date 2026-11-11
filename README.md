@@ -46,6 +46,30 @@ git checkout --detach v0.1.0-research-preview.1
 - **Browser interface** — `http://127.0.0.1:8001/research` lists the authorized
   papers and shows retrieved evidence, claims and citations.
 
+## Architecture
+
+```mermaid
+flowchart LR
+    JATS["Licensed JATS articles"] --> Parser["JATS parser"] --> Chunker["Structure-aware chunker"]
+    Chunker --> PG[("PostgreSQL\ncanonical authority")]
+    PG -->|"projection"| OS[("OpenSearch\nBM25 + vector indexes")]
+    PG -->|"projection + vectors"| QD[("Qdrant\ndense / hybrid index")]
+
+    UI["Research UI\n/research"] --> API["FastAPI"]
+    API -->|"/search, /retrieve"| OS
+    API -->|"scientific retrieval"| QD
+    API -->|"query embedding"| TEI["TEI\nQwen3 Embedding 0.6B"]
+    API -->|"extractive answer"| OLL["Ollama\nQwen3 4B"]
+    API -->|"canonical evidence"| PG
+```
+
+PostgreSQL owns canonical state; OpenSearch and Qdrant are rebuildable
+projections. The browser talks only to FastAPI. The scientific answer path uses
+Qdrant hybrid retrieval, verifies canonical rows and source spans in PostgreSQL,
+and calls the pinned local TEI and Ollama services. See
+[architecture details](docs/architecture.md) for the ingestion and answer-path
+diagrams.
+
 ## Current limitations
 
 - The bundled corpus is **three scientific articles / 75 passages**.
@@ -118,6 +142,7 @@ Research Edition work; it uses a separate project.
 | Document | Purpose |
 | --- | --- |
 | [Research Edition guide](docs/research-edition.md) | Clean install, sample reproduction, backup and restore |
+| [Architecture](docs/architecture.md) | System context, ingestion/projection, and answer-path diagrams |
 | [Hardware and runtime requirements](docs/hardware-requirements.md) | Observed memory, storage, CPU profile and `NOT MEASURED` values |
 | [Testing and evidence boundaries](docs/testing-and-evidence.md) | What CI proves, what recorded acceptance proves, and what neither proves |
 | [Release record](docs/research-preview-release.md) | Publication facts, decision history and qualification evidence |
