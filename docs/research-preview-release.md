@@ -1,15 +1,36 @@
 # DynamisRAG Research Preview release record
 
-Status: **scope approved, implementation merged, release not published**.
+Status: **published as a GitHub prerelease on 2026-11-10**. This file records the
+release and retains the pre-publication decision history for audit.
+
+| Current fact | Value |
+| --- | --- |
+| Release | Research Preview `v0.1.0-research-preview.1` |
+| Publication | GitHub prerelease, 2026-11-10 (published 08:52 UTC) |
+| Tag | `v0.1.0-research-preview.1` (immutable) |
+| Release commit | `a0832cde054d05382c4cc89248423165cbed8e0f` |
+| Release URL | <https://github.com/Litju/DynamisRAG/releases/tag/v0.1.0-research-preview.1> |
+| Linear | RES-166 Done (2026-11-10) |
+| Post-merge CI | [run 42768273338](https://github.com/Litju/DynamisRAG/actions/runs/42768273338), all four jobs succeeded |
+
+The tag and release commit are immutable. Later documentation changes on `main`
+do not move the tag or rewrite the published source. The published release page
+contains the install, limitations, evidence, licensing and source-archive links.
+
+## Historical decision record (pre-publication, 2026-11-09)
+
+> This section is retained as the original decision state. Its "not published"
+> statements were true when recorded and are superseded by the publication
+> status above.
 
 | Decision | State | Record |
 | --- | --- | --- |
 | Release scope | Approved by the repository owner as `APPROVE_EXTRACTIVE_RESEARCH_PREVIEW` on 2026-11-09. The approval covers only the limited local, three-paper, extractive Research Preview described here. | RES-166 owner disposition comment |
 | Implementation | PR #31 merged into `main` with a merge commit (`1d53d0fa393bbe2d6e41e820a8cb8a19c4871653`) on 2026-11-09; all 28 branch commits are retained. | PR #31, RES-166 merge comment |
-| Publication | **Not authorized and not performed.** No Git tag, GitHub Release or deployment exists for this Preview. | — |
+| Publication | **Not authorized and not performed at that time.** No Git tag, GitHub Release or deployment existed on 2026-11-09. Publication was authorized and performed separately on 2026-11-10. | GitHub Release page |
 
-Scope approval does not approve any model-proposed claim, upgrade any scientific
-claim, or change the RES-583 baseline authority. Publication requires a separate
+Scope approval did not approve any model-proposed claim, upgrade any scientific
+claim, or change the RES-583 baseline authority. Publication required a separate
 explicit owner decision in RES-166.
 
 ## Product description
@@ -77,7 +98,8 @@ On `main` at merge commit `1d53d0fa393bbe2d6e41e820a8cb8a19c4871653`:
   sessions' state, so CI's fresh-database replay is the qualifying run. The
   protected reference database and the retained Qdrant instance were not used.
 
-Proposed prerelease notes: [`research-preview-release-notes.md`](research-preview-release-notes.md).
+Published prerelease notes: [`research-preview-release-notes.md`](research-preview-release-notes.md).
+The GitHub Release page is authoritative for publication metadata and archives.
 
 ## Qualification result
 
@@ -122,12 +144,15 @@ is still required before benchmark questions are called scientific gold.
 
 ## Remaining owner decisions
 
-1. Authorize or decline publication of the prerelease (tag and GitHub Release).
-   Neither has been performed.
+1. Decide whether to offer any software-use, evaluation, or other license for
+   external evaluation. The repository remains **All Rights Reserved**; no such
+   license is granted by this release record or by the installation
+   instructions. See the licensing notice in the [repository README](../README.md).
 2. Keep RES-578 expert adjudication as a prerequisite for any scientific-gold
    claim.
 3. Keep the RES-583 reconstructed baseline authority unchanged unless a separate
    governance decision changes it.
 
-RES-166 stays In Progress until the release is published and verified.
+RES-166 is Done. Documentation repairs after publication are tracked separately
+and do not reopen RES-166.
 

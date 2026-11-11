@@ -1,11 +1,13 @@
-# DynamisRAG Research Preview — proposed release notes
+# DynamisRAG Research Preview — release notes
 
-Status: **draft, unpublished**. These notes are prepared for the owner's
-publication decision in RES-166. No Git tag, GitHub Release or deployment has
-been created.
+Status: **published on 2026-11-10 as a GitHub prerelease**. This repository copy
+is retained with the released source; the GitHub Release page is authoritative
+for publication metadata and source archives.
 
-- Proposed tag: `v0.1.0-research-preview.1` (GitHub prerelease)
-- Proposed target commit: the `main` commit that contains this file
+- Tag: `v0.1.0-research-preview.1` (GitHub prerelease)
+- Release commit: `a0832cde054d05382c4cc89248423165cbed8e0f`
+- Published: 2026-11-10 (08:52 UTC)
+- Release URL: <https://github.com/Litju/DynamisRAG/releases/tag/v0.1.0-research-preview.1>
 - Python package version: unchanged at `0.1.0` (`pyproject.toml`)
 
 ---
@@ -67,8 +69,10 @@ documents backup and restore into a fresh, separate workspace.
 
 ### Licensing
 
-The DynamisRAG source code and documentation are public-source and
-**all rights reserved**: no software license is granted (see `README.md`). The
-three bundled JATS articles are redistributed unchanged under CC BY 4.0, with
-attribution in `data/research-edition-sample-v1/LICENSES.md`. Retain those
-notices when redistributing the sample.
+The DynamisRAG source code and documentation are publicly viewable and
+**all rights reserved**: no software license is granted (see `README.md`). Public
+visibility and the installation instructions do not grant legal permission to
+install, run, modify, or redistribute the software. The three bundled JATS
+articles are redistributed unchanged under CC BY 4.0, with attribution in
+`data/research-edition-sample-v1/LICENSES.md`. Retain those notices when
+redistributing the sample.

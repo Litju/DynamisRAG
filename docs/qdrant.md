@@ -7,7 +7,10 @@ There is no inference, model download, training, reranking or generation in this
 
 ## Run and verify from PowerShell
 
-Run from `E:\Data\Projects\DynamisRAG` with Docker Desktop and the existing `.env`:
+Run from the repository root with Docker Desktop and the existing `.env`. These
+commands start the default development project (`dynamisrag`), not the isolated
+Research Edition project. Do not point them at a retained or protected stack,
+and never use `docker compose down -v` against retained data.
 
 ```powershell
 docker compose up -d --wait qdrant
