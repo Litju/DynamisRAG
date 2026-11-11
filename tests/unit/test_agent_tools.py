@@ -89,6 +89,7 @@ def _seed_study(
         artifact_key=art_key,
     )
     session.add(artifact)
+    session.flush()
 
     doc_id = uuid4()
     doc_key = document_canonical_key(doi=doi, pmid=pmid, pmcid=pmcid, title=title)
@@ -99,6 +100,7 @@ def _seed_study(
         title=title,
     )
     session.add(document)
+    session.flush()
 
     for ns, val in (("doi", doi), ("pmid", pmid), ("pmcid", pmcid)):
         session.add(
@@ -127,6 +129,7 @@ def _seed_study(
         version_key=ver_key,
     )
     session.add(version)
+    session.flush()
 
     sec_id = uuid4()
     sec_fp = digest(section_title)
@@ -146,6 +149,7 @@ def _seed_study(
         section_key=sec_key,
     )
     session.add(section)
+    session.flush()
 
     p_keys: list[str] = []
     s_keys: list[str] = []
@@ -184,6 +188,7 @@ def _seed_study(
             passage_key=pass_k,
         )
         session.add(passage)
+        session.flush()
 
         span_k = passage_source_span_key(pass_k, 0)
         span = PassageSourceSpanRecord(
