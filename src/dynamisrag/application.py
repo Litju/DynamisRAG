@@ -25,6 +25,7 @@ from sqlalchemy.engine import Engine
 
 from dynamisrag import __version__
 from dynamisrag.agent.graph import ConversationalResearchOrchestrator
+from dynamisrag.agent.langsmith_eval import configure_privacy_safe_langsmith
 from dynamisrag.agent.persistence import (
     AgentConversationStore,
     InMemoryAgentConversationStore,
@@ -86,8 +87,13 @@ def _build_agent_services(
     ScientificToolRegistry | None,
     ConversationalResearchOrchestrator | None,
 ]:
+    configure_privacy_safe_langsmith(
+        tracing_enabled=resolved.agent_langsmith_tracing_enabled,
+        project_name=resolved.agent_langsmith_project,
+    )
     if not resolved.agent_enabled:
         return None, None, None
+
     store: AgentConversationStore = (
         PostgresAgentConversationStore(
             str(resolved.database_url),

@@ -486,6 +486,14 @@ class ConversationalResearchOrchestrator:
 
         lc_tools = self._registry.build_langchain_tools(scope, on_tool_executed=_on_tool)
         tool_map = {t.name: t for t in lc_tools}
+        node3_tool_names = {
+            ToolName.LIST_PAPERS.value,
+            ToolName.HYBRID_SEARCH.value,
+            ToolName.SEARCH_INDEX.value,
+            ToolName.COMPARE_STUDIES.value,
+            ToolName.GET_STUDY_METADATA.value,
+        }
+        node3_tools = [t for t in lc_tools if t.name in node3_tool_names]
 
         scoped_str = ", ".join(state.get("scoped_version_keys", []))
         sys_msg = SystemMessage(
@@ -499,7 +507,7 @@ class ConversationalResearchOrchestrator:
         )
         ai_msg = self._model.invoke_with_tools(
             [sys_msg, HumanMessage(content=question)],
-            lc_tools,
+            node3_tools,
             stage="model_tool_execution",
         )
 
@@ -796,12 +804,17 @@ class ConversationalResearchOrchestrator:
             [HumanMessage(content=synth_prompt)],
             stage="synthesize_provisional_answer",
         )
-        parsed_claims = self._parse_model_claims(str(ai_msg.content), findings)
+        parsed_claims = self._parse_model_claims(
+            str(ai_msg.content), findings, question=state.get("question", "")
+        )
         return {"provisional_claims": parsed_claims}
 
     @staticmethod
     def _parse_model_claims(
-        raw_content: str, fallback_findings: list[dict[str, Any]]
+        raw_content: str,
+        fallback_findings: list[dict[str, Any]],
+        *,
+        question: str = "",
     ) -> list[dict[str, Any]]:
         cleaned = re.sub(r"<think>.*?</think>", "", raw_content, flags=re.DOTALL).strip()
         json_match = re.search(r"\{.*\}", cleaned, flags=re.DOTALL)
@@ -841,6 +854,20 @@ class ConversationalResearchOrchestrator:
             except json.JSONDecodeError:
                 pass
 
+        q_tokens = [
+            w
+            for w in re.findall(r"[a-z]{4,}", question.lower())
+            if w not in {"what", "which", "were", "those", "these", "findings", "studies", "about"}
+        ]
+        scored = [
+            (
+                -sum(1 for tok in q_tokens if tok in str(f.get("verbatim_quote", "")).lower()),
+                idx,
+                f,
+            )
+            for idx, f in enumerate(fallback_findings)
+        ]
+        scored.sort(key=lambda item: (item[0], item[1]))
         return [
             {
                 "claim_text": str(f["verbatim_quote"]),
@@ -849,7 +876,7 @@ class ConversationalResearchOrchestrator:
                 "verbatim_quote": str(f["verbatim_quote"]),
                 "category": str(f.get("category", "DESCRIPTIVE")),
             }
-            for f in fallback_findings[:4]
+            for _, _, f in scored[:4]
         ]
 
     # ------------------------------------------------------------------

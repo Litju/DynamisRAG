@@ -103,3 +103,21 @@ A structurally invalid claim is rejected, and an unsupported question returns
 claim is copied from the cited span; they do not prove scientific entailment or
 truth. See [testing and evidence boundaries](testing-and-evidence.md) for what
 the recorded acceptance does and does not establish.
+
+## Conversational scientific research agent (`/api/v2`)
+
+For multi-turn scientific investigation, DynamisRAG exposes a stateful
+10-node LangGraph orchestrator under `/api/v2` (see
+[RES-637 conversational agent architecture](res637-conversational-agent-architecture.md)
+and [RES-637 model qualification](res637-agent-qualification.md)):
+
+- **Canonical read-only boundary**: all 10 scientific tools execute inside
+  `REPEATABLE READ READ ONLY` transactions on canonical PostgreSQL tables while
+  reading hybrid retrieval candidates from Qdrant and OpenSearch projections.
+- **Isolated operational state**: conversation threads, run records, SSE event
+  logs, and LangGraph checkpoints live in an isolated PostgreSQL schema
+  (`agent_v2`) and never mutate canonical scientific tables.
+- **Independent canonical verification**: provisional model claims are verified
+  against `passage_source_span` character coordinates (`MODEL_PROPOSED`
+  provenance) before any citation is emitted.
+

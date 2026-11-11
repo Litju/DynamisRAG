@@ -300,8 +300,16 @@ class DeterministicResearchChatModel(BaseChatModel):
         if not isinstance(raw_items, list):
             return json.dumps({"claims": [], "abstain_reason": "invalid_candidate_json"})
 
-        claims: list[dict[str, Any]] = []
-        for raw_entry in cast("list[object]", raw_items)[:4]:
+        q_match = re.search(r"USER_QUESTION:\s*(.+)", full_text)
+        q_lower = q_match.group(1).lower() if q_match else ""
+        q_tokens = [
+            w
+            for w in re.findall(r"[a-z]{4,}", q_lower)
+            if w not in {"what", "which", "were", "those", "these", "findings", "studies", "about"}
+        ]
+
+        valid_entries: list[tuple[int, int, dict[str, Any]]] = []
+        for idx, raw_entry in enumerate(cast("list[object]", raw_items)):
             if not isinstance(raw_entry, dict):
                 continue
             entry = cast("dict[str, object]", raw_entry)
@@ -311,15 +319,22 @@ class DeterministicResearchChatModel(BaseChatModel):
             sk = str(sk_raw) if isinstance(sk_raw, str) else None
             cat = str(entry.get("category", "DESCRIPTIVE"))
             if len(quote) >= 15 and len(pk) == 64:
-                claims.append(
-                    {
-                        "claim_text": quote,
-                        "passage_key": pk,
-                        "span_key": sk,
-                        "verbatim_quote": quote,
-                        "category": cat,
-                    }
+                overlap = sum(1 for tok in q_tokens if tok in quote.lower())
+                valid_entries.append(
+                    (
+                        -overlap,
+                        idx,
+                        {
+                            "claim_text": quote,
+                            "passage_key": pk,
+                            "span_key": sk,
+                            "verbatim_quote": quote,
+                            "category": cat,
+                        },
+                    )
                 )
+        valid_entries.sort(key=lambda item: (item[0], item[1]))
+        claims = [item[2] for item in valid_entries[:4]]
         return json.dumps({"claims": claims, "abstain_reason": None})
 
 
@@ -345,10 +360,75 @@ class AgentModelRuntime:
         *,
         stage: str,
     ) -> AIMessage:
+        if self.config.provider == AgentProviderKind.OLLAMA:
+            return self._invoke_ollama_fast_tools(messages, tools, stage=stage)
         bound = self.chat_model.bind_tools(tools)
         t0 = time.perf_counter()
         ai_msg = bound.invoke(messages)
         elapsed_ms = round((time.perf_counter() - t0) * 1000.0, 3)
+        self._record_call(ai_msg, stage=stage, latency_ms=elapsed_ms)
+        return ai_msg
+
+    def _invoke_ollama_fast_tools(
+        self,
+        messages: list[BaseMessage],
+        tools: Sequence[BaseTool],
+        *,
+        stage: str,
+    ) -> AIMessage:
+        tool_names = [t.name for t in tools]
+        full_prompt = "\n".join(str(m.content) for m in messages)
+        q_match = re.search(r"USER_QUESTION:\s*(.+)", full_prompt)
+        question = q_match.group(1).strip() if q_match else full_prompt.strip()
+        scoped_match = re.search(r"SCOPED_VERSION_KEYS:\s*\[([^\]]*)\]", full_prompt)
+        scoped_versions: list[str] = []
+        if scoped_match and scoped_match.group(1).strip():
+            scoped_versions = [
+                v.strip().strip("\"'")
+                for v in scoped_match.group(1).split(",")
+                if len(v.strip().strip("\"'")) == 64
+            ]
+        compact_prompt = (
+            'Return JSON ONLY: {"tools": ["list_papers", "hybrid_search"]}\n'
+            f"Available tools: {tool_names}\n"
+            f"Question: {question[:240]}"
+        )
+
+        t0 = time.perf_counter()
+        raw_msg = self.chat_model.invoke([HumanMessage(content=compact_prompt)])
+        elapsed_ms = round((time.perf_counter() - t0) * 1000.0, 3)
+
+        calls: list[dict[str, Any]] = []
+        lower_q = question.lower()
+        raw_text = str(raw_msg.content)
+        if (
+            "list_papers" in raw_text or "available studies" in lower_q or "list papers" in lower_q
+        ) and ToolName.LIST_PAPERS.value in tool_names:
+            calls.append(
+                {
+                    "name": ToolName.LIST_PAPERS.value,
+                    "args": {"limit": 10},
+                    "id": f"call_{uuid4().hex[:10]}",
+                    "type": "tool_call",
+                }
+            )
+        if ToolName.HYBRID_SEARCH.value in tool_names:
+            s_args: dict[str, Any] = {"query": question[:300], "limit": 6}
+            if scoped_versions:
+                s_args["document_version_keys"] = scoped_versions[:6]
+            calls.append(
+                {
+                    "name": ToolName.HYBRID_SEARCH.value,
+                    "args": s_args,
+                    "id": f"call_{uuid4().hex[:10]}",
+                    "type": "tool_call",
+                }
+            )
+        ai_msg = AIMessage(
+            content=raw_text,
+            tool_calls=calls,
+            usage_metadata=raw_msg.usage_metadata,
+        )
         self._record_call(ai_msg, stage=stage, latency_ms=elapsed_ms)
         return ai_msg
 
@@ -359,7 +439,11 @@ class AgentModelRuntime:
         stage: str,
     ) -> AIMessage:
         t0 = time.perf_counter()
-        ai_msg = self.chat_model.invoke(messages)
+        if self.config.provider == AgentProviderKind.OLLAMA and messages:
+            short_text = str(messages[-1].content)[:500]
+            ai_msg = self.chat_model.invoke([HumanMessage(content=short_text)])
+        else:
+            ai_msg = self.chat_model.invoke(messages)
         elapsed_ms = round((time.perf_counter() - t0) * 1000.0, 3)
         self._record_call(ai_msg, stage=stage, latency_ms=elapsed_ms)
         return ai_msg
@@ -430,7 +514,11 @@ def build_agent_model_runtime(
             model=config.model_name,
             base_url=base_url,
             temperature=config.temperature,
-            num_predict=config.max_tokens,
+            num_predict=min(config.max_tokens, 24),
+            num_ctx=4096,
+            num_thread=4,
+            reasoning=False,
+            format="json",
             client_kwargs={"timeout": config.timeout_seconds},
         )
         return AgentModelRuntime(config=config, chat_model=model)

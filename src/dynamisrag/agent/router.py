@@ -17,7 +17,9 @@ Security and boundary enforcement:
 - Cross-user thread or run access returns `403 Forbidden`.
 """
 
+import hmac
 import json
+import re
 import threading
 import time
 from collections.abc import Callable, Iterator
@@ -50,6 +52,8 @@ from dynamisrag.agent.persistence import (
 )
 from dynamisrag.agent.tools import ScientificToolRegistry
 from dynamisrag.domain.values import Sha256Hex
+
+_USER_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$")
 
 
 class CreateThreadRequest(AgentContract):
@@ -147,7 +151,7 @@ class _AuthVerifier:
                     detail={"code": "missing_bearer_token", "message": "Bearer token required"},
                 )
             provided = authorization.removeprefix("Bearer ").strip()
-            if provided != self.expected_api_token:
+            if not hmac.compare_digest(provided, self.expected_api_token):
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail={"code": "invalid_bearer_token", "message": "Invalid bearer token"},
@@ -162,7 +166,7 @@ class _AuthVerifier:
                 },
             )
         uid = x_dynamis_user_id.strip()
-        if len(uid) > 128 or not uid[0].isalnum():
+        if not _USER_ID_RE.match(uid):
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail={"code": "invalid_user_id", "message": "Invalid X-Dynamis-User-Id format"},
