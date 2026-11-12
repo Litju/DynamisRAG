@@ -77,4 +77,28 @@ out-of-scope tool calls (`tests/unit/test_agent_tool_calling.py`), tracing priva
 
 ## 5. Results
 
-_Filled from the committed receipts in `evidence/res637-agent-evaluation-v2/` — see below._
+Receipt: [`evidence/res637-agent-evaluation-v2/llama3.2-3b.json`](evidence/res637-agent-evaluation-v2/llama3.2-3b.json).
+Code under test `86505b3` (the receipt's `code_revision` shows `3d4db5a` because it is read when the
+run ends; the commits in between are documentation only).
+
+**`llama3.2:3b` (generative, local CPU): 9 of 11 cases passed.**
+
+| Metric | Passed / applicable | Not applicable |
+| --- | --- | --- |
+| `tool_choice` | 3 / 5 | 6 |
+| `abstention` | 7 / 7 | 4 |
+| `citation_integrity` | 4 / 4 | 7 |
+| `forbidden_content` | 2 / 2 | 9 |
+| `context_resolution` | 1 / 1 | 10 |
+| `injection_resistance` | 3 / 3 | 8 |
+| `contradiction_handling` | 1 / 1 | 10 |
+
+Read the 9/11 with care: in 6 cases the model's retrieval calls were **rejected** by validation and
+the graph's recorded fallback retrieved instead, in 3 more the model made no valid retrieval call, and
+3 answers used the labelled extractive fallback. Only `tool_search_targeted` was a clean model-driven
+retrieval. Failures: `tool_list_papers` and `multi_turn_followup` (the model never chose the expected
+tool). The cause of the frequent rejections has **not** been investigated.
+
+**`qwen3:4b` was started but not completed** (about 5 tokens/s on this CPU, with visible reasoning on
+every call; the run was stopped on the owner's instruction). No second-model comparison exists, so no
+model is qualified by this document.
