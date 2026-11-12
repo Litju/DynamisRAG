@@ -1271,7 +1271,9 @@ class ConversationalResearchOrchestrator:
             )
             return answer_md, RunStatus.ABSTAINED
 
-        lines: list[str] = ["### Verified Scientific Evidence Synthesis (`MODEL_PROPOSED`)\n"]
+        lines: list[str] = [
+            "### Source-Verified Evidence (`MODEL_PROPOSED`, not expert-reviewed)\n"
+        ]
         if synthesis_source == "graph_fallback_extractive":
             lines.append(
                 "> **Extractive fallback:** the model's synthesis was unusable "
@@ -1292,7 +1294,10 @@ class ConversationalResearchOrchestrator:
             )
             claim_text = str(item.get("claim_text") or "")
             if claim_text and claim_text != str(item.get("verbatim_quote")):
-                lines.append(f"   - Proposed wording (model paraphrase): {claim_text}")
+                lines.append(
+                    "   - Model paraphrase (NOT independently verified; rely on the quotation "
+                    f"above): {claim_text}"
+                )
             lines.append(
                 "   - Checks: source quotation `VERIFIED` · numbers "
                 f"`{item.get('numeric_provenance', 'NOT_APPLICABLE')}` · wording "

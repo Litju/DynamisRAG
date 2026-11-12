@@ -44,7 +44,10 @@ SemanticSupport = Literal[
     "IDENTICAL_TO_QUOTE", "SUPPORTED_BY_LEXICAL_HEURISTIC", "UNSUPPORTED", "NOT_ASSESSED"
 ]
 
-_NUMBER: Final = re.compile(r"(?<![\w.])(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+))?(\s*%)?")
+_NUMBER: Final = re.compile(
+    r"(?<![\w.])(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d+))?(\s*(?:%|percent(?![a-z])|per\s+cent(?![a-z])))?",
+    flags=re.IGNORECASE,
+)
 _WORD: Final = re.compile(r"[a-z][a-z-]{3,}")
 _STOP: Final[frozenset[str]] = frozenset(
     {
@@ -61,15 +64,29 @@ _NEGATION: Final[frozenset[str]] = frozenset(
 _UP: Final[frozenset[str]] = frozenset(
     {
         "increase", "increased", "increases", "increasing", "higher", "greater", "improved",
-        "improvement", "improves", "gain", "gains", "rise", "rose", "elevated", "enhanced",
-        "enhance", "larger", "more", "stiffer", "faster",
+        "improvement", "improves", "improve", "gain", "gains", "gained", "rise", "rises", "rose",
+        "raised", "raises", "raise", "elevated", "elevates", "elevate", "enhanced", "enhances",
+        "enhance", "boosted", "boosts", "promoted", "promotes", "accelerated", "accelerates",
+        "amplified", "amplifies", "upregulated", "upregulates", "larger", "more", "stiffer",
+        "faster", "stronger", "longer", "taller", "growth", "grew", "expanded", "expands",
     }
 )  # fmt: skip
 _DOWN: Final[frozenset[str]] = frozenset(
     {
         "decrease", "decreased", "decreases", "decreasing", "reduced", "reduction", "reduces",
-        "lower", "declined", "decline", "drop", "dropped", "less", "diminished", "worse",
-        "impaired", "smaller", "slower", "fewer", "loss",
+        "reduce", "lower", "lowers", "lowered", "declined", "decline", "declines", "drop",
+        "dropped", "drops", "less", "diminished", "diminishes", "worse", "worsened", "worsens",
+        "impaired", "impairs", "smaller", "slower", "slowed", "slows", "fewer", "loss",
+        "suppressed", "suppresses", "suppress", "inhibited", "inhibits", "inhibit", "attenuated",
+        "attenuates", "blunted", "blunts", "dampened", "abolished", "abolishes", "downregulated",
+        "downregulates", "weaker", "shorter", "shrank", "shrinks", "diminution",
+    }
+)  # fmt: skip
+_HEDGE: Final[frozenset[str]] = frozenset(
+    {
+        "may", "might", "could", "suggest", "suggests", "suggested", "possibly", "possible",
+        "potentially", "potential", "trend", "trended", "appears", "appeared", "likely",
+        "tentatively", "preliminary", "approximately", "about",
     }
 )  # fmt: skip
 _CAUSAL: Final[tuple[str, ...]] = (
@@ -96,35 +113,33 @@ def _canonical_number(whole: str, fraction: str | None) -> str:
 
 
 def _numbers(text: str) -> tuple[set[str], set[str]]:
-    """Return (all canonical numbers, numbers written as a percentage)."""
+    """Return (numbers written WITHOUT a percent sign, numbers written as a percentage)."""
     plain: set[str] = set()
     percent: set[str] = set()
     for match in _NUMBER.finditer(text):
         value = _canonical_number(match.group(1), match.group(2))
-        plain.add(value)
-        if match.group(3):
-            percent.add(value)
-    for match in re.finditer(
-        r"(\d+)(?:\.(\d+))?\s*(?:percent|per cent)(?![a-z])", text, flags=re.I
-    ):
-        value = _canonical_number(match.group(1), match.group(2))
-        plain.add(value)
-        percent.add(value)
+        (percent if match.group(3) else plain).add(value)
     return plain, percent
 
 
 def assess_numeric_provenance(claim_text: str, quote: str) -> tuple[NumericProvenance, list[str]]:
-    """Check that the claim's numbers (and percent-ness) are those of the quoted span."""
-    claim_all, claim_pct = _numbers(claim_text)
-    if not claim_all:
+    """Check the claim's numbers (and their percent-ness, in BOTH directions) against the quote."""
+    claim_plain, claim_pct = _numbers(claim_text)
+    if not claim_plain and not claim_pct:
         return "NOT_APPLICABLE", []
-    quote_all, quote_pct = _numbers(quote)
-    missing = sorted(claim_all - quote_all)
+    quote_plain, quote_pct = _numbers(quote)
+    quote_all = quote_plain | quote_pct
+    missing = sorted((claim_plain | claim_pct) - quote_all)
     if missing:
         return "FAILED", [f"number_not_in_quoted_span:{','.join(missing)}"]
-    not_pct = sorted(claim_pct - quote_pct)
-    if not_pct:
-        return "FAILED", [f"claimed_as_percentage_but_not_in_quote:{','.join(not_pct)}"]
+    # "36.8%" claimed where the quote says "36.8 cm" (absolute restated as a percentage)...
+    as_pct = sorted(claim_pct - quote_pct)
+    if as_pct:
+        return "FAILED", [f"claimed_as_percentage_but_not_in_quote:{','.join(as_pct)}"]
+    # ...and "5 patients" claimed where the quote says "5% of patients" (percentage as a count).
+    as_count = sorted((claim_plain & quote_pct) - quote_plain)
+    if as_count:
+        return "FAILED", [f"quote_gives_percentage_but_claim_does_not:{','.join(as_count)}"]
     return "VERIFIED", []
 
 
@@ -144,6 +159,22 @@ def _normalise(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip().casefold()
 
 
+def _polarity_sequence(text: str) -> list[int]:
+    """Ordered +1/-1 direction-of-change words (so swapped roles reverse the sequence)."""
+    sequence: list[int] = []
+    for word in re.findall(r"[a-z]+", text.lower()):
+        if word in _UP:
+            sequence.append(1)
+        elif word in _DOWN:
+            sequence.append(-1)
+    return sequence
+
+
+def _is_ordered_subsequence(needle: list[int], haystack: list[int]) -> bool:
+    iterator = iter(haystack)
+    return all(any(item == candidate for candidate in iterator) for item in needle)
+
+
 @dataclass(frozen=True)
 class SemanticAssessment:
     status: SemanticSupport
@@ -154,7 +185,12 @@ class SemanticAssessment:
 def assess_semantic_support(claim_text: str, quote: str) -> SemanticAssessment:
     """Lexical-consistency check of a claim against the quote it cites (see module limits)."""
     claim_norm, quote_norm = _normalise(claim_text), _normalise(quote)
-    if claim_norm == quote_norm or claim_norm in quote_norm:
+    claim_tok, quote_tok = _tokens(claim_text), _tokens(quote)
+    if claim_norm == quote_norm:
+        return SemanticAssessment("IDENTICAL_TO_QUOTE", 1.0, ())
+    if claim_norm in quote_norm and not (quote_tok & (_NEGATION | _HEDGE)) - claim_tok:
+        # A fragment of the quote only counts as the quote itself when it does not strip a
+        # negation or hedge that the full sentence carries ("no significant increase" -> "...").
         return SemanticAssessment("IDENTICAL_TO_QUOTE", 1.0, ())
 
     claim_stems = _content_stems(claim_text)
@@ -165,18 +201,21 @@ def assess_semantic_support(claim_text: str, quote: str) -> SemanticAssessment:
         missing = sorted(claim_stems - quote_stems)[:6]
         reasons.append(f"content_not_in_quote:{','.join(missing)}")
 
-    claim_tok, quote_tok = _tokens(claim_text), _tokens(quote)
     claim_neg = bool(claim_tok & _NEGATION) or "n't" in claim_text.lower()
     quote_neg = bool(quote_tok & _NEGATION) or "n't" in quote.lower()
     if claim_neg != quote_neg:
         reasons.append("negation_mismatch")
 
-    claim_up, claim_down = bool(claim_tok & _UP), bool(claim_tok & _DOWN)
-    quote_up, quote_down = bool(quote_tok & _UP), bool(quote_tok & _DOWN)
-    if claim_up and not claim_down and not quote_up:
-        reasons.append("reversed_direction" if quote_down else "direction_not_in_quote")
-    if claim_down and not claim_up and not quote_down:
-        reasons.append("reversed_direction" if quote_up else "direction_not_in_quote")
+    claim_seq, quote_seq = _polarity_sequence(claim_text), _polarity_sequence(quote)
+    if claim_seq:
+        if not quote_seq:
+            reasons.append("direction_not_in_quote")
+        elif not _is_ordered_subsequence(claim_seq, quote_seq) or (
+            len(claim_seq) == len(quote_seq) and claim_seq != quote_seq
+        ):
+            reasons.append("reversed_direction")
+    if (quote_tok & _HEDGE) - claim_tok:
+        reasons.append("hedge_dropped")
 
     claim_lower, quote_lower = claim_text.lower(), quote.lower()
     if any(p in claim_lower and p not in quote_lower for p in _CAUSAL):

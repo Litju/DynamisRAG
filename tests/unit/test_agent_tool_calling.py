@@ -366,3 +366,19 @@ def test_parse_model_claims_distinguishes_every_outcome() -> None:
         assert out.source == "graph_fallback_extractive" and out.fallback_reason == reason
     # The message type the human turn is built from is used by the prompt builder.
     assert HumanMessage(content="x").type == "human"
+
+
+def test_comparison_rationale_is_derived_from_the_studies_not_boilerplate() -> None:
+    from dynamisrag.agent.contracts import CompareStudiesInput, DataScope
+
+    stack = build_stack()
+    keys = (stack.studies["PMC5263151"][0], stack.studies["PMC10780924"][0])
+    env = stack.registry.compare_studies(
+        CompareStudiesInput(document_version_keys=keys),
+        DataScope(user_id="u", thread_id="t", run_id="r"),
+    )
+    assert env.ok and env.payload is not None
+    rationale = env.payload["comparison"]["compatibility_rationale"].lower()
+    for boilerplate in ("cricket", "sled", "neuromuscular domains"):
+        assert boilerplate not in rationale
+    assert "study design" in rationale or "shared" in rationale

@@ -103,6 +103,57 @@ def test_semantic_support_rejects_overreach_and_accepts_faithful_wording(
         assert any(r.startswith(reason) for r in assessment.reasons)
 
 
+@pytest.mark.parametrize(
+    ("claim", "quote", "reason"),
+    [
+        # Antonyms outside any short word list (found by independent review).
+        (
+            "Treatment lowers mortality in elderly patients.",
+            "Treatment raises mortality in elderly patients.",
+            "reversed_direction",
+        ),
+        ("Exercise elevates cortisol.", "Exercise suppresses cortisol.", "reversed_direction"),
+        # Swapped roles: same words, opposite assignment.
+        (
+            "A decreased and B increased.",
+            "A increased and B decreased.",
+            "reversed_direction",
+        ),
+        # A fragment that strips the negation from its own sentence is not "the quote".
+        (
+            "significant increase in mortality",
+            "There was no significant increase in mortality.",
+            "negation_mismatch",
+        ),
+        # A hedged finding restated as a definite one.
+        (
+            "Training increases tendon stiffness.",
+            "Training may increase tendon stiffness in some participants.",
+            "hedge_dropped",
+        ),
+    ],
+)
+def test_review_found_bypasses_are_now_rejected(claim: str, quote: str, reason: str) -> None:
+    assessment = assess_semantic_support(claim, quote)
+    assert assessment.status == "UNSUPPORTED", assessment
+    assert reason in assessment.reasons
+
+
+def test_a_percentage_restated_as_a_count_is_caught() -> None:
+    result, reasons = assess_numeric_provenance(
+        "5 patients responded to treatment.", "5% of patients responded to treatment."
+    )
+    assert result == "FAILED" and "quote_gives_percentage_but_claim_does_not" in reasons[0]
+
+
+def test_faithful_paraphrases_still_pass_after_hardening() -> None:
+    for claim in (
+        "Achilles tendon stiffness rose by 24.5% during depth jumping.",
+        "Depth jumping raised Achilles tendon stiffness by 24.5%.",
+    ):
+        assert assess_semantic_support(claim, QUOTE).status != "UNSUPPORTED", claim
+
+
 def test_dropped_negation_in_the_other_direction_is_also_caught() -> None:
     quote = "There was no significant difference in tendon stiffness between groups."
     assessment = assess_semantic_support("Tendon stiffness differed between groups.", quote)

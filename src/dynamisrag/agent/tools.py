@@ -1607,17 +1607,20 @@ class ScientificToolRegistry:
         elif not shared_outcomes and not (shared_units - {"unit_not_explicit"}):
             compat = "INCOMPATIBLE_OUTCOMES_OR_UNITS"
             rationale = (
-                "Studies measure distinct biomechanical/performance endpoints or use "
-                "incompatible units and protocols; numerical pooling or direct effect-size "
-                "equivalence is scientifically invalid."
+                "The studies share no outcome terms and no explicit measurement unit; "
+                "numerical pooling or direct effect-size equivalence is not supported by the "
+                "extracted evidence."
             )
         else:
             compat = "METHODOLOGICALLY_HETEROGENEOUS"
             rationale = (
-                "Studies investigate related plyometric/neuromuscular domains but differ in "
-                "study design, participant populations, exercise tasks (e.g., non-jumping "
-                "sled plyometrics vs. randomized cricket training vs. depth jumping), and "
-                "measurement instrumentation."
+                "The studies are neither clearly directly comparable nor clearly unrelated: "
+                f"{len(designs)} distinct study design(s) "
+                f"({', '.join(sorted(designs)) or 'not stated'}); "
+                f"{len(shared_outcomes)} shared outcome term(s); "
+                f"{len(shared_units - {'unit_not_explicit'})} shared measurement unit(s). "
+                "Population, protocol and instrumentation differences (listed per study) must "
+                "be weighed before any numerical combination."
             )
 
         method_diffs = tuple(
@@ -1643,8 +1646,7 @@ class ScientificToolRegistry:
             studies=dimensions,
             evidence_compatibility=compat,
             compatibility_rationale=rationale,
-            shared_constructs=tuple(sorted(shared_outcomes))
-            or ("plyometric neuromuscular conditioning",),
+            shared_constructs=tuple(sorted(shared_outcomes)),
             methodology_differences=method_diffs,
             outcome_and_unit_differences=outcome_diffs,
             uncertainty_and_gaps=(
