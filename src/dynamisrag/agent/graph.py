@@ -82,26 +82,57 @@ from dynamisrag.domain.evidence import Relation
 _logger = logging.getLogger("dynamisrag.agent.graph")
 
 
-_NEGATIONS: Final = frozenset({"not", "no", "without", "never", "except", "excluding", "neither"})
+_NEGATIONS: Final = frozenset(
+    {"not", "no", "without", "never", "except", "excluding", "neither", "nor", "non", "nt"}
+)
+_DIRECTION_PAIRS: Final = (
+    ("higher", "lower"),
+    ("increase", "decrease"),
+    ("increased", "decreased"),
+    ("more", "less"),
+    ("greater", "fewer"),
+    ("improve", "worsen"),
+    ("improved", "worsened"),
+    ("before", "after"),
+)
 _REWRITE_STOPWORDS: Final = frozenset(
     {"which", "about", "those", "these", "their", "there", "other", "after", "before"}
 )
+_HEX64: Final = re.compile(r"(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])", re.IGNORECASE)
 
 
 def _rewrite_preserves_question(original: str, rewrite: str) -> bool:
     """A follow-up rewrite may add context but must not drop or flip what the user asked.
 
-    Every negation and at least 60% of the user's own content words must survive, and the rewrite
-    may not smuggle a document key (64 hex characters) the user never wrote.
+    Every negation (including contractions such as "doesn't"), every comparative direction word,
+    every number or short identifier (TNF, IL6, p53, 12) and at least 60% of the user's longer
+    content words must survive, and the rewrite may not introduce a 64-hex document key the user
+    did not write. A question with nothing checkable cannot be rewritten safely and is refused.
     """
-    if re.search(r"\b[0-9a-f]{64}\b", rewrite, flags=re.IGNORECASE):
+    original_keys = {m.lower() for m in _HEX64.findall(original)}
+    if any(m.lower() not in original_keys for m in _HEX64.findall(rewrite)):
         return False
-    original_words = set(re.findall(r"[a-z0-9]+", original.lower()))
-    rewrite_words = set(re.findall(r"[a-z0-9]+", rewrite.lower()))
+    original_words = set(
+        re.findall(r"[a-z0-9]+", original.lower().replace("n't", " not").replace("'", " "))
+    )
+    rewrite_words = set(
+        re.findall(r"[a-z0-9]+", rewrite.lower().replace("n't", " not").replace("'", " "))
+    )
     if (original_words & _NEGATIONS) - rewrite_words:
         return False
+    for left, right in _DIRECTION_PAIRS:
+        for word in (left, right):
+            if word in original_words and word not in rewrite_words:
+                return False
+    short_or_numeric = {
+        w for w in original_words if w not in _NEGATIONS and (any(c.isdigit() for c in w))
+    }
+    if short_or_numeric - rewrite_words:
+        return False
     content = {w for w in original_words if len(w) >= 5 and w not in _REWRITE_STOPWORDS}
-    return not content or len(content & rewrite_words) / len(content) >= 0.6
+    if not content:
+        return False
+    return len(content & rewrite_words) / len(content) >= 0.6
 
 
 def escalation_reason(comparison: dict[str, Any] | None) -> EscalationReason | None:

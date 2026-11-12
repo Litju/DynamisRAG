@@ -339,11 +339,8 @@ class RoutedModelRuntime:
         """
         if not snapshot:
             return
-        with self._lock:
-            current = self._ledgers.get(run_id)
-            if current is not None and current.records:
-                return
-            self._ledgers[run_id] = _Ledger(
+        try:
+            restored = _Ledger(
                 records=[
                     ModelCallTelemetry.model_validate(r)
                     for r in cast("list[dict[str, Any]]", snapshot.get("records") or [])
@@ -351,8 +348,17 @@ class RoutedModelRuntime:
                 events=[str(e) for e in cast("list[Any]", snapshot.get("events") or [])],
                 pro_escalations=int(snapshot.get("pro_escalations", 0) or 0),
             )
-
-    # -- selection ------------------------------------------------------------------------
+        except (ValueError, TypeError):
+            # Schema skew must not turn crash recovery into a permanent failure: start a fresh
+            # ledger and say so. Spend then restarts from zero for this run (recorded).
+            restored = _Ledger(events=["ledger_restore_failed"])
+        with self._lock:
+            current = self._ledgers.get(run_id)
+            if current is not None and (
+                current.records or current.events or current.pro_escalations
+            ):
+                return
+            self._ledgers[run_id] = restored
 
     def _usage(self, ledger: _Ledger, role: ModelRole | None) -> tuple[int, int, float, float]:
         rows = [r for r in ledger.records if role is None or r.role == role.value]
@@ -371,7 +377,10 @@ class RoutedModelRuntime:
         budget = spec.budget
         requests, tokens, latency, cost = self._usage(ledger, role)
         worst_case_cost = self._cost(spec, prompt_tokens_estimate, spec.max_output_tokens)
-        if prompt_tokens_estimate and tokens + prompt_tokens_estimate > budget.max_total_tokens:
+        if (
+            prompt_tokens_estimate
+            and tokens + prompt_tokens_estimate + spec.max_output_tokens > budget.max_total_tokens
+        ):
             raise ModelBudgetExceeded(role, "tokens")
         if prompt_tokens_estimate and cost + worst_case_cost > budget.max_cost_usd:
             raise ModelBudgetExceeded(role, "cost")
@@ -384,7 +393,12 @@ class RoutedModelRuntime:
         if cost >= budget.max_cost_usd:
             raise ModelBudgetExceeded(role, "cost")
         _, run_tokens, _, run_cost = self._usage(ledger, None)
-        if run_tokens + prompt_tokens_estimate >= self.policy.max_run_tokens:
+        if (
+            run_tokens
+            + prompt_tokens_estimate
+            + (spec.max_output_tokens if prompt_tokens_estimate else 0)
+            >= self.policy.max_run_tokens
+        ):
             raise ModelBudgetExceeded(None, "tokens")
         if run_cost + (worst_case_cost if prompt_tokens_estimate else 0.0) >= (
             self.policy.max_run_cost_usd
@@ -463,6 +477,11 @@ class RoutedModelRuntime:
         usage = (message.usage_metadata if message is not None else None) or {}
         prompt = int(usage.get("input_tokens", 0) or 0)
         completion = int(usage.get("output_tokens", 0) or 0)
+        if not usage:
+            # The provider reported nothing (or the call failed after sending): never treat that
+            # as free. Charge the prompt estimate, plus the output allowance if text came back.
+            prompt = estimate
+            completion = spec.max_output_tokens if message is not None else 0
         total = int(usage.get("total_tokens", prompt + completion) or (prompt + completion))
         record = reservation.model_copy(
             update={
