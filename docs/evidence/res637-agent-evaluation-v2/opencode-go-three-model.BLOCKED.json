@@ -1,0 +1,13 @@
+{
+  "version": "res637-opencode-go-qualification-blocked",
+  "status": "BLOCKED_PROVIDER_AUTHORIZATION",
+  "reason": "OpenCode Go usage rights for this deployment are unverified; set agent_opencode_go_usage_approved only after written confirmation from OpenCode",
+  "catalogue_verified_models": {
+    "fast": "deepseek/deepseek-v4.1-flash-1017",
+    "coordinator": "openai/gpt-6-luna",
+    "pro": "deepseek/deepseek-v4-pro"
+  },
+  "key_configured": true,
+  "scientific_inference_performed": false,
+  "code_revision": "6e92b0d31613aea05427e37de7804b4a9d4fe30e"
+}

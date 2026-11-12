@@ -21,6 +21,7 @@ from dynamisrag.agent.providers import (
 )
 from dynamisrag.agent.routing import (
     DEFAULT_ROSTER,
+    ModelRole,
     RoutedModelRuntime,
     RoutingPolicy,
 )
@@ -113,3 +114,93 @@ def test_exhausted_run_budget_abstains_explicitly_instead_of_substituting(
     assert "model_budget_exhausted" in (run.abstention_reason or "")
     assert run.telemetry["synthesis_source"] == "model_budget_exhausted"
     assert {c["role"] for c in run.telemetry["calls"]} == {"fast"}  # no silent reroute
+
+
+class _ExplodingChatModel(DeterministicResearchChatModel):
+    """A role model whose provider call fails with text that embeds a secret and user content."""
+
+    failure: str = "TimeoutError"
+
+    def _generate(self, *args: Any, **kwargs: Any) -> Any:
+        secret = "sk-SECRET-should-never-persist"
+        if self.failure == "TimeoutError":
+            raise TimeoutError(f"read timed out for {secret}")
+        raise RuntimeError(f"500 from provider: {secret} user asked about tendons")
+
+
+def _failing_runtime(role: ModelRole, failure: str) -> RoutedModelRuntime:
+    models: dict[ModelRole, Any] = {
+        r: DeterministicResearchChatModel(model_name=s.model_name)
+        for r, s in DEFAULT_ROSTER.items()
+    }
+    models[role] = _ExplodingChatModel(model_name=DEFAULT_ROSTER[role].model_name, failure=failure)
+    return RoutedModelRuntime(
+        base_config=AgentModelConfig(
+            provider=AgentProviderKind.DETERMINISTIC, model_name="gpt-6-luna", base_url=None
+        ),
+        specs=DEFAULT_ROSTER,
+        models=models,
+    )
+
+
+def test_model_timeout_and_error_fail_the_run_without_substitution_or_leaks(
+    graph_engine_and_studies: tuple[Engine, Any],  # noqa: F811
+) -> None:
+    engine, _ = graph_engine_and_studies
+    for failure in ("TimeoutError", "RuntimeError"):
+        runtime = _failing_runtime(ModelRole.COORDINATOR, failure)
+        orch, store = _orchestrator(engine, runtime)
+        thread = store.create_thread(owner_id=_USER, title="t")
+        run = orch.execute_run(
+            thread_id=thread.thread_id,
+            user_id=_USER,
+            question="What do the available studies report about plyometric training?",
+            idempotency_key=f"fail-{failure}",
+        )
+        assert run.status == RunStatus.FAILED, failure
+        blob = run.model_dump_json() + "".join(
+            e.model_dump_json() for e in store.list_events(run.run_id, user_id=_USER)
+        )
+        assert "SECRET" not in blob and "tendons" not in blob
+        assert run.error_message is not None and "ModelCallError" in run.error_message
+        summary = runtime.summarize(run.run_id, tool_calls_count=0)
+        # Every attempt hit the same configured model: nothing was rerouted to Fast or Pro.
+        assert {c.role for c in summary.calls if c.outcome == "error"} == {"coordinator"}
+        assert not any(c.role == "pro" for c in summary.calls)
+
+
+def test_evaluation_reports_model_usage_apart_from_graph_operations() -> None:
+    from dynamisrag.agent.evaluation import CorpusKind, run_evaluation
+    from dynamisrag.agent.evaluation_cases import EVALUATION_CASES
+    from tests.agent_eval_corpora import build_corpus
+    from tests.agent_stack import build_stack
+
+    runtime = _runtime()
+    cache: dict[CorpusKind, Any] = {}
+
+    def factory(kind: CorpusKind) -> Any:
+        if kind not in cache:
+            engine, keys = build_corpus(kind)
+            cache[kind] = (
+                build_stack(runtime=runtime, engine=engine, studies={}).orchestrator,
+                keys,
+            )
+        return cache[kind]
+
+    cases = [c for c in EVALUATION_CASES if c.case_id in {"tool_search_targeted", "tool_compare"}]
+    report = run_evaluation(
+        cases=cases,
+        factory=factory,
+        provider="deterministic",
+        model_name="routed-deterministic",
+        generative=False,
+    )
+    by_role = {u.role: u for u in report.model_usage}
+    assert report.model_calls_total == sum(u.requests for u in report.model_usage) > 0
+    assert by_role["fast"].requests >= 2
+    # Each synthesis ran on exactly one of coordinator/pro; an evidence-derived comparison
+    # (requested by the scripted model itself in these cases) moves it to Pro, never both.
+    assert by_role["coordinator"].requests + by_role["pro"].requests == len(report.results)
+    assert report.pro_escalations_total == by_role["pro"].requests
+    assert report.graph_enforced_operations_total > 0  # deterministic graph work counted apart
+    assert "NOT a model qualification" in " ".join(report.notes)

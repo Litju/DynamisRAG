@@ -27,7 +27,7 @@ from __future__ import annotations
 import time
 from collections.abc import Callable, Sequence
 from enum import StrEnum
-from typing import Any, Final, Literal
+from typing import Any, Final, Literal, cast
 
 from pydantic import Field
 
@@ -43,6 +43,7 @@ __all__ = [
     "EvaluationReport",
     "MetricAggregate",
     "MetricResult",
+    "ModelUsageTotals",
     "OrchestratorFactory",
     "evaluate_case",
     "run_evaluation",
@@ -119,6 +120,27 @@ class CaseResult(AgentContract):
     rejected_citations: int = 0
     latency_ms: float = 0.0
     model_calls: int = 0
+    model_calls_by_role: dict[str, int] = Field(default_factory=dict)
+    failed_model_calls: int = 0
+    pro_escalations: int = 0
+    model_cost_usd: float = 0.0
+    graph_enforced_operations: int = 0
+    graph_fallback_operations: int = 0
+    """Deterministic graph work (not model decisions); reported apart from ``model_calls``."""
+
+
+class ModelUsageTotals(AgentContract):
+    """Actual provider usage for one configured model across the whole evaluation."""
+
+    role: SafeShortText
+    model_name: SafeShortText
+    endpoint: SafeShortText
+    requests: int = 0
+    failed_requests: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    estimated_cost_usd: float = 0.0
+    latency_ms: float = 0.0
 
 
 class MetricAggregate(AgentContract):
@@ -142,6 +164,11 @@ class EvaluationReport(AgentContract):
     metrics: dict[str, MetricAggregate]
     results: tuple[CaseResult, ...]
     notes: tuple[str, ...] = ()
+    model_usage: tuple[ModelUsageTotals, ...] = ()
+    model_calls_total: int = 0
+    pro_escalations_total: int = 0
+    graph_enforced_operations_total: int = 0
+    graph_fallback_operations_total: int = 0
 
 
 def _texts(run: AgentRunRecord) -> list[str]:
@@ -300,7 +327,44 @@ def evaluate_case(
         rejected_citations=len(run.rejected_citations),
         latency_ms=float(run.telemetry.get("total_latency_ms", 0.0) or 0.0),
         model_calls=int(run.telemetry.get("model_calls", 0) or 0),
+        model_calls_by_role={
+            str(m["role"]): int(m["requests"]) for m in run.telemetry.get("models", ())
+        },
+        failed_model_calls=sum(int(m["failed_requests"]) for m in run.telemetry.get("models", ())),
+        pro_escalations=int(run.telemetry.get("pro_escalations", 0) or 0),
+        model_cost_usd=float(run.telemetry.get("estimated_cost_usd", 0.0) or 0.0),
+        graph_enforced_operations=int(_origin_count(run, "graph_enforced")),
+        graph_fallback_operations=int(_origin_count(run, "graph_fallback")),
     )
+
+
+def _origin_count(run: AgentRunRecord, origin: str) -> int:
+    origins = cast("dict[str, int]", run.telemetry.get("tool_origins") or {})
+    return int(origins.get(origin, 0))
+
+
+def usage_totals(runs: Sequence[AgentRunRecord]) -> tuple[ModelUsageTotals, ...]:
+    """Sum the per-model usage recorded on each scored run (every turn, not only the last)."""
+    totals: dict[tuple[str, str, str], ModelUsageTotals] = {}
+    for run in runs:
+        for m in run.telemetry.get("models", ()):
+            key = (str(m["role"]), str(m["model_name"]), str(m["endpoint"]))
+            current = totals.get(key) or ModelUsageTotals(
+                role=key[0], model_name=key[1], endpoint=key[2]
+            )
+            totals[key] = current.model_copy(
+                update={
+                    "requests": current.requests + int(m["requests"]),
+                    "failed_requests": current.failed_requests + int(m["failed_requests"]),
+                    "prompt_tokens": current.prompt_tokens + int(m["prompt_tokens"]),
+                    "completion_tokens": current.completion_tokens + int(m["completion_tokens"]),
+                    "estimated_cost_usd": round(
+                        current.estimated_cost_usd + float(m["estimated_cost_usd"]), 8
+                    ),
+                    "latency_ms": round(current.latency_ms + float(m["latency_ms"]), 3),
+                }
+            )
+    return tuple(totals.values())
 
 
 def aggregate(results: Sequence[CaseResult]) -> dict[str, MetricAggregate]:
@@ -335,6 +399,7 @@ def run_evaluation(
 ) -> EvaluationReport:
     """Run every case in a fresh thread; the last turn of each case is the one scored."""
     results: list[CaseResult] = []
+    scored_runs: list[AgentRunRecord] = []
     for case in cases:
         orchestrator, version_keys = factory(case.corpus)
         store: AgentConversationStore = orchestrator.store
@@ -352,10 +417,12 @@ def run_evaluation(
                 question=question,
                 idempotency_key=f"{case.case_id}-{index}",
             )
+            scored_runs.append(run)
         assert run is not None  # noqa: S101
         events = store.list_events(run.run_id, user_id=user_id)
         result = evaluate_case(case, run, events=events)
         results.append(result)
+
         if progress is not None:
             progress(
                 f"{case.case_id}: status={run.status.value} passed={result.case_passed} "
@@ -372,6 +439,17 @@ def run_evaluation(
         case_pass_rate=round(passed / len(results), 4) if results else 0.0,
         metrics=aggregate(results),
         results=tuple(results),
+        model_usage=usage_totals(scored_runs),
+        model_calls_total=sum(u.requests for u in usage_totals(scored_runs)),
+        pro_escalations_total=sum(
+            int(r.telemetry.get("pro_escalations", 0) or 0) for r in scored_runs
+        ),
+        graph_enforced_operations_total=sum(
+            int(_origin_count(r, "graph_enforced")) for r in scored_runs
+        ),
+        graph_fallback_operations_total=sum(
+            int(_origin_count(r, "graph_fallback")) for r in scored_runs
+        ),
         notes=(
             ()
             if generative

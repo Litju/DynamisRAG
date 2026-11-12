@@ -39,6 +39,7 @@ from dynamisrag.agent.providers import (
     build_agent_model_runtime,
 )
 from dynamisrag.agent.router import build_agent_v2_router
+from dynamisrag.agent.routing import ModelRuntime
 from dynamisrag.agent.tools import ScientificToolRegistry
 from dynamisrag.agent.worker import AgentWorkerPool
 from tests.unit.test_agent_tools import (
@@ -110,7 +111,7 @@ class AgentStack:
     engine: Engine
     studies: Studies
     store: AgentConversationStore
-    runtime: AgentModelRuntime
+    runtime: ModelRuntime
     orchestrator: ConversationalResearchOrchestrator
     registry: ScientificToolRegistry
 
@@ -120,7 +121,7 @@ class AgentStack:
 
 def build_stack(
     *,
-    runtime: AgentModelRuntime | None = None,
+    runtime: ModelRuntime | None = None,
     store: AgentConversationStore | None = None,
     rate_limit_per_minute: int = 600,
     run_timeout_seconds: float = 60.0,
