@@ -323,14 +323,104 @@ def test_per_model_request_budget_is_enforced_before_the_call() -> None:
     assert len(runtime.summarize("r3", tool_calls_count=0).calls) == 1  # no phantom call recorded
 
 
-def test_run_cost_budget_blocks_further_calls() -> None:
+def test_run_cost_budget_is_checked_before_the_call_with_a_worst_case_estimate() -> None:
     runtime = _deterministic_runtime(max_run_cost_usd=0.000001)
     runtime.reset_telemetry("r4")
-    big = [HumanMessage(content="word " * 4000)]
-    runtime.invoke_plain(big, stage="resolve_conversation_context", run_id="r4")
     with pytest.raises(ModelBudgetExceeded) as raised:
-        runtime.invoke_plain(big, stage="resolve_conversation_context", run_id="r4")
+        runtime.invoke_plain(
+            [HumanMessage(content="x")], stage="resolve_conversation_context", run_id="r4"
+        )
     assert (raised.value.role, raised.value.dimension) == (None, "cost")
+    assert runtime.summarize("r4", tool_calls_count=0).model_calls == 0  # nothing was sent
+
+
+def test_one_oversized_prompt_cannot_overshoot_a_role_token_budget() -> None:
+    small = {
+        role: spec.model_copy(
+            update={
+                "budget": ModelBudget(
+                    max_requests=5, max_total_tokens=2_000, max_latency_ms=1e6, max_cost_usd=1.0
+                )
+            }
+        )
+        for role, spec in DEFAULT_ROSTER.items()
+    }
+    runtime = RoutedModelRuntime(
+        base_config=AgentModelConfig(
+            provider=AgentProviderKind.DETERMINISTIC, model_name="gpt-6-luna", base_url=None
+        ),
+        specs=small,
+        models={
+            r: DeterministicResearchChatModel(model_name=s.model_name) for r, s in small.items()
+        },
+    )
+    runtime.reset_telemetry("r5")
+    with pytest.raises(ModelBudgetExceeded) as raised:
+        runtime.invoke_plain(
+            [HumanMessage(content="word " * 5_000)],
+            stage="resolve_conversation_context",
+            run_id="r5",
+        )
+    assert raised.value.dimension == "tokens"
+    assert runtime.summarize("r5", tool_calls_count=0).model_calls == 0
+
+
+def test_ledger_survives_a_worker_change_so_budgets_and_pro_limit_hold() -> None:
+    first = _deterministic_runtime()
+    first.reset_telemetry("r6")
+    first.invoke_plain(
+        [HumanMessage(content="x")],
+        stage="synthesize_provisional_answer",
+        run_id="r6",
+        escalate=EscalationReason.CROSS_STUDY_COMPARISON,
+    )
+    snapshot = first.export_ledger("r6")
+    assert json.loads(json.dumps(snapshot))["pro_escalations"] == 1  # checkpoint-serialisable
+
+    second = _deterministic_runtime()  # a different worker process after a crash
+    second.restore_ledger("r6", snapshot)
+    second.invoke_plain(
+        [HumanMessage(content="x")],
+        stage="synthesize_provisional_answer",
+        run_id="r6",
+        escalate=EscalationReason.CROSS_STUDY_COMPARISON,
+    )
+    summary = second.summarize("r6", tool_calls_count=0)
+    assert [c.role for c in summary.calls] == ["pro", "coordinator"]  # second Pro denied
+    assert summary.pro_escalations == 1
+    # An in-process ledger that already has records is newer and is not overwritten.
+    second.restore_ledger("r6", snapshot)
+    assert second.summarize("r6", tool_calls_count=0).model_calls == 2
+
+
+def test_direct_construction_cannot_bypass_the_authorization_gate() -> None:
+    models = {
+        role: DeterministicResearchChatModel(model_name=spec.model_name)
+        for role, spec in DEFAULT_ROSTER.items()
+    }
+    with pytest.raises(ProviderConfigurationError):
+        RoutedModelRuntime(
+            base_config=AgentModelConfig(
+                provider=AgentProviderKind.OPENCODE_GO,
+                model_name="gpt-6-luna",
+                api_key=SecretStr(FAKE_KEY),
+                usage_approved=False,
+                base_url=None,
+            ),
+            specs=DEFAULT_ROSTER,
+            models=models,
+        )
+
+
+def test_the_bearer_key_only_goes_to_https_opencode() -> None:
+    for bad in (
+        "http://opencode.ai/v1",
+        "https://evil.example/v1",
+        "https://opencode.ai.evil.io/v1",
+    ):
+        with pytest.raises(ProviderConfigurationError, match="https on opencode"):
+            build_opencode_go_runtime(_config(base_url=bad))
+    build_opencode_go_runtime(_config(base_url="https://opencode.ai/inference/go/openai/v1"))
 
 
 def test_concurrent_runs_keep_separate_ledgers() -> None:
@@ -403,7 +493,7 @@ def test_coordinator_uses_responses_api_without_retention_or_temperature() -> No
         run_id="run-2",
         json_output=True,
     )
-    assert reply.content
+    assert reply.text == '{"claims":[]}'  # content blocks are flattened to plain text
     assert wire.requests[0].url.path.endswith("/responses")
     body = wire.body(0)
     assert body["model"] == "gpt-6-luna"

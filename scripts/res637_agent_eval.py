@@ -106,7 +106,12 @@ def _opencode_go(out: Path) -> ModelRuntime | None:
         max_run_cost_usd=settings.agent_run_cost_budget_usd,
         max_run_tokens=settings.agent_run_token_budget,
     )
-    canonical = {r.value: c for r, c in verify_opencode_go_roster(roster).items()}
+    try:
+        canonical: dict[str, str] = {
+            r.value: c for r, c in verify_opencode_go_roster(roster).items()
+        }
+    except (ProviderConfigurationError, httpx2.HTTPError) as error:
+        canonical = {"catalogue_check_failed": type(error).__name__}
     try:
         return build_opencode_go_runtime(roster)
     except ProviderConfigurationError as error:

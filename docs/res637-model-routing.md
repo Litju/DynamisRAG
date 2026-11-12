@@ -37,7 +37,18 @@ multiplier and ignores cache discounts, so it is an upper bound. `gpt-6-luna` do
 * **Budgets** per role and per run, from provider-reported usage: requests, tokens, latency, cost
   (defaults in `DEFAULT_ROSTER`; run caps via `DYNAMISRAG_AGENT_RUN_COST_BUDGET_USD`,
   `DYNAMISRAG_AGENT_RUN_TOKEN_BUDGET`). SDK retries are disabled so spend cannot multiply silently.
-  Limitation: a crash-recovered run restarts its in-memory ledger.
+  Budgets are checked *before* each call against a pessimistic prompt estimate (3 chars/token, plus the
+  role's maximum output), so one oversized prompt cannot overshoot a cap. The usage ledger is
+  checkpointed with the LangGraph state and restored on crash recovery or resume, so a retry or a
+  second worker keeps counting against the same budgets and the same single Pro escalation; only
+  the one node in flight when a worker died is lost. Caps are per run: a global spend ceiling
+  across concurrent runs is a deployment control (OpenCode workspace Budgets and
+  `DYNAMISRAG_AGENT_RATE_LIMIT_PER_MINUTE`), not enforced by this module.
+* The Responses API returns content blocks; synthesis and rewriting read `AIMessage.text`.
+* The follow-up rewrite is accepted only if it keeps every negation and 60% of the user's own
+  content words and adds no document key; otherwise the deterministic summary form is used.
+* The bearer key is only ever sent to an https `opencode.ai` base URL, and
+  `RoutedModelRuntime` itself refuses an unapproved OpenCode Go configuration.
 * Every call is recorded with role, model, endpoint, selection reason, outcome and tokens/cost/
   latency; run telemetry adds per-model totals and `pro_escalations`.
 

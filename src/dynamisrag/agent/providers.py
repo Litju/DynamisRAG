@@ -21,7 +21,7 @@ import json
 import re
 import threading
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, cast
@@ -502,6 +502,25 @@ class AgentModelRuntime:
     def reset_telemetry(self, run_id: str) -> None:
         with self._lock:
             self._records[run_id] = []
+
+    def begin_telemetry(self, run_id: str) -> None:
+        with self._lock:
+            self._records.setdefault(run_id, [])
+
+    def export_ledger(self, run_id: str) -> dict[str, Any]:
+        with self._lock:
+            return {"records": [r.model_dump(mode="json") for r in self._records.get(run_id, [])]}
+
+    def restore_ledger(self, run_id: str, snapshot: Mapping[str, Any] | None) -> None:
+        if not snapshot:
+            return
+        with self._lock:
+            if self._records.get(run_id):
+                return
+            self._records[run_id] = [
+                ModelCallTelemetry.model_validate(r)
+                for r in cast("list[dict[str, Any]]", snapshot.get("records") or [])
+            ]
 
     def discard_telemetry(self, run_id: str) -> None:
         """Free a finished run's records (the summary is already persisted on the run)."""

@@ -113,7 +113,10 @@ def test_exhausted_run_budget_abstains_explicitly_instead_of_substituting(
     assert run.status == RunStatus.ABSTAINED
     assert "model_budget_exhausted" in (run.abstention_reason or "")
     assert run.telemetry["synthesis_source"] == "model_budget_exhausted"
-    assert {c["role"] for c in run.telemetry["calls"]} == {"fast"}  # no silent reroute
+    assert run.telemetry["calls"] == []  # pre-flight refused every call: nothing sent, no reroute
+    events = store.list_events(run.run_id, user_id=_USER)
+    reasons = [e.payload.get("reason") for e in events if e.event_type.value == "fallback.applied"]
+    assert reasons == ["model_budget_exhausted:tokens"]  # graph fallback is recorded, not hidden
 
 
 class _ExplodingChatModel(DeterministicResearchChatModel):
@@ -149,6 +152,19 @@ def test_model_timeout_and_error_fail_the_run_without_substitution_or_leaks(
     engine, _ = graph_engine_and_studies
     for failure in ("TimeoutError", "RuntimeError"):
         runtime = _failing_runtime(ModelRole.COORDINATOR, failure)
+        captured: list[Any] = []
+        real_discard = runtime.discard_telemetry
+
+        def spy(
+            run_id: str,
+            runtime: RoutedModelRuntime = runtime,
+            sink: list[Any] = captured,
+            free: Any = real_discard,
+        ) -> None:
+            sink.append(runtime.summarize(run_id, tool_calls_count=0))  # before the ledger is freed
+            free(run_id)
+
+        runtime.discard_telemetry = spy
         orch, store = _orchestrator(engine, runtime)
         thread = store.create_thread(owner_id=_USER, title="t")
         run = orch.execute_run(
@@ -163,7 +179,8 @@ def test_model_timeout_and_error_fail_the_run_without_substitution_or_leaks(
         )
         assert "SECRET" not in blob and "tendons" not in blob
         assert run.error_message is not None and "ModelCallError" in run.error_message
-        summary = runtime.summarize(run.run_id, tool_calls_count=0)
+        assert len(captured) == 1  # the terminal failure freed its ledger exactly once
+        summary = captured[0]
         # Every attempt hit the same configured model: nothing was rerouted to Fast or Pro.
         assert {c.role for c in summary.calls if c.outcome == "error"} == {"coordinator"}
         assert not any(c.role == "pro" for c in summary.calls)
@@ -204,3 +221,21 @@ def test_evaluation_reports_model_usage_apart_from_graph_operations() -> None:
     assert report.pro_escalations_total == by_role["pro"].requests
     assert report.graph_enforced_operations_total > 0  # deterministic graph work counted apart
     assert "NOT a model qualification" in " ".join(report.notes)
+
+
+def test_followup_rewrite_must_preserve_what_the_user_asked() -> None:
+    from dynamisrag.agent.graph import (
+        _rewrite_preserves_question,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    q = "Which of those findings were NOT measured during depth jumping?"
+    assert _rewrite_preserves_question(
+        q, "Which plyometric findings were not measured during depth jumping?"
+    )
+    assert not _rewrite_preserves_question(
+        q, "Which plyometric findings were measured during depth jumping?"
+    )
+    assert not _rewrite_preserves_question(q, "Tell me about knee surgery outcomes in athletes")
+    assert not _rewrite_preserves_question(
+        q, "Which findings not measured during depth jumping in " + "a" * 64
+    )

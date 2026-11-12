@@ -32,6 +32,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any, Final, Protocol, cast
+from urllib.parse import urlparse
 
 import httpx
 import httpx2
@@ -69,6 +70,7 @@ __all__ = [
     "RoutedModelRuntime",
     "RoutingPolicy",
     "build_opencode_go_runtime",
+    "estimate_prompt_tokens",
     "peak_multiplier",
     "select_role",
     "verify_opencode_go_roster",
@@ -226,6 +228,12 @@ class ModelRuntime(Protocol):
 
     def reset_telemetry(self, run_id: str) -> None: ...
 
+    def begin_telemetry(self, run_id: str) -> None: ...
+
+    def export_ledger(self, run_id: str) -> dict[str, Any]: ...
+
+    def restore_ledger(self, run_id: str, snapshot: Mapping[str, Any] | None) -> None: ...
+
     def discard_telemetry(self, run_id: str) -> None: ...
 
     def invoke_with_tools(
@@ -251,6 +259,12 @@ def _no_records() -> list[ModelCallTelemetry]:
 
 def _no_events() -> list[str]:
     return []
+
+
+def estimate_prompt_tokens(messages: Sequence[BaseMessage], *, tools: int) -> int:
+    """Deliberately pessimistic prompt-size estimate (3 characters/token, 400 tokens per tool)."""
+    chars = sum(len(str(m.content)) for m in messages)
+    return chars // 3 + 1 + 400 * tools
 
 
 @dataclass
@@ -279,6 +293,13 @@ class RoutedModelRuntime:
     def __post_init__(self) -> None:
         if set(self.specs) != set(ModelRole) or set(self.models) != set(ModelRole):
             raise ValueError("a routed runtime needs one spec and one model for every role")
+        if self.base_config.provider is AgentProviderKind.OPENCODE_GO and (
+            not self.base_config.usage_approved or self.base_config.api_key is None
+        ):
+            # Defence in depth: constructing the dataclass directly must not bypass the gate.
+            raise ProviderConfigurationError(
+                "OpenCode Go usage rights for this deployment are unverified or no key is set"
+            )
 
     @property
     def config(self) -> AgentModelConfig:
@@ -288,9 +309,48 @@ class RoutedModelRuntime:
         with self._lock:
             self._ledgers[run_id] = _Ledger()
 
+    def begin_telemetry(self, run_id: str) -> None:
+        """Start a ledger unless one exists: a retry in this process keeps counting its spend."""
+        with self._lock:
+            self._ledgers.setdefault(run_id, _Ledger())
+
     def discard_telemetry(self, run_id: str) -> None:
         with self._lock:
             self._ledgers.pop(run_id, None)
+
+    def export_ledger(self, run_id: str) -> dict[str, Any]:
+        """Snapshot of settled usage, checkpointed with the graph state (see ``restore_ledger``)."""
+        with self._lock:
+            ledger = self._ledgers.get(run_id, _Ledger())
+            return {
+                "records": [
+                    r.model_dump(mode="json") for r in ledger.records if r.outcome != "reserved"
+                ],
+                "events": list(ledger.events),
+                "pro_escalations": ledger.pro_escalations,
+            }
+
+    def restore_ledger(self, run_id: str, snapshot: Mapping[str, Any] | None) -> None:
+        """Re-seed a crash-recovered or resumed run's ledger from its last checkpoint.
+
+        An in-process ledger that already holds records is newer and wins. Usage from the single
+        node that was in flight when a worker died is not in any checkpoint and is lost; budgets
+        therefore bound spend to the checkpointed total plus one node's worth per crash.
+        """
+        if not snapshot:
+            return
+        with self._lock:
+            current = self._ledgers.get(run_id)
+            if current is not None and current.records:
+                return
+            self._ledgers[run_id] = _Ledger(
+                records=[
+                    ModelCallTelemetry.model_validate(r)
+                    for r in cast("list[dict[str, Any]]", snapshot.get("records") or [])
+                ],
+                events=[str(e) for e in cast("list[Any]", snapshot.get("events") or [])],
+                pro_escalations=int(snapshot.get("pro_escalations", 0) or 0),
+            )
 
     # -- selection ------------------------------------------------------------------------
 
@@ -303,9 +363,18 @@ class RoutedModelRuntime:
             sum(r.estimated_cost_usd for r in rows),
         )
 
-    def _check_budget(self, ledger: _Ledger, role: ModelRole) -> None:
-        budget = self.specs[role].budget
+    def _check_budget(
+        self, ledger: _Ledger, role: ModelRole, *, prompt_tokens_estimate: int = 0
+    ) -> None:
+        """Raise before the call if settled usage plus a worst-case estimate would breach."""
+        spec = self.specs[role]
+        budget = spec.budget
         requests, tokens, latency, cost = self._usage(ledger, role)
+        worst_case_cost = self._cost(spec, prompt_tokens_estimate, spec.max_output_tokens)
+        if prompt_tokens_estimate and tokens + prompt_tokens_estimate > budget.max_total_tokens:
+            raise ModelBudgetExceeded(role, "tokens")
+        if prompt_tokens_estimate and cost + worst_case_cost > budget.max_cost_usd:
+            raise ModelBudgetExceeded(role, "cost")
         if requests >= budget.max_requests:
             raise ModelBudgetExceeded(role, "requests")
         if tokens >= budget.max_total_tokens:
@@ -315,13 +384,15 @@ class RoutedModelRuntime:
         if cost >= budget.max_cost_usd:
             raise ModelBudgetExceeded(role, "cost")
         _, run_tokens, _, run_cost = self._usage(ledger, None)
-        if run_tokens >= self.policy.max_run_tokens:
+        if run_tokens + prompt_tokens_estimate >= self.policy.max_run_tokens:
             raise ModelBudgetExceeded(None, "tokens")
-        if run_cost >= self.policy.max_run_cost_usd:
+        if run_cost + (worst_case_cost if prompt_tokens_estimate else 0.0) >= (
+            self.policy.max_run_cost_usd
+        ):
             raise ModelBudgetExceeded(None, "cost")
 
     def _choose(
-        self, ledger: _Ledger, stage: str, escalate: EscalationReason | None
+        self, ledger: _Ledger, stage: str, escalate: EscalationReason | None, estimate: int
     ) -> tuple[ModelRole, str, bool]:
         role, reason = select_role(stage)
         if escalate is None:
@@ -330,7 +401,7 @@ class RoutedModelRuntime:
             ledger.events.append(f"escalation_denied:pro_limit_reached:{escalate.value}")
             return role, f"{reason};escalation_denied:pro_limit_reached", False
         try:
-            self._check_budget(ledger, ModelRole.PRO)
+            self._check_budget(ledger, ModelRole.PRO, prompt_tokens_estimate=estimate)
         except ModelBudgetExceeded as error:
             ledger.events.append(f"escalation_denied:pro_budget_{error.dimension}:{escalate.value}")
             return role, f"{reason};escalation_denied:pro_budget_{error.dimension}", False
@@ -356,12 +427,13 @@ class RoutedModelRuntime:
         run_id: str,
         stage: str,
         escalate: EscalationReason | None,
+        estimate: int,
         invoke: Callable[[BaseChatModel, dict[str, str]], AIMessage],
     ) -> AIMessage:
         with self._lock:
             ledger = self._ledgers.setdefault(run_id, _Ledger())
-            role, reason, escalated = self._choose(ledger, stage, escalate)
-            self._check_budget(ledger, role)
+            role, reason, escalated = self._choose(ledger, stage, escalate, estimate)
+            self._check_budget(ledger, role, prompt_tokens_estimate=estimate)
             # Reserve the request slot so concurrent callers cannot all pass the check.
             reservation = ModelCallTelemetry(
                 call_id=f"llm-{hashlib.sha256(f'{run_id}{len(ledger.records)}'.encode()).hexdigest()[:12]}",
@@ -418,7 +490,9 @@ class RoutedModelRuntime:
         def invoke(model: BaseChatModel, headers: dict[str, str]) -> AIMessage:
             return model.bind_tools(tools).invoke(messages, extra_headers=headers)
 
-        return self._call(run_id, stage, None, invoke)
+        return self._call(
+            run_id, stage, None, estimate_prompt_tokens(messages, tools=len(tools)), invoke
+        )
 
     def invoke_plain(
         self,
@@ -437,7 +511,9 @@ class RoutedModelRuntime:
                 runnable = model.bind(response_format={"type": "json_object"})
             return cast("AIMessage", runnable.invoke(messages, extra_headers=headers))
 
-        return self._call(run_id, stage, escalate, invoke)
+        return self._call(
+            run_id, stage, escalate, estimate_prompt_tokens(messages, tools=0), invoke
+        )
 
     # -- reporting ------------------------------------------------------------------------
 
@@ -549,6 +625,16 @@ def _build_chat_model(
     )
 
 
+def _require_trusted_base_url(base_url: str | None) -> None:
+    """The bearer key is only ever sent to an https opencode.ai endpoint."""
+    if base_url is None:
+        return
+    parsed = urlparse(base_url)
+    host = (parsed.hostname or "").lower()
+    if parsed.scheme != "https" or not (host == "opencode.ai" or host.endswith(".opencode.ai")):
+        raise ProviderConfigurationError("the OpenCode Go base URL must be https on opencode.ai")
+
+
 def build_opencode_go_runtime(
     config: OpenCodeGoRosterConfig,
     *,
@@ -567,6 +653,7 @@ def build_opencode_go_runtime(
     if config.api_key is None or not config.api_key.get_secret_value().strip():
         raise ProviderConfigurationError("OpenCode Go requires a server-side API key")
     specs = _resolve_specs(config)
+    _require_trusted_base_url(config.base_url)
     models = {role: _build_chat_model(spec, config, http_client) for role, spec in specs.items()}
     base = AgentModelConfig(
         provider=AgentProviderKind.OPENCODE_GO,

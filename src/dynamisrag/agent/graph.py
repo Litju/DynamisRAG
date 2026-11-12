@@ -31,9 +31,10 @@ from __future__ import annotations
 
 import functools
 import logging
+import re
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
-from typing import Annotated, Any, Literal, TypedDict, cast
+from typing import Annotated, Any, Final, Literal, TypedDict, cast
 from uuid import uuid4
 
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
@@ -57,6 +58,7 @@ from dynamisrag.agent.contracts import (
 )
 from dynamisrag.agent.observability import TracingPolicy, redact_trace_string
 from dynamisrag.agent.persistence import (
+    TERMINAL_STATUSES,
     AgentConversationStore,
     AgentRunRecord,
     RunCompletion,
@@ -78,6 +80,28 @@ from dynamisrag.agent.tools import ScientificToolRegistry, contains_prompt_injec
 from dynamisrag.domain.evidence import Relation
 
 _logger = logging.getLogger("dynamisrag.agent.graph")
+
+
+_NEGATIONS: Final = frozenset({"not", "no", "without", "never", "except", "excluding", "neither"})
+_REWRITE_STOPWORDS: Final = frozenset(
+    {"which", "about", "those", "these", "their", "there", "other", "after", "before"}
+)
+
+
+def _rewrite_preserves_question(original: str, rewrite: str) -> bool:
+    """A follow-up rewrite may add context but must not drop or flip what the user asked.
+
+    Every negation and at least 60% of the user's own content words must survive, and the rewrite
+    may not smuggle a document key (64 hex characters) the user never wrote.
+    """
+    if re.search(r"\b[0-9a-f]{64}\b", rewrite, flags=re.IGNORECASE):
+        return False
+    original_words = set(re.findall(r"[a-z0-9]+", original.lower()))
+    rewrite_words = set(re.findall(r"[a-z0-9]+", rewrite.lower()))
+    if (original_words & _NEGATIONS) - rewrite_words:
+        return False
+    content = {w for w in original_words if len(w) >= 5 and w not in _REWRITE_STOPWORDS}
+    return not content or len(content & rewrite_words) / len(content) >= 0.6
 
 
 def escalation_reason(comparison: dict[str, Any] | None) -> EscalationReason | None:
@@ -151,6 +175,7 @@ class ResearchAgentState(TypedDict, total=False):
     thread_context: dict[str, Any] | None
     tool_origin_counts: dict[str, int]
     context_resolution_source: str
+    model_ledger: dict[str, Any]
     synthesis_source: str | None
     synthesis_fallback_reason: str | None
 
@@ -224,7 +249,15 @@ class ConversationalResearchOrchestrator:
         @functools.wraps(node)
         def guarded(*args: Any, **kwargs: Any) -> Any:  # noqa: ANN401
             try:
-                return node(*args, **kwargs)
+                update: Any = node(*args, **kwargs)
+                state = cast("dict[str, Any] | None", args[0] if args else None)
+                if isinstance(update, dict) and isinstance(state, dict) and state.get("run_id"):
+                    # Checkpoint the model-usage ledger with the node's update so a crash-recovered
+                    # or resumed run keeps counting against the same budgets (see routing.py).
+                    merged = {**cast("dict[str, Any]", update)}
+                    merged["model_ledger"] = self._model.export_ledger(str(state["run_id"]))
+                    return merged
+                return cast("Any", update)
             except (RunLeaseLostError, GraphBubbleUp):
                 raise  # lease loss and LangGraph interrupts are control flow, not failures
             except Exception as error:
@@ -384,6 +417,10 @@ class ConversationalResearchOrchestrator:
         try:
             snapshot = runner.get_state(config)
             has_checkpoint = bool(snapshot and snapshot.values)
+            if has_checkpoint:
+                self._model.restore_ledger(
+                    run.run_id, cast("dict[str, Any] | None", snapshot.values.get("model_ledger"))
+                )
             if run.resume_payload is not None:
                 self._store.append_event(
                     run.run_id,
@@ -400,7 +437,7 @@ class ConversationalResearchOrchestrator:
                 with self._tracing.scope(client=self._tracing_client):
                     runner.invoke(None, config=config)
             elif not has_checkpoint:
-                self._model.reset_telemetry(run.run_id)
+                self._model.begin_telemetry(run.run_id)
                 self._store.append_event(
                     run.run_id,
                     worker_id=worker_id,
@@ -438,11 +475,16 @@ class ConversationalResearchOrchestrator:
                 getattr(error, "original_class", type(error).__name__),
             )
             # Only the exception class is persisted: messages can embed user text or secrets.
-            return self._store.requeue_for_retry(
+            requeued = self._store.requeue_for_retry(
                 run.run_id,
                 worker_id=worker_id,
                 error_code=str(getattr(error, "original_class", type(error).__name__))[:80],
             )
+            if requeued.status in TERMINAL_STATUSES:
+                self._model.discard_telemetry(
+                    run.run_id
+                )  # a retry keeps its ledger; a failure frees it
+            return requeued
 
     def execute_run(
         self,
@@ -713,10 +755,10 @@ class ConversationalResearchOrchestrator:
             )
         except (ModelBudgetExceeded, ModelCallError):
             return None
-        text = str(reply.content).strip()
+        text = reply.text.strip()
         if not text or text[0] in "{[" or len(text) > 500 or "\n" in text:
             return None
-        if contains_prompt_injection(text):
+        if contains_prompt_injection(text) or not _rewrite_preserves_question(question, text):
             return None
         return text
 
@@ -1148,9 +1190,7 @@ class ConversationalResearchOrchestrator:
                 "abstention_reason": f"model_budget_exhausted: {budget.dimension}",
                 "final_status": RunStatus.ABSTAINED.value,
             }
-        outcome = parse_model_claims(
-            str(ai_msg.content), findings, question=state.get("question", "")
-        )
+        outcome = parse_model_claims(ai_msg.text, findings, question=state.get("question", ""))
         self._store.append_event(
             run_id,
             worker_id=self._worker_id(config),
