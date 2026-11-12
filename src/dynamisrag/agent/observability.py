@@ -95,7 +95,12 @@ def redact_trace_payload(payload: object, *, max_string_chars: int = 240) -> obj
     if isinstance(payload, (list, tuple)):
         seq = cast("Sequence[object]", payload)
         return [redact_trace_payload(item, max_string_chars=max_string_chars) for item in seq[:25]]
-    return payload
+    if payload is None or isinstance(payload, (bool, int, float)):
+        return payload
+    dump = getattr(payload, "model_dump", None)
+    if callable(dump):  # LangChain messages / pydantic models: scrub their dumped content
+        return redact_trace_payload(dump(), max_string_chars=max_string_chars)
+    return redact_trace_string(str(payload), max_len=max_string_chars)  # never pass objects raw
 
 
 def structure_only(payload: object) -> object:
@@ -163,6 +168,36 @@ class TracingPolicy:
             yield
 
 
+_ERROR_CLASS: Final = re.compile(r"\s*([A-Za-z_][A-Za-z0-9_.]*)")
+
+
+def _error_class_only(error: str | None) -> str | None:
+    """Reduce a recorded run error to its exception class name.
+
+    ``hide_inputs`` / ``hide_outputs`` / ``hide_metadata`` do not cover a run's ``error`` field, and
+    LangChain records the full exception text and traceback there (provider errors can echo
+    credentials, validation errors can echo the user's input).
+    """
+    if not error:
+        return error
+    match = _ERROR_CLASS.match(error)
+    return match.group(1) if match else "Error"
+
+
+class _PrivacyClient(Client):
+    """A ``langsmith.Client`` that never transmits exception text or tracebacks."""
+
+    def create_run(self, *args: Any, **kwargs: Any) -> None:  # noqa: ANN401
+        if kwargs.get("error"):
+            kwargs["error"] = _error_class_only(kwargs["error"])
+        super().create_run(*args, **kwargs)
+
+    def update_run(self, *args: Any, **kwargs: Any) -> None:  # noqa: ANN401
+        if kwargs.get("error"):
+            kwargs["error"] = _error_class_only(kwargs["error"])
+        super().update_run(*args, **kwargs)  # pyright: ignore[reportUnknownMemberType]
+
+
 def build_langsmith_client(policy: TracingPolicy) -> Client:
     """Build a client that redacts at the SDK boundary, before anything is serialised."""
     if not policy.enabled or policy.api_key is None:
@@ -182,7 +217,7 @@ def build_langsmith_client(policy: TracingPolicy) -> Client:
     if policy.session is not None:
         kwargs["session"] = policy.session
         kwargs["auto_batch_tracing"] = False
-    return Client(**kwargs)
+    return _PrivacyClient(**kwargs)
 
 
 def configure_privacy_safe_langsmith(

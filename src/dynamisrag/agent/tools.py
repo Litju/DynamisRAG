@@ -706,11 +706,13 @@ class ScientificToolRegistry:
         exact_phrase = 2.5 if query_lower in rec.passage.text.casefold() else 0.0
         body_bonus = 0.5 if all(s.paragraph.region == "body" for s in rec.source_spans) else 0.0
 
-        score = (
-            overlap_title * 2.0 + overlap_sec * 1.5 + overlap_text * 1.0 + exact_phrase + body_bonus
-        )
-        if score <= 0.0:
+        relevance = overlap_title * 2.0 + overlap_sec * 1.5 + overlap_text * 1.0 + exact_phrase
+        if relevance <= 0.0:
+            # No query term occurs in the title, section or text. The structural bonus below must
+            # never create relevance by itself, or an off-corpus question would "retrieve" every
+            # body passage and the run would cite unrelated text.
             return None
+        score = relevance + body_bonus
         spans = tuple(
             PassageSpanItem(
                 span_key=s[0],

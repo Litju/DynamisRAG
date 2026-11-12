@@ -73,12 +73,18 @@ class AgentRuntime:
         self.store.close()
 
 
+_OLLAMA_DEFAULT_URL = "http://127.0.0.1:11435"
+
+
 def model_config_from_settings(settings: Settings) -> AgentModelConfig:
+    base_url = settings.agent_model_base_url
+    if settings.agent_provider != "ollama" and base_url == _OLLAMA_DEFAULT_URL:
+        base_url = None  # the Ollama default must never be used as another provider's endpoint
     return AgentModelConfig(
         provider=AgentProviderKind(settings.agent_provider),
         model_name=settings.agent_model_name,
         model_revision=settings.agent_model_revision,
-        base_url=settings.agent_model_base_url,
+        base_url=base_url,
         api_key=settings.agent_model_api_key,
         num_ctx=settings.agent_model_num_ctx,
         usage_approved=settings.agent_opencode_go_usage_approved,

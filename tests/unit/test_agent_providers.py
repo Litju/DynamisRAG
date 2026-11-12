@@ -225,3 +225,27 @@ def test_catalogue_errors_are_reported_without_leaking_credentials() -> None:
 def test_scripted_provider_is_labelled_deterministic_in_telemetry() -> None:
     runtime = build_agent_model_runtime(AgentModelConfig(provider=AgentProviderKind.DETERMINISTIC))
     assert runtime.summarize("x", tool_calls_count=0).provider == AgentProviderKind.DETERMINISTIC
+
+
+def test_anthropic_without_a_key_fails_instead_of_using_a_placeholder() -> None:
+    with pytest.raises(ProviderConfigurationError, match="API key"):
+        build_agent_model_runtime(
+            AgentModelConfig(provider=AgentProviderKind.ANTHROPIC, model_name="claude-haiku-5-5")
+        )
+
+
+def test_another_providers_endpoint_never_inherits_the_ollama_default_url() -> None:
+    from dynamisrag.agent.services import model_config_from_settings
+    from dynamisrag.config import Settings
+    from tests._support import build_settings
+
+    base = build_settings().model_dump()
+    base.update(
+        agent_provider="opencode_go",
+        agent_model_name="glm-5.3-flash",
+        agent_model_api_key=SecretStr(FAKE_KEY),
+        agent_opencode_go_usage_approved=True,
+        agent_model_base_url="http://127.0.0.1:11435",
+    )
+    config = model_config_from_settings(Settings.from_mapping(base))
+    assert config.base_url is None  # so the OpenCode Go default endpoint is used

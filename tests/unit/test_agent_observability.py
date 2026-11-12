@@ -235,3 +235,42 @@ def test_application_wiring_builds_off_policy_by_default() -> None:
         build_agent_model_runtime(AgentModelConfig(provider=AgentProviderKind.DETERMINISTIC))
         is not None
     )
+
+
+def test_error_text_from_a_failing_node_never_reaches_langsmith() -> None:
+    from tests.agent_stack import FlakyChatModel, new_counter, runtime_for
+
+    session = CapturingSession()
+    policy = _policy(session, TracingMode.STRUCTURE_ONLY)
+    client = build_langsmith_client(policy)
+    stack = build_stack(
+        runtime=runtime_for(FlakyChatModel(counter=new_counter(failures=99))), max_attempts=1
+    )
+    stack.orchestrator._tracing = policy  # pyright: ignore[reportPrivateUsage]
+    stack.orchestrator._tracing_client = client  # pyright: ignore[reportPrivateUsage]
+    thread = stack.store.create_thread(owner_id="u", title="t")
+    run = stack.orchestrator.execute_run(
+        thread_id=thread.thread_id,
+        user_id="u",
+        question=f"What happened to tendon stiffness? {QUESTION_CANARY}",
+        idempotency_key="err",
+    )
+    client.flush()
+    _drain(client, session)
+    assert run.status == RunStatus.FAILED and run.error_message == "RuntimeError"
+    sent = session.traced_bodies()
+    assert sent
+    assert "sk-super-secret-value" not in sent and "provider exploded" not in sent
+    assert QUESTION_CANARY not in sent
+    assert "RuntimeError" in sent  # the class name is still diagnostic
+
+
+def test_message_objects_are_scrubbed_in_redacted_content_mode() -> None:
+    from langchain_core.messages import HumanMessage
+
+    out = str(
+        redact_trace_payload(
+            {"messages": [HumanMessage(content="mail me@x.org key sk-abcdefghijklmnop123")]}
+        )
+    )
+    assert "me@x.org" not in out and "sk-abcdefghijklmnop123" not in out

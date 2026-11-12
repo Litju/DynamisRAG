@@ -428,6 +428,11 @@ class AgentModelRuntime:
         with self._lock:
             self._records[run_id] = []
 
+    def discard_telemetry(self, run_id: str) -> None:
+        """Free a finished run's records (the summary is already persisted on the run)."""
+        with self._lock:
+            self._records.pop(run_id, None)
+
     def invoke_with_tools(
         self,
         messages: list[BaseMessage],
@@ -562,7 +567,9 @@ def build_agent_model_runtime(
             config=config, chat_model=_build_opencode_go_model(config, http_client=http_client)
         )
 
-    api_key = config.api_key or SecretStr("missing-key")
+    if config.api_key is None:
+        raise ProviderConfigurationError("The anthropic provider requires an API key")
+    api_key = config.api_key
     model = ChatAnthropic(
         model_name=config.model_name,
         api_key=api_key,

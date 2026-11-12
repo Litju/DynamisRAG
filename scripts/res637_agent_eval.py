@@ -103,9 +103,10 @@ def main(argv: list[str] | None = None) -> int:
         progress=lambda line: print(line, flush=True),  # noqa: T201
     )
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(
-        json.dumps(report.model_dump(mode="json"), indent=2) + "\n", encoding="utf-8"
-    )
+    payload = report.model_dump(mode="json")
+    payload["code_revision"] = _git_revision()
+    payload["corpus"] = "hermetic synthetic corpora (SQLite, canonical lexical retrieval)"
+    args.out.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     print(f"wrote {args.out}")  # noqa: T201
     return 0
 
