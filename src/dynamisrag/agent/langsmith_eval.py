@@ -20,80 +20,22 @@ Key invariants:
 
 from __future__ import annotations
 
-import os
-import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Sequence
 from typing import Any, cast
 
 from pydantic import Field
 
 from dynamisrag.agent.contracts import AgentContract, SafeShortText, ToolName
 from dynamisrag.agent.graph import ConversationalResearchOrchestrator
+from dynamisrag.agent.observability import (
+    configure_privacy_safe_langsmith,
+    redact_trace_payload,
+    redact_trace_string,
+)
 from dynamisrag.agent.persistence import AgentConversationStore, AgentRunRecord, RunStatus
 
-_SECRET_KEY_PATTERN = re.compile(
-    r"(?:password|secret|token|api_key|authorization|dsn|database_url)",
-    re.I,
-)
-_BEARER_VALUE_PATTERN = re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]+", re.I)
-_PG_URL_PASSWORD_PATTERN = re.compile(r"(postgresql(?:\+psycopg)?://[^:/\s]+:)[^@\s]+(@)")
-_EMAIL_PATTERN = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
-
-
-def redact_trace_string(value: str, *, max_len: int = 240) -> str:
-    """Scrub credentials, DSN passwords, and emails from a string and bound its length."""
-    scrubbed = _BEARER_VALUE_PATTERN.sub("Bearer [REDACTED]", value)
-    scrubbed = _PG_URL_PASSWORD_PATTERN.sub(r"\1[REDACTED]\2", scrubbed)
-    scrubbed = _EMAIL_PATTERN.sub("[REDACTED_EMAIL]", scrubbed)
-    if len(scrubbed) > max_len:
-        return scrubbed[:max_len] + "...[TRUNCATED]"
-    return scrubbed
-
-
-def redact_trace_payload(
-    payload: object,
-    *,
-    max_string_chars: int = 240,
-) -> object:
-    """Recursively redact secrets, PII, and long passage bodies from a trace payload."""
-    if isinstance(payload, str):
-        return redact_trace_string(payload, max_len=max_string_chars)
-    if isinstance(payload, Mapping):
-        out: dict[str, object] = {}
-        for k, v in cast("Mapping[object, object]", payload).items():
-            key_str = str(k)
-            if _SECRET_KEY_PATTERN.search(key_str):
-                out[key_str] = "[REDACTED]"
-            elif key_str in {"text", "verbatim_quote", "answer_markdown"} and isinstance(v, str):
-                out[key_str] = redact_trace_string(v, max_len=min(max_string_chars, 160))
-            else:
-                out[key_str] = redact_trace_payload(v, max_string_chars=max_string_chars)
-        return out
-    if isinstance(payload, (list, tuple)):
-        seq = cast("Sequence[object]", payload)
-        return [redact_trace_payload(item, max_string_chars=max_string_chars) for item in seq[:25]]
-    return payload
-
-
-def configure_privacy_safe_langsmith(
-    *,
-    tracing_enabled: bool = False,
-    project_name: str = "dynamisrag-res637-eval",
-) -> dict[str, str]:
-    """Configure environment variables for LangSmith with privacy-safe defaults."""
-    flag = "true" if tracing_enabled else "false"
-    os.environ["LANGSMITH_TRACING"] = flag
-    os.environ["LANGCHAIN_TRACING_V2"] = flag
-    os.environ["LANGCHAIN_HIDE_INPUTS"] = "true"
-    os.environ["LANGCHAIN_HIDE_OUTPUTS"] = "true"
-    os.environ["LANGCHAIN_PROJECT"] = project_name
-    return {
-        "LANGSMITH_TRACING": flag,
-        "LANGCHAIN_TRACING_V2": flag,
-        "LANGCHAIN_HIDE_INPUTS": "true",
-        "LANGCHAIN_HIDE_OUTPUTS": "true",
-        "LANGCHAIN_PROJECT": project_name,
-    }
+# Redaction and tracing configuration live in `observability`; re-exported for compatibility.
+__all__ = ["configure_privacy_safe_langsmith", "redact_trace_payload", "redact_trace_string"]
 
 
 class EvaluationCaseSpec(AgentContract):

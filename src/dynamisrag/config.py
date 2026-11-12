@@ -183,6 +183,11 @@ class Settings(BaseSettings):
     agent_lease_seconds: float = Field(default=30.0, ge=2.0, le=600.0)
     agent_max_run_attempts: int = Field(default=3, ge=1, le=10)
     agent_langsmith_tracing_enabled: bool = False
+    agent_langsmith_mode: str = Field(
+        default="structure_only", pattern=r"^(structure_only|redacted_content)$"
+    )
+    """``structure_only`` exports no content at all; ``redacted_content`` exports scrubbed text."""
+    agent_langsmith_api_key: SecretStr | None = Field(default=None, repr=False)
     agent_langsmith_project: str = Field(
         default="dynamisrag-res637-eval",
         min_length=1,
@@ -192,6 +197,10 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def _validate_agent(self) -> Settings:
         """Refuse unsafe agent configurations at startup instead of serving them."""
+        if self.agent_langsmith_tracing_enabled and self.agent_langsmith_api_key is None:
+            raise ValueError(
+                "agent_langsmith_tracing_enabled requires DYNAMISRAG_AGENT_LANGSMITH_API_KEY"
+            )
         if not self.agent_enabled:
             return self
         production_like = self.environment in {Environment.STAGING, Environment.PRODUCTION}

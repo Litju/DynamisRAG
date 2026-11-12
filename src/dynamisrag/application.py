@@ -24,7 +24,7 @@ from fastapi import FastAPI
 
 from dynamisrag import __version__
 from dynamisrag.agent.auth import IdentityVerifier
-from dynamisrag.agent.langsmith_eval import configure_privacy_safe_langsmith
+from dynamisrag.agent.observability import configure_privacy_safe_langsmith
 from dynamisrag.agent.router import build_agent_v2_router
 from dynamisrag.agent.services import build_agent_services
 from dynamisrag.config import Settings, load_settings

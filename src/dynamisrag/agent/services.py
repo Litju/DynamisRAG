@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from sqlalchemy.engine import Engine
 
 from dynamisrag.agent.graph import ConversationalResearchOrchestrator
+from dynamisrag.agent.observability import TracingMode, TracingPolicy
 from dynamisrag.agent.persistence import (
     AgentConversationStore,
     InMemoryAgentConversationStore,
@@ -42,6 +43,7 @@ __all__ = [
     "build_agent_services",
     "build_standalone_agent_runtime",
     "model_config_from_settings",
+    "tracing_policy_from_settings",
 ]
 
 
@@ -83,6 +85,16 @@ def model_config_from_settings(settings: Settings) -> AgentModelConfig:
     )
 
 
+def tracing_policy_from_settings(settings: Settings) -> TracingPolicy:
+    if not settings.agent_langsmith_tracing_enabled:
+        return TracingPolicy.off()
+    return TracingPolicy(
+        mode=TracingMode(settings.agent_langsmith_mode),
+        project_name=settings.agent_langsmith_project,
+        api_key=settings.agent_langsmith_api_key,
+    )
+
+
 def build_agent_services(
     *,
     settings: Settings,
@@ -120,6 +132,7 @@ def build_agent_services(
         run_timeout_seconds=settings.agent_run_timeout_seconds,
         lease_seconds=settings.agent_lease_seconds,
         max_attempts=settings.agent_max_run_attempts,
+        tracing=tracing_policy_from_settings(settings),
     )
     pool = (
         AgentWorkerPool(orchestrator, size=settings.agent_inline_workers)

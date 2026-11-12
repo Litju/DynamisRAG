@@ -52,6 +52,7 @@ from dynamisrag.agent.contracts import (
     ListPapersInput,
     VerifyClaimsInput,
 )
+from dynamisrag.agent.observability import TracingPolicy
 from dynamisrag.agent.persistence import (
     AgentConversationStore,
     AgentRunRecord,
@@ -163,6 +164,7 @@ class ConversationalResearchOrchestrator:
         run_timeout_seconds: float = 300.0,
         lease_seconds: float = 30.0,
         max_attempts: int = 3,
+        tracing: TracingPolicy | None = None,
     ) -> None:
         self._registry = tool_registry
         self._store = store
@@ -170,6 +172,8 @@ class ConversationalResearchOrchestrator:
         self._run_timeout_seconds = run_timeout_seconds
         self._lease_seconds = lease_seconds
         self._max_attempts = max_attempts
+        self._tracing = tracing or TracingPolicy.off()
+        self._tracing_client = self._tracing.client()
         self._compiled_graph: CompiledStateGraph[Any, Any, Any, Any] = self._compile_graph()
 
     @property
@@ -326,10 +330,12 @@ class ConversationalResearchOrchestrator:
                     stage="resume",
                     payload={"resumed": True, "attempt": run.attempt},
                 )
-                runner.invoke(Command(resume=run.resume_payload), config=config)
+                with self._tracing.scope(client=self._tracing_client):
+                    runner.invoke(Command(resume=run.resume_payload), config=config)
             elif has_checkpoint and snapshot.next:
                 # Crash recovery: continue from the last durable checkpoint.
-                runner.invoke(None, config=config)
+                with self._tracing.scope(client=self._tracing_client):
+                    runner.invoke(None, config=config)
             elif not has_checkpoint:
                 self._model.reset_telemetry(run.run_id)
                 self._store.append_event(
@@ -339,7 +345,8 @@ class ConversationalResearchOrchestrator:
                     stage="resolve_conversation_context",
                     payload={"require_confirmation": run.require_confirmation},
                 )
-                runner.invoke(self._initial_state(run), config=config)
+                with self._tracing.scope(client=self._tracing_client):
+                    runner.invoke(self._initial_state(run), config=config)
             final = runner.get_state(config)
             if final.next:
                 self._store.mark_interrupted(

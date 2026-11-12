@@ -295,6 +295,8 @@ def build_settings(
             "agent_lease_seconds": 30.0,
             "agent_max_run_attempts": 3,
             "agent_langsmith_tracing_enabled": False,
+            "agent_langsmith_mode": "structure_only",
+            "agent_langsmith_api_key": None,
             "agent_langsmith_project": "dynamisrag-res637-eval",
         }
     )
