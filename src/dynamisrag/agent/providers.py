@@ -31,6 +31,7 @@ import httpx
 import httpx2
 from langchain_anthropic import ChatAnthropic
 from langchain_core.callbacks import CallbackManagerForLLMRun
+from langchain_core.language_models import LanguageModelInput
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
@@ -38,6 +39,7 @@ from langchain_core.runnables import Runnable
 from langchain_core.tools import BaseTool
 from langchain_ollama import ChatOllama
 from langchain_openai import ChatOpenAI
+from openai import BaseModel as OpenAIBaseModel
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
 from dynamisrag.agent.contracts import AgentContract, SafeShortText, ToolName
@@ -90,6 +92,7 @@ class ModelIdentityReport(AgentContract):
     chat_model: bool
     supports_tools: bool
     supports_structured_output: bool = False
+    endpoints: tuple[str, ...] = ()
 
 
 def verify_opencode_go_model(
@@ -128,6 +131,7 @@ def verify_opencode_go_model(
             chat_model=entry.get("type") == "chat",
             supports_tools=bool(tools_cap.get("supported")),
             supports_structured_output=bool(caps.get("structured_output")),
+            endpoints=tuple(sorted(cast("dict[str, Any]", entry.get("api") or {}))),
         )
     raise ProviderConfigurationError(
         f"Model {config.model_name!r} is not in the OpenCode Go catalogue"
@@ -148,6 +152,26 @@ class ModelCallTelemetry(AgentContract):
     estimated_cost_usd: float = Field(default=0.0, ge=0.0)
     latency_ms: float = Field(default=0.0, ge=0.0)
     tool_calls_requested: int = Field(default=0, ge=0)
+    role: str | None = None
+    endpoint: str | None = None
+    selection_reason: str | None = None
+    escalated: bool = False
+    outcome: str = "ok"
+    error_class: str | None = None
+
+
+class ModelUsageSummary(AgentContract):
+    """Actual usage of one configured model within a run (calls, tokens, cost, latency)."""
+
+    role: str
+    model_name: SafeShortText
+    endpoint: str
+    requests: int = Field(default=0, ge=0)
+    failed_requests: int = Field(default=0, ge=0)
+    prompt_tokens: int = Field(default=0, ge=0)
+    completion_tokens: int = Field(default=0, ge=0)
+    estimated_cost_usd: float = Field(default=0.0, ge=0.0)
+    latency_ms: float = Field(default=0.0, ge=0.0)
 
 
 class RunTelemetrySummary(AgentContract):
@@ -164,6 +188,9 @@ class RunTelemetrySummary(AgentContract):
     estimated_cost_usd: float = Field(default=0.0, ge=0.0)
     total_latency_ms: float = Field(default=0.0, ge=0.0)
     calls: tuple[ModelCallTelemetry, ...] = ()
+    models: tuple[ModelUsageSummary, ...] = ()
+    pro_escalations: int = Field(default=0, ge=0)
+    routing_events: tuple[str, ...] = ()
 
 
 class ScriptedToolDirective(BaseModel):
@@ -407,6 +434,54 @@ class DeterministicResearchChatModel(BaseChatModel):
         return json.dumps({"claims": claims, "abstain_reason": None})
 
 
+class ReasoningPreservingChatOpenAI(ChatOpenAI):
+    """Chat Completions client that round-trips ``reasoning_content``.
+
+    DeepSeek thinking models return ``reasoning_content`` next to tool calls and reject the next
+    request in the same tool conversation if it is not echoed back. The stock client drops it.
+    The reasoning stays in the in-flight message list only; it is never rendered to users.
+    """
+
+    def _create_chat_result(
+        self,
+        response: dict[Any, Any] | OpenAIBaseModel,
+        generation_info: dict[Any, Any] | None = None,
+    ) -> ChatResult:
+        result = super()._create_chat_result(response, generation_info)  # pyright: ignore[reportUnknownMemberType]
+        data = cast(
+            "dict[str, Any]", response if isinstance(response, dict) else response.model_dump()
+        )
+        for generation, choice in zip(result.generations, data.get("choices") or [], strict=False):
+            reasoning = cast("dict[str, Any]", choice.get("message") or {}).get("reasoning_content")
+            if reasoning and isinstance(generation.message, AIMessage):
+                generation.message.additional_kwargs["reasoning_content"] = reasoning
+        return result
+
+    def _get_request_payload(
+        self,
+        input_: LanguageModelInput,
+        *,
+        stop: list[str] | None = None,
+        **kwargs: object,
+    ) -> dict[str, Any]:
+        payload = cast(
+            "dict[str, Any]",
+            super()._get_request_payload(input_, stop=stop, **kwargs),  # pyright: ignore[reportUnknownMemberType]
+        )
+        sources = self._convert_input(input_).to_messages()
+        outgoing = cast("list[dict[str, Any]]", payload.get("messages") or [])
+        if len(sources) == len(outgoing):
+            for source, out in zip(sources, outgoing, strict=True):
+                reasoning = (
+                    source.additional_kwargs.get("reasoning_content")
+                    if isinstance(source, AIMessage)
+                    else None
+                )
+                if reasoning and out.get("role") == "assistant":
+                    out["reasoning_content"] = reasoning
+        return payload
+
+
 def _empty_telemetry_map() -> dict[str, list[ModelCallTelemetry]]:
     return {}
 
@@ -435,7 +510,7 @@ class AgentModelRuntime:
 
     def invoke_with_tools(
         self,
-        messages: list[BaseMessage],
+        messages: Sequence[BaseMessage],
         tools: Sequence[BaseTool],
         *,
         stage: str,
@@ -455,13 +530,19 @@ class AgentModelRuntime:
 
     def invoke_plain(
         self,
-        messages: list[BaseMessage],
+        messages: Sequence[BaseMessage],
         *,
         stage: str,
         run_id: str,
         json_output: bool = False,
+        escalate: object | None = None,
     ) -> AIMessage:
-        """Plain generation. The FULL message list reaches the model: no truncation."""
+        """Plain generation. The FULL message list reaches the model: no truncation.
+
+        ``escalate`` is accepted for interface parity with the routed runtime and ignored: a
+        single-model runtime has nothing to escalate to.
+        """
+        del escalate
         t0 = time.perf_counter()
         if json_output and self.config.provider == AgentProviderKind.OLLAMA:
             ai_msg = self.chat_model.invoke(messages, format="json")

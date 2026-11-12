@@ -150,6 +150,12 @@ class Settings(BaseSettings):
     agent_model_base_url: str | None = "http://127.0.0.1:11435"
     agent_model_api_key: SecretStr | None = Field(default=None, repr=False)
     agent_model_num_ctx: int = Field(default=8192, ge=2048, le=131072)
+    agent_model_fast: str = Field(default="deepseek-v4.1-flash", min_length=1, max_length=200)
+    agent_model_coordinator: str = Field(default="gpt-6-luna", min_length=1, max_length=200)
+    agent_model_pro: str = Field(default="deepseek-v4-pro", min_length=1, max_length=200)
+    agent_max_pro_escalations: int = Field(default=1, ge=0, le=3)
+    agent_run_cost_budget_usd: float = Field(default=0.12, gt=0.0, le=100.0)
+    agent_run_token_budget: int = Field(default=250_000, ge=1_000, le=4_000_000)
     agent_opencode_go_usage_approved: bool = False
     """Explicit owner acknowledgement that OpenCode Go may serve this deployment.
 

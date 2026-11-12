@@ -43,7 +43,7 @@ from dynamisrag.agent.contracts import (
     ToolName,
 )
 from dynamisrag.agent.persistence import RunEventType
-from dynamisrag.agent.providers import AgentModelRuntime
+from dynamisrag.agent.routing import ModelBudgetExceeded, ModelRuntime
 from dynamisrag.agent.tools import ScientificToolRegistry, contains_prompt_injection
 
 __all__ = [
@@ -229,7 +229,7 @@ def _record(counts: dict[str, int], origin: ToolOrigin) -> None:
 
 def run_model_tool_loop(  # noqa: PLR0912, PLR0915
     *,
-    model: AgentModelRuntime,
+    model: ModelRuntime,
     registry: ScientificToolRegistry,
     scope: DataScope,
     run_id: str,
@@ -253,6 +253,7 @@ def run_model_tool_loop(  # noqa: PLR0912, PLR0915
     )
     current_origin = ToolOrigin.MODEL_DIRECTED
     model_searched = False
+    budget_reason: str | None = None
 
     def _on_tool(env: ToolExecutionEnvelope) -> None:
         envelopes.append(env.model_dump(mode="json"))
@@ -279,9 +280,13 @@ def run_model_tool_loop(  # noqa: PLR0912, PLR0915
         if should_stop() or outcome.tool_calls_used >= budget:
             outcome.stopped = should_stop()
             break
-        ai_msg: AIMessage = model.invoke_with_tools(
-            messages, offered, stage=f"model_tool_execution:{round_index}", run_id=run_id
-        )
+        try:
+            ai_msg: AIMessage = model.invoke_with_tools(
+                messages, offered, stage=f"model_tool_execution:{round_index}", run_id=run_id
+            )
+        except ModelBudgetExceeded as exhausted:
+            budget_reason = f"model_budget_exhausted:{exhausted.dimension}"
+            break
         messages.append(ai_msg)
         malformed = [dict(c) for c in ai_msg.invalid_tool_calls]
         requested = [dict(c) for c in ai_msg.tool_calls]
@@ -378,7 +383,9 @@ def run_model_tool_loop(  # noqa: PLR0912, PLR0915
         return outcome
 
     if not hits and outcome.tool_calls_used < budget:
-        if model_searched:
+        if budget_reason is not None and not model_searched:
+            reason = budget_reason
+        elif model_searched:
             reason = "model_search_returned_no_hits"
         elif outcome.rejected_calls:
             reason = "model_retrieval_calls_were_rejected"

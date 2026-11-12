@@ -24,6 +24,11 @@ from dynamisrag.agent.providers import (
     AgentProviderKind,
     build_agent_model_runtime,
 )
+from dynamisrag.agent.routing import (
+    ModelRuntime,
+    OpenCodeGoRosterConfig,
+    build_opencode_go_runtime,
+)
 from dynamisrag.agent.tools import ScientificToolRegistry
 from dynamisrag.agent.worker import AgentWorkerPool
 from dynamisrag.config import Settings
@@ -41,6 +46,7 @@ from dynamisrag.search.scientific import ScientificRetrievalService
 __all__ = [
     "AgentRuntime",
     "build_agent_services",
+    "build_model_runtime",
     "build_standalone_agent_runtime",
     "model_config_from_settings",
     "tracing_policy_from_settings",
@@ -91,6 +97,27 @@ def model_config_from_settings(settings: Settings) -> AgentModelConfig:
     )
 
 
+def build_model_runtime(settings: Settings) -> ModelRuntime:
+    """OpenCode Go builds the three-model routed roster; other providers stay single-model."""
+    if settings.agent_provider == AgentProviderKind.OPENCODE_GO.value:
+        return build_opencode_go_runtime(
+            OpenCodeGoRosterConfig(
+                api_key=settings.agent_model_api_key,
+                base_url=None
+                if settings.agent_model_base_url == _OLLAMA_DEFAULT_URL
+                else settings.agent_model_base_url,
+                usage_approved=settings.agent_opencode_go_usage_approved,
+                fast_model=settings.agent_model_fast,
+                coordinator_model=settings.agent_model_coordinator,
+                pro_model=settings.agent_model_pro,
+                max_pro_escalations=settings.agent_max_pro_escalations,
+                max_run_cost_usd=settings.agent_run_cost_budget_usd,
+                max_run_tokens=settings.agent_run_token_budget,
+            )
+        )
+    return build_agent_model_runtime(model_config_from_settings(settings))
+
+
 def tracing_policy_from_settings(settings: Settings) -> TracingPolicy:
     if not settings.agent_langsmith_tracing_enabled:
         return TracingPolicy.off()
@@ -134,7 +161,7 @@ def build_agent_services(
     orchestrator = ConversationalResearchOrchestrator(
         tool_registry=registry,
         store=store,
-        model_runtime=build_agent_model_runtime(model_config_from_settings(settings)),
+        model_runtime=build_model_runtime(settings),
         run_timeout_seconds=settings.agent_run_timeout_seconds,
         lease_seconds=settings.agent_lease_seconds,
         max_attempts=settings.agent_max_run_attempts,
