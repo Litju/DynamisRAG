@@ -30,6 +30,7 @@ import binascii
 import hashlib
 import hmac
 import json
+import math
 import re
 import time
 from dataclasses import dataclass
@@ -185,6 +186,8 @@ class IdentityVerifier:
             or not isinstance(exp, (int, float))
         ):
             raise AuthFailure("invalid_claims", "Credential requires numeric iat and exp")
+        if not (math.isfinite(iat) and math.isfinite(exp)):
+            raise AuthFailure("invalid_claims", "Credential iat and exp must be finite numbers")
         if exp <= now - CLOCK_SKEW_SECONDS:
             raise AuthFailure("expired_credential", "Credential has expired")
         if iat > now + CLOCK_SKEW_SECONDS:

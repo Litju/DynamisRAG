@@ -112,6 +112,19 @@ def test_expiry_audience_issuer_and_lifetime_bounds() -> None:
     assert _failure_code(long_lived) == "invalid_claims"
 
 
+def test_non_finite_timestamps_are_rejected() -> None:
+    import hashlib
+    import hmac
+
+    for bad in (float("nan"), float("inf")):
+        head = _b64({"alg": "HS256", "typ": "JWT"})
+        body = _b64({"iss": ISSUER, "aud": AUDIENCE, "sub": "scientist-1", "iat": bad, "exp": bad})
+        sig = base64.urlsafe_b64encode(
+            hmac.new(IDENTITY_SECRET.encode(), f"{head}.{body}".encode(), hashlib.sha256).digest()
+        ).rstrip(b"=")
+        assert _failure_code(f"{head}.{body}.{sig.decode()}") == "invalid_claims"
+
+
 def test_invalid_subjects_are_rejected() -> None:
     for subject in ("", "has space", "../etc/passwd", "x" * 200, "-leading"):
         assert _failure_code(_mint(subject=subject)) == "invalid_subject"

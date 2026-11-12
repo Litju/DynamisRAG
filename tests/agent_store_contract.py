@@ -25,6 +25,9 @@ from dynamisrag.agent.persistence import (
     RunLeaseLostError,
     RunStatus,
     ThreadAuthorizationError,
+    ThreadContextUpdate,
+    ThreadMessageRecord,
+    ThreadScopeConflictError,
 )
 
 
@@ -277,7 +280,82 @@ def check_heartbeat_keeps_the_lease(h: StoreHarness) -> None:
     assert not h.store.heartbeat_run(run_id, worker_id="someone-else", lease_seconds=5)
 
 
+def check_stale_worker_cannot_append_events_or_touch_thread_memory(h: StoreHarness) -> None:
+    thread_id = _thread(h)
+    run, _ = h.store.create_or_get_run(
+        thread_id=thread_id, user_id="owner", question="q", idempotency_key="k"
+    )
+    assert _claim(h, "worker-a", run.run_id)
+    h.store.append_event(
+        run.run_id,
+        thread_id=thread_id,
+        event_type=RunEventType.TOOL_CALLED,
+        stage="a",
+        payload={},
+        worker_id="worker-a",
+    )
+    h.expire_leases()
+    h.store.reap_expired_runs()
+    assert _claim(h, "worker-b", run.run_id)
+
+    def _event(worker: str) -> None:
+        h.store.append_event(
+            run.run_id,
+            thread_id=thread_id,
+            event_type=RunEventType.TOOL_CALLED,
+            stage=worker,
+            payload={},
+            worker_id=worker,
+        )
+
+    with pytest.raises(RunLeaseLostError):
+        _event("worker-a")  # the stale worker's late event is refused...
+    _event("worker-b")  # ...while the current lease holder's is accepted.
+
+    context = ThreadContextUpdate(
+        active_version_keys=("a" * 64,),
+        conversation_summary="from run",
+        append_messages=(
+            ThreadMessageRecord(
+                message_id="msg-1", run_id=run.run_id, role="user", content="q", created_at="t"
+            ),
+        ),
+    )
+    stale = _done().model_copy(update={"thread_context": context})
+    with pytest.raises(RunLeaseLostError):
+        h.store.complete_run(run.run_id, worker_id="worker-a", completion=stale)
+    untouched = h.store.get_thread(thread_id, user_id="owner")
+    assert untouched.messages == () and untouched.conversation_summary == ""
+
+    h.store.complete_run(run.run_id, worker_id="worker-b", completion=stale)
+    updated = h.store.get_thread(thread_id, user_id="owner")
+    assert [m.message_id for m in updated.messages] == ["msg-1"]
+    assert updated.active_version_keys == ("a" * 64,) and updated.conversation_summary == "from run"
+    stages = [e.stage for e in h.store.list_events(run.run_id, user_id="owner")]
+    assert "worker-a" not in stages[2:] and "worker-b" in stages
+
+
+def check_reopening_a_thread_cannot_silently_keep_a_different_scope(h: StoreHarness) -> None:
+    first = h.store.create_thread(
+        owner_id="alice", title="t", external_ref="s1", allowed_version_keys=("a" * 64,)
+    )
+    same = h.store.create_thread(
+        owner_id="alice", title="t", external_ref="s1", allowed_version_keys=("a" * 64,)
+    )
+    assert same.thread_id == first.thread_id
+    with pytest.raises(ThreadScopeConflictError):
+        h.store.create_thread(
+            owner_id="alice", title="t", external_ref="s1", allowed_version_keys=("b" * 64,)
+        )
+    # Not specifying a scope on re-open is just "find my thread".
+    assert h.store.create_thread(owner_id="alice", title="t", external_ref="s1").thread_id == (
+        first.thread_id
+    )
+
+
 ALL_CHECKS: tuple[Callable[[StoreHarness], None], ...] = (
+    check_stale_worker_cannot_append_events_or_touch_thread_memory,
+    check_reopening_a_thread_cannot_silently_keep_a_different_scope,
     check_thread_ownership_and_external_ref,
     check_idempotent_creation_and_fingerprint,
     check_single_active_run_per_thread_under_contention,

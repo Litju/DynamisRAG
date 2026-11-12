@@ -391,6 +391,36 @@ def test_thread_external_ref_maps_an_eve_session_idempotently() -> None:
         assert other_user.json()["thread_id"] != a.json()["thread_id"]
 
 
+def test_reopening_a_session_with_a_different_scope_is_a_conflict_not_a_silent_widening() -> None:
+    stack = build_stack()
+    headers = auth_headers("scope-user")
+    narrow = [stack.studies["PMC5263151"][0]]
+    with TestClient(stack.app) as client:
+        first = client.post(
+            "/api/v2/threads",
+            headers=headers,
+            json={"title": "t", "external_ref": "eve-9", "allowed_version_keys": narrow},
+        )
+        assert first.status_code == 201
+        widened = client.post(
+            "/api/v2/threads",
+            headers=headers,
+            json={
+                "title": "t",
+                "external_ref": "eve-9",
+                "allowed_version_keys": [stack.studies["PMC10780924"][0]],
+            },
+        )
+        assert widened.status_code == 409
+        assert widened.json()["detail"]["code"] == "thread_scope_conflict"
+        again = client.post(
+            "/api/v2/threads",
+            headers=headers,
+            json={"title": "t", "external_ref": "eve-9", "allowed_version_keys": narrow},
+        )
+        assert again.json()["thread_id"] == first.json()["thread_id"]
+
+
 def test_deterministic_model_fixture_is_a_scripted_model_not_a_generative_one() -> None:
     # Guard for the evaluation methodology: scripted models must be identifiable as such.
     assert issubclass(GatedChatModel, DeterministicResearchChatModel)

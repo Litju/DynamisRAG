@@ -1,5 +1,24 @@
 # RES-637 Model-Provider Qualification & Live Acceptance Report
 
+> **HISTORICAL EVIDENCE (v1) — SUPERSEDED. Do not cite these numbers as agent reliability.**
+> The measurements below (this banner is the only addition) and the raw receipt
+> [`evidence/res637-agent-qualification.json`](evidence/res637-agent-qualification.json) are kept
+> unmodified as a record of what was measured at commit `811158b`. An independent review
+> found the methodology and the system under test defective:
+>
+> - the live run's "tool trajectory" was satisfied by tool calls the *adapter* constructed from
+>   regexes (the model only emitted a short JSON list, capped at 24 tokens), not by model decisions;
+> - capabilities a scenario never exercised were scored `1.0` (single-turn cases got a perfect
+>   context-resolution score; non-adversarial cases got a perfect injection score);
+> - the synthesis prompt was truncated to its last 500 characters, so the "perfect" citation scores
+>   came from a deterministic extractive fallback rather than model synthesis;
+> - the second "model" was a deterministic scripted model, not a generative qualification;
+> - six cases on one 4B model cannot support a general-reliability claim.
+>
+> Corrected, versioned evidence: [`res637-agent-evaluation-v2.md`](res637-agent-evaluation-v2.md).
+> Runtime ownership and the Eve integration contract: [`res637-eve-python-contract.md`](res637-eve-python-contract.md).
+
+
 This report records the offline deterministic evaluation baseline and live local
 model qualification (`qwen3:4b` via `ChatOllama`) for the RES-637 conversational
 scientific research agent (`/api/v2`). The raw measured receipt is committed in

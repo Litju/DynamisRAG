@@ -58,6 +58,7 @@ from dynamisrag.agent.persistence import (
     ThreadAuthorizationError,
     ThreadNotFoundError,
     ThreadRecord,
+    ThreadScopeConflictError,
 )
 from dynamisrag.agent.tools import ScientificToolRegistry
 from dynamisrag.domain.values import Sha256Hex
@@ -215,12 +216,18 @@ def _register_thread_and_run_routes(
         user_id: Annotated[UserId, Depends(auth_dep)],
     ) -> ThreadRecord:
         _, active_store, _ = deps.require()
-        return active_store.create_thread(
-            owner_id=user_id,
-            title=body.title,
-            allowed_version_keys=body.allowed_version_keys,
-            external_ref=body.external_ref,
-        )
+        try:
+            return active_store.create_thread(
+                owner_id=user_id,
+                title=body.title,
+                allowed_version_keys=body.allowed_version_keys,
+                external_ref=body.external_ref,
+            )
+        except ThreadScopeConflictError as err:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={"code": "thread_scope_conflict", "message": str(err)},
+            ) from err
 
     @router.get("/threads/{thread_id}", response_model=ThreadRecord)
     def get_thread(

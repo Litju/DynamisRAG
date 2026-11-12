@@ -60,6 +60,7 @@ from dynamisrag.agent.persistence import (
     RunEventType,
     RunLeaseLostError,
     RunStatus,
+    ThreadContextUpdate,
     ThreadMessageRecord,
 )
 from dynamisrag.agent.providers import AgentModelRuntime
@@ -112,6 +113,8 @@ class ResearchAgentState(TypedDict, total=False):
     confirmation_required: bool
     recent_turns: list[dict[str, str]]
     rejected_history: list[dict[str, Any]]
+    prior_active_version_keys: list[str]
+    thread_context: dict[str, Any] | None
     tool_origin_counts: dict[str, int]
     synthesis_source: str | None
     synthesis_fallback_reason: str | None
@@ -325,6 +328,7 @@ class ConversationalResearchOrchestrator:
             if run.resume_payload is not None:
                 self._store.append_event(
                     run.run_id,
+                    worker_id=worker_id,
                     thread_id=run.thread_id,
                     event_type=RunEventType.RUN_STARTED,
                     stage="resume",
@@ -340,6 +344,7 @@ class ConversationalResearchOrchestrator:
                 self._model.reset_telemetry(run.run_id)
                 self._store.append_event(
                     run.run_id,
+                    worker_id=worker_id,
                     thread_id=run.thread_id,
                     event_type=RunEventType.RUN_STARTED,
                     stage="resolve_conversation_context",
@@ -509,6 +514,11 @@ class ConversationalResearchOrchestrator:
             evidence_set_key=cast("str | None", values.get("evidence_set_key")),
             evidence_graph_key=cast("str | None", values.get("evidence_graph_key")),
             telemetry=telemetry,
+            thread_context=(
+                ThreadContextUpdate.model_validate(values["thread_context"])
+                if values.get("thread_context")
+                else None
+            ),
             event_type=RunEventType.RUN_COMPLETED,
             event_payload={
                 "status": status.value,
@@ -587,6 +597,7 @@ class ConversationalResearchOrchestrator:
             "scoped_version_keys": scoped_versions,
             "allowed_version_keys": list(thread.allowed_version_keys),
             "active_passage_keys": list(thread.active_passage_keys),
+            "prior_active_version_keys": list(thread.active_version_keys),
             "conversation_summary": thread.conversation_summary,
             "recent_turns": [{"role": m.role, "content": m.content} for m in thread.messages[-4:]],
             "messages": [HumanMessage(content=question)],
@@ -625,6 +636,7 @@ class ConversationalResearchOrchestrator:
 
         self._store.append_event(
             run_id,
+            worker_id=self._worker_id(config),
             thread_id=thread_id,
             event_type=RunEventType.PLAN_CREATED,
             stage="interpret_and_plan",
@@ -685,6 +697,7 @@ class ConversationalResearchOrchestrator:
         def _emit(event_type: RunEventType, payload: dict[str, Any]) -> None:
             self._store.append_event(
                 run_id,
+                worker_id=self._worker_id(config),
                 thread_id=thread_id,
                 event_type=event_type,
                 stage="model_tool_execution",
@@ -798,6 +811,7 @@ class ConversationalResearchOrchestrator:
 
         self._store.append_event(
             run_id,
+            worker_id=self._worker_id(config),
             thread_id=thread_id,
             event_type=RunEventType.EVIDENCE_INSPECTED,
             stage="inspect_and_expand_evidence",
@@ -852,6 +866,7 @@ class ConversationalResearchOrchestrator:
 
         self._store.append_event(
             run_id,
+            worker_id=self._worker_id(config),
             thread_id=thread_id,
             event_type=RunEventType.FINDINGS_EXTRACTED,
             stage="extract_study_findings",
@@ -929,6 +944,7 @@ class ConversationalResearchOrchestrator:
 
         self._store.append_event(
             run_id,
+            worker_id=self._worker_id(config),
             thread_id=thread_id,
             event_type=RunEventType.STUDIES_COMPARED,
             stage="compare_studies",
@@ -991,6 +1007,7 @@ class ConversationalResearchOrchestrator:
         )
         self._store.append_event(
             run_id,
+            worker_id=self._worker_id(config),
             thread_id=state.get("thread_id", ""),
             event_type=RunEventType.SYNTHESIS_COMPLETED,
             stage="synthesize_provisional_answer",
@@ -1094,6 +1111,7 @@ class ConversationalResearchOrchestrator:
 
         self._store.append_event(
             run_id,
+            worker_id=self._worker_id(config),
             thread_id=thread_id,
             event_type=RunEventType.VERIFICATION_COMPLETED,
             stage="verify_canonical_citations",
@@ -1157,10 +1175,13 @@ class ConversationalResearchOrchestrator:
     # ------------------------------------------------------------------
 
     def _node_finalize_response(self, state: ResearchAgentState) -> ResearchAgentState:
-        """Compute the answer and update thread memory. Terminal status is the worker's job."""
+        """Compute the answer and the thread-memory update. Persisting is the worker's fenced job.
+
+        Nothing here touches the store: the update travels in ``RunCompletion.thread_context`` and
+        is committed in the same worker-fenced transaction as the terminal status, so a stale
+        worker can never overwrite conversation memory.
+        """
         run_id = state.get("run_id", "")
-        thread_id = state.get("thread_id", "")
-        user_id = state.get("user_id", "")
         question = state.get("question", "")
 
         if state.get("abort_reason") in {"cancelled", "timeout"}:
@@ -1192,14 +1213,14 @@ class ConversationalResearchOrchestrator:
         )
         now = datetime.now(UTC).isoformat()
         # Deterministic ids make a re-executed finalize idempotent in thread memory.
-        user_msg_rec = ThreadMessageRecord(
+        user_msg = ThreadMessageRecord(
             message_id=f"msg-{run_id}-user",
             run_id=run_id,
             role="user",
             content=question[:4000],
             created_at=now,
         )
-        asst_msg_rec = ThreadMessageRecord(
+        asst_msg = ThreadMessageRecord(
             message_id=f"msg-{run_id}-assistant",
             run_id=run_id,
             role="assistant",
@@ -1210,24 +1231,24 @@ class ConversationalResearchOrchestrator:
             verified_claims_count=len(verified),
             abstained=abstained,
         )
-        prev_thread = self._store.get_thread(thread_id, user_id=user_id)
-        merged_vks = tuple(dict.fromkeys((*cited_vks, *prev_thread.active_version_keys)))
-        merged_pks = tuple(dict.fromkeys((*cited_pks, *prev_thread.active_passage_keys)))
-        self._store.update_thread_context(
-            thread_id,
-            user_id=user_id,
-            active_version_keys=merged_vks,
-            active_passage_keys=merged_pks,
+        context = ThreadContextUpdate(
+            active_version_keys=tuple(
+                dict.fromkeys((*cited_vks, *state.get("prior_active_version_keys", [])))
+            ),
+            active_passage_keys=tuple(
+                dict.fromkeys((*cited_pks, *state.get("active_passage_keys", [])))
+            ),
             conversation_summary=(
                 f"Last question: {question[:200]} | Verified citations: {len(verified)}"
             ),
-            append_messages=(user_msg_rec, asst_msg_rec),
+            append_messages=(user_msg, asst_msg),
         )
         return {
             "final_answer_markdown": answer_md,
             "final_status": final_status.value,
             "abstained": abstained,
             "abstention_reason": abstention_reason,
+            "thread_context": context.model_dump(mode="json"),
         }
 
     @staticmethod

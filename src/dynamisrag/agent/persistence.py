@@ -68,9 +68,11 @@ __all__ = [
     "RunNotFoundError",
     "RunStatus",
     "ThreadAuthorizationError",
+    "ThreadContextUpdate",
     "ThreadMessageRecord",
     "ThreadNotFoundError",
     "ThreadRecord",
+    "ThreadScopeConflictError",
     "assert_agent_database_isolated",
 ]
 
@@ -142,6 +144,10 @@ class IdempotencyConflictError(RunConflictError):
 
 class RunLeaseLostError(RuntimeError):
     """Raised when a worker no longer owns the run it is trying to mutate."""
+
+
+class ThreadScopeConflictError(RuntimeError):
+    """Raised when a thread is re-opened (same ``external_ref``) with a different document scope."""
 
 
 class AgentDatabaseIsolationError(RuntimeError):
@@ -229,6 +235,15 @@ class RunControl(AgentContract):
     lease_held: bool = True
 
 
+class ThreadContextUpdate(AgentContract):
+    """Working-memory update committed atomically with a run's terminal state."""
+
+    active_version_keys: tuple[Sha256Hex, ...] = ()
+    active_passage_keys: tuple[Sha256Hex, ...] = ()
+    conversation_summary: str = ""
+    append_messages: tuple[ThreadMessageRecord, ...] = ()
+
+
 class RunCompletion(AgentContract):
     """Terminal payload persisted atomically with the terminal event."""
 
@@ -244,6 +259,8 @@ class RunCompletion(AgentContract):
     telemetry: dict[str, Any] = Field(default_factory=dict)
     error_message: str | None = None
     abort_reason: str | None = None
+    thread_context: ThreadContextUpdate | None = None
+    """Applied in the SAME fenced transaction as the terminal status (never by a stale worker)."""
     event_type: RunEventType
     event_payload: dict[str, Any] = Field(default_factory=dict)
 
@@ -331,6 +348,7 @@ class AgentConversationStore(Protocol):
         event_type: RunEventType,
         stage: str,
         payload: dict[str, Any],
+        worker_id: str | None = None,
     ) -> AgentRunEventRecord: ...
 
     def list_events(
@@ -346,6 +364,15 @@ def _now_iso() -> str:
 
 def _epoch_iso(epoch: float) -> str:
     return datetime.fromtimestamp(epoch, UTC).isoformat()
+
+
+def _check_scope_unchanged(existing: tuple[str, ...], requested: tuple[str, ...]) -> None:
+    """Re-opening a thread may not silently keep a scope the caller no longer asks for."""
+    if requested and set(requested) != set(existing):
+        raise ThreadScopeConflictError(
+            "The thread already exists with a different document scope; create a new "
+            "external_ref to change scope"
+        )
 
 
 def _request_fingerprint(question: str, *, require_confirmation: bool) -> str:
@@ -426,7 +453,9 @@ class InMemoryAgentConversationStore:
             if external_ref is not None:
                 existing_id = self._external.get((owner_id, external_ref))
                 if existing_id is not None:
-                    return self._threads[existing_id]
+                    existing = self._threads[existing_id]
+                    _check_scope_unchanged(existing.allowed_version_keys, allowed_version_keys)
+                    return existing
             tid = thread_id or f"thread-{uuid4().hex[:16]}"
             now = _now_iso()
             rec = ThreadRecord(
@@ -714,7 +743,17 @@ class InMemoryAgentConversationStore:
         self, run_id: str, *, worker_id: str, completion: RunCompletion
     ) -> AgentRunRecord:
         with self._lock:
-            self._owned(run_id, worker_id)
+            owned = self._owned(run_id, worker_id)
+            if completion.thread_context is not None:
+                ctx = completion.thread_context
+                self.update_thread_context(
+                    owned.thread_id,
+                    user_id=owned.owner_id,
+                    active_version_keys=ctx.active_version_keys,
+                    active_passage_keys=ctx.active_passage_keys,
+                    conversation_summary=ctx.conversation_summary,
+                    append_messages=ctx.append_messages,
+                )
             return self._finish_locked(
                 run_id,
                 completion.status,
@@ -813,10 +852,13 @@ class InMemoryAgentConversationStore:
         event_type: RunEventType,
         stage: str,
         payload: dict[str, Any],
+        worker_id: str | None = None,
     ) -> AgentRunEventRecord:
         with self._lock:
             if run_id not in self._runs:
                 raise RunNotFoundError(f"Run {run_id} not found")
+            if worker_id is not None:
+                self._owned(run_id, worker_id)
             return self._append(run_id, thread_id, event_type, stage, payload)
 
     def list_events(
@@ -893,11 +935,22 @@ class PostgresAgentConversationStore:
             open=True,
             kwargs={"autocommit": True, "prepare_threshold": 0, "row_factory": dict_row},
         )
+        # Control-plane operations (heartbeat, cooperative-control polling) get their own small
+        # pool so API and SSE traffic can never starve a heartbeat into a false lease expiry.
+        self._control_pool: ConnectionPool[Any] = ConnectionPool(
+            conninfo=conninfo,
+            min_size=1,
+            max_size=2,
+            timeout=5.0,
+            open=True,
+            kwargs={"autocommit": True, "prepare_threshold": 0, "row_factory": dict_row},
+        )
         try:
             self._checkpointer = PostgresSaver(self._pool)
             self._checkpointer.setup()
             self._setup_agent_tables()
         except BaseException:
+            self._control_pool.close()
             self._pool.close()
             raise
 
@@ -1063,6 +1116,9 @@ class PostgresAgentConversationStore:
                         (owner_id, external_ref),
                     ).fetchone(),
                 )
+                _check_scope_unchanged(
+                    tuple(row.get("allowed_version_keys_json") or ()), allowed_version_keys
+                )
         return self._row_to_thread(row)
 
     def get_thread(self, thread_id: str, *, user_id: str) -> ThreadRecord:
@@ -1105,46 +1161,58 @@ class PostgresAgentConversationStore:
         append_messages: tuple[ThreadMessageRecord, ...] = (),
     ) -> ThreadRecord:
         with self._pool.connection() as conn, conn.transaction():
-            row = cast(
-                "dict[str, Any] | None",
-                conn.execute(
-                    "SELECT * FROM agent_threads WHERE thread_id = %s FOR UPDATE", (thread_id,)
-                ).fetchone(),
-            )
-            if row is None:
-                raise ThreadNotFoundError(f"Thread {thread_id} not found")
-            if str(row["owner_id"]) != user_id:
-                raise ThreadAuthorizationError(
-                    f"User {user_id} is not authorized to access thread {thread_id}"
-                )
-            existing = self._row_to_thread(row)
-            seen = {m.message_id for m in existing.messages}
-            fresh = tuple(m for m in append_messages if m.message_id not in seen)
-            updated = existing.model_copy(
-                update={
-                    "active_version_keys": active_version_keys[:12],
-                    "active_passage_keys": active_passage_keys[:24],
-                    "conversation_summary": conversation_summary[:2000],
-                    "messages": (*existing.messages, *fresh)[-40:],
-                    "updated_at": _now_iso(),
-                }
-            )
-            conn.execute(
-                """
-                UPDATE agent_threads
-                SET active_version_keys_json = %s::jsonb, active_passage_keys_json = %s::jsonb,
-                    conversation_summary = %s, messages_json = %s::jsonb, updated_at = %s
-                WHERE thread_id = %s
-                """,
-                (
-                    json.dumps(list(updated.active_version_keys)),
-                    json.dumps(list(updated.active_passage_keys)),
-                    updated.conversation_summary,
-                    json.dumps([m.model_dump(mode="json") for m in updated.messages]),
-                    updated.updated_at,
-                    thread_id,
+            return self._update_thread_context_tx(
+                conn,
+                thread_id,
+                user_id=user_id,
+                update=ThreadContextUpdate(
+                    active_version_keys=active_version_keys,
+                    active_passage_keys=active_passage_keys,
+                    conversation_summary=conversation_summary,
+                    append_messages=append_messages,
                 ),
             )
+
+    def _update_thread_context_tx(
+        self, conn: _Conn, thread_id: str, *, user_id: str, update: ThreadContextUpdate
+    ) -> ThreadRecord:
+        row = conn.execute(
+            "SELECT * FROM agent_threads WHERE thread_id = %s FOR UPDATE", (thread_id,)
+        ).fetchone()
+        if row is None:
+            raise ThreadNotFoundError(f"Thread {thread_id} not found")
+        if str(row["owner_id"]) != user_id:
+            raise ThreadAuthorizationError(
+                f"User {user_id} is not authorized to access thread {thread_id}"
+            )
+        existing = self._row_to_thread(row)
+        seen = {m.message_id for m in existing.messages}
+        fresh = tuple(m for m in update.append_messages if m.message_id not in seen)
+        updated = existing.model_copy(
+            update={
+                "active_version_keys": update.active_version_keys[:12],
+                "active_passage_keys": update.active_passage_keys[:24],
+                "conversation_summary": update.conversation_summary[:2000],
+                "messages": (*existing.messages, *fresh)[-40:],
+                "updated_at": _now_iso(),
+            }
+        )
+        conn.execute(
+            """
+            UPDATE agent_threads
+            SET active_version_keys_json = %s::jsonb, active_passage_keys_json = %s::jsonb,
+                conversation_summary = %s, messages_json = %s::jsonb, updated_at = %s
+            WHERE thread_id = %s
+            """,
+            (
+                json.dumps(list(updated.active_version_keys)),
+                json.dumps(list(updated.active_passage_keys)),
+                updated.conversation_summary,
+                json.dumps([m.model_dump(mode="json") for m in updated.messages]),
+                updated.updated_at,
+                thread_id,
+            ),
+        )
         return updated
 
     # -- runs -------------------------------------------------------------------
@@ -1294,7 +1362,7 @@ class PostgresAgentConversationStore:
         return self._row_to_run(row) if row is not None else None
 
     def heartbeat_run(self, run_id: str, *, worker_id: str, lease_seconds: float) -> bool:
-        with self._pool.connection() as conn:
+        with self._control_pool.connection() as conn:
             cur = conn.execute(
                 """
                 UPDATE agent_runs SET lease_expires_at = now() + make_interval(secs => %s)
@@ -1358,7 +1426,7 @@ class PostgresAgentConversationStore:
         return tuple(reaped)
 
     def run_control(self, run_id: str, *, worker_id: str) -> RunControl:
-        with self._pool.connection() as conn:
+        with self._control_pool.connection() as conn:
             row = cast(
                 "dict[str, Any] | None",
                 conn.execute(
@@ -1508,6 +1576,13 @@ class PostgresAgentConversationStore:
     ) -> AgentRunRecord:
         with self._pool.connection() as conn, conn.transaction():
             row = self._lock_owned(conn, run_id, worker_id)
+            if completion.thread_context is not None:
+                self._update_thread_context_tx(
+                    conn,
+                    str(row["thread_id"]),
+                    user_id=str(row["owner_id"]),
+                    update=completion.thread_context,
+                )
             self._finish_tx(
                 conn,
                 run_id,
@@ -1615,14 +1690,25 @@ class PostgresAgentConversationStore:
         event_type: RunEventType,
         stage: str,
         payload: dict[str, Any],
+        worker_id: str | None = None,
     ) -> AgentRunEventRecord:
+        """Append one event. With ``worker_id`` the write is fenced to the current lease holder."""
         now = _now_iso()
         seq_row = conn.execute(
-            "UPDATE agent_runs SET event_seq = event_seq + 1 WHERE run_id = %s RETURNING event_seq",
-            (run_id,),
+            """
+            UPDATE agent_runs SET event_seq = event_seq + 1
+            WHERE run_id = %s AND (%s::text IS NULL OR (worker_id = %s AND status = 'running'))
+            RETURNING event_seq
+            """,
+            (run_id, worker_id, worker_id),
         ).fetchone()
         if seq_row is None:
-            raise RunNotFoundError(f"Run {run_id} not found")
+            exists = conn.execute(
+                "SELECT 1 AS present FROM agent_runs WHERE run_id = %s", (run_id,)
+            ).fetchone()
+            if exists is None:
+                raise RunNotFoundError(f"Run {run_id} not found")
+            raise RunLeaseLostError(f"Worker {worker_id} no longer owns run {run_id}")
         seq = int(seq_row["event_seq"])
         conn.execute(
             """
@@ -1650,9 +1736,12 @@ class PostgresAgentConversationStore:
         event_type: RunEventType,
         stage: str,
         payload: dict[str, Any],
+        worker_id: str | None = None,
     ) -> AgentRunEventRecord:
         with self._pool.connection() as conn, conn.transaction():
-            return self._append_event_tx(conn, run_id, thread_id, event_type, stage, payload)
+            return self._append_event_tx(
+                conn, run_id, thread_id, event_type, stage, payload, worker_id
+            )
 
     def list_events(
         self, run_id: str, *, user_id: str, after_seq: int = 0
@@ -1680,4 +1769,5 @@ class PostgresAgentConversationStore:
         )
 
     def close(self) -> None:
+        self._control_pool.close()
         self._pool.close()
