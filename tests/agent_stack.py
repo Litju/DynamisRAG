@@ -11,7 +11,7 @@ from __future__ import annotations
 import socket
 import threading
 import time
-from collections.abc import Generator
+from collections.abc import Callable, Generator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any
@@ -20,8 +20,9 @@ import uvicorn
 from fastapi import FastAPI
 from langchain_core.callbacks import CallbackManagerForLLMRun
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import BaseMessage
-from langchain_core.outputs import ChatResult
+from langchain_core.messages import AIMessage, BaseMessage
+from langchain_core.outputs import ChatGeneration, ChatResult
+from langchain_core.runnables import Runnable
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
@@ -270,3 +271,65 @@ def runtime_for(chat_model: BaseChatModel) -> AgentModelRuntime:
 
 def new_counter(failures: int) -> _Counter:
     return _Counter(failures)
+
+
+ScriptFn = Callable[[list[BaseMessage], list[str], int], AIMessage]
+
+
+class ScriptedChatModel(BaseChatModel):
+    """A test double whose every response is produced by a script function.
+
+    It stands in for "a model that decides X" so tests can prove how the graph reacts to
+    well-formed, malformed, disallowed and out-of-scope tool decisions. It is NOT a generative
+    model and must never be counted as a model qualification.
+    """
+
+    script: Any = None
+    bound_names: tuple[str, ...] = ()
+    seen: Any = None
+    calls: Any = None
+
+    @property
+    def _llm_type(self) -> str:
+        return "dynamisrag-scripted-test-double"
+
+    def bind_tools(
+        self, tools: Sequence[Any], *, tool_choice: str | None = None, **kwargs: object
+    ) -> Runnable[Any, AIMessage]:
+        del tool_choice, kwargs
+        return self.model_copy(
+            update={"bound_names": tuple(getattr(t, "name", str(t)) for t in tools)}
+        )
+
+    def _generate(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: CallbackManagerForLLMRun | None = None,
+        **kwargs: object,
+    ) -> ChatResult:
+        del stop, run_manager, kwargs
+        if self.seen is not None:
+            self.seen.append((list(messages), self.bound_names))
+        index = len(self.calls) if self.calls is not None else 0
+        if self.calls is not None:
+            self.calls.append(1)
+        message = self.script(messages, list(self.bound_names), index)
+        return ChatResult(generations=[ChatGeneration(message=message)])
+
+
+def scripted_runtime(script: ScriptFn) -> tuple[AgentModelRuntime, list[Any]]:
+    """Runtime around a scripted model; the second value records ``(messages, bound_tools)``."""
+    seen: list[Any] = []
+    model = ScriptedChatModel(script=script, seen=seen, calls=[])
+    return runtime_for(model), seen
+
+
+def tool_call_message(*calls: tuple[str, Any]) -> AIMessage:
+    return AIMessage(
+        content="",
+        tool_calls=[
+            {"name": n, "args": a, "id": f"call_{i}", "type": "tool_call"}
+            for i, (n, a) in enumerate(calls)
+        ],
+    )

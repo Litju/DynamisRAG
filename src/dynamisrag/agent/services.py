@@ -77,11 +77,7 @@ def model_config_from_settings(settings: Settings) -> AgentModelConfig:
         model_name=settings.agent_model_name,
         model_revision=settings.agent_model_revision,
         base_url=settings.agent_model_base_url,
-        api_key=(
-            settings.agent_model_api_key.get_secret_value()
-            if settings.agent_model_api_key is not None
-            else None
-        ),
+        api_key=settings.agent_model_api_key,
         num_ctx=settings.agent_model_num_ctx,
         usage_approved=settings.agent_opencode_go_usage_approved,
     )

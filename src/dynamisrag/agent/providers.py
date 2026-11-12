@@ -1,17 +1,18 @@
 """Model-provider abstraction for the RES-637 conversational research agent.
 
 Supports:
-- Local open-weight models via `ChatOllama` (default: `qwen3:4b`)
+- Local open-weight models via `ChatOllama` (default: `qwen3:4b`) using Ollama's native
+  structured tool-calling API
 - OpenAI-compatible tool-calling models via `ChatOpenAI`
 - Anthropic tool-calling models via `ChatAnthropic`
-- Deterministic / scriptable evaluation model (`DeterministicResearchChatModel`) for
-  unit tests, adversarial CI tests, and offline verification without network access.
+- OpenCode Go (`opencode_go`): an OpenAI-compatible adapter that is **refused unless the owner has
+  explicitly approved its usage rights** (see ``docs/res637-eve-python-contract.md``)
+- A deterministic scripted model (`DeterministicResearchChatModel`) for unit tests and adversarial
+  CI. It is a test double, not a generative model, and is never counted as a model qualification.
 
-Every provider invocation records:
-- provider and model identifier + optional model digest/revision
-- prompt and completion token usage
-- estimated cost in USD
-- wall-clock latency in milliseconds
+Tool choice is always made by the model through ``bind_tools``; this module never constructs a tool
+call on the model's behalf. Every provider invocation records provider/model identity, token usage,
+estimated cost, latency, and the number of tool calls the *model* requested.
 """
 
 from __future__ import annotations
@@ -26,6 +27,8 @@ from enum import StrEnum
 from typing import Any, cast
 from uuid import uuid4
 
+import httpx
+import httpx2
 from langchain_anthropic import ChatAnthropic
 from langchain_core.callbacks import CallbackManagerForLLMRun
 from langchain_core.language_models.chat_models import BaseChatModel
@@ -46,6 +49,7 @@ class AgentProviderKind(StrEnum):
     OLLAMA = "ollama"
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
+    OPENCODE_GO = "opencode_go"
     DETERMINISTIC = "deterministic"
 
 
@@ -56,16 +60,78 @@ class AgentModelConfig(AgentContract):
     model_name: SafeShortText = "qwen3:4b"
     model_revision: str | None = None
     base_url: str | None = "http://127.0.0.1:11435"
-    api_key: str | None = None
+    api_key: SecretStr | None = Field(default=None, repr=False)
     temperature: float = Field(default=0.0, ge=0.0, le=1.0)
     max_tokens: int = Field(default=1024, ge=64, le=8192)
     timeout_seconds: float = Field(default=60.0, gt=0.0, le=300.0)
     max_tool_calls_per_run: int = Field(default=8, ge=1, le=20)
+    max_tool_rounds: int = Field(default=2, ge=1, le=5)
     max_verification_repairs: int = Field(default=1, ge=0, le=2)
     input_cost_per_1k_usd: float = Field(default=0.0, ge=0.0)
     output_cost_per_1k_usd: float = Field(default=0.0, ge=0.0)
     num_ctx: int = Field(default=8192, ge=2048, le=131072)
     usage_approved: bool = False
+
+
+OPENCODE_GO_OPENAI_BASE_URL = "https://opencode.ai/inference/go/openai/v1"
+OPENCODE_GO_MODELS_URL = "https://opencode.ai/zen/go/v1/models"
+AGENT_USER_AGENT = "dynamisrag-research-agent/0.2"
+
+
+class ProviderConfigurationError(ValueError):
+    """The configured provider cannot be used safely (missing approval, key, or bad model)."""
+
+
+class ModelIdentityReport(AgentContract):
+    """Result of checking a configured model against the provider's own catalogue."""
+
+    model_id: SafeShortText
+    canonical_id: str | None = None
+    chat_model: bool
+    supports_tools: bool
+    supports_structured_output: bool = False
+
+
+def verify_opencode_go_model(
+    config: AgentModelConfig,
+    *,
+    transport: httpx2.BaseTransport | None = None,
+    models_url: str = OPENCODE_GO_MODELS_URL,
+) -> ModelIdentityReport:
+    """Confirm the configured OpenCode Go model exists, is a chat model, and supports tools.
+
+    Reads the provider's public catalogue (no secret is sent unless the caller configured a key,
+    and the key is never echoed in any error). ``transport`` lets contract tests run offline.
+    """
+    headers = {"User-Agent": AGENT_USER_AGENT}
+    with httpx2.Client(transport=transport, timeout=config.timeout_seconds) as http:
+        response = http.get(models_url, headers=headers)
+    if response.status_code != 200:
+        raise ProviderConfigurationError(
+            f"OpenCode Go model catalogue unavailable (HTTP {response.status_code})"
+        )
+    payload: object = response.json()
+    entries = cast("dict[str, object]", payload).get("data") if isinstance(payload, dict) else None
+    if not isinstance(entries, list):
+        raise ProviderConfigurationError("OpenCode Go model catalogue has an unexpected shape")
+    for raw in cast("list[object]", entries):
+        if not isinstance(raw, dict):
+            continue
+        entry = cast("dict[str, Any]", raw)
+        if entry.get("id") != config.model_name:
+            continue
+        caps = cast("dict[str, Any]", entry.get("capabilities") or {})
+        tools_cap = cast("dict[str, Any]", caps.get("tools") or {})
+        return ModelIdentityReport(
+            model_id=config.model_name,
+            canonical_id=cast("str | None", entry.get("canonical_id")),
+            chat_model=entry.get("type") == "chat",
+            supports_tools=bool(tools_cap.get("supported")),
+            supports_structured_output=bool(caps.get("structured_output")),
+        )
+    raise ProviderConfigurationError(
+        f"Model {config.model_name!r} is not in the OpenCode Go catalogue"
+    )
 
 
 class ModelCallTelemetry(AgentContract):
@@ -370,76 +436,15 @@ class AgentModelRuntime:
         stage: str,
         run_id: str,
     ) -> AIMessage:
-        if self.config.provider == AgentProviderKind.OLLAMA:
-            return self._invoke_ollama_fast_tools(messages, tools, stage=stage, run_id=run_id)
+        """Ask the model to choose tools via the provider's structured tool-calling API.
+
+        The returned ``AIMessage.tool_calls`` are exactly what the model produced; callers must
+        validate them. Nothing here fabricates or rewrites a call.
+        """
         bound = self.chat_model.bind_tools(tools)
         t0 = time.perf_counter()
         ai_msg = bound.invoke(messages)
         elapsed_ms = round((time.perf_counter() - t0) * 1000.0, 3)
-        self._record_call(ai_msg, stage=stage, latency_ms=elapsed_ms, run_id=run_id)
-        return ai_msg
-
-    def _invoke_ollama_fast_tools(
-        self,
-        messages: list[BaseMessage],
-        tools: Sequence[BaseTool],
-        *,
-        stage: str,
-        run_id: str,
-    ) -> AIMessage:
-        tool_names = [t.name for t in tools]
-        full_prompt = "\n".join(str(m.content) for m in messages)
-        q_match = re.search(r"USER_QUESTION:\s*(.+)", full_prompt)
-        question = q_match.group(1).strip() if q_match else full_prompt.strip()
-        scoped_match = re.search(r"SCOPED_VERSION_KEYS:\s*\[([^\]]*)\]", full_prompt)
-        scoped_versions: list[str] = []
-        if scoped_match and scoped_match.group(1).strip():
-            scoped_versions = [
-                v.strip().strip("\"'")
-                for v in scoped_match.group(1).split(",")
-                if len(v.strip().strip("\"'")) == 64
-            ]
-        compact_prompt = (
-            'Return JSON ONLY: {"tools": ["list_papers", "hybrid_search"]}\n'
-            f"Available tools: {tool_names}\n"
-            f"Question: {question[:240]}"
-        )
-
-        t0 = time.perf_counter()
-        raw_msg = self.chat_model.invoke([HumanMessage(content=compact_prompt)])
-        elapsed_ms = round((time.perf_counter() - t0) * 1000.0, 3)
-
-        calls: list[dict[str, Any]] = []
-        lower_q = question.lower()
-        raw_text = str(raw_msg.content)
-        if (
-            "list_papers" in raw_text or "available studies" in lower_q or "list papers" in lower_q
-        ) and ToolName.LIST_PAPERS.value in tool_names:
-            calls.append(
-                {
-                    "name": ToolName.LIST_PAPERS.value,
-                    "args": {"limit": 10},
-                    "id": f"call_{uuid4().hex[:10]}",
-                    "type": "tool_call",
-                }
-            )
-        if ToolName.HYBRID_SEARCH.value in tool_names:
-            s_args: dict[str, Any] = {"query": question[:300], "limit": 6}
-            if scoped_versions:
-                s_args["document_version_keys"] = scoped_versions[:6]
-            calls.append(
-                {
-                    "name": ToolName.HYBRID_SEARCH.value,
-                    "args": s_args,
-                    "id": f"call_{uuid4().hex[:10]}",
-                    "type": "tool_call",
-                }
-            )
-        ai_msg = AIMessage(
-            content=raw_text,
-            tool_calls=calls,
-            usage_metadata=raw_msg.usage_metadata,
-        )
         self._record_call(ai_msg, stage=stage, latency_ms=elapsed_ms, run_id=run_id)
         return ai_msg
 
@@ -449,11 +454,12 @@ class AgentModelRuntime:
         *,
         stage: str,
         run_id: str,
+        json_output: bool = False,
     ) -> AIMessage:
+        """Plain generation. The FULL message list reaches the model: no truncation."""
         t0 = time.perf_counter()
-        if self.config.provider == AgentProviderKind.OLLAMA and messages:
-            short_text = str(messages[-1].content)[:500]
-            ai_msg = self.chat_model.invoke([HumanMessage(content=short_text)])
+        if json_output and self.config.provider == AgentProviderKind.OLLAMA:
+            ai_msg = self.chat_model.invoke(messages, format="json")
         else:
             ai_msg = self.chat_model.invoke(messages)
         elapsed_ms = round((time.perf_counter() - t0) * 1000.0, 3)
@@ -513,6 +519,7 @@ def build_agent_model_runtime(
     config: AgentModelConfig,
     *,
     directives: Sequence[ScriptedToolDirective] = (),
+    http_client: httpx.Client | None = None,
 ) -> AgentModelRuntime:
     """Instantiate an `AgentModelRuntime` for the configured provider."""
     if config.provider == AgentProviderKind.DETERMINISTIC:
@@ -528,17 +535,17 @@ def build_agent_model_runtime(
             model=config.model_name,
             base_url=base_url,
             temperature=config.temperature,
-            num_predict=min(config.max_tokens, 24),
-            num_ctx=4096,
-            num_thread=4,
+            # Tool-call JSON and the synthesis JSON both need real headroom; the previous
+            # 24-token cap made genuine model-directed tool calling impossible.
+            num_predict=config.max_tokens,
+            num_ctx=config.num_ctx,
             reasoning=False,
-            format="json",
             client_kwargs={"timeout": config.timeout_seconds},
         )
         return AgentModelRuntime(config=config, chat_model=model)
 
     if config.provider == AgentProviderKind.OPENAI:
-        api_key = SecretStr(config.api_key) if config.api_key else None
+        api_key = config.api_key
         model = ChatOpenAI(
             model=config.model_name,
             api_key=api_key,
@@ -546,10 +553,16 @@ def build_agent_model_runtime(
             temperature=config.temperature,
             max_completion_tokens=config.max_tokens,
             timeout=config.timeout_seconds,
+            http_client=http_client,
         )
         return AgentModelRuntime(config=config, chat_model=model)
 
-    api_key = SecretStr(config.api_key) if config.api_key else SecretStr("missing-key")
+    if config.provider == AgentProviderKind.OPENCODE_GO:
+        return AgentModelRuntime(
+            config=config, chat_model=_build_opencode_go_model(config, http_client=http_client)
+        )
+
+    api_key = config.api_key or SecretStr("missing-key")
     model = ChatAnthropic(
         model_name=config.model_name,
         api_key=api_key,
@@ -559,3 +572,30 @@ def build_agent_model_runtime(
         stop=None,
     )
     return AgentModelRuntime(config=config, chat_model=model)
+
+
+def _build_opencode_go_model(
+    config: AgentModelConfig, *, http_client: httpx.Client | None = None
+) -> BaseChatModel:
+    """OpenAI-compatible OpenCode Go client. Refuses to build without owner approval + a key."""
+    if not config.usage_approved:
+        raise ProviderConfigurationError(
+            "OpenCode Go usage rights for this deployment are unverified; set "
+            "agent_opencode_go_usage_approved only after written confirmation from OpenCode"
+        )
+    if not config.api_key:
+        raise ProviderConfigurationError("OpenCode Go requires a server-side API key")
+    if "contributor" in config.model_name.lower():
+        raise ProviderConfigurationError(
+            "Contributor models train on request data and are refused for scientific queries"
+        )
+    return ChatOpenAI(
+        model=config.model_name,
+        api_key=config.api_key,
+        base_url=config.base_url or OPENCODE_GO_OPENAI_BASE_URL,
+        temperature=config.temperature,
+        max_completion_tokens=config.max_tokens,
+        timeout=config.timeout_seconds,
+        default_headers={"User-Agent": AGENT_USER_AGENT},
+        http_client=http_client,
+    )
