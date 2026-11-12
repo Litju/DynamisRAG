@@ -617,7 +617,22 @@ class VerifiedCitationItem(AgentContract):
     start_char: int | None = None
     end_char: int | None = None
     verified: bool
+    """Accepted for display: layers 1-3 below did not fail. NEVER means expert-approved."""
     rejection_reason: str | None = None
+    # --- independent verification layers (never collapsed into one flag) -------------------
+    quote_verified: bool = False
+    """Layer 1: the quote occurs exactly in the canonical span and source identity is valid."""
+    numeric_provenance: Literal["VERIFIED", "FAILED", "NOT_APPLICABLE"] = "NOT_APPLICABLE"
+    """Layer 2: every number in the claim occurs in the quoted span."""
+    semantic_support: Literal[
+        "IDENTICAL_TO_QUOTE", "SUPPORTED_BY_LEXICAL_HEURISTIC", "UNSUPPORTED", "NOT_ASSESSED"
+    ] = "NOT_ASSESSED"
+    """Layer 3: does the quote support the claim's wording (heuristic, not entailment)."""
+    semantic_support_score: float | None = None
+    semantic_support_reasons: tuple[str, ...] = ()
+    semantic_assessor: Literal["lexical-consistency-v1"] = "lexical-consistency-v1"
+    expert_review: Literal["NOT_REVIEWED"] = "NOT_REVIEWED"
+    """Layer 4: independent expert approval. Nothing in RES-637 ever sets this."""
     origin: Literal["MODEL_PROPOSED"] = "MODEL_PROPOSED"
     review_state: Literal[ReviewState.PROPOSED] = ReviewState.PROPOSED
 

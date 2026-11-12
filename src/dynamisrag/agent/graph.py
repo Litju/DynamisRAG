@@ -40,6 +40,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command, interrupt
+from pydantic import ValidationError
 
 from dynamisrag.agent.contracts import (
     PROPOSED_LIMITATION_NOTICE,
@@ -109,6 +110,7 @@ class ResearchAgentState(TypedDict, total=False):
     error_message: str | None
     confirmation_required: bool
     recent_turns: list[dict[str, str]]
+    rejected_history: list[dict[str, Any]]
     tool_origin_counts: dict[str, int]
     synthesis_source: str | None
     synthesis_fallback_reason: str | None
@@ -476,7 +478,7 @@ class ConversationalResearchOrchestrator:
             abstention_reason=reason,
             verified_citations=verified,
             rejected_citations=tuple(
-                cast("list[dict[str, Any]]", values.get("rejected_citations", []))
+                cast("list[dict[str, Any]]", values.get("rejected_history", []))
             ),
             proposed_findings=tuple(
                 cast("list[dict[str, Any]]", values.get("proposed_findings", []))
@@ -1004,6 +1006,7 @@ class ConversationalResearchOrchestrator:
         run_id = state.get("run_id", "")
         thread_id = state.get("thread_id", "")
         provisional = state.get("provisional_claims", [])
+        history = list(state.get("rejected_history", []))
         if not provisional:
             return {
                 "verified_citations": [],
@@ -1011,21 +1014,42 @@ class ConversationalResearchOrchestrator:
             }
 
         scope = self._build_scope(state)
-        candidate_inputs = tuple(
-            CandidateClaimInput(
-                claim_text=str(c["claim_text"])[:650],
-                passage_key=str(c["passage_key"]),
-                span_key=c.get("span_key"),
-                verbatim_quote=str(c["verbatim_quote"])[:650],
-                category="DESCRIPTIVE",
-                relation=Relation.SUPPORTS,
-            )
-            for c in provisional[:8]
-        )
+        candidate_inputs: list[CandidateClaimInput] = []
+        contract_rejections: list[dict[str, Any]] = []
+        for index, c in enumerate(provisional[:8]):
+            try:
+                candidate_inputs.append(
+                    CandidateClaimInput(
+                        claim_text=str(c["claim_text"]),
+                        passage_key=str(c["passage_key"]),
+                        span_key=c.get("span_key"),
+                        verbatim_quote=str(c["verbatim_quote"]),
+                        category="DESCRIPTIVE",
+                        relation=Relation.SUPPORTS,
+                    )
+                )
+            except ValidationError:
+                # Never truncate a model's quote/claim to fit: a truncated quote is a different
+                # quote. A claim that violates the contract is rejected and reported.
+                contract_rejections.append(
+                    {
+                        "claim_index": index,
+                        "claim_text": str(c.get("claim_text", ""))[:200],
+                        "verbatim_quote": str(c.get("verbatim_quote", ""))[:200],
+                        "passage_key": str(c.get("passage_key", "")),
+                        "verified": False,
+                        "rejection_reason": "claim_violates_input_contract",
+                        "quote_verified": False,
+                        "numeric_provenance": "NOT_APPLICABLE",
+                        "semantic_support": "NOT_ASSESSED",
+                        "expert_review": "NOT_REVIEWED",
+                        "origin": "MODEL_PROPOSED",
+                    }
+                )
         ver_env = self._registry.verify_claims(
             VerifyClaimsInput(
                 question=state.get("question", "")[:500],
-                claims=candidate_inputs,
+                claims=tuple(candidate_inputs),
             ),
             scope,
         )
@@ -1033,7 +1057,7 @@ class ConversationalResearchOrchestrator:
         envelopes.append(ver_env.model_dump(mode="json"))
 
         verified: list[dict[str, Any]] = []
-        rejected: list[dict[str, Any]] = []
+        rejected: list[dict[str, Any]] = list(contract_rejections)
         ev_set_key: str | None = None
         ev_graph_key: str | None = None
 
@@ -1055,13 +1079,24 @@ class ConversationalResearchOrchestrator:
                 "origin": ToolOrigin.GRAPH_ENFORCED.value,
                 "verified_count": len(verified),
                 "rejected_count": len(rejected),
+                "rejection_reasons": [str(r.get("rejection_reason", ""))[:160] for r in rejected],
                 "evidence_set_key": ev_set_key,
                 "evidence_graph_key": ev_graph_key,
             },
         )
+        seen = {(str(r.get("claim_text")), str(r.get("passage_key"))) for r in history}
+        merged_history = [
+            *history,
+            *(
+                r
+                for r in rejected
+                if (str(r.get("claim_text")), str(r.get("passage_key"))) not in seen
+            ),
+        ]
         return {
             "verified_citations": verified,
             "rejected_citations": rejected,
+            "rejected_history": merged_history,
             "evidence_set_key": ev_set_key,
             "evidence_graph_key": ev_graph_key,
             "tool_envelopes": envelopes,
@@ -1122,6 +1157,7 @@ class ConversationalResearchOrchestrator:
             comparison=state.get("study_comparison"),
             synthesis_source=state.get("synthesis_source"),
             synthesis_fallback_reason=state.get("synthesis_fallback_reason"),
+            rejected=state.get("rejected_history", []),
         )
 
         cited_pks = tuple(
@@ -1181,6 +1217,7 @@ class ConversationalResearchOrchestrator:
         comparison: dict[str, Any] | None,
         synthesis_source: str | None = None,
         synthesis_fallback_reason: str | None = None,
+        rejected: list[dict[str, Any]] | None = None,
     ) -> tuple[str, RunStatus]:
         if abstained:
             answer_md = (
@@ -1209,6 +1246,21 @@ class ConversationalResearchOrchestrator:
                 f"{idx}. **{title}** (`{ident}`, passage `{pk}...`, "
                 f"anchor `{anchor}` chars `{s_char}..{e_char}`): "
                 f'"{item["verbatim_quote"]}"'
+            )
+            claim_text = str(item.get("claim_text") or "")
+            if claim_text and claim_text != str(item.get("verbatim_quote")):
+                lines.append(f"   - Proposed wording (model paraphrase): {claim_text}")
+            lines.append(
+                "   - Checks: source quotation `VERIFIED` · numbers "
+                f"`{item.get('numeric_provenance', 'NOT_APPLICABLE')}` · wording "
+                f"`{item.get('semantic_support', 'NOT_ASSESSED')}` (heuristic, not entailment) · "
+                "expert review `NOT_REVIEWED`"
+            )
+        if rejected:
+            reasons = sorted({str(r.get("rejection_reason", "")).split(":")[0] for r in rejected})
+            lines.append(
+                f"\n> {len(rejected)} proposed claim(s) were **rejected** and are not shown "
+                f"(`{', '.join(reasons)}`)."
             )
         if comparison is not None:
             compat = comparison.get("evidence_compatibility", "METHODOLOGICALLY_HETEROGENEOUS")

@@ -43,6 +43,7 @@ from sqlalchemy import Engine, func, select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from dynamisrag.agent.claims import assess_numeric_provenance, assess_semantic_support
 from dynamisrag.agent.contracts import (
     CalculateStatisticsInput,
     CalculateStatisticsOutput,
@@ -1988,28 +1989,41 @@ class ScientificToolRegistry:
                 None,
             )
 
-        claim_numbers = set(re.findall(r"\b\d+(?:\.\d+)?\b", candidate.claim_text))
-        quote_numbers = set(
-            re.findall(r"\b\d+(?:\.\d+)?\b", rec.passage.text + " " + rec.version.title)
-        )
-        if claim_numbers and not claim_numbers.issubset(quote_numbers):
+        numeric, numeric_reasons = assess_numeric_provenance(candidate.claim_text, quote)
+        semantic = assess_semantic_support(candidate.claim_text, quote)
+        layer_fields: dict[str, Any] = {
+            "quote_verified": True,
+            "numeric_provenance": numeric,
+            "semantic_support": semantic.status,
+            "semantic_support_score": semantic.score,
+            "semantic_support_reasons": semantic.reasons,
+        }
+        span_fields: dict[str, Any] = {
+            "span_key": matched_span.span.span_key,
+            "document_version_key": rec.version.version_key,
+            "document_title": rec.version.title,
+            "doi": idents.get("doi"),
+            "pmcid": idents.get("pmcid"),
+            "paragraph_key": matched_span.paragraph.paragraph_key,
+            "paragraph_source_anchor": matched_span.paragraph.source_anchor,
+            "start_char": matched_coords[0],
+            "end_char": matched_coords[1],
+        }
+        rejection: str | None = None
+        if numeric == "FAILED":
+            rejection = f"unverified_numerical_value_in_claim: {'; '.join(numeric_reasons)}"
+        elif semantic.status == "UNSUPPORTED":
+            rejection = f"claim_not_supported_by_quoted_span: {'; '.join(semantic.reasons)}"
+        if rejection is not None:
             return (
                 VerifiedCitationItem(
                     claim_index=idx,
                     claim_text=candidate.claim_text,
                     verbatim_quote=candidate.verbatim_quote,
                     passage_key=candidate.passage_key,
-                    span_key=matched_span.span.span_key,
-                    document_version_key=rec.version.version_key,
-                    document_title=rec.version.title,
-                    doi=idents.get("doi"),
-                    pmcid=idents.get("pmcid"),
-                    paragraph_key=matched_span.paragraph.paragraph_key,
-                    paragraph_source_anchor=matched_span.paragraph.source_anchor,
-                    start_char=matched_coords[0],
-                    end_char=matched_coords[1],
                     verified=False,
-                    rejection_reason="unverified_numerical_value_in_claim",
+                    rejection_reason=rejection,
+                    **{**layer_fields, **span_fields},
                 ),
                 None,
                 None,
@@ -2038,6 +2052,7 @@ class ScientificToolRegistry:
             end_char=matched_coords[1],
             verified=True,
             rejection_reason=None,
+            **layer_fields,
         )
         claim_obj = Claim(
             proposition=candidate.claim_text,

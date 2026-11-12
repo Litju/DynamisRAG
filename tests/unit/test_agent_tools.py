@@ -690,8 +690,8 @@ def test_verify_claims_accepts_canonical_and_rejects_fabricated_or_altered_numbe
     assert bad_num_env.payload is not None
     assert bad_num_env.payload["all_verified"] is False
     assert bad_num_env.payload["rejected_count"] == 1
-    assert (
-        bad_num_env.payload["items"][0]["rejection_reason"] == "unverified_numerical_value_in_claim"
+    assert bad_num_env.payload["items"][0]["rejection_reason"].startswith(
+        "unverified_numerical_value_in_claim"
     )
 
     # Fabricated quote absent from canonical span must be rejected
