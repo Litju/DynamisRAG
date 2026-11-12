@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
@@ -63,6 +64,8 @@ class AgentModelConfig(AgentContract):
     max_verification_repairs: int = Field(default=1, ge=0, le=2)
     input_cost_per_1k_usd: float = Field(default=0.0, ge=0.0)
     output_cost_per_1k_usd: float = Field(default=0.0, ge=0.0)
+    num_ctx: int = Field(default=8192, ge=2048, le=131072)
+    usage_approved: bool = False
 
 
 class ModelCallTelemetry(AgentContract):
@@ -338,20 +341,26 @@ class DeterministicResearchChatModel(BaseChatModel):
         return json.dumps({"claims": claims, "abstain_reason": None})
 
 
-def _empty_telemetry_list() -> list[ModelCallTelemetry]:
-    return []
+def _empty_telemetry_map() -> dict[str, list[ModelCallTelemetry]]:
+    return {}
 
 
 @dataclass
 class AgentModelRuntime:
-    """Wraps a configured `BaseChatModel` with telemetry recording and tool binding."""
+    """Wraps a configured `BaseChatModel` with per-run telemetry recording and tool binding.
+
+    One runtime is shared by every concurrent run, so telemetry is keyed by ``run_id`` and
+    guarded by a lock; concurrent runs never see each other's calls.
+    """
 
     config: AgentModelConfig
     chat_model: BaseChatModel
-    _records: list[ModelCallTelemetry] = field(default_factory=_empty_telemetry_list)
+    _records: dict[str, list[ModelCallTelemetry]] = field(default_factory=_empty_telemetry_map)
+    _lock: threading.Lock = field(default_factory=threading.Lock)
 
-    def reset_telemetry(self) -> None:
-        self._records.clear()
+    def reset_telemetry(self, run_id: str) -> None:
+        with self._lock:
+            self._records[run_id] = []
 
     def invoke_with_tools(
         self,
@@ -359,14 +368,15 @@ class AgentModelRuntime:
         tools: Sequence[BaseTool],
         *,
         stage: str,
+        run_id: str,
     ) -> AIMessage:
         if self.config.provider == AgentProviderKind.OLLAMA:
-            return self._invoke_ollama_fast_tools(messages, tools, stage=stage)
+            return self._invoke_ollama_fast_tools(messages, tools, stage=stage, run_id=run_id)
         bound = self.chat_model.bind_tools(tools)
         t0 = time.perf_counter()
         ai_msg = bound.invoke(messages)
         elapsed_ms = round((time.perf_counter() - t0) * 1000.0, 3)
-        self._record_call(ai_msg, stage=stage, latency_ms=elapsed_ms)
+        self._record_call(ai_msg, stage=stage, latency_ms=elapsed_ms, run_id=run_id)
         return ai_msg
 
     def _invoke_ollama_fast_tools(
@@ -375,6 +385,7 @@ class AgentModelRuntime:
         tools: Sequence[BaseTool],
         *,
         stage: str,
+        run_id: str,
     ) -> AIMessage:
         tool_names = [t.name for t in tools]
         full_prompt = "\n".join(str(m.content) for m in messages)
@@ -429,7 +440,7 @@ class AgentModelRuntime:
             tool_calls=calls,
             usage_metadata=raw_msg.usage_metadata,
         )
-        self._record_call(ai_msg, stage=stage, latency_ms=elapsed_ms)
+        self._record_call(ai_msg, stage=stage, latency_ms=elapsed_ms, run_id=run_id)
         return ai_msg
 
     def invoke_plain(
@@ -437,6 +448,7 @@ class AgentModelRuntime:
         messages: list[BaseMessage],
         *,
         stage: str,
+        run_id: str,
     ) -> AIMessage:
         t0 = time.perf_counter()
         if self.config.provider == AgentProviderKind.OLLAMA and messages:
@@ -445,10 +457,10 @@ class AgentModelRuntime:
         else:
             ai_msg = self.chat_model.invoke(messages)
         elapsed_ms = round((time.perf_counter() - t0) * 1000.0, 3)
-        self._record_call(ai_msg, stage=stage, latency_ms=elapsed_ms)
+        self._record_call(ai_msg, stage=stage, latency_ms=elapsed_ms, run_id=run_id)
         return ai_msg
 
-    def _record_call(self, msg: AIMessage, *, stage: str, latency_ms: float) -> None:
+    def _record_call(self, msg: AIMessage, *, stage: str, latency_ms: float, run_id: str) -> None:
         usage = msg.usage_metadata or {}
         in_tok = int(usage.get("input_tokens", 0) or 0)
         out_tok = int(usage.get("output_tokens", 0) or 0)
@@ -458,40 +470,42 @@ class AgentModelRuntime:
             + (out_tok / 1000.0) * self.config.output_cost_per_1k_usd,
             6,
         )
-        self._records.append(
-            ModelCallTelemetry(
-                call_id=f"llm-{uuid4().hex[:12]}",
-                provider=self.config.provider,
-                model_name=self.config.model_name,
-                model_revision=self.config.model_revision,
-                stage=stage,
-                prompt_tokens=in_tok,
-                completion_tokens=out_tok,
-                total_tokens=tot_tok,
-                estimated_cost_usd=cost,
-                latency_ms=latency_ms,
-                tool_calls_requested=len(msg.tool_calls),
-            )
+        record = ModelCallTelemetry(
+            call_id=f"llm-{uuid4().hex[:12]}",
+            provider=self.config.provider,
+            model_name=self.config.model_name,
+            model_revision=self.config.model_revision,
+            stage=stage,
+            prompt_tokens=in_tok,
+            completion_tokens=out_tok,
+            total_tokens=tot_tok,
+            estimated_cost_usd=cost,
+            latency_ms=latency_ms,
+            tool_calls_requested=len(msg.tool_calls),
         )
+        with self._lock:
+            self._records.setdefault(run_id, []).append(record)
 
-    def summarize(self, *, tool_calls_count: int) -> RunTelemetrySummary:
-        in_tok = sum(r.prompt_tokens for r in self._records)
-        out_tok = sum(r.completion_tokens for r in self._records)
-        tot_tok = sum(r.total_tokens for r in self._records)
-        cost = round(sum(r.estimated_cost_usd for r in self._records), 6)
-        lat = round(sum(r.latency_ms for r in self._records), 3)
+    def summarize(self, run_id: str, *, tool_calls_count: int) -> RunTelemetrySummary:
+        with self._lock:
+            records = list(self._records.get(run_id, []))
+        in_tok = sum(r.prompt_tokens for r in records)
+        out_tok = sum(r.completion_tokens for r in records)
+        tot_tok = sum(r.total_tokens for r in records)
+        cost = round(sum(r.estimated_cost_usd for r in records), 6)
+        lat = round(sum(r.latency_ms for r in records), 3)
         return RunTelemetrySummary(
             provider=self.config.provider,
             model_name=self.config.model_name,
             model_revision=self.config.model_revision,
-            model_calls=len(self._records),
+            model_calls=len(records),
             tool_calls=tool_calls_count,
             prompt_tokens=in_tok,
             completion_tokens=out_tok,
             total_tokens=tot_tok,
             estimated_cost_usd=cost,
             total_latency_ms=lat,
-            calls=tuple(self._records),
+            calls=tuple(records),
         )
 
 

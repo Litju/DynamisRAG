@@ -10,8 +10,10 @@ from __future__ import annotations
 import base64
 import json
 import time
+from typing import Any
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
@@ -23,15 +25,14 @@ from dynamisrag.agent.auth import (
 )
 from dynamisrag.config import Environment, Settings
 from tests._support import build_settings
-from tests.unit.test_agent_api import (
-    AUDIENCE,
-    IDENTITY_SECRET,
-    ISSUER,
-    _build_test_app,  # pyright: ignore[reportPrivateUsage]
-    auth_headers,
-)
+from tests.agent_stack import AUDIENCE, IDENTITY_SECRET, ISSUER, auth_headers, build_stack
 
 OTHER_SECRET = "a-completely-different-secret-0123456789"
+
+
+def _stack_app(*, rate_limit_per_minute: int = 600) -> tuple[FastAPI, dict[str, Any]]:
+    stack = build_stack(rate_limit_per_minute=rate_limit_per_minute)
+    return stack.app, dict(stack.studies)
 
 
 def _verifier(*secrets: str) -> IdentityVerifier:
@@ -147,7 +148,7 @@ def test_authorization_header_requires_bearer_scheme() -> None:
 
 
 def test_router_never_trusts_unsigned_user_id_header() -> None:
-    app, _ = _build_test_app()
+    app, _ = _stack_app()
     with TestClient(app) as client:
         resp = client.post(
             "/api/v2/threads",
@@ -159,7 +160,7 @@ def test_router_never_trusts_unsigned_user_id_header() -> None:
 
 
 def test_header_cannot_override_a_valid_assertion() -> None:
-    app, _ = _build_test_app()
+    app, _ = _stack_app()
     headers = {**auth_headers("alice"), "X-Dynamis-User-Id": "bob"}
     with TestClient(app) as client:
         resp = client.post("/api/v2/threads", headers=headers, json={"title": "mine"})
@@ -168,7 +169,7 @@ def test_header_cannot_override_a_valid_assertion() -> None:
 
 
 def test_forged_and_expired_assertions_are_401() -> None:
-    app, _ = _build_test_app()
+    app, _ = _stack_app()
     forged = auth_headers("alice", secret=OTHER_SECRET)
     expired = {
         "Authorization": "Bearer "
@@ -186,7 +187,7 @@ def test_forged_and_expired_assertions_are_401() -> None:
 
 
 def test_cross_user_access_is_forbidden_for_thread_run_evidence_and_papers() -> None:
-    app, studies = _build_test_app()
+    app, studies = _stack_app()
     alice, mallory = auth_headers("alice"), auth_headers("mallory")
     with TestClient(app) as client:
         thread_id = client.post("/api/v2/threads", headers=alice, json={"title": "t"}).json()[
@@ -235,7 +236,7 @@ def test_cross_user_access_is_forbidden_for_thread_run_evidence_and_papers() -> 
 
 
 def test_rate_limit_is_keyed_by_verified_identity() -> None:
-    app, _ = _build_test_app(rate_limit_per_minute=3)
+    app, _ = _stack_app(rate_limit_per_minute=3)
     with TestClient(app) as client:
         codes = [
             client.post("/api/v2/threads", headers=auth_headers("alice"), json={}).status_code

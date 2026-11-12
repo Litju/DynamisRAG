@@ -17,13 +17,20 @@ Enforces:
 - Independent canonical verification in Node 8 (`verify_canonical_citations`)
 - Bounded repair (`max_verification_repairs`, default 1) in Node 9
 - Honest abstention when evidence is missing, out-of-scope, or unverified
-- Durable checkpointing, cancellation checks, and optional human-in-the-loop
-  confirmation interrupts (`require_confirmation=True`).
+- Durable checkpointing and a real LangGraph `interrupt()` for human confirmation
+  (`require_confirmation=True`), resumed with `Command(resume=...)` in any process.
+
+Execution model (RES-637 repair): the API only *enqueues* runs. A worker claims a queued run
+under a database lease (`AgentConversationStore.claim_next_run`), executes or resumes the
+graph from its durable checkpoint, polls cooperative cancel/timeout/lease signals between
+nodes, and persists the terminal state through a worker-fenced `complete_run`. Nodes never
+write a terminal status themselves, so a crashed or stale worker cannot corrupt a run.
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import re
 from collections.abc import Sequence
 from datetime import UTC, datetime
@@ -42,6 +49,7 @@ from langchain_core.tools import BaseTool
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.types import Command, interrupt
 
 from dynamisrag.agent.contracts import (
     PROPOSED_LIMITATION_NOTICE,
@@ -59,13 +67,17 @@ from dynamisrag.agent.contracts import (
 from dynamisrag.agent.persistence import (
     AgentConversationStore,
     AgentRunRecord,
+    RunCompletion,
     RunEventType,
+    RunLeaseLostError,
     RunStatus,
     ThreadMessageRecord,
 )
 from dynamisrag.agent.providers import AgentModelRuntime
 from dynamisrag.agent.tools import ScientificToolRegistry, contains_prompt_injection
 from dynamisrag.domain.evidence import Relation
+
+_logger = logging.getLogger("dynamisrag.agent.graph")
 
 
 class ResearchAgentState(TypedDict, total=False):
@@ -104,6 +116,9 @@ class ResearchAgentState(TypedDict, total=False):
     abstention_reason: str | None
     final_answer_markdown: str
     final_status: str
+    abort_reason: str | None
+    error_message: str | None
+    confirmation_required: bool
 
 
 _COREFERENCE_TOKENS = (
@@ -150,10 +165,16 @@ class ConversationalResearchOrchestrator:
         tool_registry: ScientificToolRegistry,
         store: AgentConversationStore,
         model_runtime: AgentModelRuntime,
+        run_timeout_seconds: float = 300.0,
+        lease_seconds: float = 30.0,
+        max_attempts: int = 3,
     ) -> None:
         self._registry = tool_registry
         self._store = store
         self._model = model_runtime
+        self._run_timeout_seconds = run_timeout_seconds
+        self._lease_seconds = lease_seconds
+        self._max_attempts = max_attempts
         self._compiled_graph: CompiledStateGraph[Any, Any, Any, Any] = self._compile_graph()
 
     @property
@@ -164,6 +185,7 @@ class ConversationalResearchOrchestrator:
         builder: Any = StateGraph(ResearchAgentState)
         builder.add_node("resolve_conversation_context", self._node_resolve_context)
         builder.add_node("interpret_and_plan", self._node_interpret_and_plan)
+        builder.add_node("await_confirmation", self._node_await_confirmation)
         builder.add_node("model_tool_execution", self._node_model_tool_execution)
         builder.add_node("inspect_and_expand_evidence", self._node_inspect_and_expand)
         builder.add_node("extract_study_findings", self._node_extract_findings)
@@ -185,6 +207,15 @@ class ConversationalResearchOrchestrator:
         builder.add_conditional_edges(
             "interpret_and_plan",
             self._route_after_plan,
+            {
+                "await_confirmation": "await_confirmation",
+                "model_tool_execution": "model_tool_execution",
+                "finalize_durable_response": "finalize_durable_response",
+            },
+        )
+        builder.add_conditional_edges(
+            "await_confirmation",
+            self._route_after_confirmation,
             {
                 "model_tool_execution": "model_tool_execution",
                 "finalize_durable_response": "finalize_durable_response",
@@ -237,6 +268,96 @@ class ConversationalResearchOrchestrator:
     # Public execution & resumption entrypoints
     # ------------------------------------------------------------------
 
+    @property
+    def store(self) -> AgentConversationStore:
+        return self._store
+
+    @property
+    def run_timeout_seconds(self) -> float:
+        return self._run_timeout_seconds
+
+    @property
+    def lease_seconds(self) -> float:
+        return self._lease_seconds
+
+    def submit_run(
+        self,
+        *,
+        thread_id: str,
+        user_id: str,
+        question: str,
+        idempotency_key: str,
+        require_confirmation: bool = False,
+    ) -> tuple[AgentRunRecord, bool]:
+        """Durably enqueue a run. Never executes the graph; a worker claims it later."""
+        return self._store.create_or_get_run(
+            thread_id=thread_id,
+            user_id=user_id,
+            question=question,
+            idempotency_key=idempotency_key,
+            require_confirmation=require_confirmation,
+            max_attempts=self._max_attempts,
+        )
+
+    def process_claimed_run(self, run: AgentRunRecord, *, worker_id: str) -> AgentRunRecord:
+        """Execute, resume, or recover a run this worker has claimed under a lease.
+
+        Outcomes: terminal (fenced ``complete_run``), interrupted (awaiting confirmation),
+        retried (re-queued with a bounded attempt budget), or abandoned silently when the
+        lease was lost to another worker.
+        """
+        config: RunnableConfig = {
+            "configurable": {
+                "thread_id": f"{run.thread_id}:{run.run_id}",
+                "worker_id": worker_id,
+            }
+        }
+        runner: Any = self._compiled_graph
+        try:
+            snapshot = runner.get_state(config)
+            has_checkpoint = bool(snapshot and snapshot.values)
+            if run.resume_payload is not None:
+                self._store.append_event(
+                    run.run_id,
+                    thread_id=run.thread_id,
+                    event_type=RunEventType.RUN_STARTED,
+                    stage="resume",
+                    payload={"resumed": True, "attempt": run.attempt},
+                )
+                runner.invoke(Command(resume=run.resume_payload), config=config)
+            elif has_checkpoint and snapshot.next:
+                # Crash recovery: continue from the last durable checkpoint.
+                runner.invoke(None, config=config)
+            elif not has_checkpoint:
+                self._model.reset_telemetry(run.run_id)
+                self._store.append_event(
+                    run.run_id,
+                    thread_id=run.thread_id,
+                    event_type=RunEventType.RUN_STARTED,
+                    stage="resolve_conversation_context",
+                    payload={"require_confirmation": run.require_confirmation},
+                )
+                runner.invoke(self._initial_state(run), config=config)
+            final = runner.get_state(config)
+            if final.next:
+                self._store.mark_interrupted(
+                    run.run_id,
+                    worker_id=worker_id,
+                    payload={"reason": "awaiting_user_confirmation"},
+                )
+                return self._store.get_run_for_worker(run.run_id)
+            completion = self._build_completion(run, cast("dict[str, Any]", final.values))
+            return self._store.complete_run(run.run_id, worker_id=worker_id, completion=completion)
+        except RunLeaseLostError:
+            _logger.warning("worker %s lost the lease on run %s", worker_id, run.run_id)
+            return self._store.get_run_for_worker(run.run_id)
+        except Exception as error:
+            _logger.exception("run %s failed on attempt %s", run.run_id, run.attempt)
+            # Only the exception class is persisted: messages can embed user text or secrets.
+            return self._store.requeue_for_retry(
+                run.run_id, worker_id=worker_id, error_code=type(error).__name__[:80]
+            )
+
     def execute_run(
         self,
         *,
@@ -246,36 +367,49 @@ class ConversationalResearchOrchestrator:
         idempotency_key: str,
         require_confirmation: bool = False,
     ) -> AgentRunRecord:
-        run_rec, created = self._store.create_or_get_run(
+        """Submit and run to completion in the calling thread (tests, evaluation, scripts).
+
+        The HTTP API never calls this; it enqueues and lets a worker execute.
+        """
+        run, created = self.submit_run(
             thread_id=thread_id,
             user_id=user_id,
             question=question,
             idempotency_key=idempotency_key,
             require_confirmation=require_confirmation,
         )
-        if not created and run_rec.status in {
-            RunStatus.COMPLETED,
-            RunStatus.ABSTAINED,
-            RunStatus.CANCELLED,
-            RunStatus.INTERRUPTED,
-        }:
-            return run_rec
+        if not created:
+            return run
+        return self.run_inline(run.run_id)
 
-        self._model.reset_telemetry()
-        self._store.mark_run_status(run_rec.run_id, user_id=user_id, status=RunStatus.RUNNING)
-        self._store.append_event(
-            run_rec.run_id,
-            thread_id=thread_id,
-            event_type=RunEventType.RUN_STARTED,
-            stage="resolve_conversation_context",
-            payload={"question": question, "require_confirmation": require_confirmation},
+    def run_inline(self, run_id: str) -> AgentRunRecord:
+        """Claim and process one specific queued run synchronously."""
+        worker_id = f"inline-{uuid4().hex[:8]}"
+        claimed = self._store.claim_next_run(
+            worker_id=worker_id,
+            lease_seconds=self._lease_seconds,
+            timeout_seconds=self._run_timeout_seconds,
+            run_id=run_id,
         )
+        if claimed is None:
+            return self._store.get_run_for_worker(run_id)
+        return self.process_claimed_run(claimed, worker_id=worker_id)
 
-        initial_state: ResearchAgentState = {
-            "thread_id": thread_id,
-            "run_id": run_rec.run_id,
-            "user_id": user_id,
-            "question": question,
+    def resume_interrupted_run(
+        self, *, run_id: str, user_id: str, approve: bool = True
+    ) -> AgentRunRecord:
+        """Approve/decline an interrupted run, then continue it inline (tests, scripts)."""
+        rec = self._store.request_resume(run_id, user_id=user_id, approve=approve)
+        if rec.status == RunStatus.QUEUED:
+            return self.run_inline(run_id)
+        return rec
+
+    def _initial_state(self, run: AgentRunRecord) -> ResearchAgentState:
+        return {
+            "thread_id": run.thread_id,
+            "run_id": run.run_id,
+            "user_id": run.owner_id,
+            "question": run.question,
             "tool_call_budget": self._model.config.max_tool_calls_per_run,
             "tool_calls_used": 0,
             "tool_envelopes": [],
@@ -290,65 +424,107 @@ class ConversationalResearchOrchestrator:
             "evidence_graph_key": None,
             "repair_attempts": 0,
             "max_repair_attempts": self._model.config.max_verification_repairs,
-            "require_confirmation": require_confirmation,
+            "require_confirmation": run.require_confirmation,
             "confirmation_granted": False,
             "abstained": False,
             "abstention_reason": None,
             "final_answer_markdown": "",
             "final_status": RunStatus.RUNNING.value,
+            "abort_reason": None,
+            "error_message": None,
         }
-        config: RunnableConfig = {"configurable": {"thread_id": f"{thread_id}:{run_rec.run_id}"}}
-        runner: Any = self._compiled_graph
-        runner.invoke(initial_state, config=config)
-        return self._store.get_run(run_rec.run_id, user_id=user_id)
 
-    def resume_interrupted_run(
-        self,
-        *,
-        run_id: str,
-        user_id: str,
-        approve: bool = True,
-    ) -> AgentRunRecord:
-        run_rec = self._store.get_run(run_id, user_id=user_id)
-        if run_rec.status != RunStatus.INTERRUPTED:
-            return run_rec
-        if not approve:
-            return self._store.request_cancel(run_id, user_id=user_id)
-
-        self._store.mark_run_status(run_id, user_id=user_id, status=RunStatus.RUNNING)
-        self._store.append_event(
-            run_id,
-            thread_id=run_rec.thread_id,
-            event_type=RunEventType.RUN_RESUMED,
-            stage="model_tool_execution",
-            payload={"approved": True},
+    def _build_completion(self, run: AgentRunRecord, values: dict[str, Any]) -> RunCompletion:
+        telemetry = self._model.summarize(
+            run.run_id, tool_calls_count=int(values.get("tool_calls_used", 0))
+        ).model_dump(mode="json")
+        abort = values.get("abort_reason")
+        if abort == "timeout":
+            return RunCompletion(
+                status=RunStatus.FAILED,
+                error_message="run_timeout",
+                abort_reason="timeout",
+                telemetry=telemetry,
+                event_type=RunEventType.RUN_FAILED,
+                event_payload={
+                    "error": "run_timeout",
+                    "timeout_seconds": self._run_timeout_seconds,
+                },
+            )
+        if abort == "cancelled":
+            return RunCompletion(
+                status=RunStatus.CANCELLED,
+                abstention_reason="run_cancelled_by_user",
+                abort_reason="cancelled",
+                telemetry=telemetry,
+                event_type=RunEventType.RUN_CANCELLED,
+                event_payload={"reason": "cooperative_cancel_observed"},
+            )
+        status = RunStatus(str(values.get("final_status") or RunStatus.ABSTAINED.value))
+        verified = tuple(cast("list[dict[str, Any]]", values.get("verified_citations", [])))
+        reason = cast("str | None", values.get("abstention_reason"))
+        return RunCompletion(
+            status=status,
+            answer_markdown=str(values.get("final_answer_markdown") or ""),
+            abstention_reason=reason,
+            verified_citations=verified,
+            rejected_citations=tuple(
+                cast("list[dict[str, Any]]", values.get("rejected_citations", []))
+            ),
+            proposed_findings=tuple(
+                cast("list[dict[str, Any]]", values.get("proposed_findings", []))
+            ),
+            study_comparison=cast("dict[str, Any] | None", values.get("study_comparison")),
+            evidence_set_key=cast("str | None", values.get("evidence_set_key")),
+            evidence_graph_key=cast("str | None", values.get("evidence_graph_key")),
+            telemetry=telemetry,
+            event_type=RunEventType.RUN_COMPLETED,
+            event_payload={
+                "status": status.value,
+                "verified_citations_count": len(verified),
+                "abstained": status == RunStatus.ABSTAINED,
+                "abstention_reason": reason,
+            },
         )
-        config: RunnableConfig = {"configurable": {"thread_id": f"{run_rec.thread_id}:{run_id}"}}
-        runner: Any = self._compiled_graph
-        snap = runner.get_state(config)
-        saved_values = dict(cast("dict[str, Any]", snap.values)) if snap and snap.values else {}
-        saved_values["confirmation_granted"] = True
-        saved_values["require_confirmation"] = False
-        saved_values["final_status"] = RunStatus.RUNNING.value
-        runner.invoke(cast("ResearchAgentState", saved_values), config=config)
-        return self._store.get_run(run_id, user_id=user_id)
+
+    def _control_abort(
+        self, state: ResearchAgentState, config: RunnableConfig
+    ) -> ResearchAgentState | None:
+        """Cooperative control point: returns an abort update, or raises if the lease is lost."""
+        worker_id = str(config.get("configurable", {}).get("worker_id", ""))
+        control = self._store.run_control(state.get("run_id", ""), worker_id=worker_id)
+        if not control.lease_held:
+            raise RunLeaseLostError(f"Worker {worker_id} no longer owns the run")
+        if control.cancel_requested:
+            return {
+                "abstained": True,
+                "abstention_reason": "run_cancelled_by_user",
+                "final_status": RunStatus.CANCELLED.value,
+                "abort_reason": "cancelled",
+            }
+        if control.deadline_exceeded:
+            return {
+                "abstained": True,
+                "abstention_reason": "run_timeout",
+                "final_status": RunStatus.FAILED.value,
+                "abort_reason": "timeout",
+                "error_message": "run_timeout",
+            }
+        return None
 
     # ------------------------------------------------------------------
     # Node 1: resolve_conversation_context
     # ------------------------------------------------------------------
 
-    def _node_resolve_context(self, state: ResearchAgentState) -> ResearchAgentState:
-        run_id = state.get("run_id", "")
+    def _node_resolve_context(
+        self, state: ResearchAgentState, config: RunnableConfig
+    ) -> ResearchAgentState:
         thread_id = state.get("thread_id", "")
         user_id = state.get("user_id", "")
         question = state.get("question", "").strip()
 
-        if self._store.is_cancel_requested(run_id):
-            return {
-                "abstained": True,
-                "abstention_reason": "run_cancelled_by_user",
-                "final_status": RunStatus.CANCELLED.value,
-            }
+        if (aborted := self._control_abort(state, config)) is not None:
+            return aborted
 
         if contains_prompt_injection(question):
             return {
@@ -383,18 +559,16 @@ class ConversationalResearchOrchestrator:
     # Node 2: interpret_and_plan
     # ------------------------------------------------------------------
 
-    def _node_interpret_and_plan(self, state: ResearchAgentState) -> ResearchAgentState:
+    def _node_interpret_and_plan(
+        self, state: ResearchAgentState, config: RunnableConfig
+    ) -> ResearchAgentState:
         run_id = state.get("run_id", "")
         thread_id = state.get("thread_id", "")
         question = state.get("resolved_question") or state.get("question", "")
         lower_q = question.lower()
 
-        if self._store.is_cancel_requested(run_id):
-            return {
-                "abstained": True,
-                "abstention_reason": "run_cancelled_by_user",
-                "final_status": RunStatus.CANCELLED.value,
-            }
+        if (aborted := self._control_abort(state, config)) is not None:
+            return aborted
 
         if any(topic in lower_q for topic in _OUT_OF_CORPUS_TOPICS):
             return {
@@ -408,6 +582,9 @@ class ConversationalResearchOrchestrator:
             kw in lower_q for kw in ("methodology", "methodologies", "protocol", "depth jumping")
         )
         intent = "cross_study_comparison" if needs_comp else "evidence_synthesis"
+        needs_confirmation = bool(state.get("require_confirmation", False)) and not bool(
+            state.get("confirmation_granted", False)
+        )
 
         self._store.append_event(
             run_id,
@@ -419,50 +596,50 @@ class ConversationalResearchOrchestrator:
                 "needs_comparison": needs_comp,
                 "needs_context_expansion": needs_expand,
                 "scoped_version_count": len(state.get("scoped_version_keys", [])),
+                "confirmation_required": needs_confirmation,
             },
         )
-
-        if state.get("require_confirmation", False) and not state.get(
-            "confirmation_granted", False
-        ):
-            self._store.mark_run_status(
-                run_id, user_id=state.get("user_id", ""), status=RunStatus.INTERRUPTED
-            )
-            self._store.append_event(
-                run_id,
-                thread_id=thread_id,
-                event_type=RunEventType.RUN_INTERRUPTED,
-                stage="interpret_and_plan",
-                payload={"reason": "awaiting_user_confirmation"},
-            )
-            return {
-                "research_intent": intent,
-                "needs_comparison": needs_comp,
-                "needs_context_expansion": needs_expand,
-                "final_status": RunStatus.INTERRUPTED.value,
-            }
-
         return {
             "research_intent": intent,
             "needs_comparison": needs_comp,
             "needs_context_expansion": needs_expand,
+            "confirmation_required": needs_confirmation,
         }
+
+    @staticmethod
+    def _node_await_confirmation(state: ResearchAgentState) -> ResearchAgentState:
+        """Pause for human confirmation using LangGraph's durable ``interrupt()``.
+
+        The node is deliberately side-effect free: LangGraph re-executes it from the top on
+        resume, and the worker (not this node) records the ``interrupted`` status and event.
+        """
+        decision = interrupt(
+            {"reason": "awaiting_user_confirmation", "intent": state.get("research_intent")}
+        )
+        approved = bool(cast("dict[str, Any]", decision).get("approve", False))
+        if not approved:
+            return {
+                "abstained": True,
+                "abstention_reason": "confirmation_declined",
+                "final_status": RunStatus.CANCELLED.value,
+                "abort_reason": "cancelled",
+            }
+        return {"confirmation_granted": True, "confirmation_required": False}
 
     # ------------------------------------------------------------------
     # Node 3: model_tool_execution
     # ------------------------------------------------------------------
 
-    def _node_model_tool_execution(self, state: ResearchAgentState) -> ResearchAgentState:
+    def _node_model_tool_execution(
+        self, state: ResearchAgentState, config: RunnableConfig
+    ) -> ResearchAgentState:
         run_id = state.get("run_id", "")
         thread_id = state.get("thread_id", "")
         question = state.get("resolved_question") or state.get("question", "")
 
-        if self._store.is_cancel_requested(run_id):
-            return {
-                "abstained": True,
-                "abstention_reason": "run_cancelled_by_user",
-                "final_status": RunStatus.CANCELLED.value,
-            }
+        if (aborted := self._control_abort(state, config)) is not None:
+            return aborted
+        worker_id = str(config.get("configurable", {}).get("worker_id", ""))
 
         scope = self._build_scope(state)
         envelopes: list[dict[str, Any]] = list(state.get("tool_envelopes", []))
@@ -509,6 +686,7 @@ class ConversationalResearchOrchestrator:
             [sys_msg, HumanMessage(content=question)],
             node3_tools,
             stage="model_tool_execution",
+            run_id=run_id,
         )
 
         budget = state.get("tool_call_budget", 8)
@@ -524,6 +702,7 @@ class ConversationalResearchOrchestrator:
             comparison=comparison,
             used=used,
             ai_msg=ai_msg,
+            worker_id=worker_id,
         )
 
         # Ensure canonical hybrid retrieval is executed if the model did not emit a search call
@@ -572,10 +751,14 @@ class ConversationalResearchOrchestrator:
         comparison: dict[str, Any] | None,
         used: int,
         ai_msg: BaseMessage,
+        worker_id: str,
     ) -> tuple[int, dict[str, Any] | None, list[BaseMessage]]:
         tool_messages: list[BaseMessage] = [ai_msg]
         for tc in requested_calls:
-            if self._store.is_cancel_requested(run_id):
+            control = self._store.run_control(run_id, worker_id=worker_id)
+            if not control.lease_held:
+                raise RunLeaseLostError(f"Worker {worker_id} no longer owns the run")
+            if control.cancel_requested or control.deadline_exceeded:
                 break
             t_name = str(tc.get("name", ""))
             t_args = dict(tc.get("args", {}))
@@ -609,7 +792,11 @@ class ConversationalResearchOrchestrator:
     # Node 4: inspect_and_expand_evidence
     # ------------------------------------------------------------------
 
-    def _node_inspect_and_expand(self, state: ResearchAgentState) -> ResearchAgentState:
+    def _node_inspect_and_expand(
+        self, state: ResearchAgentState, config: RunnableConfig
+    ) -> ResearchAgentState:
+        if (aborted := self._control_abort(state, config)) is not None:
+            return aborted
         run_id = state.get("run_id", "")
         thread_id = state.get("thread_id", "")
         hits = state.get("retrieved_hits", [])
@@ -645,7 +832,11 @@ class ConversationalResearchOrchestrator:
     # Node 5: extract_study_findings
     # ------------------------------------------------------------------
 
-    def _node_extract_findings(self, state: ResearchAgentState) -> ResearchAgentState:
+    def _node_extract_findings(
+        self, state: ResearchAgentState, config: RunnableConfig
+    ) -> ResearchAgentState:
+        if (aborted := self._control_abort(state, config)) is not None:
+            return aborted
         run_id = state.get("run_id", "")
         thread_id = state.get("thread_id", "")
         hits = state.get("retrieved_hits", [])
@@ -699,7 +890,11 @@ class ConversationalResearchOrchestrator:
     # Node 6: compare_studies
     # ------------------------------------------------------------------
 
-    def _node_compare_studies(self, state: ResearchAgentState) -> ResearchAgentState:
+    def _node_compare_studies(
+        self, state: ResearchAgentState, config: RunnableConfig
+    ) -> ResearchAgentState:
+        if (aborted := self._control_abort(state, config)) is not None:
+            return aborted
         run_id = state.get("run_id", "")
         thread_id = state.get("thread_id", "")
         if state.get("study_comparison") is not None:
@@ -762,7 +957,11 @@ class ConversationalResearchOrchestrator:
     # Node 7: synthesize_provisional_answer
     # ------------------------------------------------------------------
 
-    def _node_synthesize_provisional(self, state: ResearchAgentState) -> ResearchAgentState:
+    def _node_synthesize_provisional(
+        self, state: ResearchAgentState, config: RunnableConfig
+    ) -> ResearchAgentState:
+        if (aborted := self._control_abort(state, config)) is not None:
+            return aborted
         findings = state.get("proposed_findings", [])
         repair_attempts = state.get("repair_attempts", 0)
 
@@ -803,6 +1002,7 @@ class ConversationalResearchOrchestrator:
         ai_msg = self._model.invoke_plain(
             [HumanMessage(content=synth_prompt)],
             stage="synthesize_provisional_answer",
+            run_id=state.get("run_id", ""),
         )
         parsed_claims = self._parse_model_claims(
             str(ai_msg.content), findings, question=state.get("question", "")
@@ -883,7 +1083,11 @@ class ConversationalResearchOrchestrator:
     # Node 8: verify_canonical_citations
     # ------------------------------------------------------------------
 
-    def _node_verify_citations(self, state: ResearchAgentState) -> ResearchAgentState:
+    def _node_verify_citations(
+        self, state: ResearchAgentState, config: RunnableConfig
+    ) -> ResearchAgentState:
+        if (aborted := self._control_abort(state, config)) is not None:
+            return aborted
         run_id = state.get("run_id", "")
         thread_id = state.get("thread_id", "")
         provisional = state.get("provisional_claims", [])
@@ -981,28 +1185,14 @@ class ConversationalResearchOrchestrator:
     # ------------------------------------------------------------------
 
     def _node_finalize_response(self, state: ResearchAgentState) -> ResearchAgentState:
+        """Compute the answer and update thread memory. Terminal status is the worker's job."""
         run_id = state.get("run_id", "")
         thread_id = state.get("thread_id", "")
         user_id = state.get("user_id", "")
         question = state.get("question", "")
 
-        if state.get("final_status") == RunStatus.INTERRUPTED.value:
+        if state.get("abort_reason") in {"cancelled", "timeout"}:
             return {}
-
-        if self._store.is_cancel_requested(run_id) or (
-            state.get("final_status") == RunStatus.CANCELLED.value
-        ):
-            telemetry = self._model.summarize(
-                tool_calls_count=state.get("tool_calls_used", 0)
-            ).model_dump(mode="json")
-            self._store.mark_run_status(
-                run_id,
-                user_id=user_id,
-                status=RunStatus.CANCELLED,
-                abstention_reason="run_cancelled_by_user",
-                telemetry=telemetry,
-            )
-            return {"final_status": RunStatus.CANCELLED.value}
 
         verified = state.get("verified_citations", [])
         abstained = state.get("abstained", False) or not verified
@@ -1010,31 +1200,11 @@ class ConversationalResearchOrchestrator:
         if abstained and not abstention_reason:
             abstention_reason = "no_verified_canonical_citations"
 
-        comparison = state.get("study_comparison")
-        findings = state.get("proposed_findings", [])
         answer_md, final_status = self._format_final_markdown(
             abstained=abstained,
             abstention_reason=abstention_reason,
             verified=verified,
-            comparison=comparison,
-        )
-
-        telemetry = self._model.summarize(
-            tool_calls_count=state.get("tool_calls_used", 0)
-        ).model_dump(mode="json")
-
-        self._store.mark_run_status(
-            run_id,
-            user_id=user_id,
-            status=final_status,
-            answer_markdown=answer_md,
-            abstention_reason=abstention_reason,
-            verified_citations=tuple(verified),
-            proposed_findings=tuple(findings),
-            study_comparison=comparison,
-            evidence_set_key=state.get("evidence_set_key"),
-            evidence_graph_key=state.get("evidence_graph_key"),
-            telemetry=telemetry,
+            comparison=state.get("study_comparison"),
         )
 
         cited_pks = tuple(
@@ -1046,15 +1216,16 @@ class ConversationalResearchOrchestrator:
             )
         )
         now = datetime.now(UTC).isoformat()
+        # Deterministic ids make a re-executed finalize idempotent in thread memory.
         user_msg_rec = ThreadMessageRecord(
-            message_id=f"msg-{uuid4().hex[:12]}",
+            message_id=f"msg-{run_id}-user",
             run_id=run_id,
             role="user",
             content=question[:4000],
             created_at=now,
         )
         asst_msg_rec = ThreadMessageRecord(
-            message_id=f"msg-{uuid4().hex[:12]}",
+            message_id=f"msg-{run_id}-assistant",
             run_id=run_id,
             role="assistant",
             content=answer_md[:4000],
@@ -1067,26 +1238,15 @@ class ConversationalResearchOrchestrator:
         prev_thread = self._store.get_thread(thread_id, user_id=user_id)
         merged_vks = tuple(dict.fromkeys((*cited_vks, *prev_thread.active_version_keys)))
         merged_pks = tuple(dict.fromkeys((*cited_pks, *prev_thread.active_passage_keys)))
-        summary = f"Last question: {question[:200]} | Verified citations: {len(verified)}"
         self._store.update_thread_context(
             thread_id,
             user_id=user_id,
             active_version_keys=merged_vks,
             active_passage_keys=merged_pks,
-            conversation_summary=summary,
+            conversation_summary=(
+                f"Last question: {question[:200]} | Verified citations: {len(verified)}"
+            ),
             append_messages=(user_msg_rec, asst_msg_rec),
-        )
-        self._store.append_event(
-            run_id,
-            thread_id=thread_id,
-            event_type=RunEventType.RUN_COMPLETED,
-            stage="finalize_durable_response",
-            payload={
-                "status": final_status.value,
-                "verified_citations_count": len(verified),
-                "abstained": abstained,
-                "abstention_reason": abstention_reason,
-            },
         )
         return {
             "final_answer_markdown": answer_md,
@@ -1143,6 +1303,7 @@ class ConversationalResearchOrchestrator:
         if state.get("abstained") or state.get("final_status") in {
             RunStatus.ABSTAINED.value,
             RunStatus.CANCELLED.value,
+            RunStatus.FAILED.value,
         }:
             return "finalize_durable_response"
         return "interpret_and_plan"
@@ -1150,12 +1311,22 @@ class ConversationalResearchOrchestrator:
     @staticmethod
     def _route_after_plan(
         state: ResearchAgentState,
-    ) -> Literal["model_tool_execution", "finalize_durable_response"]:
+    ) -> Literal["await_confirmation", "model_tool_execution", "finalize_durable_response"]:
         if state.get("abstained") or state.get("final_status") in {
             RunStatus.ABSTAINED.value,
             RunStatus.CANCELLED.value,
-            RunStatus.INTERRUPTED.value,
+            RunStatus.FAILED.value,
         }:
+            return "finalize_durable_response"
+        if state.get("confirmation_required"):
+            return "await_confirmation"
+        return "model_tool_execution"
+
+    @staticmethod
+    def _route_after_confirmation(
+        state: ResearchAgentState,
+    ) -> Literal["model_tool_execution", "finalize_durable_response"]:
+        if state.get("abstained"):
             return "finalize_durable_response"
         return "model_tool_execution"
 

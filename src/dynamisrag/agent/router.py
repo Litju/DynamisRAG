@@ -1,14 +1,19 @@
 """FastAPI `/api/v2` router for the RES-637 conversational scientific research agent.
 
-Exposes the 8 binding `/api/v2` endpoints:
-1. `POST /api/v2/threads` — Create a user-scoped research thread
+Endpoints (all authenticated; see ``docs/res637-eve-python-contract.md``):
+1. `POST /api/v2/threads` — Create (or idempotently fetch via ``external_ref``) a thread
 2. `GET /api/v2/threads/{thread_id}` — Inspect thread history and scoped memory
-3. `POST /api/v2/threads/{thread_id}/runs` — Execute or deduplicate a research run
-4. `GET /api/v2/runs/{run_id}/events` — Stream / replay ordered SSE events (`after_seq`)
-5. `POST /api/v2/runs/{run_id}/cancel` — Request durable run cancellation
-6. `POST /api/v2/runs/{run_id}/resume` — Resume or reject an interrupted run
-7. `GET /api/v2/evidence/{passage_key}` — Retrieve canonical passage & neighbor context
-8. `GET /api/v2/papers` — List authorized canonical papers
+3. `POST /api/v2/threads/{thread_id}/runs` — **Enqueue** a research run (``202``); a leased
+   worker executes it. Replaying the same ``idempotency_key`` returns the same run (``200``).
+4. `GET /api/v2/runs/{run_id}` — Poll durable run state
+5. `GET /api/v2/runs/{run_id}/events` — **Live** SSE stream of persisted, ordered events.
+   Reconnect with ``Last-Event-ID`` or ``after_seq``; the stream ends at a terminal or
+   interrupted state.
+6. `POST /api/v2/runs/{run_id}/cancel` — Cooperative cancellation
+7. `POST /api/v2/runs/{run_id}/resume` — Approve/decline an interrupted run
+8. `GET /api/v2/runs/{run_id}/citations` — Verified and rejected citations of a run
+9. `GET /api/v2/evidence/{passage_key}?thread_id=` — Canonical passage and neighbour context
+10. `GET /api/v2/papers?thread_id=` — Authorized canonical papers
 
 Security and boundary enforcement (see ``docs/res637-eve-python-contract.md``):
 - Every endpoint requires ``Authorization: Bearer <signed identity assertion>``; the user id
@@ -18,14 +23,15 @@ Security and boundary enforcement (see ``docs/res637-eve-python-contract.md``):
 - Cross-user thread, run, citation, evidence, and stream access returns ``403 Forbidden``.
 """
 
+import asyncio
 import json
 import threading
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
 from fastapi.responses import StreamingResponse
 from pydantic import Field
 
@@ -42,10 +48,13 @@ from dynamisrag.agent.contracts import (
 )
 from dynamisrag.agent.graph import ConversationalResearchOrchestrator
 from dynamisrag.agent.persistence import (
+    TERMINAL_STATUSES,
     AgentConversationStore,
     AgentRunRecord,
+    IdempotencyConflictError,
     RunConflictError,
     RunNotFoundError,
+    RunStatus,
     ThreadAuthorizationError,
     ThreadNotFoundError,
     ThreadRecord,
@@ -58,6 +67,8 @@ class CreateThreadRequest(AgentContract):
     """Request body for `POST /api/v2/threads`."""
 
     title: SafeShortText = "Scientific Research Thread"
+    external_ref: SafeShortText | None = None
+    """Caller's own session id (e.g. an Eve session). Same owner + ref returns the same thread."""
     allowed_version_keys: tuple[Sha256Hex, ...] = Field(default=(), max_length=25)
 
 
@@ -180,10 +191,23 @@ class _AuthVerifier:
         )
 
 
+def _not_found(code: str, err: Exception) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND, detail={"code": code, "message": str(err)}
+    )
+
+
+def _forbidden(code: str, err: Exception) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN, detail={"code": code, "message": str(err)}
+    )
+
+
 def _register_thread_and_run_routes(
     router: APIRouter,
     deps: _RouterDependencies,
     auth_dep: Callable[..., UserId],
+    on_run_queued: Callable[[], None],
 ) -> None:
     @router.post("/threads", response_model=ThreadRecord, status_code=status.HTTP_201_CREATED)
     def create_thread(
@@ -195,6 +219,7 @@ def _register_thread_and_run_routes(
             owner_id=user_id,
             title=body.title,
             allowed_version_keys=body.allowed_version_keys,
+            external_ref=body.external_ref,
         )
 
     @router.get("/threads/{thread_id}", response_model=ThreadRecord)
@@ -206,25 +231,24 @@ def _register_thread_and_run_routes(
         try:
             return active_store.get_thread(thread_id, user_id=user_id)
         except ThreadNotFoundError as err:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail={"code": "thread_not_found", "message": str(err)},
-            ) from err
+            raise _not_found("thread_not_found", err) from err
         except ThreadAuthorizationError as err:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail={"code": "forbidden_thread_access", "message": str(err)},
-            ) from err
+            raise _forbidden("forbidden_thread_access", err) from err
 
-    @router.post("/threads/{thread_id}/runs", response_model=AgentRunRecord)
-    def create_or_execute_run(
+    @router.post(
+        "/threads/{thread_id}/runs",
+        response_model=AgentRunRecord,
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+    def enqueue_run(
         thread_id: SafeShortText,
         body: CreateRunRequest,
         user_id: Annotated[UserId, Depends(auth_dep)],
+        response: Response,
     ) -> AgentRunRecord:
         active_orch, _, _ = deps.require()
         try:
-            return active_orch.execute_run(
+            record, created = active_orch.submit_run(
                 thread_id=thread_id,
                 user_id=user_id,
                 question=body.question,
@@ -232,51 +256,126 @@ def _register_thread_and_run_routes(
                 require_confirmation=body.require_confirmation,
             )
         except ThreadNotFoundError as err:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail={"code": "thread_not_found", "message": str(err)},
-            ) from err
+            raise _not_found("thread_not_found", err) from err
         except ThreadAuthorizationError as err:
+            raise _forbidden("forbidden_thread_access", err) from err
+        except IdempotencyConflictError as err:
             raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail={"code": "forbidden_thread_access", "message": str(err)},
+                status_code=status.HTTP_409_CONFLICT,
+                detail={"code": "idempotency_key_conflict", "message": str(err)},
             ) from err
         except RunConflictError as err:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail={"code": "active_run_conflict", "message": str(err)},
             ) from err
+        if created:
+            on_run_queued()
+        else:
+            response.status_code = status.HTTP_200_OK
+        return record
 
 
-def _register_run_control_and_resource_routes(
+@dataclass(frozen=True)
+class _StreamConfig:
+    poll_seconds: float
+    keepalive_seconds: float
+    max_seconds: float
+
+
+def _register_run_read_routes(
     router: APIRouter,
     deps: _RouterDependencies,
     auth_dep: Callable[..., UserId],
 ) -> None:
-    @router.get("/runs/{run_id}/events")
-    def stream_run_events(
+    @router.get("/runs/{run_id}", response_model=AgentRunRecord)
+    def get_run(
         run_id: SafeShortText,
         user_id: Annotated[UserId, Depends(auth_dep)],
-        after_seq: Annotated[int, Query(ge=0, le=10000)] = 0,
-    ) -> StreamingResponse:
+    ) -> AgentRunRecord:
         _, active_store, _ = deps.require()
         try:
-            events = active_store.list_events(run_id, user_id=user_id, after_seq=after_seq)
+            return active_store.get_run(run_id, user_id=user_id)
         except RunNotFoundError as err:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail={"code": "run_not_found", "message": str(err)},
-            ) from err
+            raise _not_found("run_not_found", err) from err
         except ThreadAuthorizationError as err:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail={"code": "forbidden_run_access", "message": str(err)},
-            ) from err
+            raise _forbidden("forbidden_run_access", err) from err
 
-        def _sse_generator() -> Iterator[str]:
-            for ev in events:
-                data_json = json.dumps(ev.model_dump(mode="json"))
-                yield f"id: {ev.seq}\nevent: {ev.event_type.value}\ndata: {data_json}\n\n"
+    @router.get("/runs/{run_id}/citations")
+    def get_run_citations(
+        run_id: SafeShortText,
+        user_id: Annotated[UserId, Depends(auth_dep)],
+    ) -> dict[str, Any]:
+        _, active_store, _ = deps.require()
+        try:
+            run = active_store.get_run(run_id, user_id=user_id)
+        except RunNotFoundError as err:
+            raise _not_found("run_not_found", err) from err
+        except ThreadAuthorizationError as err:
+            raise _forbidden("forbidden_run_access", err) from err
+        return {
+            "run_id": run.run_id,
+            "status": run.status.value,
+            "verified_citations": list(run.verified_citations),
+            "rejected_citations": list(run.rejected_citations),
+            "evidence_set_key": run.evidence_set_key,
+            "evidence_graph_key": run.evidence_graph_key,
+        }
+
+
+def _register_run_stream_route(
+    router: APIRouter,
+    deps: _RouterDependencies,
+    auth_dep: Callable[..., UserId],
+    stream: _StreamConfig,
+) -> None:
+    @router.get("/runs/{run_id}/events")
+    async def stream_run_events(
+        request: Request,
+        run_id: SafeShortText,
+        user_id: Annotated[UserId, Depends(auth_dep)],
+        after_seq: Annotated[int, Query(ge=0, le=1_000_000)] = 0,
+        last_event_id: Annotated[str | None, Header()] = None,
+    ) -> StreamingResponse:
+        _, active_store, _ = deps.require()
+        cursor = after_seq
+        if last_event_id is not None and last_event_id.strip().isdigit():
+            cursor = max(cursor, int(last_event_id.strip()))
+        try:
+            await asyncio.to_thread(active_store.get_run, run_id, user_id=user_id)
+        except RunNotFoundError as err:
+            raise _not_found("run_not_found", err) from err
+        except ThreadAuthorizationError as err:
+            raise _forbidden("forbidden_run_access", err) from err
+
+        async def _sse_generator() -> AsyncIterator[str]:
+            position = cursor
+            quiet_since = time.monotonic()
+            started = time.monotonic()
+            while time.monotonic() - started < stream.max_seconds:
+                # Status is read BEFORE the event listing: terminal status and its terminal
+                # event commit atomically, so an empty listing after a terminal read is final.
+                run = await asyncio.to_thread(active_store.get_run, run_id, user_id=user_id)
+                events = await asyncio.to_thread(
+                    active_store.list_events, run_id, user_id=user_id, after_seq=position
+                )
+                for ev in events:
+                    position = ev.seq
+                    data_json = json.dumps(ev.model_dump(mode="json"))
+                    yield f"id: {ev.seq}\nevent: {ev.event_type.value}\ndata: {data_json}\n\n"
+                if events:
+                    quiet_since = time.monotonic()
+                    continue
+                if run.status in TERMINAL_STATUSES or run.status == RunStatus.INTERRUPTED:
+                    end = json.dumps({"status": run.status.value, "last_seq": position})
+                    yield f"event: stream.end\ndata: {end}\n\n"
+                    return
+                if await request.is_disconnected():
+                    return
+                if time.monotonic() - quiet_since >= stream.keepalive_seconds:
+                    quiet_since = time.monotonic()
+                    yield ": keep-alive\n\n"
+                await asyncio.sleep(stream.poll_seconds)
 
         return StreamingResponse(
             _sse_generator(),
@@ -284,6 +383,13 @@ def _register_run_control_and_resource_routes(
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
 
+
+def _register_run_control_routes(
+    router: APIRouter,
+    deps: _RouterDependencies,
+    auth_dep: Callable[..., UserId],
+    on_run_queued: Callable[[], None],
+) -> None:
     @router.post("/runs/{run_id}/cancel", response_model=AgentRunRecord)
     def cancel_run(
         run_id: SafeShortText,
@@ -293,15 +399,9 @@ def _register_run_control_and_resource_routes(
         try:
             return active_store.request_cancel(run_id, user_id=user_id)
         except RunNotFoundError as err:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail={"code": "run_not_found", "message": str(err)},
-            ) from err
+            raise _not_found("run_not_found", err) from err
         except ThreadAuthorizationError as err:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail={"code": "forbidden_run_access", "message": str(err)},
-            ) from err
+            raise _forbidden("forbidden_run_access", err) from err
 
     @router.post("/runs/{run_id}/resume", response_model=AgentRunRecord)
     def resume_run(
@@ -309,24 +409,23 @@ def _register_run_control_and_resource_routes(
         body: ResumeRunRequest,
         user_id: Annotated[UserId, Depends(auth_dep)],
     ) -> AgentRunRecord:
-        active_orch, _, _ = deps.require()
+        _, active_store, _ = deps.require()
         try:
-            return active_orch.resume_interrupted_run(
-                run_id=run_id,
-                user_id=user_id,
-                approve=body.approve,
-            )
+            record = active_store.request_resume(run_id, user_id=user_id, approve=body.approve)
         except RunNotFoundError as err:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail={"code": "run_not_found", "message": str(err)},
-            ) from err
+            raise _not_found("run_not_found", err) from err
         except ThreadAuthorizationError as err:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail={"code": "forbidden_run_access", "message": str(err)},
-            ) from err
+            raise _forbidden("forbidden_run_access", err) from err
+        if record.status == RunStatus.QUEUED:
+            on_run_queued()
+        return record
 
+
+def _register_resource_routes(
+    router: APIRouter,
+    deps: _RouterDependencies,
+    auth_dep: Callable[..., UserId],
+) -> None:
     @router.get("/evidence/{passage_key}", response_model=EvidenceInspectionResponse)
     def inspect_evidence_passage(
         passage_key: Sha256Hex,
@@ -418,6 +517,10 @@ def build_agent_v2_router(
     identity_verifier: IdentityVerifier | None = None,
     allow_dev_header: bool = False,
     rate_limit_per_minute: int = 60,
+    on_run_queued: Callable[[], None] | None = None,
+    stream_poll_seconds: float = 0.2,
+    keepalive_seconds: float = 15.0,
+    stream_max_seconds: float = 3600.0,
 ) -> APIRouter:
     """Construct the `/api/v2` FastAPI router for the conversational research agent."""
     router = APIRouter(prefix="/api/v2", tags=["agent-v2"])
@@ -430,6 +533,19 @@ def build_agent_v2_router(
     auth_dep = _AuthVerifier(
         verifier=identity_verifier, allow_dev_header=allow_dev_header, limiter=limiter
     )
-    _register_thread_and_run_routes(router, deps, auth_dep)
-    _register_run_control_and_resource_routes(router, deps, auth_dep)
+    wake = on_run_queued or (lambda: None)
+    _register_thread_and_run_routes(router, deps, auth_dep, wake)
+    _register_run_read_routes(router, deps, auth_dep)
+    _register_run_stream_route(
+        router,
+        deps,
+        auth_dep,
+        _StreamConfig(
+            poll_seconds=stream_poll_seconds,
+            keepalive_seconds=keepalive_seconds,
+            max_seconds=stream_max_seconds,
+        ),
+    )
+    _register_run_control_routes(router, deps, auth_dep, wake)
+    _register_resource_routes(router, deps, auth_dep)
     return router

@@ -21,24 +21,12 @@ from contextlib import ExitStack, asynccontextmanager
 from typing import Final
 
 from fastapi import FastAPI
-from sqlalchemy.engine import Engine
 
 from dynamisrag import __version__
 from dynamisrag.agent.auth import IdentityVerifier
-from dynamisrag.agent.graph import ConversationalResearchOrchestrator
 from dynamisrag.agent.langsmith_eval import configure_privacy_safe_langsmith
-from dynamisrag.agent.persistence import (
-    AgentConversationStore,
-    InMemoryAgentConversationStore,
-    PostgresAgentConversationStore,
-)
-from dynamisrag.agent.providers import (
-    AgentModelConfig,
-    AgentProviderKind,
-    build_agent_model_runtime,
-)
 from dynamisrag.agent.router import build_agent_v2_router
-from dynamisrag.agent.tools import ScientificToolRegistry
+from dynamisrag.agent.services import build_agent_services
 from dynamisrag.config import Settings, load_settings
 from dynamisrag.db.engine import create_database_engine
 from dynamisrag.embedding.errors import EmbeddingProviderError
@@ -89,58 +77,6 @@ def _build_identity_verifier(resolved: Settings) -> IdentityVerifier | None:
     )
 
 
-def _build_agent_services(
-    *,
-    resolved: Settings,
-    engine: Engine,
-    scientific: ScientificRetrievalService | None,
-    search: Bm25SearchService,
-    retrieval: HybridRetrievalService,
-) -> tuple[
-    AgentConversationStore | None,
-    ScientificToolRegistry | None,
-    ConversationalResearchOrchestrator | None,
-]:
-    configure_privacy_safe_langsmith(
-        tracing_enabled=resolved.agent_langsmith_tracing_enabled,
-        project_name=resolved.agent_langsmith_project,
-    )
-    if not resolved.agent_enabled:
-        return None, None, None
-
-    store: AgentConversationStore = (
-        PostgresAgentConversationStore(
-            str(resolved.agent_database_url),
-            schema_name=resolved.agent_postgres_schema,
-        )
-        if resolved.agent_database_url is not None
-        else InMemoryAgentConversationStore()
-    )
-    registry = ScientificToolRegistry(
-        engine,
-        scientific_retrieval=scientific,
-        opensearch_bm25=search,
-        opensearch_hybrid=retrieval,
-    )
-    model_cfg = AgentModelConfig(
-        provider=AgentProviderKind(resolved.agent_provider),
-        model_name=resolved.agent_model_name,
-        model_revision=resolved.agent_model_revision,
-        base_url=resolved.agent_model_base_url,
-        api_key=(
-            resolved.agent_model_api_key.get_secret_value()
-            if resolved.agent_model_api_key is not None
-            else None
-        ),
-    )
-    orchestrator = ConversationalResearchOrchestrator(
-        tool_registry=registry,
-        store=store,
-        model_runtime=build_agent_model_runtime(model_cfg),
-    )
-    return store, registry, orchestrator
-
-
 def create_app(settings: Settings | None = None) -> FastAPI:
     """Build a ready-to-serve FastAPI application.
 
@@ -180,8 +116,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if resolved.scientific_answers_enabled and scientific is not None
         else None
     )
-    agent_store, agent_registry, agent_orchestrator = _build_agent_services(
-        resolved=resolved,
+    configure_privacy_safe_langsmith(
+        tracing_enabled=resolved.agent_langsmith_tracing_enabled,
+        project_name=resolved.agent_langsmith_project,
+    )
+    agent = build_agent_services(
+        settings=resolved,
         engine=engine,
         scientific=scientific,
         search=search,
@@ -194,8 +134,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         with ExitStack() as cleanup:
             cleanup.callback(engine.dispose)
             cleanup.callback(opensearch_client.close)
-            if agent_store is not None:
-                cleanup.callback(agent_store.close)
+            if agent is not None:
+                cleanup.callback(agent.close)
+                agent.start_workers()
             if tei_provider is not None:
                 cleanup.callback(tei_provider.close)
             if scientific is not None:
@@ -222,9 +163,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(build_answer_router(answers))
     app.include_router(
         build_agent_v2_router(
-            orchestrator=agent_orchestrator,
-            store=agent_store,
-            tool_registry=agent_registry,
+            orchestrator=agent.orchestrator if agent else None,
+            store=agent.store if agent else None,
+            tool_registry=agent.registry if agent else None,
+            on_run_queued=agent.pool.wake if agent and agent.pool else None,
             identity_verifier=_build_identity_verifier(resolved),
             allow_dev_header=resolved.agent_dev_identity_header_enabled,
             rate_limit_per_minute=resolved.agent_rate_limit_per_minute,
