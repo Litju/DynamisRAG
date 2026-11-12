@@ -147,3 +147,23 @@ def test_rewrite_fidelity_false_accepts_are_closed() -> None:
     assert _rewrite_preserves_question(
         f"Summarize the findings of {key}", f"Summarize the findings of {key} again"
     )
+
+
+def test_terse_followups_can_be_rewritten_but_flips_and_acronym_changes_cannot() -> None:
+    assert _rewrite_preserves_question(
+        "And what about mice?", "What is the effect of drug X in mice?"
+    )
+    assert _rewrite_preserves_question("What about 2021?", "What did the trial report in 2021?")
+    assert not _rewrite_preserves_question("What about 2021?", "What did the trial report in 2022?")
+    assert not _rewrite_preserves_question("Is CRP elevated?", "Is albumin elevated?")
+    curly = "Why doesn\u2019t drug X reduce mortality in older adults?"
+    assert not _rewrite_preserves_question(
+        curly, "Why does drug X reduce mortality in older adults?"
+    )
+
+
+def test_restore_ledger_never_raises_on_hostile_snapshots() -> None:
+    runtime = _runtime()
+    for i, bad in enumerate(["not-a-dict", {"records": "x"}, {"pro_escalations": float("inf")}]):
+        runtime.restore_ledger(f"h{i}", bad)  # type: ignore[arg-type]
+        assert runtime.summarize(f"h{i}", tool_calls_count=0).model_calls == 0

@@ -83,7 +83,7 @@ _logger = logging.getLogger("dynamisrag.agent.graph")
 
 
 _NEGATIONS: Final = frozenset(
-    {"not", "no", "without", "never", "except", "excluding", "neither", "nor", "non", "nt"}
+    {"not", "no", "without", "never", "except", "excluding", "neither", "nor", "non"}
 )
 _DIRECTION_PAIRS: Final = (
     ("higher", "lower"),
@@ -96,42 +96,47 @@ _DIRECTION_PAIRS: Final = (
     ("before", "after"),
 )
 _REWRITE_STOPWORDS: Final = frozenset(
-    {"which", "about", "those", "these", "their", "there", "other", "after", "before"}
-)
+    {
+        "which", "about", "those", "these", "their", "there", "other", "after", "before",
+        "what", "with", "that", "this", "from", "them", "they", "does", "were", "have",
+        "and", "the", "also", "then", "when", "where", "whom", "whose",
+    }
+)  # fmt: skip
 _HEX64: Final = re.compile(r"(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])", re.IGNORECASE)
+_ACRONYM: Final = re.compile(r"\b[A-Z][A-Z0-9]{1,5}\b")
+
+
+def _words(text: str) -> set[str]:
+    folded = text.lower().replace("\u2019", "'").replace("n't", " not").replace("'", " ")
+    return set(re.findall(r"[a-z0-9]+", folded))
 
 
 def _rewrite_preserves_question(original: str, rewrite: str) -> bool:
     """A follow-up rewrite may add context but must not drop or flip what the user asked.
 
-    Every negation (including contractions such as "doesn't"), every comparative direction word,
-    every number or short identifier (TNF, IL6, p53, 12) and at least 60% of the user's longer
-    content words must survive, and the rewrite may not introduce a 64-hex document key the user
-    did not write. A question with nothing checkable cannot be rewritten safely and is refused.
+    Every negation (including contractions such as "doesn't"), comparative direction word,
+    number, acronym (TNF, IL6) and at least 60% of the user's own content words (4+ letters,
+    minus function words) must survive, and the rewrite may not introduce a 64-hex document key
+    the user did not write. A question with nothing checkable (e.g. "What about it?") is refused.
     """
     original_keys = {m.lower() for m in _HEX64.findall(original)}
     if any(m.lower() not in original_keys for m in _HEX64.findall(rewrite)):
         return False
-    original_words = set(
-        re.findall(r"[a-z0-9]+", original.lower().replace("n't", " not").replace("'", " "))
-    )
-    rewrite_words = set(
-        re.findall(r"[a-z0-9]+", rewrite.lower().replace("n't", " not").replace("'", " "))
-    )
+    original_words = _words(original)
+    rewrite_words = _words(rewrite)
     if (original_words & _NEGATIONS) - rewrite_words:
         return False
     for left, right in _DIRECTION_PAIRS:
-        for word in (left, right):
-            if word in original_words and word not in rewrite_words:
-                return False
-    short_or_numeric = {
-        w for w in original_words if w not in _NEGATIONS and (any(c.isdigit() for c in w))
-    }
-    if short_or_numeric - rewrite_words:
+        if any(w in original_words and w not in rewrite_words for w in (left, right)):
+            return False
+    anchors = {w for w in original_words if any(c.isdigit() for c in w)}
+    anchors |= {m.lower() for m in _ACRONYM.findall(original)}
+    anchors -= _NEGATIONS
+    if anchors - rewrite_words:
         return False
-    content = {w for w in original_words if len(w) >= 5 and w not in _REWRITE_STOPWORDS}
+    content = {w for w in original_words if len(w) >= 4 and w not in _REWRITE_STOPWORDS}
     if not content:
-        return False
+        return bool(anchors)
     return len(content & rewrite_words) / len(content) >= 0.6
 
 

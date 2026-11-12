@@ -348,7 +348,7 @@ class RoutedModelRuntime:
                 events=[str(e) for e in cast("list[Any]", snapshot.get("events") or [])],
                 pro_escalations=int(snapshot.get("pro_escalations", 0) or 0),
             )
-        except (ValueError, TypeError):
+        except Exception:
             # Schema skew must not turn crash recovery into a permanent failure: start a fresh
             # ledger and say so. Spend then restarts from zero for this run (recorded).
             restored = _Ledger(events=["ledger_restore_failed"])
