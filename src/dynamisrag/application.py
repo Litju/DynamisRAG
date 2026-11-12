@@ -24,6 +24,7 @@ from fastapi import FastAPI
 from sqlalchemy.engine import Engine
 
 from dynamisrag import __version__
+from dynamisrag.agent.auth import IdentityVerifier
 from dynamisrag.agent.graph import ConversationalResearchOrchestrator
 from dynamisrag.agent.langsmith_eval import configure_privacy_safe_langsmith
 from dynamisrag.agent.persistence import (
@@ -75,6 +76,19 @@ API_DESCRIPTION: Final[str] = (
 _logger: Final[logging.Logger] = logging.getLogger(APP_LOGGER_NAME)
 
 
+def _build_identity_verifier(resolved: Settings) -> IdentityVerifier | None:
+    if not resolved.agent_enabled or resolved.agent_identity_secret is None:
+        return None
+    secrets = [resolved.agent_identity_secret.get_secret_value()]
+    if resolved.agent_identity_previous_secret is not None:
+        secrets.append(resolved.agent_identity_previous_secret.get_secret_value())
+    return IdentityVerifier(
+        secrets=tuple(secrets),
+        issuer=resolved.agent_identity_issuer,
+        audience=resolved.agent_identity_audience,
+    )
+
+
 def _build_agent_services(
     *,
     resolved: Settings,
@@ -96,10 +110,10 @@ def _build_agent_services(
 
     store: AgentConversationStore = (
         PostgresAgentConversationStore(
-            str(resolved.database_url),
+            str(resolved.agent_database_url),
             schema_name=resolved.agent_postgres_schema,
         )
-        if resolved.agent_postgres_enabled
+        if resolved.agent_database_url is not None
         else InMemoryAgentConversationStore()
     )
     registry = ScientificToolRegistry(
@@ -211,11 +225,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             orchestrator=agent_orchestrator,
             store=agent_store,
             tool_registry=agent_registry,
-            expected_api_token=(
-                resolved.agent_api_token.get_secret_value()
-                if resolved.agent_api_token is not None
-                else None
-            ),
+            identity_verifier=_build_identity_verifier(resolved),
+            allow_dev_header=resolved.agent_dev_identity_header_enabled,
             rate_limit_per_minute=resolved.agent_rate_limit_per_minute,
         )
     )

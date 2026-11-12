@@ -11,14 +11,15 @@ Exercises all 8 required RES-637 `/api/v2` endpoints:
 8. `GET /api/v2/papers`
 
 Plus negative tests for:
-- Missing / invalid `X-Dynamis-User-Id` header (`401` / `422`)
-- Missing / invalid `Authorization: Bearer` token when configured (`401`)
+- Missing / forged / expired signed identity assertions (`401`); see `test_agent_auth.py`
 - Cross-user thread and run access (`403`)
 - Concurrent active run conflict (`409`)
 - Per-user rate limiting (`429`)
 """
 
 from __future__ import annotations
+
+import time
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -27,6 +28,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
+from dynamisrag.agent.auth import IdentityVerifier, mint_identity_assertion
 from dynamisrag.agent.graph import ConversationalResearchOrchestrator
 from dynamisrag.agent.persistence import InMemoryAgentConversationStore
 from dynamisrag.agent.providers import (
@@ -41,10 +43,20 @@ from tests.unit.test_agent_tools import (
     _seed_study,  # pyright: ignore[reportPrivateUsage]
 )
 
+IDENTITY_SECRET = "unit-test-identity-secret-0123456789abcdef"
+ISSUER = "dynamis-eve"
+AUDIENCE = "dynamisrag-agent-v2"
+
+
+def auth_headers(user_id: str, *, secret: str = IDENTITY_SECRET) -> dict[str, str]:
+    token = mint_identity_assertion(
+        secret=secret, issuer=ISSUER, audience=AUDIENCE, subject=user_id, now=time.time()
+    )
+    return {"Authorization": f"Bearer {token}"}
+
 
 def _build_test_app(
     *,
-    expected_api_token: str | None = None,
     rate_limit_per_minute: int = 60,
 ) -> tuple[FastAPI, dict[str, tuple[str, tuple[str, ...], tuple[str, ...]]]]:
     engine: Engine = create_engine(
@@ -108,7 +120,9 @@ def _build_test_app(
             orchestrator=orchestrator,
             store=store,
             tool_registry=registry,
-            expected_api_token=expected_api_token,
+            identity_verifier=IdentityVerifier(
+                secrets=(IDENTITY_SECRET,), issuer=ISSUER, audience=AUDIENCE
+            ),
             rate_limit_per_minute=rate_limit_per_minute,
         )
     )
@@ -117,16 +131,10 @@ def _build_test_app(
 
 def test_api_v2_threads_runs_events_evidence_and_papers_lifecycle() -> None:
     app, studies = _build_test_app()
-    headers = {"X-Dynamis-User-Id": "scientist-1"}
+    headers = auth_headers("scientist-1")
 
     with TestClient(app) as client:
-        # 1. GET /api/v2/papers
-        papers_resp = client.get("/api/v2/papers", headers=headers)
-        assert papers_resp.status_code == 200
-        papers_body = papers_resp.json()
-        assert papers_body["total_authorized"] == 2
-
-        # 2. POST /api/v2/threads
+        # 1. POST /api/v2/threads
         create_resp = client.post(
             "/api/v2/threads",
             headers=headers,
@@ -134,6 +142,11 @@ def test_api_v2_threads_runs_events_evidence_and_papers_lifecycle() -> None:
         )
         assert create_resp.status_code == 201
         thread_id = create_resp.json()["thread_id"]
+
+        # 2. GET /api/v2/papers (thread-scoped)
+        papers_resp = client.get(f"/api/v2/papers?thread_id={thread_id}", headers=headers)
+        assert papers_resp.status_code == 200
+        assert papers_resp.json()["total_authorized"] == 2
 
         # 3. POST /api/v2/threads/{id}/runs (completed run)
         run_resp = client.post(
@@ -169,7 +182,7 @@ def test_api_v2_threads_runs_events_evidence_and_papers_lifecycle() -> None:
 
         # 6. GET /api/v2/evidence/{passage_key}
         target_pk = studies["PMC5263151"][1][1]
-        ev_resp = client.get(f"/api/v2/evidence/{target_pk}", headers=headers)
+        ev_resp = client.get(f"/api/v2/evidence/{target_pk}?thread_id={thread_id}", headers=headers)
         assert ev_resp.status_code == 200
         ev_body = ev_resp.json()
         assert ev_body["passage"]["passage_key"] == target_pk
@@ -177,19 +190,15 @@ def test_api_v2_threads_runs_events_evidence_and_papers_lifecycle() -> None:
 
 
 def test_api_v2_interrupt_resume_cancel_and_security_controls() -> None:
-    app, _ = _build_test_app(expected_api_token="secret-research-token", rate_limit_per_minute=8)
-    valid_headers = {
-        "X-Dynamis-User-Id": "scientist-owner",
-        "Authorization": "Bearer secret-research-token",
-    }
-    intruder_headers = {
-        "X-Dynamis-User-Id": "scientist-intruder",
-        "Authorization": "Bearer secret-research-token",
-    }
+    app, _ = _build_test_app(rate_limit_per_minute=8)
+    valid_headers = auth_headers("scientist-owner")
+    intruder_headers = auth_headers("scientist-intruder")
 
     with TestClient(app) as client:
-        # Missing bearer token -> 401
-        no_tok = client.get("/api/v2/papers", headers={"X-Dynamis-User-Id": "u1"})
+        # Unsigned user-id header is never trusted -> 401
+        no_tok = client.get(
+            "/api/v2/threads/anything", headers={"X-Dynamis-User-Id": "scientist-owner"}
+        )
         assert no_tok.status_code == 401
 
         # Create thread
