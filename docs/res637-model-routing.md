@@ -91,3 +91,28 @@ Report that receipt as generative evidence only after reading its per-metric den
   accounting through the real graph with scripted doubles. `generative: false`; **not** a model
   qualification (its failing cases are the double's limits).
 * Prior receipts (v1, llama3.2:3b v2) are unchanged.
+
+## 7. Live functional validation (owner-authorized, 2026-11-12)
+
+The owner authorized a bounded run on their own key to check that the integration functions. It
+is **contract/functional validation on a 11-case hermetic synthetic corpus, not a model
+qualification and not authorization for a public service** (`.env` still says `false`; the
+approval was passed as a per-process environment variable). Total spend across all four runs was
+about USD 0.2 by the estimator. Full wire logs (every request and response body, credential
+headers redacted, key scrubbed and scanned) and per-case run/event dumps are saved:
+
+| Run | Receipt | Logs | Outcome |
+| --- | --- | --- | --- |
+| 1 | `opencode-go-three-model.run1-aggregate-only.json` | none (aggregate only) | 10/11; capture added afterwards |
+| 2 | `...run2-ratelimited.json` | `...run2-logs/` | 429 "Token rate limit exceeded" from `gpt-6-luna` failed a case after three instant retries |
+| 3 | `...run3.json` | `...run3-logs/` | `deepseek-v4-pro` hit the 6144 output cap (reasoning tokens count) |
+| 4 | `...run4.json` | `...run4-logs/` | 31/31 HTTP 200; 10/11 cases; 3 Pro escalations |
+
+Defects found only by the live run and repaired: same-model exponential backoff on 429 (every
+attempt recorded, never another model), Pro output cap 6144 -> 16384 with matching cost caps.
+Confirmed live: all three models answer on their native endpoints, `reasoning_content` is
+returned and echoed back without a 400, tool calls are produced by the models, usage is reported.
+
+The one failing case in runs 1-4, `unsupported_but_plausible`, is a **scoring artifact**: the
+model abstained correctly, but its abstention text repeats "100 m" from the question and the v2
+`forbidden_content` check flags it. The metric is left unchanged so v2 receipts stay comparable.

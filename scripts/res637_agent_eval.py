@@ -14,11 +14,15 @@ No credential is read from the environment or written to the receipt.
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 
+import httpx
 import httpx2
 from tests.agent_eval_corpora import build_corpus
 from tests.agent_stack import build_stack
@@ -86,7 +90,96 @@ def _routed_deterministic() -> RoutedModelRuntime:
     )
 
 
-def _opencode_go(out: Path) -> ModelRuntime | None:
+_SECRET_HEADERS = frozenset({"authorization", "x-api-key", "api-key", "cookie", "set-cookie"})
+
+
+def _wire_logger(path: Path, secret: str) -> httpx.Client:
+    """HTTP client that appends every provider request/response (full bodies) to a JSONL file.
+
+    Only credential headers are redacted; any occurrence of the key value itself is scrubbed from
+    the serialised line as a second guard. Bodies are complete: prompts, tool schemas, tool calls,
+    reasoning_content, usage.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock = threading.Lock()
+    counter = itertools.count(1)
+    pending: dict[int, int] = {}
+
+    def write(entry: dict[str, object]) -> None:
+        line = json.dumps(entry, ensure_ascii=False, default=str)
+        if secret:
+            line = line.replace(secret, "[REDACTED_KEY]")
+        with lock, path.open("a", encoding="utf-8") as handle:
+            handle.write(line + "\n")
+
+    def clean(headers: httpx.Headers) -> dict[str, str]:
+        return {
+            k: ("[REDACTED]" if k.lower() in _SECRET_HEADERS else v) for k, v in headers.items()
+        }
+
+    def on_request(request: httpx.Request) -> None:
+        seq = next(counter)
+        pending[id(request)] = seq
+        body = request.content.decode("utf-8", errors="replace")
+        try:
+            parsed: object = json.loads(body)
+        except ValueError:
+            parsed = body
+        write(
+            {
+                "seq": seq,
+                "direction": "request",
+                "ts": time.time(),
+                "method": request.method,
+                "url": str(request.url),
+                "headers": clean(request.headers),
+                "body": parsed,
+            }
+        )
+
+    def on_response(response: httpx.Response) -> None:
+        response.read()
+        try:
+            parsed: object = response.json()
+        except ValueError:
+            parsed = response.text
+        write(
+            {
+                "seq": pending.pop(id(response.request), -1),
+                "direction": "response",
+                "ts": time.time(),
+                "status": response.status_code,
+                "elapsed_ms": round(response.elapsed.total_seconds() * 1000, 1),
+                "headers": clean(response.headers),
+                "body": parsed,
+            }
+        )
+
+    return httpx.Client(event_hooks={"request": [on_request], "response": [on_response]})
+
+
+def _case_dumper(directory: Path) -> object:
+    """Write each case's full runs (answers, citations, telemetry) and event stream as JSON."""
+    directory.mkdir(parents=True, exist_ok=True)
+
+    def dump(case: object, runs: object, events: object) -> None:
+        case_id = getattr(case, "case_id", "case")
+        payload = {
+            "case": getattr(case, "model_dump", lambda **_: {})(mode="json"),
+            "runs": [r.model_dump(mode="json") for r in runs],  # type: ignore[attr-defined]
+            "events_per_run": [
+                [e.model_dump(mode="json") for e in run_events]  # type: ignore[attr-defined]
+                for run_events in events  # type: ignore[attr-defined]
+            ],
+        }
+        (directory / f"{case_id}.json").write_text(
+            json.dumps(payload, indent=2, ensure_ascii=False, default=str) + "\n", encoding="utf-8"
+        )
+
+    return dump
+
+
+def _opencode_go(out: Path, log_dir: Path | None = None) -> ModelRuntime | None:
     """Build the OpenCode Go roster only when the owner has recorded provider authorization.
 
     Without it nothing is sent to the provider except the public catalogue read; a blocked
@@ -113,7 +206,15 @@ def _opencode_go(out: Path) -> ModelRuntime | None:
     except (ProviderConfigurationError, httpx2.HTTPError) as error:
         canonical = {"catalogue_check_failed": type(error).__name__}
     try:
-        return build_opencode_go_runtime(roster)
+        client = (
+            _wire_logger(
+                log_dir / "wire.jsonl",
+                roster.api_key.get_secret_value() if roster.api_key else "",
+            )
+            if log_dir is not None
+            else None
+        )
+        return build_opencode_go_runtime(roster, http_client=client)
     except ProviderConfigurationError as error:
         receipt = {
             "version": "res637-opencode-go-qualification-blocked",
@@ -145,6 +246,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--call-timeout", type=float, default=300.0)
     parser.add_argument("--run-timeout", type=float, default=3000.0)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--log-dir", type=Path, default=None, help="save full wire + per-case logs")
     args = parser.parse_args(argv)
 
     roster_label = "+".join(spec.model_name for spec in DEFAULT_ROSTER.values())
@@ -155,7 +257,7 @@ def main(argv: list[str] | None = None) -> int:
         model_name = f"routed-deterministic:{roster_label}"
     elif args.provider == "opencode_go":
         provider = AgentProviderKind.OPENCODE_GO
-        built = _opencode_go(args.out)
+        built = _opencode_go(args.out, args.log_dir)
         if built is None:
             return _BLOCKED_EXIT_CODE
         runtime = built
@@ -194,6 +296,7 @@ def main(argv: list[str] | None = None) -> int:
         if provider == AgentProviderKind.OLLAMA
         else None,
         progress=lambda line: print(line, flush=True),  # noqa: T201
+        on_case=_case_dumper(args.log_dir / "cases") if args.log_dir is not None else None,  # type: ignore[arg-type]
     )
     args.out.parent.mkdir(parents=True, exist_ok=True)
     payload = report.model_dump(mode="json")

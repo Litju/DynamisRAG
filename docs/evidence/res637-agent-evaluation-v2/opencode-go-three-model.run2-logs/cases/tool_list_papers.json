@@ -1,0 +1,262 @@
+{
+  "case": {
+    "case_id": "tool_list_papers",
+    "category": "tool_choice",
+    "corpus": "base",
+    "turns": [
+      "Which papers are available in this corpus?"
+    ],
+    "expected_tools": [
+      "list_papers"
+    ],
+    "expect_abstain": null,
+    "must_cite": [],
+    "forbidden": [],
+    "context_expect_pmcid": null,
+    "injection_in_query": false,
+    "poison_marker": null,
+    "expect_not_comparable": false,
+    "rationale": "A corpus-inventory question is answered by list_papers, not by passage search."
+  },
+  "runs": [
+    {
+      "run_id": "run-94005a07453e424c",
+      "thread_id": "thread-0becdb1f31d143fa",
+      "owner_id": "eval-researcher",
+      "idempotency_key": "tool_list_papers-0",
+      "question": "Which papers are available in this corpus?",
+      "status": "abstained",
+      "require_confirmation": false,
+      "cancel_requested": false,
+      "attempt": 1,
+      "max_attempts": 3,
+      "worker_id": null,
+      "lease_expires_at": null,
+      "resume_payload": null,
+      "abort_reason": null,
+      "answer_markdown": "**Abstained from Scientific Synthesis (`insufficient_canonical_evidence_for_query`)**\n\nThe agent could not verify canonical source spans supporting a scientific answer within the authorized corpus.\n\n*All study findings, comparisons, and synthesized claims are MODEL_PROPOSED / PROPOSED. Exact quotation and canonical source-span checks verify text provenance only and do not establish scientific entailment, study validity, clinical applicability, or expert review.*",
+      "abstention_reason": "insufficient_canonical_evidence_for_query",
+      "verified_citations": [],
+      "rejected_citations": [],
+      "proposed_findings": [],
+      "study_comparison": null,
+      "evidence_set_key": null,
+      "evidence_graph_key": null,
+      "telemetry": {
+        "provider": "opencode_go",
+        "model_name": "gpt-6-luna",
+        "model_revision": null,
+        "model_calls": 2,
+        "tool_calls": 2,
+        "prompt_tokens": 3505,
+        "completion_tokens": 348,
+        "total_tokens": 3853,
+        "estimated_cost_usd": 0.00073455,
+        "total_latency_ms": 10501.421,
+        "calls": [
+          {
+            "call_id": "llm-ab7f4ae24999",
+            "provider": "opencode_go",
+            "model_name": "deepseek-v4.1-flash",
+            "model_revision": null,
+            "stage": "model_tool_execution:0",
+            "prompt_tokens": 1489,
+            "completion_tokens": 48,
+            "total_tokens": 1537,
+            "estimated_cost_usd": 0.00025215,
+            "latency_ms": 3845.963,
+            "tool_calls_requested": 1,
+            "role": "fast",
+            "endpoint": "chat_completions",
+            "selection_reason": "stage:model_tool_execution",
+            "escalated": false,
+            "outcome": "ok",
+            "error_class": null
+          },
+          {
+            "call_id": "llm-0544ca225c76",
+            "provider": "opencode_go",
+            "model_name": "deepseek-v4.1-flash",
+            "model_revision": null,
+            "stage": "model_tool_execution:1",
+            "prompt_tokens": 2016,
+            "completion_tokens": 300,
+            "total_tokens": 2316,
+            "estimated_cost_usd": 0.0004824,
+            "latency_ms": 6655.458,
+            "tool_calls_requested": 0,
+            "role": "fast",
+            "endpoint": "chat_completions",
+            "selection_reason": "stage:model_tool_execution",
+            "escalated": false,
+            "outcome": "ok",
+            "error_class": null
+          }
+        ],
+        "models": [
+          {
+            "role": "fast",
+            "model_name": "deepseek-v4.1-flash",
+            "endpoint": "chat_completions",
+            "requests": 2,
+            "failed_requests": 0,
+            "prompt_tokens": 3505,
+            "completion_tokens": 348,
+            "estimated_cost_usd": 0.00073455,
+            "latency_ms": 10501.421
+          },
+          {
+            "role": "coordinator",
+            "model_name": "gpt-6-luna",
+            "endpoint": "responses",
+            "requests": 0,
+            "failed_requests": 0,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "estimated_cost_usd": 0.0,
+            "latency_ms": 0.0
+          },
+          {
+            "role": "pro",
+            "model_name": "deepseek-v4-pro",
+            "endpoint": "chat_completions",
+            "requests": 0,
+            "failed_requests": 0,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "estimated_cost_usd": 0.0,
+            "latency_ms": 0.0
+          }
+        ],
+        "pro_escalations": 0,
+        "routing_events": [],
+        "tool_origins": {
+          "model_directed": 1,
+          "graph_fallback": 1,
+          "graph_enforced": 0
+        },
+        "synthesis_source": null,
+        "synthesis_fallback_reason": null,
+        "autonomous_tool_decisions": 1
+      },
+      "error_message": null,
+      "created_at": "2026-11-12T14:19:50.458741+00:00",
+      "updated_at": "2026-11-12T14:20:00.990347+00:00"
+    }
+  ],
+  "events_per_run": [
+    [
+      {
+        "run_id": "run-94005a07453e424c",
+        "thread_id": "thread-0becdb1f31d143fa",
+        "seq": 1,
+        "event_type": "run.queued",
+        "stage": "queued",
+        "payload": {},
+        "created_at": "2026-11-12T14:19:50.458741+00:00"
+      },
+      {
+        "run_id": "run-94005a07453e424c",
+        "thread_id": "thread-0becdb1f31d143fa",
+        "seq": 2,
+        "event_type": "run.started",
+        "stage": "resolve_conversation_context",
+        "payload": {
+          "require_confirmation": false
+        },
+        "created_at": "2026-11-12T14:19:50.458741+00:00"
+      },
+      {
+        "run_id": "run-94005a07453e424c",
+        "thread_id": "thread-0becdb1f31d143fa",
+        "seq": 3,
+        "event_type": "plan.created",
+        "stage": "interpret_and_plan",
+        "payload": {
+          "intent": "evidence_synthesis",
+          "needs_comparison": false,
+          "needs_context_expansion": false,
+          "scoped_version_count": 3,
+          "confirmation_required": false,
+          "context_resolution": "none_needed"
+        },
+        "created_at": "2026-11-12T14:19:50.466746+00:00"
+      },
+      {
+        "run_id": "run-94005a07453e424c",
+        "thread_id": "thread-0becdb1f31d143fa",
+        "seq": 4,
+        "event_type": "tool.called",
+        "stage": "model_tool_execution",
+        "payload": {
+          "tool_name": "list_papers",
+          "args": {
+            "limit": 50
+          },
+          "origin": "model_directed",
+          "scope_defaulted": false,
+          "round": 0
+        },
+        "created_at": "2026-11-12T14:19:54.314929+00:00"
+      },
+      {
+        "run_id": "run-94005a07453e424c",
+        "thread_id": "thread-0becdb1f31d143fa",
+        "seq": 5,
+        "event_type": "tool.completed",
+        "stage": "model_tool_execution",
+        "payload": {
+          "tool_name": "list_papers",
+          "ok": true,
+          "origin": "model_directed",
+          "trace_id": "trace-c2b035609ce442ee",
+          "duration_ms": 7.699
+        },
+        "created_at": "2026-11-12T14:19:54.322945+00:00"
+      },
+      {
+        "run_id": "run-94005a07453e424c",
+        "thread_id": "thread-0becdb1f31d143fa",
+        "seq": 6,
+        "event_type": "fallback.applied",
+        "stage": "model_tool_execution",
+        "payload": {
+          "tool_name": "hybrid_search",
+          "origin": "graph_fallback",
+          "reason": "model_emitted_no_valid_retrieval_call",
+          "rejected_model_calls": 0
+        },
+        "created_at": "2026-11-12T14:20:00.978347+00:00"
+      },
+      {
+        "run_id": "run-94005a07453e424c",
+        "thread_id": "thread-0becdb1f31d143fa",
+        "seq": 7,
+        "event_type": "tool.completed",
+        "stage": "model_tool_execution",
+        "payload": {
+          "tool_name": "hybrid_search",
+          "ok": true,
+          "origin": "graph_fallback",
+          "trace_id": "trace-28f50467a3b54121",
+          "duration_ms": 8.723
+        },
+        "created_at": "2026-11-12T14:20:00.987347+00:00"
+      },
+      {
+        "run_id": "run-94005a07453e424c",
+        "thread_id": "thread-0becdb1f31d143fa",
+        "seq": 8,
+        "event_type": "run.completed",
+        "stage": "finalize",
+        "payload": {
+          "status": "abstained",
+          "verified_citations_count": 0,
+          "abstained": true,
+          "abstention_reason": "insufficient_canonical_evidence_for_query"
+        },
+        "created_at": "2026-11-12T14:20:00.990347+00:00"
+      }
+    ]
+  ]
+}

@@ -58,6 +58,7 @@ from dynamisrag.agent.providers import (
 
 __all__ = [
     "DEFAULT_ROSTER",
+    "RATE_LIMIT_MAX_ATTEMPTS",
     "EscalationReason",
     "ModelBudget",
     "ModelBudgetExceeded",
@@ -164,7 +165,7 @@ DEFAULT_ROSTER: Final[Mapping[ModelRole, RoleModelSpec]] = {
         max_output_tokens=4096,
         timeout_seconds=90.0,
         budget=ModelBudget(
-            max_requests=4, max_total_tokens=100_000, max_latency_ms=120_000, max_cost_usd=0.03
+            max_requests=8, max_total_tokens=100_000, max_latency_ms=120_000, max_cost_usd=0.03
         ),
     ),
     ModelRole.PRO: RoleModelSpec(
@@ -175,14 +176,16 @@ DEFAULT_ROSTER: Final[Mapping[ModelRole, RoleModelSpec]] = {
         output_usd_per_mtok=1.98,
         peak_multiplier=2.0,
         reasoning_effort="high",
-        max_output_tokens=6144,
-        timeout_seconds=180.0,
+        max_output_tokens=16384,  # reasoning counts; 6144 hit the cap live
+        timeout_seconds=240.0,
         budget=ModelBudget(
-            max_requests=1, max_total_tokens=100_000, max_latency_ms=240_000, max_cost_usd=0.08
+            max_requests=1, max_total_tokens=100_000, max_latency_ms=300_000, max_cost_usd=0.12
         ),
     ),
 }
 
+RATE_LIMIT_MAX_ATTEMPTS: Final = 3
+RATE_LIMIT_BACKOFF_SECONDS: Final = 5.0
 _PEAK_WINDOWS_UTC: Final[tuple[tuple[int, int], ...]] = ((1, 4), (6, 10))
 
 
@@ -198,7 +201,7 @@ def peak_multiplier(spec: RoleModelSpec, now: datetime | None = None) -> float:
 
 class RoutingPolicy(AgentContract):
     max_pro_escalations: int = Field(default=1, ge=0, le=3)
-    max_run_cost_usd: float = Field(default=0.12, gt=0.0, le=100.0)
+    max_run_cost_usd: float = Field(default=0.20, gt=0.0, le=100.0)
     max_run_tokens: int = Field(default=250_000, ge=1_000, le=4_000_000)
 
 
@@ -287,6 +290,7 @@ class RoutedModelRuntime:
     models: Mapping[ModelRole, BaseChatModel]
     policy: RoutingPolicy = field(default_factory=RoutingPolicy)
     clock: Callable[[], datetime] = lambda: datetime.now(UTC)
+    sleep: Callable[[float], None] = time.sleep
     _ledgers: dict[str, _Ledger] = field(default_factory=_empty_ledgers)
     _lock: threading.Lock = field(default_factory=threading.Lock)
 
@@ -444,6 +448,31 @@ class RoutedModelRuntime:
         estimate: int,
         invoke: Callable[[BaseChatModel, dict[str, str]], AIMessage],
     ) -> AIMessage:
+        """One logical model call; a provider rate limit is retried on the SAME model.
+
+        The provider answered HTTP 429 (observed live on ``gpt-6-luna``). Retrying elsewhere would
+        be silent substitution, so the same role is retried with exponential backoff; every attempt
+        is a recorded request that counts against the budgets. Other errors are not retried here.
+        """
+        delay = RATE_LIMIT_BACKOFF_SECONDS
+        for attempt in range(RATE_LIMIT_MAX_ATTEMPTS):
+            try:
+                return self._call_once(run_id, stage, escalate, estimate, invoke)
+            except ModelCallError as error:
+                last_attempt = attempt == RATE_LIMIT_MAX_ATTEMPTS - 1
+                if "RateLimit" not in error.error_class or last_attempt:
+                    raise
+                self.sleep(delay * (2**attempt))
+        raise AssertionError("unreachable")  # pragma: no cover
+
+    def _call_once(
+        self,
+        run_id: str,
+        stage: str,
+        escalate: EscalationReason | None,
+        estimate: int,
+        invoke: Callable[[BaseChatModel, dict[str, str]], AIMessage],
+    ) -> AIMessage:
         with self._lock:
             ledger = self._ledgers.setdefault(run_id, _Ledger())
             role, reason, escalated = self._choose(ledger, stage, escalate, estimate)
@@ -586,7 +615,7 @@ class OpenCodeGoRosterConfig(AgentContract):
     coordinator_model: SafeShortText = "gpt-6-luna"
     pro_model: SafeShortText = "deepseek-v4-pro"
     max_pro_escalations: int = Field(default=1, ge=0, le=3)
-    max_run_cost_usd: float = Field(default=0.12, gt=0.0, le=100.0)
+    max_run_cost_usd: float = Field(default=0.20, gt=0.0, le=100.0)
     max_run_tokens: int = Field(default=250_000, ge=1_000, le=4_000_000)
 
     def role_models(self) -> dict[ModelRole, str]:

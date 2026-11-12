@@ -1,0 +1,493 @@
+{
+  "case": {
+    "case_id": "tool_metadata",
+    "category": "tool_choice",
+    "corpus": "base",
+    "turns": [
+      "List the identifiers and section titles of the depth jumping study."
+    ],
+    "expected_tools": [
+      "get_study_metadata"
+    ],
+    "expect_abstain": null,
+    "must_cite": [],
+    "forbidden": [],
+    "context_expect_pmcid": null,
+    "injection_in_query": false,
+    "poison_marker": null,
+    "expect_not_comparable": false,
+    "rationale": "Identity/structure questions need get_study_metadata, not passage search."
+  },
+  "runs": [
+    {
+      "run_id": "run-72a1e1bf83de4e84",
+      "thread_id": "thread-3204f920fe934b10",
+      "owner_id": "eval-researcher",
+      "idempotency_key": "tool_metadata-0",
+      "question": "List the identifiers and section titles of the depth jumping study.",
+      "status": "abstained",
+      "require_confirmation": false,
+      "cancel_requested": false,
+      "attempt": 1,
+      "max_attempts": 3,
+      "worker_id": null,
+      "lease_expires_at": null,
+      "resume_payload": null,
+      "abort_reason": null,
+      "answer_markdown": "**Abstained from Scientific Synthesis (`model_abstained: The evidence does not provide section titles or a quote supporting the study identifiers.`)**\n\nThe agent could not verify canonical source spans supporting a scientific answer within the authorized corpus.\n\n*All study findings, comparisons, and synthesized claims are MODEL_PROPOSED / PROPOSED. Exact quotation and canonical source-span checks verify text provenance only and do not establish scientific entailment, study validity, clinical applicability, or expert review.*",
+      "abstention_reason": "model_abstained: The evidence does not provide section titles or a quote supporting the study identifiers.",
+      "verified_citations": [],
+      "rejected_citations": [],
+      "proposed_findings": [
+        {
+          "finding_id": "0b3056ee1c68330bff0a9b4f77ab0a516b954b72948052dcf0cf982d25a6213f",
+          "document_version_key": "c484f564318e7f00095770e5ac4d46230bad62f220da3e4195c3851ffe9c22df",
+          "document_title": "Plyometric Training Favors Optimizing Muscle-Tendon Behavior during Depth Jumping",
+          "doi": "10.3389/fphys.2017.00016",
+          "pmcid": "PMC5263151",
+          "passage_key": "1678febafe157b5295f8f9c4675d25babd3107832268569eb0745816a5fe551d",
+          "span_key": "b41b14732392aad1c8ea8ce652ac393753270dae65fa6d3e28757e02c2c27c0b",
+          "paragraph_key": "84575d0e6e1460eae2c9b287e4455207339ee10f4fae0d3197f0d3d466bb437c",
+          "paragraph_source_anchor": "jats:#p-2",
+          "start_char": 0,
+          "end_char": 117,
+          "verbatim_quote": "Jump height during depth jumping increased from 31.2 ± 3.4 cm to 36.8 ± 3.9 cm (p < 0.001) after plyometric training.",
+          "category": "QUANTITATIVE",
+          "study_design": null,
+          "population": null,
+          "intervention": "Plyometric Training Favors Optimizing Muscle-Tendon Behavior during Depth Jumping Jump height durin",
+          "comparator": null,
+          "measurement_protocol": null,
+          "outcome_measures": [
+            "Jump height during depth jumping increased from 31"
+          ],
+          "units": "cm",
+          "reported_statistics": [
+            "31.2 ± 3.4 cm",
+            "36.8 ± 3.9 cm",
+            "p < 0.001"
+          ],
+          "missing_information": [
+            "sample_population_not_stated_in_passage"
+          ],
+          "uncertainty_notes": [
+            "MODEL_PROPOSED extraction from a single passage span; requires full-study context and expert adjudication."
+          ],
+          "origin": "MODEL_PROPOSED",
+          "review_state": "PROPOSED",
+          "structurally_verified": true
+        },
+        {
+          "finding_id": "57e87c4acb1752a1e947e0d032806a564a188b0c05d9a557a091fd4ad815555f",
+          "document_version_key": "c484f564318e7f00095770e5ac4d46230bad62f220da3e4195c3851ffe9c22df",
+          "document_title": "Plyometric Training Favors Optimizing Muscle-Tendon Behavior during Depth Jumping",
+          "doi": "10.3389/fphys.2017.00016",
+          "pmcid": "PMC5263151",
+          "passage_key": "5fea8336d58d98ad2c3ea9191ebe138a5840b8651993ac3d72018dbe3632c1af",
+          "span_key": "d71cc206e5f6465f6fd03870686a35c92600a1b7b1d199952b06c215358fa4e1",
+          "paragraph_key": "57de834d0b1015bb5d3bb52283399cfd113473e6a62353af2922b982f63d9bb7",
+          "paragraph_source_anchor": "jats:#p-1",
+          "start_char": 0,
+          "end_char": 169,
+          "verbatim_quote": "During depth jumping, Achilles tendon stiffness increased by 24.5% (p < 0.01) while gastrocnemius medialis fascicle length behavior shifted toward isometric contraction.",
+          "category": "QUANTITATIVE",
+          "study_design": null,
+          "population": null,
+          "intervention": "Plyometric Training Favors Optimizing Muscle-Tendon Behavior during Depth Jumping During depth jump",
+          "comparator": null,
+          "measurement_protocol": null,
+          "outcome_measures": [
+            "Achilles tendon stiffness increased by 24",
+            "fascicle length behavior shifted toward isometric contraction"
+          ],
+          "units": "%",
+          "reported_statistics": [
+            "24.5%",
+            "p < 0.01"
+          ],
+          "missing_information": [
+            "sample_population_not_stated_in_passage"
+          ],
+          "uncertainty_notes": [
+            "MODEL_PROPOSED extraction from a single passage span; requires full-study context and expert adjudication."
+          ],
+          "origin": "MODEL_PROPOSED",
+          "review_state": "PROPOSED",
+          "structurally_verified": true
+        },
+        {
+          "finding_id": "bf673eeb8b99ac5176152cfc15c453aab5561a2baccaab9af79b8d7d7e253e42",
+          "document_version_key": "c484f564318e7f00095770e5ac4d46230bad62f220da3e4195c3851ffe9c22df",
+          "document_title": "Plyometric Training Favors Optimizing Muscle-Tendon Behavior during Depth Jumping",
+          "doi": "10.3389/fphys.2017.00016",
+          "pmcid": "PMC5263151",
+          "passage_key": "c90fa7c40e3b54d3d7cf74a95c41e0d477c40e09ebadfdf7f9ef8a5b11b3a62e",
+          "span_key": "d94c03200161b29a05f17661867465a9fbded6c62f57c09ef9d339e4bde23a26",
+          "paragraph_key": "94649c33e46f07ccd14099e78a6022fff90dc301b537e7723b085782190af056",
+          "paragraph_source_anchor": "jats:#p-0",
+          "start_char": 0,
+          "end_char": 135,
+          "verbatim_quote": "Twenty-one young adults completed 12 weeks of plyometric training with ultrasound and motion capture measurements during depth jumping.",
+          "category": "DESCRIPTIVE",
+          "study_design": null,
+          "population": "young adults completed 12 weeks of plyometric training with ultrasound and motion capture me",
+          "intervention": "Plyometric Training Favors Optimizing Muscle-Tendon Behavior during Depth Jumping Twenty-one young",
+          "comparator": null,
+          "measurement_protocol": "ultrasound and motion capture measurements during depth jumping",
+          "outcome_measures": [],
+          "units": null,
+          "reported_statistics": [],
+          "missing_information": [
+            "exact_effect_size_or_p_value_not_in_sentence"
+          ],
+          "uncertainty_notes": [
+            "MODEL_PROPOSED extraction from a single passage span; requires full-study context and expert adjudication."
+          ],
+          "origin": "MODEL_PROPOSED",
+          "review_state": "PROPOSED",
+          "structurally_verified": true
+        }
+      ],
+      "study_comparison": null,
+      "evidence_set_key": null,
+      "evidence_graph_key": null,
+      "telemetry": {
+        "provider": "opencode_go",
+        "model_name": "gpt-6-luna",
+        "model_revision": null,
+        "model_calls": 3,
+        "tool_calls": 6,
+        "prompt_tokens": 5333,
+        "completion_tokens": 827,
+        "total_tokens": 6160,
+        "estimated_cost_usd": 0.0012135,
+        "total_latency_ms": 15494.972,
+        "calls": [
+          {
+            "call_id": "llm-5ebc5159da57",
+            "provider": "opencode_go",
+            "model_name": "deepseek-v4.1-flash",
+            "model_revision": null,
+            "stage": "model_tool_execution:0",
+            "prompt_tokens": 1493,
+            "completion_tokens": 260,
+            "total_tokens": 1753,
+            "estimated_cost_usd": 0.00037995,
+            "latency_ms": 4234.646,
+            "tool_calls_requested": 3,
+            "role": "fast",
+            "endpoint": "chat_completions",
+            "selection_reason": "stage:model_tool_execution",
+            "escalated": false,
+            "outcome": "ok",
+            "error_class": null
+          },
+          {
+            "call_id": "llm-dcc141eb48b0",
+            "provider": "opencode_go",
+            "model_name": "deepseek-v4.1-flash",
+            "model_revision": null,
+            "stage": "model_tool_execution:1",
+            "prompt_tokens": 2909,
+            "completion_tokens": 206,
+            "total_tokens": 3115,
+            "estimated_cost_usd": 0.00055995,
+            "latency_ms": 4814.34,
+            "tool_calls_requested": 0,
+            "role": "fast",
+            "endpoint": "chat_completions",
+            "selection_reason": "stage:model_tool_execution",
+            "escalated": false,
+            "outcome": "ok",
+            "error_class": null
+          },
+          {
+            "call_id": "llm-39274df195b2",
+            "provider": "opencode_go",
+            "model_name": "gpt-6-luna",
+            "model_revision": null,
+            "stage": "synthesize_provisional_answer",
+            "prompt_tokens": 931,
+            "completion_tokens": 361,
+            "total_tokens": 1292,
+            "estimated_cost_usd": 0.0002736,
+            "latency_ms": 6445.986,
+            "tool_calls_requested": 0,
+            "role": "coordinator",
+            "endpoint": "responses",
+            "selection_reason": "stage:synthesize_provisional_answer",
+            "escalated": false,
+            "outcome": "ok",
+            "error_class": null
+          }
+        ],
+        "models": [
+          {
+            "role": "fast",
+            "model_name": "deepseek-v4.1-flash",
+            "endpoint": "chat_completions",
+            "requests": 2,
+            "failed_requests": 0,
+            "prompt_tokens": 4402,
+            "completion_tokens": 466,
+            "estimated_cost_usd": 0.0009399,
+            "latency_ms": 9048.986
+          },
+          {
+            "role": "coordinator",
+            "model_name": "gpt-6-luna",
+            "endpoint": "responses",
+            "requests": 1,
+            "failed_requests": 0,
+            "prompt_tokens": 931,
+            "completion_tokens": 361,
+            "estimated_cost_usd": 0.0002736,
+            "latency_ms": 6445.986
+          },
+          {
+            "role": "pro",
+            "model_name": "deepseek-v4-pro",
+            "endpoint": "chat_completions",
+            "requests": 0,
+            "failed_requests": 0,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "estimated_cost_usd": 0.0,
+            "latency_ms": 0.0
+          }
+        ],
+        "pro_escalations": 0,
+        "routing_events": [],
+        "tool_origins": {
+          "model_directed": 3,
+          "graph_fallback": 1,
+          "graph_enforced": 2
+        },
+        "synthesis_source": "model_abstained",
+        "synthesis_fallback_reason": null,
+        "autonomous_tool_decisions": 3
+      },
+      "error_message": null,
+      "created_at": "2026-11-12T14:32:35.907374+00:00",
+      "updated_at": "2026-11-12T14:32:51.446671+00:00"
+    }
+  ],
+  "events_per_run": [
+    [
+      {
+        "run_id": "run-72a1e1bf83de4e84",
+        "thread_id": "thread-3204f920fe934b10",
+        "seq": 1,
+        "event_type": "run.queued",
+        "stage": "queued",
+        "payload": {},
+        "created_at": "2026-11-12T14:32:35.907374+00:00"
+      },
+      {
+        "run_id": "run-72a1e1bf83de4e84",
+        "thread_id": "thread-3204f920fe934b10",
+        "seq": 2,
+        "event_type": "run.started",
+        "stage": "resolve_conversation_context",
+        "payload": {
+          "require_confirmation": false
+        },
+        "created_at": "2026-11-12T14:32:35.907374+00:00"
+      },
+      {
+        "run_id": "run-72a1e1bf83de4e84",
+        "thread_id": "thread-3204f920fe934b10",
+        "seq": 3,
+        "event_type": "plan.created",
+        "stage": "interpret_and_plan",
+        "payload": {
+          "intent": "evidence_synthesis",
+          "needs_comparison": false,
+          "needs_context_expansion": true,
+          "scoped_version_count": 3,
+          "confirmation_required": false,
+          "context_resolution": "none_needed"
+        },
+        "created_at": "2026-11-12T14:32:35.911368+00:00"
+      },
+      {
+        "run_id": "run-72a1e1bf83de4e84",
+        "thread_id": "thread-3204f920fe934b10",
+        "seq": 4,
+        "event_type": "tool.called",
+        "stage": "model_tool_execution",
+        "payload": {
+          "tool_name": "get_study_metadata",
+          "args": {
+            "document_version_key": "c484f564318e7f00095770e5ac4d46230bad62f220da3e4195c3851ffe9c22df"
+          },
+          "origin": "model_directed",
+          "scope_defaulted": false,
+          "round": 0
+        },
+        "created_at": "2026-11-12T14:32:40.148334+00:00"
+      },
+      {
+        "run_id": "run-72a1e1bf83de4e84",
+        "thread_id": "thread-3204f920fe934b10",
+        "seq": 5,
+        "event_type": "tool.completed",
+        "stage": "model_tool_execution",
+        "payload": {
+          "tool_name": "get_study_metadata",
+          "ok": true,
+          "origin": "model_directed",
+          "trace_id": "trace-b3df4dafef664ab2",
+          "duration_ms": 7.924
+        },
+        "created_at": "2026-11-12T14:32:40.157338+00:00"
+      },
+      {
+        "run_id": "run-72a1e1bf83de4e84",
+        "thread_id": "thread-3204f920fe934b10",
+        "seq": 6,
+        "event_type": "tool.called",
+        "stage": "model_tool_execution",
+        "payload": {
+          "tool_name": "get_study_metadata",
+          "args": {
+            "document_version_key": "8f160dec729a9e7d1080b94cc3ed0daa61be0e312a1181fa99665444608e906f"
+          },
+          "origin": "model_directed",
+          "scope_defaulted": false,
+          "round": 0
+        },
+        "created_at": "2026-11-12T14:32:40.157338+00:00"
+      },
+      {
+        "run_id": "run-72a1e1bf83de4e84",
+        "thread_id": "thread-3204f920fe934b10",
+        "seq": 7,
+        "event_type": "tool.completed",
+        "stage": "model_tool_execution",
+        "payload": {
+          "tool_name": "get_study_metadata",
+          "ok": true,
+          "origin": "model_directed",
+          "trace_id": "trace-ecf50c3f9a5e42b5",
+          "duration_ms": 2.741
+        },
+        "created_at": "2026-11-12T14:32:40.160339+00:00"
+      },
+      {
+        "run_id": "run-72a1e1bf83de4e84",
+        "thread_id": "thread-3204f920fe934b10",
+        "seq": 8,
+        "event_type": "tool.called",
+        "stage": "model_tool_execution",
+        "payload": {
+          "tool_name": "get_study_metadata",
+          "args": {
+            "document_version_key": "8019516bbbcbdf37c742446c6f4d064a98f77850825fdac0d852cce2e5dc9f1a"
+          },
+          "origin": "model_directed",
+          "scope_defaulted": false,
+          "round": 0
+        },
+        "created_at": "2026-11-12T14:32:40.160339+00:00"
+      },
+      {
+        "run_id": "run-72a1e1bf83de4e84",
+        "thread_id": "thread-3204f920fe934b10",
+        "seq": 9,
+        "event_type": "tool.completed",
+        "stage": "model_tool_execution",
+        "payload": {
+          "tool_name": "get_study_metadata",
+          "ok": true,
+          "origin": "model_directed",
+          "trace_id": "trace-1513967c585946d6",
+          "duration_ms": 3.748
+        },
+        "created_at": "2026-11-12T14:32:40.164341+00:00"
+      },
+      {
+        "run_id": "run-72a1e1bf83de4e84",
+        "thread_id": "thread-3204f920fe934b10",
+        "seq": 10,
+        "event_type": "fallback.applied",
+        "stage": "model_tool_execution",
+        "payload": {
+          "tool_name": "hybrid_search",
+          "origin": "graph_fallback",
+          "reason": "model_emitted_no_valid_retrieval_call",
+          "rejected_model_calls": 0
+        },
+        "created_at": "2026-11-12T14:32:44.979608+00:00"
+      },
+      {
+        "run_id": "run-72a1e1bf83de4e84",
+        "thread_id": "thread-3204f920fe934b10",
+        "seq": 11,
+        "event_type": "tool.completed",
+        "stage": "model_tool_execution",
+        "payload": {
+          "tool_name": "hybrid_search",
+          "ok": true,
+          "origin": "graph_fallback",
+          "trace_id": "trace-0f7826d53bb246ec",
+          "duration_ms": 5.973
+        },
+        "created_at": "2026-11-12T14:32:44.985610+00:00"
+      },
+      {
+        "run_id": "run-72a1e1bf83de4e84",
+        "thread_id": "thread-3204f920fe934b10",
+        "seq": 12,
+        "event_type": "evidence.inspected",
+        "stage": "inspect_and_expand_evidence",
+        "payload": {
+          "anchor_passage_key": "1678febafe157b5295f8f9c4675d25babd3107832268569eb0745816a5fe551d",
+          "expanded_count": 1,
+          "origin": "graph_enforced"
+        },
+        "created_at": "2026-11-12T14:32:44.990607+00:00"
+      },
+      {
+        "run_id": "run-72a1e1bf83de4e84",
+        "thread_id": "thread-3204f920fe934b10",
+        "seq": 13,
+        "event_type": "findings.extracted",
+        "stage": "extract_study_findings",
+        "payload": {
+          "findings_count": 3,
+          "origin": "graph_enforced"
+        },
+        "created_at": "2026-11-12T14:32:44.996492+00:00"
+      },
+      {
+        "run_id": "run-72a1e1bf83de4e84",
+        "thread_id": "thread-3204f920fe934b10",
+        "seq": 14,
+        "event_type": "synthesis.completed",
+        "stage": "synthesize_provisional_answer",
+        "payload": {
+          "source": "model_abstained",
+          "claims_proposed": 0,
+          "fallback_reason": null,
+          "abstain_reason": "The evidence does not provide section titles or a quote supporting the study identifiers."
+        },
+        "created_at": "2026-11-12T14:32:51.443667+00:00"
+      },
+      {
+        "run_id": "run-72a1e1bf83de4e84",
+        "thread_id": "thread-3204f920fe934b10",
+        "seq": 15,
+        "event_type": "run.completed",
+        "stage": "finalize",
+        "payload": {
+          "status": "abstained",
+          "verified_citations_count": 0,
+          "abstained": true,
+          "abstention_reason": "model_abstained: The evidence does not provide section titles or a quote supporting the study identifiers."
+        },
+        "created_at": "2026-11-12T14:32:51.446671+00:00"
+      }
+    ]
+  ]
+}

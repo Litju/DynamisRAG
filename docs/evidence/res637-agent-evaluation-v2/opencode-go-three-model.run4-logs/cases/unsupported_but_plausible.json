@@ -1,0 +1,606 @@
+{
+  "case": {
+    "case_id": "unsupported_but_plausible",
+    "category": "abstention",
+    "corpus": "base",
+    "turns": [
+      "By what percentage did plyometric training improve 100 m sprint times?"
+    ],
+    "expected_tools": [],
+    "expect_abstain": true,
+    "must_cite": [],
+    "forbidden": [
+      "100 m"
+    ],
+    "context_expect_pmcid": null,
+    "injection_in_query": false,
+    "poison_marker": null,
+    "expect_not_comparable": false,
+    "rationale": "Topically adjacent to the corpus (sprinters, jump training) but unanswered."
+  },
+  "runs": [
+    {
+      "run_id": "run-e938489d0d214f97",
+      "thread_id": "thread-0caaca068e03431f",
+      "owner_id": "eval-researcher",
+      "idempotency_key": "unsupported_but_plausible-0",
+      "question": "By what percentage did plyometric training improve 100 m sprint times?",
+      "status": "abstained",
+      "require_confirmation": false,
+      "cancel_requested": false,
+      "attempt": 1,
+      "max_attempts": 3,
+      "worker_id": null,
+      "lease_expires_at": null,
+      "resume_payload": null,
+      "abort_reason": null,
+      "answer_markdown": "**Abstained from Scientific Synthesis (`model_abstained: The evidence provided does not report a change in 100 m sprint times.`)**\n\nThe agent could not verify canonical source spans supporting a scientific answer within the authorized corpus.\n\n*All study findings, comparisons, and synthesized claims are MODEL_PROPOSED / PROPOSED. Exact quotation and canonical source-span checks verify text provenance only and do not establish scientific entailment, study validity, clinical applicability, or expert review.*",
+      "abstention_reason": "model_abstained: The evidence provided does not report a change in 100 m sprint times.",
+      "verified_citations": [],
+      "rejected_citations": [],
+      "proposed_findings": [
+        {
+          "finding_id": "0b3056ee1c68330bff0a9b4f77ab0a516b954b72948052dcf0cf982d25a6213f",
+          "document_version_key": "c484f564318e7f00095770e5ac4d46230bad62f220da3e4195c3851ffe9c22df",
+          "document_title": "Plyometric Training Favors Optimizing Muscle-Tendon Behavior during Depth Jumping",
+          "doi": "10.3389/fphys.2017.00016",
+          "pmcid": "PMC5263151",
+          "passage_key": "1678febafe157b5295f8f9c4675d25babd3107832268569eb0745816a5fe551d",
+          "span_key": "b41b14732392aad1c8ea8ce652ac393753270dae65fa6d3e28757e02c2c27c0b",
+          "paragraph_key": "84575d0e6e1460eae2c9b287e4455207339ee10f4fae0d3197f0d3d466bb437c",
+          "paragraph_source_anchor": "jats:#p-2",
+          "start_char": 0,
+          "end_char": 117,
+          "verbatim_quote": "Jump height during depth jumping increased from 31.2 ± 3.4 cm to 36.8 ± 3.9 cm (p < 0.001) after plyometric training.",
+          "category": "QUANTITATIVE",
+          "study_design": null,
+          "population": null,
+          "intervention": "Plyometric Training Favors Optimizing Muscle-Tendon Behavior during Depth Jumping Jump height durin",
+          "comparator": null,
+          "measurement_protocol": null,
+          "outcome_measures": [
+            "Jump height during depth jumping increased from 31"
+          ],
+          "units": "cm",
+          "reported_statistics": [
+            "31.2 ± 3.4 cm",
+            "36.8 ± 3.9 cm",
+            "p < 0.001"
+          ],
+          "missing_information": [
+            "sample_population_not_stated_in_passage"
+          ],
+          "uncertainty_notes": [
+            "MODEL_PROPOSED extraction from a single passage span; requires full-study context and expert adjudication."
+          ],
+          "origin": "MODEL_PROPOSED",
+          "review_state": "PROPOSED",
+          "structurally_verified": true
+        },
+        {
+          "finding_id": "bf673eeb8b99ac5176152cfc15c453aab5561a2baccaab9af79b8d7d7e253e42",
+          "document_version_key": "c484f564318e7f00095770e5ac4d46230bad62f220da3e4195c3851ffe9c22df",
+          "document_title": "Plyometric Training Favors Optimizing Muscle-Tendon Behavior during Depth Jumping",
+          "doi": "10.3389/fphys.2017.00016",
+          "pmcid": "PMC5263151",
+          "passage_key": "c90fa7c40e3b54d3d7cf74a95c41e0d477c40e09ebadfdf7f9ef8a5b11b3a62e",
+          "span_key": "d94c03200161b29a05f17661867465a9fbded6c62f57c09ef9d339e4bde23a26",
+          "paragraph_key": "94649c33e46f07ccd14099e78a6022fff90dc301b537e7723b085782190af056",
+          "paragraph_source_anchor": "jats:#p-0",
+          "start_char": 0,
+          "end_char": 135,
+          "verbatim_quote": "Twenty-one young adults completed 12 weeks of plyometric training with ultrasound and motion capture measurements during depth jumping.",
+          "category": "DESCRIPTIVE",
+          "study_design": null,
+          "population": "young adults completed 12 weeks of plyometric training with ultrasound and motion capture me",
+          "intervention": "Plyometric Training Favors Optimizing Muscle-Tendon Behavior during Depth Jumping Twenty-one young",
+          "comparator": null,
+          "measurement_protocol": "ultrasound and motion capture measurements during depth jumping",
+          "outcome_measures": [],
+          "units": null,
+          "reported_statistics": [],
+          "missing_information": [
+            "exact_effect_size_or_p_value_not_in_sentence"
+          ],
+          "uncertainty_notes": [
+            "MODEL_PROPOSED extraction from a single passage span; requires full-study context and expert adjudication."
+          ],
+          "origin": "MODEL_PROPOSED",
+          "review_state": "PROPOSED",
+          "structurally_verified": true
+        },
+        {
+          "finding_id": "cf23b6bd6518ce3bb29dafb52a961d107b6962784d7c8f803cd9730717fda7e9",
+          "document_version_key": "8f160dec729a9e7d1080b94cc3ed0daa61be0e312a1181fa99665444608e906f",
+          "document_title": "Effects of Plyometric Training on Muscle-Tendon Stiffness and Jump Performance",
+          "doi": "10.3390/sports12010015",
+          "pmcid": "PMC10780924",
+          "passage_key": "cec7b943e84711d4c309e4307a43fb5eecef5509b575dd82c24fa2c43ba588d4",
+          "span_key": "f1a168cd1c5b7daded327659710bbb653c1d8801fdc4233b5e54ea7dea11c0d6",
+          "paragraph_key": "85ef61ab313c50507635e080f61e40af868bc1c50b1a9ba1366293fd7b465377",
+          "paragraph_source_anchor": "jats:#p-0",
+          "start_char": 0,
+          "end_char": 138,
+          "verbatim_quote": "In a randomized controlled trial of 36 collegiate sprinters, 8 weeks of plyometric drop-jump training was compared against active control.",
+          "category": "DESCRIPTIVE",
+          "study_design": "randomized controlled trial",
+          "population": null,
+          "intervention": "Plyometric Training on Muscle-Tendon Stiffness and Jump Performance In a randomized controlled tria",
+          "comparator": "within-subject angle/condition comparison or control group",
+          "measurement_protocol": null,
+          "outcome_measures": [
+            "sprinters, 8 weeks of plyometric drop-jump training was compared a"
+          ],
+          "units": null,
+          "reported_statistics": [],
+          "missing_information": [
+            "sample_population_not_stated_in_passage",
+            "exact_effect_size_or_p_value_not_in_sentence"
+          ],
+          "uncertainty_notes": [
+            "MODEL_PROPOSED extraction from a single passage span; requires full-study context and expert adjudication."
+          ],
+          "origin": "MODEL_PROPOSED",
+          "review_state": "PROPOSED",
+          "structurally_verified": true
+        },
+        {
+          "finding_id": "13910644406f4a17cca45f792cedfa608d26b2a42a4ceb7157e71a81755918db",
+          "document_version_key": "8f160dec729a9e7d1080b94cc3ed0daa61be0e312a1181fa99665444608e906f",
+          "document_title": "Effects of Plyometric Training on Muscle-Tendon Stiffness and Jump Performance",
+          "doi": "10.3390/sports12010015",
+          "pmcid": "PMC10780924",
+          "passage_key": "72814a7a778d17ec49997b7d3c98f74efe832fe50db93152a766f2be33a661cc",
+          "span_key": "952d0ce5bc11bb3f00622a0eab18481ef220eb1716a8ca0c8020dbe4dabc7590",
+          "paragraph_key": "773d1f2d209ba90e5e6f9c5defe7b0c76263af2d0a62a0a6571e630d5bd2d20c",
+          "paragraph_source_anchor": "jats:#p-1",
+          "start_char": 0,
+          "end_char": 126,
+          "verbatim_quote": "Countermovement jump height increased by 14.2% (p < 0.001) in the plyometric group, measured via force plate at 48.5 ± 4.1 cm.",
+          "category": "QUANTITATIVE",
+          "study_design": null,
+          "population": null,
+          "intervention": "Plyometric Training on Muscle-Tendon Stiffness and Jump Performance Countermovement jump height inc",
+          "comparator": null,
+          "measurement_protocol": "force plate at 48",
+          "outcome_measures": [
+            "jump height increased by 14"
+          ],
+          "units": "%, cm",
+          "reported_statistics": [
+            "14.2%",
+            "p < 0.001",
+            "48.5 ± 4.1 cm"
+          ],
+          "missing_information": [
+            "sample_population_not_stated_in_passage"
+          ],
+          "uncertainty_notes": [
+            "MODEL_PROPOSED extraction from a single passage span; requires full-study context and expert adjudication."
+          ],
+          "origin": "MODEL_PROPOSED",
+          "review_state": "PROPOSED",
+          "structurally_verified": true
+        },
+        {
+          "finding_id": "57e87c4acb1752a1e947e0d032806a564a188b0c05d9a557a091fd4ad815555f",
+          "document_version_key": "c484f564318e7f00095770e5ac4d46230bad62f220da3e4195c3851ffe9c22df",
+          "document_title": "Plyometric Training Favors Optimizing Muscle-Tendon Behavior during Depth Jumping",
+          "doi": "10.3389/fphys.2017.00016",
+          "pmcid": "PMC5263151",
+          "passage_key": "5fea8336d58d98ad2c3ea9191ebe138a5840b8651993ac3d72018dbe3632c1af",
+          "span_key": "d71cc206e5f6465f6fd03870686a35c92600a1b7b1d199952b06c215358fa4e1",
+          "paragraph_key": "57de834d0b1015bb5d3bb52283399cfd113473e6a62353af2922b982f63d9bb7",
+          "paragraph_source_anchor": "jats:#p-1",
+          "start_char": 0,
+          "end_char": 169,
+          "verbatim_quote": "During depth jumping, Achilles tendon stiffness increased by 24.5% (p < 0.01) while gastrocnemius medialis fascicle length behavior shifted toward isometric contraction.",
+          "category": "QUANTITATIVE",
+          "study_design": null,
+          "population": null,
+          "intervention": "Plyometric Training Favors Optimizing Muscle-Tendon Behavior during Depth Jumping During depth jump",
+          "comparator": null,
+          "measurement_protocol": null,
+          "outcome_measures": [
+            "Achilles tendon stiffness increased by 24",
+            "fascicle length behavior shifted toward isometric contraction"
+          ],
+          "units": "%",
+          "reported_statistics": [
+            "24.5%",
+            "p < 0.01"
+          ],
+          "missing_information": [
+            "sample_population_not_stated_in_passage"
+          ],
+          "uncertainty_notes": [
+            "MODEL_PROPOSED extraction from a single passage span; requires full-study context and expert adjudication."
+          ],
+          "origin": "MODEL_PROPOSED",
+          "review_state": "PROPOSED",
+          "structurally_verified": true
+        },
+        {
+          "finding_id": "4560d865969fc8d9b65f23d01368f5e2757e916d378f4a1b801bbe185f05bc75",
+          "document_version_key": "8019516bbbcbdf37c742446c6f4d064a98f77850825fdac0d852cce2e5dc9f1a",
+          "document_title": "Core and Plyometric Conditioning in Youth Basketball Players",
+          "doi": "10.1186/s13102-023-00771-8",
+          "pmcid": "PMC10680285",
+          "passage_key": "2c4b989082fe8bd156bf765de853b51991d804f949955b4421e2dca2e55a25f8",
+          "span_key": "f54650c5d4e5f6211be829a0dffade0e2d0092b8a76013cd073440ec747af26f",
+          "paragraph_key": "2af23f46479aec50ff16d35d33296e03e374a6794af706709cc943d6937047d2",
+          "paragraph_source_anchor": "jats:#p-0",
+          "start_char": 0,
+          "end_char": 147,
+          "verbatim_quote": "Forty-two adolescent basketball athletes participated in a 6-week randomized intervention comparing plyometric conditioning with standard practice.",
+          "category": "METHODOLOGICAL",
+          "study_design": null,
+          "population": "athletes participated in a 6-week randomized intervention comparing plyometric condition",
+          "intervention": null,
+          "comparator": null,
+          "measurement_protocol": null,
+          "outcome_measures": [],
+          "units": null,
+          "reported_statistics": [],
+          "missing_information": [
+            "exact_effect_size_or_p_value_not_in_sentence"
+          ],
+          "uncertainty_notes": [
+            "MODEL_PROPOSED extraction from a single passage span; requires full-study context and expert adjudication."
+          ],
+          "origin": "MODEL_PROPOSED",
+          "review_state": "PROPOSED",
+          "structurally_verified": true
+        }
+      ],
+      "study_comparison": null,
+      "evidence_set_key": null,
+      "evidence_graph_key": null,
+      "telemetry": {
+        "provider": "opencode_go",
+        "model_name": "gpt-6-luna",
+        "model_revision": null,
+        "model_calls": 3,
+        "tool_calls": 5,
+        "prompt_tokens": 6968,
+        "completion_tokens": 440,
+        "total_tokens": 7408,
+        "estimated_cost_usd": 0.00123275,
+        "total_latency_ms": 9103.374,
+        "calls": [
+          {
+            "call_id": "llm-dca950b2b243",
+            "provider": "opencode_go",
+            "model_name": "deepseek-v4.1-flash",
+            "model_revision": null,
+            "stage": "model_tool_execution:0",
+            "prompt_tokens": 1495,
+            "completion_tokens": 154,
+            "total_tokens": 1649,
+            "estimated_cost_usd": 0.00031665,
+            "latency_ms": 2461.028,
+            "tool_calls_requested": 2,
+            "role": "fast",
+            "endpoint": "chat_completions",
+            "selection_reason": "stage:model_tool_execution",
+            "escalated": false,
+            "outcome": "ok",
+            "error_class": null
+          },
+          {
+            "call_id": "llm-35bf9612e0d8",
+            "provider": "opencode_go",
+            "model_name": "deepseek-v4.1-flash",
+            "model_revision": null,
+            "stage": "model_tool_execution:1",
+            "prompt_tokens": 4008,
+            "completion_tokens": 254,
+            "total_tokens": 4262,
+            "estimated_cost_usd": 0.0007536,
+            "latency_ms": 5121.354,
+            "tool_calls_requested": 2,
+            "role": "fast",
+            "endpoint": "chat_completions",
+            "selection_reason": "stage:model_tool_execution",
+            "escalated": false,
+            "outcome": "ok",
+            "error_class": null
+          },
+          {
+            "call_id": "llm-267a3e33cd39",
+            "provider": "opencode_go",
+            "model_name": "gpt-6-luna",
+            "model_revision": null,
+            "stage": "synthesize_provisional_answer",
+            "prompt_tokens": 1465,
+            "completion_tokens": 32,
+            "total_tokens": 1497,
+            "estimated_cost_usd": 0.0001625,
+            "latency_ms": 1520.992,
+            "tool_calls_requested": 0,
+            "role": "coordinator",
+            "endpoint": "responses",
+            "selection_reason": "stage:synthesize_provisional_answer",
+            "escalated": false,
+            "outcome": "ok",
+            "error_class": null
+          }
+        ],
+        "models": [
+          {
+            "role": "fast",
+            "model_name": "deepseek-v4.1-flash",
+            "endpoint": "chat_completions",
+            "requests": 2,
+            "failed_requests": 0,
+            "prompt_tokens": 5503,
+            "completion_tokens": 408,
+            "estimated_cost_usd": 0.00107025,
+            "latency_ms": 7582.382
+          },
+          {
+            "role": "coordinator",
+            "model_name": "gpt-6-luna",
+            "endpoint": "responses",
+            "requests": 1,
+            "failed_requests": 0,
+            "prompt_tokens": 1465,
+            "completion_tokens": 32,
+            "estimated_cost_usd": 0.0001625,
+            "latency_ms": 1520.992
+          },
+          {
+            "role": "pro",
+            "model_name": "deepseek-v4-pro",
+            "endpoint": "chat_completions",
+            "requests": 0,
+            "failed_requests": 0,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "estimated_cost_usd": 0.0,
+            "latency_ms": 0.0
+          }
+        ],
+        "pro_escalations": 0,
+        "routing_events": [],
+        "tool_origins": {
+          "model_directed": 4,
+          "graph_fallback": 0,
+          "graph_enforced": 1
+        },
+        "synthesis_source": "model_abstained",
+        "synthesis_fallback_reason": null,
+        "autonomous_tool_decisions": 4
+      },
+      "error_message": null,
+      "created_at": "2026-11-12T14:33:16.148863+00:00",
+      "updated_at": "2026-11-12T14:33:25.282391+00:00"
+    }
+  ],
+  "events_per_run": [
+    [
+      {
+        "run_id": "run-e938489d0d214f97",
+        "thread_id": "thread-0caaca068e03431f",
+        "seq": 1,
+        "event_type": "run.queued",
+        "stage": "queued",
+        "payload": {},
+        "created_at": "2026-11-12T14:33:16.148863+00:00"
+      },
+      {
+        "run_id": "run-e938489d0d214f97",
+        "thread_id": "thread-0caaca068e03431f",
+        "seq": 2,
+        "event_type": "run.started",
+        "stage": "resolve_conversation_context",
+        "payload": {
+          "require_confirmation": false
+        },
+        "created_at": "2026-11-12T14:33:16.148863+00:00"
+      },
+      {
+        "run_id": "run-e938489d0d214f97",
+        "thread_id": "thread-0caaca068e03431f",
+        "seq": 3,
+        "event_type": "plan.created",
+        "stage": "interpret_and_plan",
+        "payload": {
+          "intent": "evidence_synthesis",
+          "needs_comparison": false,
+          "needs_context_expansion": false,
+          "scoped_version_count": 3,
+          "confirmation_required": false,
+          "context_resolution": "none_needed"
+        },
+        "created_at": "2026-11-12T14:33:16.152863+00:00"
+      },
+      {
+        "run_id": "run-e938489d0d214f97",
+        "thread_id": "thread-0caaca068e03431f",
+        "seq": 4,
+        "event_type": "tool.called",
+        "stage": "model_tool_execution",
+        "payload": {
+          "tool_name": "hybrid_search",
+          "args": {
+            "query": "plyometric training 100 m sprint time improvement percentage",
+            "limit": 10,
+            "document_version_keys": [
+              "c484f564318e7f00095770e5ac4d46230bad62f220da3e4195c3851ffe9c22df",
+              "8f160dec729a9e7d1080b94cc3ed0daa61be0e312a1181fa99665444608e906f",
+              "8019516bbbcbdf37c742446c6f4d064a98f77850825fdac0d852cce2e5dc9f1a"
+            ]
+          },
+          "origin": "model_directed",
+          "scope_defaulted": true,
+          "round": 0
+        },
+        "created_at": "2026-11-12T14:33:18.615410+00:00"
+      },
+      {
+        "run_id": "run-e938489d0d214f97",
+        "thread_id": "thread-0caaca068e03431f",
+        "seq": 5,
+        "event_type": "tool.completed",
+        "stage": "model_tool_execution",
+        "payload": {
+          "tool_name": "hybrid_search",
+          "ok": true,
+          "origin": "model_directed",
+          "trace_id": "trace-bf24fc74a4f2473a",
+          "duration_ms": 4.14
+        },
+        "created_at": "2026-11-12T14:33:18.619978+00:00"
+      },
+      {
+        "run_id": "run-e938489d0d214f97",
+        "thread_id": "thread-0caaca068e03431f",
+        "seq": 6,
+        "event_type": "tool.called",
+        "stage": "model_tool_execution",
+        "payload": {
+          "tool_name": "hybrid_search",
+          "args": {
+            "query": "plyometric training sprint performance pre-test post-test seconds 100m",
+            "limit": 10,
+            "document_version_keys": [
+              "c484f564318e7f00095770e5ac4d46230bad62f220da3e4195c3851ffe9c22df",
+              "8f160dec729a9e7d1080b94cc3ed0daa61be0e312a1181fa99665444608e906f",
+              "8019516bbbcbdf37c742446c6f4d064a98f77850825fdac0d852cce2e5dc9f1a"
+            ]
+          },
+          "origin": "model_directed",
+          "scope_defaulted": true,
+          "round": 0
+        },
+        "created_at": "2026-11-12T14:33:18.619978+00:00"
+      },
+      {
+        "run_id": "run-e938489d0d214f97",
+        "thread_id": "thread-0caaca068e03431f",
+        "seq": 7,
+        "event_type": "tool.completed",
+        "stage": "model_tool_execution",
+        "payload": {
+          "tool_name": "hybrid_search",
+          "ok": true,
+          "origin": "model_directed",
+          "trace_id": "trace-523e866f21fa40fc",
+          "duration_ms": 3.245
+        },
+        "created_at": "2026-11-12T14:33:18.624036+00:00"
+      },
+      {
+        "run_id": "run-e938489d0d214f97",
+        "thread_id": "thread-0caaca068e03431f",
+        "seq": 8,
+        "event_type": "tool.called",
+        "stage": "model_tool_execution",
+        "payload": {
+          "tool_name": "hybrid_search",
+          "args": {
+            "limit": 15,
+            "query": "sprint time seconds improved plyometric group sprint performance outcome",
+            "document_version_keys": [
+              "8f160dec729a9e7d1080b94cc3ed0daa61be0e312a1181fa99665444608e906f"
+            ]
+          },
+          "origin": "model_directed",
+          "scope_defaulted": false,
+          "round": 1
+        },
+        "created_at": "2026-11-12T14:33:23.745565+00:00"
+      },
+      {
+        "run_id": "run-e938489d0d214f97",
+        "thread_id": "thread-0caaca068e03431f",
+        "seq": 9,
+        "event_type": "tool.completed",
+        "stage": "model_tool_execution",
+        "payload": {
+          "tool_name": "hybrid_search",
+          "ok": true,
+          "origin": "model_directed",
+          "trace_id": "trace-42f5f048afb24d54",
+          "duration_ms": 3.541
+        },
+        "created_at": "2026-11-12T14:33:23.750565+00:00"
+      },
+      {
+        "run_id": "run-e938489d0d214f97",
+        "thread_id": "thread-0caaca068e03431f",
+        "seq": 10,
+        "event_type": "tool.called",
+        "stage": "model_tool_execution",
+        "payload": {
+          "tool_name": "search_index",
+          "args": {
+            "query": "100 m sprint time plyometric training",
+            "limit": 15,
+            "document_version_key": "8f160dec729a9e7d1080b94cc3ed0daa61be0e312a1181fa99665444608e906f"
+          },
+          "origin": "model_directed",
+          "scope_defaulted": false,
+          "round": 1
+        },
+        "created_at": "2026-11-12T14:33:23.750565+00:00"
+      },
+      {
+        "run_id": "run-e938489d0d214f97",
+        "thread_id": "thread-0caaca068e03431f",
+        "seq": 11,
+        "event_type": "tool.completed",
+        "stage": "model_tool_execution",
+        "payload": {
+          "tool_name": "search_index",
+          "ok": false,
+          "origin": "model_directed",
+          "trace_id": "trace-d6d70f5d01ed44bc",
+          "duration_ms": 0.02
+        },
+        "created_at": "2026-11-12T14:33:23.751566+00:00"
+      },
+      {
+        "run_id": "run-e938489d0d214f97",
+        "thread_id": "thread-0caaca068e03431f",
+        "seq": 12,
+        "event_type": "findings.extracted",
+        "stage": "extract_study_findings",
+        "payload": {
+          "findings_count": 6,
+          "origin": "graph_enforced"
+        },
+        "created_at": "2026-11-12T14:33:23.756577+00:00"
+      },
+      {
+        "run_id": "run-e938489d0d214f97",
+        "thread_id": "thread-0caaca068e03431f",
+        "seq": 13,
+        "event_type": "synthesis.completed",
+        "stage": "synthesize_provisional_answer",
+        "payload": {
+          "source": "model_abstained",
+          "claims_proposed": 0,
+          "fallback_reason": null,
+          "abstain_reason": "The evidence provided does not report a change in 100 m sprint times."
+        },
+        "created_at": "2026-11-12T14:33:25.279392+00:00"
+      },
+      {
+        "run_id": "run-e938489d0d214f97",
+        "thread_id": "thread-0caaca068e03431f",
+        "seq": 14,
+        "event_type": "run.completed",
+        "stage": "finalize",
+        "payload": {
+          "status": "abstained",
+          "verified_citations_count": 0,
+          "abstained": true,
+          "abstention_reason": "model_abstained: The evidence provided does not report a change in 100 m sprint times."
+        },
+        "created_at": "2026-11-12T14:33:25.282391+00:00"
+      }
+    ]
+  ]
+}

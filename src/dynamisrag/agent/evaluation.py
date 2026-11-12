@@ -396,11 +396,13 @@ def run_evaluation(
     model_digest: str | None = None,
     user_id: str = "eval-researcher",
     progress: Callable[[str], None] | None = None,
+    on_case: Callable[[EvalCase, Sequence[AgentRunRecord], Sequence[Any]], None] | None = None,
 ) -> EvaluationReport:
     """Run every case in a fresh thread; the last turn of each case is the one scored."""
     results: list[CaseResult] = []
     scored_runs: list[AgentRunRecord] = []
     for case in cases:
+        case_runs: list[AgentRunRecord] = []
         orchestrator, version_keys = factory(case.corpus)
         store: AgentConversationStore = orchestrator.store
         thread = store.create_thread(
@@ -418,11 +420,17 @@ def run_evaluation(
                 idempotency_key=f"{case.case_id}-{index}",
             )
             scored_runs.append(run)
+            case_runs.append(run)
         assert run is not None  # noqa: S101
         events = store.list_events(run.run_id, user_id=user_id)
         result = evaluate_case(case, run, events=events)
         results.append(result)
-
+        if on_case is not None:
+            on_case(
+                case,
+                case_runs,
+                [store.list_events(r.run_id, user_id=user_id) for r in case_runs],
+            )
         if progress is not None:
             progress(
                 f"{case.case_id}: status={run.status.value} passed={result.case_passed} "

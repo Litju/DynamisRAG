@@ -167,3 +167,59 @@ def test_restore_ledger_never_raises_on_hostile_snapshots() -> None:
     for i, bad in enumerate(["not-a-dict", {"records": "x"}, {"pro_escalations": float("inf")}]):
         runtime.restore_ledger(f"h{i}", bad)  # type: ignore[arg-type]
         assert runtime.summarize(f"h{i}", tool_calls_count=0).model_calls == 0
+
+
+def test_rate_limit_is_retried_on_the_same_model_with_backoff_and_recorded() -> None:
+    state = {"n": 0}
+
+    def flaky(request: httpx.Request) -> httpx.Response:
+        state["n"] += 1
+        if state["n"] <= 2:
+            return httpx.Response(
+                429,
+                json={
+                    "error": {"message": "Token rate limit exceeded", "type": "too_many_requests"}
+                },
+            )
+        return httpx.Response(
+            200,
+            json={
+                "id": "resp_1",
+                "object": "response",
+                "created_at": 1,
+                "model": "gpt-6-luna",
+                "status": "completed",
+                "output": [
+                    {
+                        "type": "message",
+                        "id": "m",
+                        "role": "assistant",
+                        "status": "completed",
+                        "content": [{"type": "output_text", "text": "ok", "annotations": []}],
+                    }
+                ],
+                "usage": {
+                    "input_tokens": 10,
+                    "output_tokens": 2,
+                    "total_tokens": 12,
+                    "input_tokens_details": {"cached_tokens": 0},
+                    "output_tokens_details": {"reasoning_tokens": 0},
+                },
+            },
+        )
+
+    sleeps: list[float] = []
+    runtime = build_opencode_go_runtime(
+        _config(), http_client=httpx.Client(transport=httpx.MockTransport(flaky))
+    )
+    runtime.sleep = sleeps.append
+    runtime.reset_telemetry("rl")
+    reply = runtime.invoke_plain(
+        [HumanMessage(content="q")], stage="synthesize_provisional_answer", run_id="rl"
+    )
+    assert reply.text == "ok"
+    assert sleeps == [5.0, 10.0]  # exponential backoff, same model
+    summary = runtime.summarize("rl", tool_calls_count=0)
+    assert [c.outcome for c in summary.calls] == ["error", "error", "ok"]
+    assert {c.model_name for c in summary.calls} == {"gpt-6-luna"}  # never another model
+    assert summary.pro_escalations == 0

@@ -1,0 +1,629 @@
+{
+  "case": {
+    "case_id": "contradictory_incompatible_measurements",
+    "category": "contradiction",
+    "corpus": "conflicting",
+    "turns": [
+      "Compare what the two studies found about jump performance and whether their results can be pooled."
+    ],
+    "expected_tools": [],
+    "expect_abstain": null,
+    "must_cite": [],
+    "forbidden": [],
+    "context_expect_pmcid": null,
+    "injection_in_query": false,
+    "poison_marker": null,
+    "expect_not_comparable": true,
+    "rationale": "One study reports a % gain in cm, the other a null result in milliseconds."
+  },
+  "runs": [
+    {
+      "run_id": "run-ca80fc0458704be8",
+      "thread_id": "thread-62968ebcbde94be2",
+      "owner_id": "eval-researcher",
+      "idempotency_key": "contradictory_incompatible_measurements-0",
+      "question": "Compare what the two studies found about jump performance and whether their results can be pooled.",
+      "status": "completed",
+      "require_confirmation": false,
+      "cancel_requested": false,
+      "attempt": 1,
+      "max_attempts": 3,
+      "worker_id": null,
+      "lease_expires_at": null,
+      "resume_payload": null,
+      "abort_reason": null,
+      "answer_markdown": "### Source-Verified Evidence (`MODEL_PROPOSED`, not expert-reviewed)\n\n1. **Plyometric Training Raises Countermovement Jump Height in Sprinters** (`PMC9000001`, passage `bad20803b9b2...`, anchor `jats:#p-0` chars `0..136`): \"In a randomized controlled trial of 36 sprinters, countermovement jump height increased by 14.2% (p < 0.001), measured at 48.5 ± 4.1 cm.\"\n   - Model paraphrase (NOT independently verified; rely on the quotation above): One study found countermovement jump height increased by 14.2% (p < 0.001), measured at 48.5 ± 4.1 cm, in a randomized controlled trial of 36 sprinters.\n   - Checks: source quotation `VERIFIED` · numbers `VERIFIED` · wording `SUPPORTED_BY_LEXICAL_HEURISTIC` (heuristic, not entailment) · expert review `NOT_REVIEWED`\n2. **Drop Jump Flight Time Is Unchanged by Plyometric Training in Runners** (`PMC9000002`, passage `c4aa20bc5a11...`, anchor `jats:#p-0` chars `0..135`): \"In a crossover study of 18 runners, drop jump flight time did not change (p = 0.41), measured in milliseconds (ms) using a contact mat.\"\n   - Model paraphrase (NOT independently verified; rely on the quotation above): Another study found drop jump flight time did not change (p = 0.41), measured in milliseconds using a contact mat, in a crossover study of 18 runners.\n   - Checks: source quotation `VERIFIED` · numbers `VERIFIED` · wording `SUPPORTED_BY_LEXICAL_HEURISTIC` (heuristic, not entailment) · expert review `NOT_REVIEWED`\n\n#### Cross-Study Comparison (`INCOMPATIBLE_OUTCOMES_OR_UNITS`)\nThe studies share no outcome terms and no explicit measurement unit; numerical pooling or direct effect-size equivalence is not supported by the extracted evidence.\n\n---\n*All study findings, comparisons, and synthesized claims are MODEL_PROPOSED / PROPOSED. Exact quotation and canonical source-span checks verify text provenance only and do not establish scientific entailment, study validity, clinical applicability, or expert review.*",
+      "abstention_reason": null,
+      "verified_citations": [
+        {
+          "claim_index": 0,
+          "claim_text": "One study found countermovement jump height increased by 14.2% (p < 0.001), measured at 48.5 ± 4.1 cm, in a randomized controlled trial of 36 sprinters.",
+          "verbatim_quote": "In a randomized controlled trial of 36 sprinters, countermovement jump height increased by 14.2% (p < 0.001), measured at 48.5 ± 4.1 cm.",
+          "passage_key": "bad20803b9b24d263fc6711acfb193f3c197bded7d1621b84f700674e363bc30",
+          "span_key": "03c6c0bfae56cb69fe28f5600730af8899c3e84b55b8cb364e0407deee36c076",
+          "document_version_key": "6ccf61ec04cc4724d3e5d5010554fe220bf724ea7843869447c88114f7694d45",
+          "document_title": "Plyometric Training Raises Countermovement Jump Height in Sprinters",
+          "doi": "10.1000/eval.a",
+          "pmcid": "PMC9000001",
+          "paragraph_key": "15443053439e455ac7b67440748fac8c1c0ff4feab451766c42102e50ea0104e",
+          "paragraph_source_anchor": "jats:#p-0",
+          "start_char": 0,
+          "end_char": 136,
+          "verified": true,
+          "rejection_reason": null,
+          "quote_verified": true,
+          "numeric_provenance": "VERIFIED",
+          "semantic_support": "SUPPORTED_BY_LEXICAL_HEURISTIC",
+          "semantic_support_score": 1.0,
+          "semantic_support_reasons": [],
+          "semantic_assessor": "lexical-consistency-v1",
+          "expert_review": "NOT_REVIEWED",
+          "origin": "MODEL_PROPOSED",
+          "review_state": "PROPOSED"
+        },
+        {
+          "claim_index": 1,
+          "claim_text": "Another study found drop jump flight time did not change (p = 0.41), measured in milliseconds using a contact mat, in a crossover study of 18 runners.",
+          "verbatim_quote": "In a crossover study of 18 runners, drop jump flight time did not change (p = 0.41), measured in milliseconds (ms) using a contact mat.",
+          "passage_key": "c4aa20bc5a110676811fcb9830012907993ebadc92d53743fad2a9a53018d499",
+          "span_key": "6db76d12de766e33214731e738a74a3224211d711a201533f0e894f58f86eda9",
+          "document_version_key": "20064075784584469aa6abc5a5ca7b43801bd60bbac07beb23cab57c4ac84930",
+          "document_title": "Drop Jump Flight Time Is Unchanged by Plyometric Training in Runners",
+          "doi": "10.1000/eval.b",
+          "pmcid": "PMC9000002",
+          "paragraph_key": "1b4e2174f649b8fc19ecf7f9a526ea56a06b7959daa070d3b9d2a126c1dd3f2c",
+          "paragraph_source_anchor": "jats:#p-0",
+          "start_char": 0,
+          "end_char": 135,
+          "verified": true,
+          "rejection_reason": null,
+          "quote_verified": true,
+          "numeric_provenance": "VERIFIED",
+          "semantic_support": "SUPPORTED_BY_LEXICAL_HEURISTIC",
+          "semantic_support_score": 0.917,
+          "semantic_support_reasons": [],
+          "semantic_assessor": "lexical-consistency-v1",
+          "expert_review": "NOT_REVIEWED",
+          "origin": "MODEL_PROPOSED",
+          "review_state": "PROPOSED"
+        }
+      ],
+      "rejected_citations": [],
+      "proposed_findings": [
+        {
+          "finding_id": "5a52c57f05508673e874fe442ad7b2424e67374cd9e3f019d7442a90cdaa4588",
+          "document_version_key": "6ccf61ec04cc4724d3e5d5010554fe220bf724ea7843869447c88114f7694d45",
+          "document_title": "Plyometric Training Raises Countermovement Jump Height in Sprinters",
+          "doi": "10.1000/eval.a",
+          "pmcid": "PMC9000001",
+          "passage_key": "bad20803b9b24d263fc6711acfb193f3c197bded7d1621b84f700674e363bc30",
+          "span_key": "03c6c0bfae56cb69fe28f5600730af8899c3e84b55b8cb364e0407deee36c076",
+          "paragraph_key": "15443053439e455ac7b67440748fac8c1c0ff4feab451766c42102e50ea0104e",
+          "paragraph_source_anchor": "jats:#p-0",
+          "start_char": 0,
+          "end_char": 136,
+          "verbatim_quote": "In a randomized controlled trial of 36 sprinters, countermovement jump height increased by 14.2% (p < 0.001), measured at 48.5 ± 4.1 cm.",
+          "category": "QUANTITATIVE",
+          "study_design": "randomized controlled trial",
+          "population": null,
+          "intervention": "Plyometric Training Raises Countermovement Jump Height in Sprinters In a randomized controlled tria",
+          "comparator": null,
+          "measurement_protocol": null,
+          "outcome_measures": [
+            "sprinters, countermovement jump height increased by 14"
+          ],
+          "units": "s, %, cm",
+          "reported_statistics": [
+            "14.2%",
+            "p < 0.001",
+            "48.5 ± 4.1 cm"
+          ],
+          "missing_information": [
+            "sample_population_not_stated_in_passage"
+          ],
+          "uncertainty_notes": [
+            "MODEL_PROPOSED extraction from a single passage span; requires full-study context and expert adjudication."
+          ],
+          "origin": "MODEL_PROPOSED",
+          "review_state": "PROPOSED",
+          "structurally_verified": true
+        },
+        {
+          "finding_id": "7a064dd0c4bee33431f0736783a433fd9d61d9a1baae02ce598984cec9de4d39",
+          "document_version_key": "20064075784584469aa6abc5a5ca7b43801bd60bbac07beb23cab57c4ac84930",
+          "document_title": "Drop Jump Flight Time Is Unchanged by Plyometric Training in Runners",
+          "doi": "10.1000/eval.b",
+          "pmcid": "PMC9000002",
+          "passage_key": "c4aa20bc5a110676811fcb9830012907993ebadc92d53743fad2a9a53018d499",
+          "span_key": "6db76d12de766e33214731e738a74a3224211d711a201533f0e894f58f86eda9",
+          "paragraph_key": "1b4e2174f649b8fc19ecf7f9a526ea56a06b7959daa070d3b9d2a126c1dd3f2c",
+          "paragraph_source_anchor": "jats:#p-0",
+          "start_char": 0,
+          "end_char": 135,
+          "verbatim_quote": "In a crossover study of 18 runners, drop jump flight time did not change (p = 0.41), measured in milliseconds (ms) using a contact mat.",
+          "category": "QUANTITATIVE",
+          "study_design": "crossover / repeated-measures design",
+          "population": null,
+          "intervention": "Plyometric Training in Runners In a crossover study of 18 runners, drop jump flight time did not ch",
+          "comparator": null,
+          "measurement_protocol": null,
+          "outcome_measures": [],
+          "units": null,
+          "reported_statistics": [
+            "p = 0.41"
+          ],
+          "missing_information": [
+            "sample_population_not_stated_in_passage"
+          ],
+          "uncertainty_notes": [
+            "MODEL_PROPOSED extraction from a single passage span; requires full-study context and expert adjudication."
+          ],
+          "origin": "MODEL_PROPOSED",
+          "review_state": "PROPOSED",
+          "structurally_verified": true
+        }
+      ],
+      "study_comparison": {
+        "comparison_id": "0272eacb391d303c32453a319eb85569ecb331602b811a5d1437eabee8604fc5",
+        "studies": [
+          {
+            "document_version_key": "6ccf61ec04cc4724d3e5d5010554fe220bf724ea7843869447c88114f7694d45",
+            "title": "Plyometric Training Raises Countermovement Jump Height in Sprinters",
+            "doi": "10.1000/eval.a",
+            "pmcid": "PMC9000001",
+            "study_design": "randomized controlled trial",
+            "population": "Not explicitly stated in inspected passages",
+            "intervention": "Plyometric Training Raises Countermovement Jump Height in Sprinters In a randomized controlled tria",
+            "control_or_comparator": "Randomized active comparator / control group",
+            "measurement_protocol": "Biomechanical / performance testing protocol",
+            "outcomes": [
+              "Jump Height in Sprinters In a randomized controlled trial of 36 sprinte",
+              "jump height increased by 14"
+            ],
+            "units": [
+              "s",
+              "%",
+              "cm"
+            ],
+            "reported_results": [
+              "In a randomized controlled trial of 36 sprinters, countermovement jump height increased by 14.2% (p < 0.001), measured at 48.5 ± 4.1 cm."
+            ],
+            "supporting_passage_keys": [
+              "bad20803b9b24d263fc6711acfb193f3c197bded7d1621b84f700674e363bc30"
+            ],
+            "supporting_span_keys": [
+              "03c6c0bfae56cb69fe28f5600730af8899c3e84b55b8cb364e0407deee36c076"
+            ],
+            "missing_information": [
+              "complete_demographic_inclusion_criteria"
+            ]
+          },
+          {
+            "document_version_key": "20064075784584469aa6abc5a5ca7b43801bd60bbac07beb23cab57c4ac84930",
+            "title": "Drop Jump Flight Time Is Unchanged by Plyometric Training in Runners",
+            "doi": "10.1000/eval.b",
+            "pmcid": "PMC9000002",
+            "study_design": "crossover / repeated-measures design",
+            "population": "Not explicitly stated in inspected passages",
+            "intervention": "Plyometric Training in Runners In a crossover study of 18 runners, drop jump flight time did not ch",
+            "control_or_comparator": "Within-subject condition / angle / pre-post comparison",
+            "measurement_protocol": "Biomechanical / performance testing protocol",
+            "outcomes": [
+              "Reported neuromuscular / performance outcomes"
+            ],
+            "units": [
+              "unit_not_explicit"
+            ],
+            "reported_results": [
+              "In a crossover study of 18 runners, drop jump flight time did not change (p = 0.41), measured in milliseconds (ms) using a contact mat."
+            ],
+            "supporting_passage_keys": [
+              "c4aa20bc5a110676811fcb9830012907993ebadc92d53743fad2a9a53018d499"
+            ],
+            "supporting_span_keys": [
+              "6db76d12de766e33214731e738a74a3224211d711a201533f0e894f58f86eda9"
+            ],
+            "missing_information": [
+              "complete_demographic_inclusion_criteria",
+              "explicit_measurement_units_in_selected_passages"
+            ]
+          },
+          {
+            "document_version_key": "c484f564318e7f00095770e5ac4d46230bad62f220da3e4195c3851ffe9c22df",
+            "title": "Plyometric Training Favors Optimizing Muscle-Tendon Behavior during Depth Jumping",
+            "doi": "10.3389/fphys.2017.00016",
+            "pmcid": "PMC5263151",
+            "study_design": "Experimental sports/biomechanics study (exact design not fully specified)",
+            "population": "young adults completed 12 weeks of plyometric training with ultrasound and motion capture me",
+            "intervention": "Plyometric Training Favors Optimizing Muscle-Tendon Behavior during Depth Jumping Jump height durin",
+            "control_or_comparator": "Within-subject condition / angle / pre-post comparison",
+            "measurement_protocol": "ultrasound and motion capture measurements during depth jumping",
+            "outcomes": [
+              "Jump height during depth jumping increased from 31",
+              "Achilles tendon stiffness increased by 24",
+              "fascicle length behavior shifted toward isometric contraction"
+            ],
+            "units": [
+              "cm",
+              "%"
+            ],
+            "reported_results": [
+              "Jump height during depth jumping increased from 31.2 ± 3.4 cm to 36.8 ± 3.9 cm (p < 0.001) after plyometric training.",
+              "During depth jumping, Achilles tendon stiffness increased by 24.5% (p < 0.01) while gastrocnemius medialis fascicle length behavior shifted toward isometric contraction.",
+              "Twenty-one young adults completed 12 weeks of plyometric training with ultrasound and motion capture measurements during depth jumping."
+            ],
+            "supporting_passage_keys": [
+              "1678febafe157b5295f8f9c4675d25babd3107832268569eb0745816a5fe551d",
+              "5fea8336d58d98ad2c3ea9191ebe138a5840b8651993ac3d72018dbe3632c1af",
+              "c90fa7c40e3b54d3d7cf74a95c41e0d477c40e09ebadfdf7f9ef8a5b11b3a62e"
+            ],
+            "supporting_span_keys": [
+              "b41b14732392aad1c8ea8ce652ac393753270dae65fa6d3e28757e02c2c27c0b",
+              "d71cc206e5f6465f6fd03870686a35c92600a1b7b1d199952b06c215358fa4e1",
+              "d94c03200161b29a05f17661867465a9fbded6c62f57c09ef9d339e4bde23a26"
+            ],
+            "missing_information": []
+          }
+        ],
+        "evidence_compatibility": "INCOMPATIBLE_OUTCOMES_OR_UNITS",
+        "compatibility_rationale": "The studies share no outcome terms and no explicit measurement unit; numerical pooling or direct effect-size equivalence is not supported by the extracted evidence.",
+        "shared_constructs": [],
+        "methodology_differences": [
+          "PMC9000001: design='randomized controlled trial', population='Not explicitly stated in inspected passages', protocol='Biomechanical / performance testing protocol'",
+          "PMC9000002: design='crossover / repeated-measures design', population='Not explicitly stated in inspected passages', protocol='Biomechanical / performance testing protocol'",
+          "PMC5263151: design='Experimental sports/biomechanics study (exact design not fully specified)', population='young adults completed 12 weeks of plyometric training with ultrasound and motion capture me', protocol='ultrasound and motion capture measurements during depth jumping'"
+        ],
+        "outcome_and_unit_differences": [
+          "PMC9000001: outcomes=['Jump Height in Sprinters In a randomized controlled trial of 36 sprinte', 'jump height increased by 14'], units=['s', '%', 'cm']",
+          "PMC9000002: outcomes=['Reported neuromuscular / performance outcomes'], units=['unit_not_explicit']",
+          "PMC5263151: outcomes=['Jump height during depth jumping increased from 31', 'Achilles tendon stiffness increased by 24', 'fascicle length behavior shifted toward isometric contraction'], units=['cm', '%']"
+        ],
+        "unfounded_pooling_prohibited": true,
+        "uncertainty_and_gaps": [
+          "Cross-paper comparisons are MODEL_PROPOSED / PROPOSED syntheses over canonical passages; heterogeneous interventions and measurement scales must not be numerically combined."
+        ],
+        "origin": "MODEL_PROPOSED",
+        "review_state": "PROPOSED",
+        "limitation_notice": "All study findings, comparisons, and synthesized claims are MODEL_PROPOSED / PROPOSED. Exact quotation and canonical source-span checks verify text provenance only and do not establish scientific entailment, study validity, clinical applicability, or expert review."
+      },
+      "evidence_set_key": "31b129baa858b3b956ff60d4334d875f01863a106e364fde0e91e1f74467d9bc",
+      "evidence_graph_key": "1284da95dc6d16fd3210af21c067a97ff6aac8d4b204f1f332fea056c5d0f9bd",
+      "telemetry": {
+        "provider": "opencode_go",
+        "model_name": "gpt-6-luna",
+        "model_revision": null,
+        "model_calls": 3,
+        "tool_calls": 6,
+        "prompt_tokens": 6269,
+        "completion_tokens": 8440,
+        "total_tokens": 14709,
+        "estimated_cost_usd": 0.01852767,
+        "total_latency_ms": 112435.176,
+        "calls": [
+          {
+            "call_id": "llm-7ef54da37458",
+            "provider": "opencode_go",
+            "model_name": "deepseek-v4.1-flash",
+            "model_revision": null,
+            "stage": "model_tool_execution:0",
+            "prompt_tokens": 1490,
+            "completion_tokens": 53,
+            "total_tokens": 1543,
+            "estimated_cost_usd": 0.0002553,
+            "latency_ms": 3075.853,
+            "tool_calls_requested": 1,
+            "role": "fast",
+            "endpoint": "chat_completions",
+            "selection_reason": "stage:model_tool_execution",
+            "escalated": false,
+            "outcome": "ok",
+            "error_class": null
+          },
+          {
+            "call_id": "llm-e609fbeb405d",
+            "provider": "opencode_go",
+            "model_name": "deepseek-v4.1-flash",
+            "model_revision": null,
+            "stage": "model_tool_execution:1",
+            "prompt_tokens": 1995,
+            "completion_tokens": 341,
+            "total_tokens": 2336,
+            "estimated_cost_usd": 0.00050385,
+            "latency_ms": 5382.327,
+            "tool_calls_requested": 2,
+            "role": "fast",
+            "endpoint": "chat_completions",
+            "selection_reason": "stage:model_tool_execution",
+            "escalated": false,
+            "outcome": "ok",
+            "error_class": null
+          },
+          {
+            "call_id": "llm-31101839d986",
+            "provider": "opencode_go",
+            "model_name": "deepseek-v4-pro",
+            "model_revision": null,
+            "stage": "synthesize_provisional_answer",
+            "prompt_tokens": 2784,
+            "completion_tokens": 8046,
+            "total_tokens": 10830,
+            "estimated_cost_usd": 0.01776852,
+            "latency_ms": 103976.996,
+            "tool_calls_requested": 0,
+            "role": "pro",
+            "endpoint": "chat_completions",
+            "selection_reason": "escalation:contradictory_evidence",
+            "escalated": true,
+            "outcome": "ok",
+            "error_class": null
+          }
+        ],
+        "models": [
+          {
+            "role": "fast",
+            "model_name": "deepseek-v4.1-flash",
+            "endpoint": "chat_completions",
+            "requests": 2,
+            "failed_requests": 0,
+            "prompt_tokens": 3485,
+            "completion_tokens": 394,
+            "estimated_cost_usd": 0.00075915,
+            "latency_ms": 8458.18
+          },
+          {
+            "role": "coordinator",
+            "model_name": "gpt-6-luna",
+            "endpoint": "responses",
+            "requests": 0,
+            "failed_requests": 0,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "estimated_cost_usd": 0.0,
+            "latency_ms": 0.0
+          },
+          {
+            "role": "pro",
+            "model_name": "deepseek-v4-pro",
+            "endpoint": "chat_completions",
+            "requests": 1,
+            "failed_requests": 0,
+            "prompt_tokens": 2784,
+            "completion_tokens": 8046,
+            "estimated_cost_usd": 0.01776852,
+            "latency_ms": 103976.996
+          }
+        ],
+        "pro_escalations": 1,
+        "routing_events": [
+          "escalated_to_pro:contradictory_evidence"
+        ],
+        "tool_origins": {
+          "model_directed": 3,
+          "graph_fallback": 0,
+          "graph_enforced": 3
+        },
+        "synthesis_source": "model",
+        "synthesis_fallback_reason": null,
+        "autonomous_tool_decisions": 3
+      },
+      "error_message": null,
+      "created_at": "2026-11-12T14:22:10.988372+00:00",
+      "updated_at": "2026-11-12T14:24:03.472049+00:00"
+    }
+  ],
+  "events_per_run": [
+    [
+      {
+        "run_id": "run-ca80fc0458704be8",
+        "thread_id": "thread-62968ebcbde94be2",
+        "seq": 1,
+        "event_type": "run.queued",
+        "stage": "queued",
+        "payload": {},
+        "created_at": "2026-11-12T14:22:10.988372+00:00"
+      },
+      {
+        "run_id": "run-ca80fc0458704be8",
+        "thread_id": "thread-62968ebcbde94be2",
+        "seq": 2,
+        "event_type": "run.started",
+        "stage": "resolve_conversation_context",
+        "payload": {
+          "require_confirmation": false
+        },
+        "created_at": "2026-11-12T14:22:10.988372+00:00"
+      },
+      {
+        "run_id": "run-ca80fc0458704be8",
+        "thread_id": "thread-62968ebcbde94be2",
+        "seq": 3,
+        "event_type": "plan.created",
+        "stage": "interpret_and_plan",
+        "payload": {
+          "intent": "cross_study_comparison",
+          "needs_comparison": true,
+          "needs_context_expansion": false,
+          "scoped_version_count": 3,
+          "confirmation_required": false,
+          "context_resolution": "none_needed"
+        },
+        "created_at": "2026-11-12T14:22:10.991372+00:00"
+      },
+      {
+        "run_id": "run-ca80fc0458704be8",
+        "thread_id": "thread-62968ebcbde94be2",
+        "seq": 4,
+        "event_type": "tool.called",
+        "stage": "model_tool_execution",
+        "payload": {
+          "tool_name": "list_papers",
+          "args": {
+            "limit": 20
+          },
+          "origin": "model_directed",
+          "scope_defaulted": false,
+          "round": 0
+        },
+        "created_at": "2026-11-12T14:22:14.068768+00:00"
+      },
+      {
+        "run_id": "run-ca80fc0458704be8",
+        "thread_id": "thread-62968ebcbde94be2",
+        "seq": 5,
+        "event_type": "tool.completed",
+        "stage": "model_tool_execution",
+        "payload": {
+          "tool_name": "list_papers",
+          "ok": true,
+          "origin": "model_directed",
+          "trace_id": "trace-43c781e2302a4741",
+          "duration_ms": 5.144
+        },
+        "created_at": "2026-11-12T14:22:14.073768+00:00"
+      },
+      {
+        "run_id": "run-ca80fc0458704be8",
+        "thread_id": "thread-62968ebcbde94be2",
+        "seq": 6,
+        "event_type": "tool.called",
+        "stage": "model_tool_execution",
+        "payload": {
+          "tool_name": "hybrid_search",
+          "args": {
+            "query": "countermovement jump height plyometric training",
+            "document_version_keys": [
+              "6ccf61ec04cc4724d3e5d5010554fe220bf724ea7843869447c88114f7694d45",
+              "20064075784584469aa6abc5a5ca7b43801bd60bbac07beb23cab57c4ac84930"
+            ],
+            "limit": 10
+          },
+          "origin": "model_directed",
+          "scope_defaulted": false,
+          "round": 1
+        },
+        "created_at": "2026-11-12T14:22:19.456982+00:00"
+      },
+      {
+        "run_id": "run-ca80fc0458704be8",
+        "thread_id": "thread-62968ebcbde94be2",
+        "seq": 7,
+        "event_type": "tool.completed",
+        "stage": "model_tool_execution",
+        "payload": {
+          "tool_name": "hybrid_search",
+          "ok": true,
+          "origin": "model_directed",
+          "trace_id": "trace-e1b547f0921b4fe4",
+          "duration_ms": 8.118
+        },
+        "created_at": "2026-11-12T14:22:19.465982+00:00"
+      },
+      {
+        "run_id": "run-ca80fc0458704be8",
+        "thread_id": "thread-62968ebcbde94be2",
+        "seq": 8,
+        "event_type": "tool.called",
+        "stage": "model_tool_execution",
+        "payload": {
+          "tool_name": "hybrid_search",
+          "args": {
+            "query": "drop jump flight time participants population training protocol",
+            "document_version_keys": [
+              "6ccf61ec04cc4724d3e5d5010554fe220bf724ea7843869447c88114f7694d45",
+              "20064075784584469aa6abc5a5ca7b43801bd60bbac07beb23cab57c4ac84930"
+            ],
+            "limit": 10
+          },
+          "origin": "model_directed",
+          "scope_defaulted": false,
+          "round": 1
+        },
+        "created_at": "2026-11-12T14:22:19.465982+00:00"
+      },
+      {
+        "run_id": "run-ca80fc0458704be8",
+        "thread_id": "thread-62968ebcbde94be2",
+        "seq": 9,
+        "event_type": "tool.completed",
+        "stage": "model_tool_execution",
+        "payload": {
+          "tool_name": "hybrid_search",
+          "ok": true,
+          "origin": "model_directed",
+          "trace_id": "trace-a9968ad09866426b",
+          "duration_ms": 5.01
+        },
+        "created_at": "2026-11-12T14:22:19.471983+00:00"
+      },
+      {
+        "run_id": "run-ca80fc0458704be8",
+        "thread_id": "thread-62968ebcbde94be2",
+        "seq": 10,
+        "event_type": "findings.extracted",
+        "stage": "extract_study_findings",
+        "payload": {
+          "findings_count": 2,
+          "origin": "graph_enforced"
+        },
+        "created_at": "2026-11-12T14:22:19.478982+00:00"
+      },
+      {
+        "run_id": "run-ca80fc0458704be8",
+        "thread_id": "thread-62968ebcbde94be2",
+        "seq": 11,
+        "event_type": "studies.compared",
+        "stage": "compare_studies",
+        "payload": {
+          "origin": "graph_enforced",
+          "studies_compared": 3,
+          "compatibility": "INCOMPATIBLE_OUTCOMES_OR_UNITS"
+        },
+        "created_at": "2026-11-12T14:22:19.484981+00:00"
+      },
+      {
+        "run_id": "run-ca80fc0458704be8",
+        "thread_id": "thread-62968ebcbde94be2",
+        "seq": 12,
+        "event_type": "synthesis.completed",
+        "stage": "synthesize_provisional_answer",
+        "payload": {
+          "source": "model",
+          "claims_proposed": 2,
+          "fallback_reason": null,
+          "abstain_reason": null
+        },
+        "created_at": "2026-11-12T14:24:03.463048+00:00"
+      },
+      {
+        "run_id": "run-ca80fc0458704be8",
+        "thread_id": "thread-62968ebcbde94be2",
+        "seq": 13,
+        "event_type": "verification.completed",
+        "stage": "verify_canonical_citations",
+        "payload": {
+          "origin": "graph_enforced",
+          "verified_count": 2,
+          "rejected_count": 0,
+          "rejection_reasons": [],
+          "evidence_set_key": "31b129baa858b3b956ff60d4334d875f01863a106e364fde0e91e1f74467d9bc",
+          "evidence_graph_key": "1284da95dc6d16fd3210af21c067a97ff6aac8d4b204f1f332fea056c5d0f9bd"
+        },
+        "created_at": "2026-11-12T14:24:03.469048+00:00"
+      },
+      {
+        "run_id": "run-ca80fc0458704be8",
+        "thread_id": "thread-62968ebcbde94be2",
+        "seq": 14,
+        "event_type": "run.completed",
+        "stage": "finalize",
+        "payload": {
+          "status": "completed",
+          "verified_citations_count": 2,
+          "abstained": false,
+          "abstention_reason": null
+        },
+        "created_at": "2026-11-12T14:24:03.472049+00:00"
+      }
+    ]
+  ]
+}
