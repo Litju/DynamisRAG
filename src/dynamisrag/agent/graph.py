@@ -52,7 +52,7 @@ from dynamisrag.agent.contracts import (
     ListPapersInput,
     VerifyClaimsInput,
 )
-from dynamisrag.agent.observability import TracingPolicy
+from dynamisrag.agent.observability import TracingPolicy, redact_trace_string
 from dynamisrag.agent.persistence import (
     AgentConversationStore,
     AgentRunRecord,
@@ -361,7 +361,15 @@ class ConversationalResearchOrchestrator:
             _logger.warning("worker %s lost the lease on run %s", worker_id, run.run_id)
             return self._store.get_run_for_worker(run.run_id)
         except Exception as error:
-            _logger.exception("run %s failed on attempt %s", run.run_id, run.attempt)
+            # Class + redacted text only: provider errors can embed credentials or user text, and
+            # a full traceback would repeat them. Persisted state keeps only the class name.
+            _logger.warning(
+                "run %s failed on attempt %s: %s: %s",
+                run.run_id,
+                run.attempt,
+                type(error).__name__,
+                redact_trace_string(str(error), max_len=200),
+            )
             # Only the exception class is persisted: messages can embed user text or secrets.
             return self._store.requeue_for_retry(
                 run.run_id, worker_id=worker_id, error_code=type(error).__name__[:80]
@@ -392,17 +400,24 @@ class ConversationalResearchOrchestrator:
         return self.run_inline(run.run_id)
 
     def run_inline(self, run_id: str) -> AgentRunRecord:
-        """Claim and process one specific queued run synchronously."""
+        """Claim and process one specific run synchronously, through retries, to rest.
+
+        Returns when the run is terminal or interrupted (awaiting confirmation). Retries are
+        bounded by the run's attempt budget, so this always terminates.
+        """
         worker_id = f"inline-{uuid4().hex[:8]}"
-        claimed = self._store.claim_next_run(
-            worker_id=worker_id,
-            lease_seconds=self._lease_seconds,
-            timeout_seconds=self._run_timeout_seconds,
-            run_id=run_id,
-        )
-        if claimed is None:
-            return self._store.get_run_for_worker(run_id)
-        return self.process_claimed_run(claimed, worker_id=worker_id)
+        record = self._store.get_run_for_worker(run_id)
+        while record.status == RunStatus.QUEUED:
+            claimed = self._store.claim_next_run(
+                worker_id=worker_id,
+                lease_seconds=self._lease_seconds,
+                timeout_seconds=self._run_timeout_seconds,
+                run_id=run_id,
+            )
+            if claimed is None:
+                break
+            record = self.process_claimed_run(claimed, worker_id=worker_id)
+        return record
 
     def resume_interrupted_run(
         self, *, run_id: str, user_id: str, approve: bool = True

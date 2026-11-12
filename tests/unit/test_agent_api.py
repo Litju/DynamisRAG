@@ -338,7 +338,9 @@ def test_interrupt_resume_and_decline_via_api() -> None:
         assert declined.json()["status"] == "cancelled"
 
 
-def test_worker_retries_then_fails_without_leaking_provider_secrets() -> None:
+def test_worker_retries_then_fails_without_leaking_provider_secrets(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     from tests.agent_stack import FlakyChatModel, new_counter
 
     counter = new_counter(failures=99)
@@ -350,6 +352,8 @@ def test_worker_retries_then_fails_without_leaking_provider_secrets() -> None:
         final = _wait_status(client, run_id, headers, "failed")
         assert final["attempt"] == 2 and final["error_message"] == "RuntimeError"
         assert "sk-super-secret-value" not in json.dumps(final)
+        assert "sk-super-secret-value" not in caplog.text  # server logs are scrubbed too
+        assert "RuntimeError" in caplog.text  # ...but still diagnostic
         sse = client.get(f"/api/v2/runs/{run_id}/events", headers=headers).text
         assert "sk-super-secret-value" not in sse
         names = [f["event"] for f in _parse_sse(sse)]
