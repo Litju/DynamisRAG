@@ -104,6 +104,10 @@ Tool choice is made by the model via `bind_tools`. `tool_loop` validates every r
 
 Every model invocation records provider, model identifier and revision, token counts, latency and estimated cost per run (telemetry is keyed by run id so concurrent runs cannot mix).
 
+> **Update:** the production model layer is the three-role OpenCode Go roster described in
+> [`res637-model-routing.md`](res637-model-routing.md); the single-model providers below remain
+> for local development and tests.
+
 ### 2.5 LangSmith Tracing and Privacy Policy (`dynamisrag.agent.observability`)
 
 - Tracing is **off** unless `DYNAMISRAG_AGENT_LANGSMITH_TRACING_ENABLED=true` *and* `DYNAMISRAG_AGENT_LANGSMITH_API_KEY` is set (enabling without a key is a startup error). `TracingPolicy.off()` wraps every run in `tracing_context(enabled=False)`, which overrides ambient `LANGSMITH_TRACING`.
