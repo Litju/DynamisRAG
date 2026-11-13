@@ -2,6 +2,10 @@
 
 Evaluation-first RAG platform for auditable retrieval and evidence-grounded AI.
 
+The RES-638 Next.js/Eve conversational workspace is in [`apps/workspace`](apps/workspace).
+See the [workspace runbook and qualification status](docs/res638-workspace.md) for setup,
+isolated containers, browser checks and the unresolved hosted-inference gate.
+
 DynamisRAG Research Preview is a local scientific retrieval application. It
 installs from released source, ingests a bundled licensed three-article corpus,
 keeps canonical evidence in PostgreSQL, projects it into Qdrant and OpenSearch,

@@ -1,0 +1,74 @@
+# Standalone resources; never combine with the retained compose.yaml project.
+name: dynamisrag-res638
+x-postgres: &postgres
+  image: postgres:18.6-alpine
+  restart: unless-stopped
+  environment: &database-env
+    POSTGRES_USER: workspace_admin
+    POSTGRES_PASSWORD: ${WORKSPACE_ADMIN_PASSWORD:?set a new workspace admin password}
+    WORKSPACE_DB_PASSWORD: ${WORKSPACE_DB_PASSWORD:?set a new workspace owner password}
+    WORKSPACE_READER_PASSWORD: ${WORKSPACE_READER_PASSWORD:?set a new read-only password}
+  healthcheck:
+    test: [CMD-SHELL, "pg_isready -U workspace_admin -d postgres"]
+    interval: 3s
+    timeout: 3s
+    retries: 30
+services:
+  canonical:
+    <<: *postgres
+    ports: ["127.0.0.1:55438:5432"]
+    volumes:
+      - canonical:/var/lib/postgresql
+      - ./infra/workspace/init-db.sh:/docker-entrypoint-initdb.d/10-workspace.sh:ro
+  agent-state:
+    <<: *postgres
+    ports: ["127.0.0.1:55439:5432"]
+    volumes:
+      - agent-state:/var/lib/postgresql
+      - ./infra/workspace/init-db.sh:/docker-entrypoint-initdb.d/10-workspace.sh:ro
+  qdrant:
+    image: qdrant/qdrant:v1.20.0@sha256:9bfc89f9914fc14876a88c05270685921a55b8877b254a98bcc1cc2f0a424cd2
+    restart: unless-stopped
+    volumes: ["vectors:/qdrant/storage"]
+    environment:
+      QDRANT__SERVICE__API_KEY: ${WORKSPACE_QDRANT_KEY:?set a new Qdrant key}
+      QDRANT__TELEMETRY_DISABLED: "true"
+  opensearch:
+    image: opensearchproject/opensearch:3.8.0
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      OPENSEARCH_JAVA_OPTS: -Xms512m -Xmx512m
+      OPENSEARCH_INITIAL_ADMIN_PASSWORD: ${WORKSPACE_SEARCH_PASSWORD:?set a new OpenSearch password}
+    volumes: ["search:/usr/share/opensearch/data"]
+  api:
+    build: { context: ., dockerfile: infra/workspace/Dockerfile }
+    restart: unless-stopped
+    env_file: .env.workspace
+    environment: &runtime-env
+      DYNAMISRAG_DATABASE_URL: postgresql://workspace_reader:${WORKSPACE_READER_PASSWORD}@canonical:5432/workspace
+      DYNAMISRAG_AGENT_DATABASE_URL: postgresql://workspace_owner:${WORKSPACE_DB_PASSWORD}@agent-state:5432/workspace
+      DYNAMISRAG_OPENSEARCH_URL: https://opensearch:9200
+      DYNAMISRAG_OPENSEARCH_USERNAME: admin
+      DYNAMISRAG_OPENSEARCH_PASSWORD: ${WORKSPACE_SEARCH_PASSWORD}
+      DYNAMISRAG_OPENSEARCH_VERIFY_TLS: "false"
+      DYNAMISRAG_SCIENTIFIC_ANSWERS_ENABLED: "false"
+      DYNAMISRAG_AGENT_INLINE_WORKERS: "0"
+    ports: ["127.0.0.1:8019:8000"]
+    depends_on:
+      canonical: { condition: service_healthy }
+      agent-state: { condition: service_healthy }
+  worker:
+    build: { context: ., dockerfile: infra/workspace/Dockerfile }
+    restart: unless-stopped
+    command: [python, -m, dynamisrag.agent.worker]
+    env_file: .env.workspace
+    environment: *runtime-env
+    depends_on:
+      canonical: { condition: service_healthy }
+      agent-state: { condition: service_healthy }
+volumes:
+  canonical:
+  agent-state:
+  vectors:
+  search:

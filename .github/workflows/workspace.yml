@@ -1,0 +1,48 @@
+name: RES-638 workspace
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  workspace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with: { node-version: '24' }
+      - uses: astral-sh/setup-uv@v10.2.0
+        with: { version: '0.12.4' }
+      - run: uv sync --locked
+      - run: npm ci
+        working-directory: apps/workspace
+      - run: npm test && npm run typecheck && npm run build
+        working-directory: apps/workspace
+      - name: Provision only new workspace databases
+        run: |
+          cp .env.workspace.example .env.workspace
+          docker compose --env-file .env.workspace -f compose.workspace.yaml up -d --wait canonical agent-state
+          uv run python -m scripts.res638_bootstrap
+          uv run python -m scripts.res638_verify_store
+      - name: Start deterministic integration services
+        env:
+          DYNAMISRAG_AGENT_IDENTITY_SECRET: unit-test-identity-secret-0123456789abcdef
+          DYNAMISRAG_API_ORIGIN: http://127.0.0.1:8018
+        run: |
+          uv run python -m tests.workspace_server > /tmp/res638-python.log 2>&1 &
+          export WORKSPACE_ACCOUNTS=$(node -e "const c=require('node:crypto');const h='test-salt:'+c.scryptSync('workspace-test-only','test-salt',64).toString('hex');process.stdout.write(JSON.stringify({alice:h,bob:h}))")
+          cd apps/workspace
+          npm run dev -- --hostname 127.0.0.1 --port 3018 > /tmp/res638-next.log 2>&1 &
+      - run: npx playwright install --with-deps chromium
+        working-directory: apps/workspace
+      - run: npx playwright test
+        working-directory: apps/workspace
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: res638-deterministic-failure
+          path: |
+            apps/workspace/test-results/
+            /tmp/res638-python.log
+            /tmp/res638-next.log
