@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import httpx
+import pytest
 from langchain_core.messages import HumanMessage
 
 from dynamisrag.agent.graph import (
@@ -19,6 +20,7 @@ from dynamisrag.agent.routing import (
     DEFAULT_ROSTER,
     EscalationReason,
     ModelBudgetExceeded,
+    ModelCallError,
     ModelRole,
     RoutedModelRuntime,
     RoutingPolicy,
@@ -223,3 +225,34 @@ def test_rate_limit_is_retried_on_the_same_model_with_backoff_and_recorded() -> 
     assert [c.outcome for c in summary.calls] == ["error", "error", "ok"]
     assert {c.model_name for c in summary.calls} == {"gpt-6-luna"}  # never another model
     assert summary.pro_escalations == 0
+
+
+def test_rate_limit_retry_stops_after_three_recorded_attempts() -> None:
+    state = {"n": 0}
+
+    def rate_limited(request: httpx.Request) -> httpx.Response:
+        state["n"] += 1
+        return httpx.Response(
+            429,
+            json={"error": {"message": "rate limited", "type": "too_many_requests"}},
+        )
+
+    sleeps: list[float] = []
+    runtime = build_opencode_go_runtime(
+        _config(), http_client=httpx.Client(transport=httpx.MockTransport(rate_limited))
+    )
+    runtime.sleep = sleeps.append
+    runtime.reset_telemetry("rl-exhausted")
+    with pytest.raises(ModelCallError) as error:
+        runtime.invoke_plain(
+            [HumanMessage(content="q")],
+            stage="synthesize_provisional_answer",
+            run_id="rl-exhausted",
+        )
+
+    assert "RateLimit" in error.value.error_class
+    assert state["n"] == 3
+    assert sleeps == [5.0, 10.0]
+    summary = runtime.summarize("rl-exhausted", tool_calls_count=0)
+    assert len(summary.calls) == 3
+    assert all(call.outcome == "error" for call in summary.calls)
