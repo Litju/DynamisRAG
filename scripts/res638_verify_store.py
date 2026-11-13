@@ -40,7 +40,7 @@ def check_workspace_postgres_contract(check: Callable[[StoreHarness], None]) -> 
         url, schema_name=f"res638_test_{uuid4().hex}", protected_database_url=canonical
     )
     try:
-        check(StoreHarness(store=store, lease_seconds=0.3, expire_leases=lambda: time.sleep(0.5)))
+        check(StoreHarness(store=store, lease_seconds=1.0, expire_leases=lambda: time.sleep(3.0)))
     finally:
         store.close()
 

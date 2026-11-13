@@ -1,6 +1,6 @@
 # RES-638 verification record — 2026-11-13
 
-Code revision: `26b37a3` (four atomic RES-638 commits). Evidence-only changes and the test-mode label follow this revision. Final exact-head CI is tracked on the draft PR; local results below are not a substitute for that CI.
+Initial code revision: `26b37a3`. Subsequent commits add the test-mode label, separate database credentials, a runtime secret allowlist and more generous lease-test timing. Final exact-head CI is tracked on the draft PR; local results below are not a substitute for that CI.
 
 ## Passed
 
@@ -24,6 +24,8 @@ Code revision: `26b37a3` (four atomic RES-638 commits). Evidence-only changes an
 The synthetic fixture includes explicit slow/failure markers to prove cooperative cancellation, bounded worker failure and successful subsequent turns. It is loopback-only and never part of the production image. The licensed run uses the actual production app and a **separate worker container**, new persistent databases and the unchanged deterministic adapter. Neither run used paid model inference.
 
 Windows' default shared pytest temporary directory was inaccessible. A long nested replacement also failed. The final full-suite run used the fresh shorter path `E:/Data/Projects/DynamisRAG/.tmp/u638-final` and passed. No ACLs or historical data were modified.
+
+After credential separation, runtime inspection confirmed the API container receives neither database admin nor canonical-owner secrets and contains no `.env` file. The 13 PostgreSQL contracts passed again. One earlier concurrent-load rerun failed a lease-expiry assertion with a 0.3-second lease / 0.5-second wait; the operator harness now uses a 1-second lease / 3-second wait and passed lint, strict typing and all contracts.
 
 ## Failed / not qualified
 
