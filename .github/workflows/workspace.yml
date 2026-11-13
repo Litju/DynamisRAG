@@ -8,6 +8,21 @@ concurrency:
   group: res638-workspace-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  edge-gateway:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: apps/edge-gateway
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with: { node-version: '24' }
+      - run: npm ci
+      - run: npm test
+      - run: npx wrangler deploy --dry-run --outdir .tmp-build
+        env:
+          WRANGLER_SEND_METRICS: "false"
   workspace:
     runs-on: ubuntu-latest
     timeout-minutes: 20
