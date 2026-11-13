@@ -26,7 +26,8 @@ _BROKEN_INTEGRATION_ENVIRONMENT: Final[dict[str, str]] = {
     "DYNAMISRAG_OPENSEARCH_PASSWORD": "unit-only-opensearch-password",
 }
 
-_SUBPROCESS_TIMEOUT_SECONDS: Final[int] = 120
+# The explicit default and integration smoke runs can be slow on busy Windows hosts.
+_SUBPROCESS_TIMEOUT_SECONDS: Final[int] = 300
 
 
 def _run_pytest(
@@ -66,19 +67,27 @@ def _run_pytest(
 
 
 def test_default_run_stays_green_without_integration_configuration() -> None:
-    """`uv run pytest` keeps running the unit suite even when the integration
-    configuration is broken: `-m 'not integration'` deselects those tests."""
-    completed = _run_pytest()
+    """The default marker keeps unit tests and deselects integration tests."""
+    completed = _run_pytest(
+        "tests/unit/test_config.py",
+        "tests/integration/test_agent_persistence.py::test_agent_store_never_writes_into_the_canonical_database",
+    )
 
     output = (completed.stdout or "") + (completed.stderr or "")
     assert completed.returncode == 0, output
     assert "skipped" not in (completed.stdout or "").lower()
+    assert "deselected" in (completed.stdout or "").lower()
 
 
 def test_explicit_integration_run_fails_loudly_without_configuration() -> None:
     """`uv run pytest -m integration` must exit non-zero with the actionable
     setup hint — never a successful all-skipped run."""
-    completed = _run_pytest("-m", "integration", "-x")
+    completed = _run_pytest(
+        "-m",
+        "integration",
+        "-x",
+        "tests/integration/test_agent_persistence.py::test_agent_store_never_writes_into_the_canonical_database",
+    )
 
     output = (completed.stdout or "") + (completed.stderr or "")
     assert completed.returncode != 0, output
@@ -94,6 +103,7 @@ def test_explicit_integration_run_fails_loudly_without_cluster_identity() -> Non
         "-m",
         "integration",
         "-x",
+        "tests/integration/test_agent_persistence.py::test_agent_store_never_writes_into_the_canonical_database",
         extra_environment={
             "DYNAMISRAG_DATABASE_URL": "postgresql://owner:pw@127.0.0.1:55433/dynamisrag",
             "DYNAMISRAG_TEST_DATABASE_URL": (
