@@ -35,6 +35,8 @@ jobs:
       - run: uv sync --locked
       - run: npm ci
         working-directory: apps/workspace
+      - run: npm ci
+        working-directory: apps/edge-gateway
       - run: npm test && npm run typecheck && npm run build
         working-directory: apps/workspace
       - name: Provision only new workspace databases
@@ -46,17 +48,19 @@ jobs:
       - name: Start deterministic integration services
         env:
           DYNAMISRAG_AGENT_IDENTITY_SECRET: unit-test-identity-secret-0123456789abcdef
-          DYNAMISRAG_API_ORIGIN: http://127.0.0.1:8018
+          DYNAMISRAG_API_ORIGIN: http://127.0.0.1:8788
           NEXT_PUBLIC_RESEARCH_MODE: deterministic-verification
         run: |
           uv run python -m tests.workspace_server > /tmp/res638-python.log 2>&1 &
+          (cd apps/edge-gateway && WRANGLER_SEND_METRICS=false npx wrangler dev --config wrangler.test.jsonc --local --port 8788 --var "DEMO_EXPIRES_AT:$(date -u -d '+1 hour' +%Y-%m-%dT%H:%M:%SZ)" > /tmp/res638-edge.log 2>&1) &
           export WORKSPACE_ACCOUNTS=$(node -e "const c=require('node:crypto');const h='test-salt:'+c.scryptSync('workspace-test-only','test-salt',64).toString('hex');process.stdout.write(JSON.stringify({alice:h,bob:h}))")
           cd apps/workspace
           npm run dev -- --hostname 127.0.0.1 --port 3018 > /tmp/res638-next.log 2>&1 &
       - run: npx playwright install --with-deps chromium
         working-directory: apps/workspace
-      - run: npx playwright test
+      - run: node scripts/wait-local.mjs && npx playwright test
         working-directory: apps/workspace
+      # Browser tests above traverse Next/Eve -> real Workerd -> real Python/LangGraph.
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
@@ -65,3 +69,4 @@ jobs:
             apps/workspace/test-results/
             /tmp/res638-python.log
             /tmp/res638-next.log
+            /tmp/res638-edge.log

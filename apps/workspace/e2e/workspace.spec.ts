@@ -18,6 +18,9 @@ test("authenticated Eve conversation executes the Python graph and denies a seco
   await page
     .getByLabel("Ask a research question")
     .fill("What happened to Achilles tendon stiffness during depth jumping?");
+  const firstRun = page.waitForResponse((r) =>
+    /\/api\/research\/runs\/run-[^/]+$/.test(r.url()),
+  );
   await page.getByRole("button", { name: "Research ↑" }).click();
   await expect(
     page.getByRole("button", { name: "Inspect source 1", exact: true }),
@@ -29,6 +32,21 @@ test("authenticated Eve conversation executes the Python graph and denies a seco
     page.getByRole("region", { name: "Canonical source inspection" }),
   ).toContainText("source_spans");
   await expect(page.locator("mark")).toBeVisible();
+  const runUrl = (await firstRun).url();
+  const events = await (await page.request.get(`${runUrl}/events`)).text();
+  const ids = [...events.matchAll(/^id: (\d+)$/gm)].map((match) =>
+    Number(match[1]),
+  );
+  expect(ids.length).toBeGreaterThan(1);
+  expect([...ids].sort((a, b) => a - b)).toEqual(ids);
+  const replay = await (
+    await page.request.get(`${runUrl}/events`, {
+      headers: { "Last-Event-ID": String(ids.at(-2)) },
+    })
+  ).text();
+  expect(
+    [...replay.matchAll(/^id: (\d+)$/gm)].map((match) => Number(match[1])),
+  ).toEqual([ids.at(-1)]);
   await page.screenshot({
     path: "test-results/source-inspection.png",
     fullPage: true,
@@ -43,10 +61,34 @@ test("authenticated Eve conversation executes the Python graph and denies a seco
   const bob = await browser.newContext({
     httpCredentials: { username: "bob", password: "workspace-test-only" },
   });
+  for (const ref of [current.external_ref.slice(4), current.external_ref]) {
+    const claim = await bob.request.post(
+      "http://127.0.0.1:3018/api/research/threads",
+      {
+        data: { external_ref: ref },
+      },
+    );
+    expect(claim.status()).toBe(400);
+  }
   const denied = await bob.request.get(
-    `http://127.0.0.1:3018/api/conversation/eve/v1/session/${current.external_ref}/stream`,
+    `http://127.0.0.1:3018/api/conversation/eve/v1/session/${current.external_ref.slice(4)}/stream`,
   );
   expect(denied.status()).toBe(403);
+  expect(
+    (
+      await bob.request.post(
+        `http://127.0.0.1:3018/api/conversation/eve/v1/session/${current.external_ref.slice(4)}/cancel`,
+      )
+    ).status(),
+  ).toBe(403);
+  expect(
+    (
+      await bob.request.post(
+        `http://127.0.0.1:3018/api/conversation/eve/v1/session/${current.external_ref.slice(4)}`,
+        { data: { message: "forged follow-up" } },
+      )
+    ).status(),
+  ).toBe(403);
   const deniedThread = await bob.request.get(
     `http://127.0.0.1:3018/api/research/threads/${current.thread_id}`,
   );

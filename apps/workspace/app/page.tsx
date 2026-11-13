@@ -77,7 +77,11 @@ export default function Workspace() {
     const items = await api<Thread[]>("threads");
     setThreads(items);
     const saved = new URLSearchParams(window.location.search).get("thread");
-    setActive(items.find((t) => t.thread_id === saved) || null);
+    setActive(
+      items.find(
+        (t) => t.thread_id === saved && t.external_ref?.startsWith("eve:"),
+      ) || null,
+    );
     const catalog = await api<Thread>("threads", {
       title: "Corpus catalog",
       external_ref: "workspace-catalog",
@@ -113,7 +117,9 @@ export default function Workspace() {
       const { sessionId } = await response.json();
       const updated = await api<Thread[]>("threads");
       setThreads(updated);
-      selectThread(updated.find((t) => t.external_ref === sessionId) || null);
+      selectThread(
+        updated.find((t) => t.external_ref === `eve:${sessionId}`) || null,
+      );
     } catch (e) {
       setError((e as Error).message);
     }
@@ -131,9 +137,7 @@ export default function Workspace() {
         <h2>Conversations</h2>
         <nav aria-label="Research threads">
           {threads
-            .filter(
-              (t) => t.external_ref && t.external_ref !== "workspace-catalog",
-            )
+            .filter((t) => t.external_ref?.startsWith("eve:"))
             .map((t) => (
               <button
                 className={
@@ -160,7 +164,8 @@ export default function Workspace() {
         <header className="topbar">
           <span>Scientific research</span>
           <span className="badge">
-            {process.env.NEXT_PUBLIC_RESEARCH_MODE === "deterministic-verification"
+            {process.env.NEXT_PUBLIC_RESEARCH_MODE ===
+            "deterministic-verification"
               ? "Deterministic verification"
               : "Inference qualification pending"}
           </span>
@@ -252,7 +257,10 @@ export default function Workspace() {
 function Conversation({ thread }: { thread: Thread }) {
   const agent = useEveAgent({
     host: "/api/conversation",
-    initialSession: { sessionId: thread.external_ref!, streamIndex: 0 },
+    initialSession: {
+      sessionId: thread.external_ref!.slice(4),
+      streamIndex: 0,
+    },
     resume: true,
   });
   const [question, setQuestion] = useState("");

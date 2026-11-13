@@ -16,18 +16,18 @@ test("Vercel preview cookies reach only the same-origin Eve service", async (t) 
     seen.push({ origin: input.origin, cookie: headers.get("cookie") });
     if (input.pathname.startsWith("/api/v2/threads"))
       return Response.json([
-        { thread_id: "thread-1", external_ref: "session-1" },
+        { thread_id: "thread-1", external_ref: "eve:session-1" },
       ]);
     assert.equal(init.redirect, "manual");
     return Response.json({ accepted: true }, { status: 202 });
   });
-  const call = () =>
+  const call = (payload: Record<string, unknown> = { message: "question" }) =>
     POST(
       new Request(
         "https://preview.example/api/conversation/eve/v1/session/session-1",
         {
           method: "POST",
-          body: JSON.stringify({ message: "question" }),
+          body: JSON.stringify(payload),
           headers: {
             authorization: `Basic ${Buffer.from("alice:password").toString("base64")}`,
             cookie: "__vercel_preview=private",
@@ -51,5 +51,16 @@ test("Vercel preview cookies reach only the same-origin Eve service", async (t) 
   process.env.EVE_INTERNAL_ORIGIN = "https://private-eve.example";
   assert.equal((await call()).status, 202);
   assert.equal(seen[1].cookie, null);
+  seen.length = 0;
+  assert.equal(
+    (
+      await call({
+        message: "question",
+        callback: { url: "https://other.example/eve/v1/callback/secret" },
+      })
+    ).status,
+    400,
+  );
+  assert.equal(seen.length, 1); // Ownership lookup only; no Eve turn or external callback.
   delete process.env.EVE_INTERNAL_ORIGIN;
 });

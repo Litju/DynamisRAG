@@ -18,6 +18,21 @@ async function handle(
   )
     return new Response(null, { status: 404 });
   try {
+    let body = request.method === "POST" ? await request.text() : undefined;
+    if (request.method === "POST" && route === "threads") {
+      let input;
+      try {
+        input = JSON.parse(body || "{}");
+      } catch {
+        return new Response(null, { status: 400 });
+      }
+      if (input.external_ref !== "workspace-catalog")
+        return Response.json(
+          { error: "Conversation bindings are server-owned" },
+          { status: 400 },
+        );
+      body = JSON.stringify(input);
+    }
     const headers = new Headers();
     const cursor = request.headers.get("last-event-id");
     if (cursor) headers.set("last-event-id", cursor);
@@ -25,7 +40,7 @@ async function handle(
       method: request.method,
       headers,
       signal: request.signal,
-      ...(request.method === "POST" ? { body: await request.text() } : {}),
+      ...(request.method === "POST" ? { body } : {}),
     });
     return new Response(result.body, {
       status: result.status,

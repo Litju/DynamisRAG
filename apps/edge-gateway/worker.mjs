@@ -85,106 +85,112 @@ async function boundedBody(request) {
   return result;
 }
 
-export default {
-  async fetch(request, env) {
-    const url = new URL(request.url);
-    if (!routes.test(url.pathname) || !["GET", "POST"].includes(request.method))
-      return new Response(null, { status: 404, headers: noStore });
-    const expires = Date.parse(env.DEMO_EXPIRES_AT || "");
-    if (
-      !Number.isFinite(expires) ||
-      expires <= Date.now() ||
-      expires - Date.now() > 86400000
-    )
-      return new Response("Temporary demo is disabled", {
-        status: 503,
-        headers: noStore,
-      });
-    if (
-      !(await verifyIdentity(
-        request.headers.get("authorization"),
-        env.IDENTITY_SECRET,
-      ))
-    )
-      return new Response(null, { status: 401, headers: noStore });
-    let upstream;
-    try {
-      upstream = new URL(env.PYTHON_API_ORIGIN);
-      if (
-        upstream.protocol !== "https:" ||
-        upstream.username ||
-        upstream.password ||
-        upstream.pathname !== "/" ||
-        upstream.search ||
-        upstream.hash ||
-        upstream.hostname === "trycloudflare.com" ||
-        upstream.hostname.endsWith(".trycloudflare.com") ||
-        upstream.hostname.endsWith(".invalid")
-      )
-        throw new Error("invalid_origin");
-    } catch {
-      return new Response("Protected named tunnel is not configured", {
-        status: 503,
-        headers: noStore,
-      });
-    }
-    if (!env.ACCESS_CLIENT_ID || !env.ACCESS_CLIENT_SECRET)
-      return new Response("Tunnel service authentication is missing", {
-        status: 503,
-        headers: noStore,
-      });
-    const headers = new Headers({
-      authorization: request.headers.get("authorization"),
-      "CF-Access-Client-Id": env.ACCESS_CLIENT_ID,
-      "CF-Access-Client-Secret": env.ACCESS_CLIENT_SECRET,
+export async function gateway(request, env, fetchOrigin = fetch) {
+  const url = new URL(request.url);
+  if (!routes.test(url.pathname) || !["GET", "POST"].includes(request.method))
+    return new Response(null, { status: 404, headers: noStore });
+  const expires = Date.parse(env.DEMO_EXPIRES_AT || "");
+  if (
+    !Number.isFinite(expires) ||
+    expires <= Date.now() ||
+    expires - Date.now() > 86400000
+  )
+    return new Response("Temporary demo is disabled", {
+      status: 503,
+      headers: noStore,
     });
-    const cursor = request.headers.get("last-event-id");
-    if (cursor) {
-      if (!/^\d{1,10}$/.test(cursor))
-        return new Response(null, { status: 400, headers: noStore });
-      headers.set("last-event-id", cursor);
-    }
-    let body;
-    if (request.method === "POST") {
-      if (!request.headers.get("content-type")?.startsWith("application/json"))
-        return new Response(null, { status: 415, headers: noStore });
-      headers.set("content-type", "application/json");
-      try {
-        body = await boundedBody(request);
-      } catch {
-        return new Response(null, { status: 413, headers: noStore });
-      }
-    }
+  if (
+    !(await verifyIdentity(
+      request.headers.get("authorization"),
+      env.IDENTITY_SECRET,
+    ))
+  )
+    return new Response(null, { status: 401, headers: noStore });
+  let upstream;
+  try {
+    upstream = new URL(env.PYTHON_API_ORIGIN);
+    if (
+      upstream.protocol !== "https:" ||
+      upstream.username ||
+      upstream.password ||
+      upstream.pathname !== "/" ||
+      upstream.search ||
+      upstream.hash ||
+      upstream.hostname === "trycloudflare.com" ||
+      upstream.hostname.endsWith(".trycloudflare.com") ||
+      upstream.hostname.endsWith(".invalid")
+    )
+      throw new Error("invalid_origin");
+  } catch {
+    return new Response("Protected named tunnel is not configured", {
+      status: 503,
+      headers: noStore,
+    });
+  }
+  if (!env.ACCESS_CLIENT_ID || !env.ACCESS_CLIENT_SECRET)
+    return new Response("Tunnel service authentication is missing", {
+      status: 503,
+      headers: noStore,
+    });
+  const headers = new Headers({
+    authorization: request.headers.get("authorization"),
+    "CF-Access-Client-Id": env.ACCESS_CLIENT_ID,
+    "CF-Access-Client-Secret": env.ACCESS_CLIENT_SECRET,
+  });
+  const cursor = request.headers.get("last-event-id");
+  if (cursor) {
+    if (!/^\d{1,10}$/.test(cursor))
+      return new Response(null, { status: 400, headers: noStore });
+    headers.set("last-event-id", cursor);
+  }
+  let body;
+  if (request.method === "POST") {
     try {
-      const response = await fetch(
-        new URL(url.pathname + url.search, upstream),
-        {
-          method: request.method,
-          headers,
-          body,
-          signal: request.signal,
-          redirect: "manual",
-        },
-      );
-      if (response.status >= 300 && response.status < 400)
-        return new Response("Upstream authentication redirected", {
-          status: 502,
-          headers: noStore,
-        });
-      return new Response(response.body, {
-        status: response.status,
-        headers: {
-          ...noStore,
-          "content-type":
-            response.headers.get("content-type") || "application/json",
-          "x-accel-buffering": "no",
-        },
-      });
+      body = await boundedBody(request);
     } catch {
-      return new Response("Local backend is unavailable", {
-        status: 503,
+      return new Response(null, { status: 413, headers: noStore });
+    }
+    if (
+      body?.byteLength &&
+      !request.headers.get("content-type")?.startsWith("application/json")
+    )
+      return new Response(null, { status: 415, headers: noStore });
+    headers.set("content-type", "application/json");
+  }
+  try {
+    const response = await fetchOrigin(
+      new URL(url.pathname + url.search, upstream),
+      {
+        method: request.method,
+        headers,
+        body,
+        signal: request.signal,
+        redirect: "manual",
+      },
+    );
+    if (response.status >= 300 && response.status < 400)
+      return new Response("Upstream authentication redirected", {
+        status: 502,
         headers: noStore,
       });
-    }
+    return new Response(response.body, {
+      status: response.status,
+      headers: {
+        ...noStore,
+        "content-type":
+          response.headers.get("content-type") || "application/json",
+        "x-accel-buffering": "no",
+      },
+    });
+  } catch {
+    return new Response("Local backend is unavailable", {
+      status: 503,
+      headers: noStore,
+    });
+  }
+}
+export default {
+  fetch(request, env) {
+    return gateway(request, env);
   },
 };

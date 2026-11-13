@@ -27,6 +27,26 @@ async function handle(
     if (sessionId && !(await ownedSession(user, sessionId)))
       return new Response(null, { status: 403 });
     let body = request.method === "POST" ? await request.text() : undefined;
+    if (request.method === "POST" && sessionId && path.length === 4) {
+      let input;
+      try {
+        input = JSON.parse(body || "{}");
+      } catch {
+        return new Response(null, { status: 400 });
+      }
+      if (
+        !input ||
+        Object.keys(input).some((key) => key !== "message") ||
+        typeof input.message !== "string" ||
+        !input.message.trim() ||
+        input.message.length > 16000
+      )
+        return Response.json(
+          { error: "Only a text message is accepted" },
+          { status: 400 },
+        );
+      body = JSON.stringify({ message: input.message });
+    }
     let scope: string[] = [];
     if (!sessionId && body) {
       const input = JSON.parse(body);
@@ -79,7 +99,7 @@ async function handle(
         await python(user, "threads", {
           method: "POST",
           body: JSON.stringify({
-            external_ref: created.sessionId,
+            external_ref: `eve:${created.sessionId}`,
             allowed_version_keys: scope,
           }),
         }),

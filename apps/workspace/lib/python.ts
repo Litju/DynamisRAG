@@ -9,7 +9,8 @@ export async function python(
   if (!origin) throw new Error("DYNAMISRAG_API_ORIGIN is required");
   const headers = new Headers(init.headers);
   headers.set("authorization", `Bearer ${identity(user)}`);
-  if (init.body) headers.set("content-type", "application/json");
+  if (init.method?.toUpperCase() === "POST" || init.body)
+    headers.set("content-type", "application/json");
   return fetch(new URL(`/api/v2/${path}`, origin), {
     ...init,
     headers,
@@ -35,7 +36,10 @@ export async function ownedSession(
   sessionId: string,
 ): Promise<Thread | undefined> {
   const threads = await json<Thread[]>(
-    await python(user, `threads?external_ref=${encodeURIComponent(sessionId)}`),
+    await python(
+      user,
+      `threads?external_ref=${encodeURIComponent(`eve:${sessionId}`)}`,
+    ),
   );
-  return threads.find((t) => t.external_ref === sessionId);
+  return threads.find((t) => t.external_ref === `eve:${sessionId}`);
 }

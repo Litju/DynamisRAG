@@ -32,6 +32,25 @@ const request = (path, init = {}) =>
     headers: { authorization: token(), ...init.headers },
   });
 
+test("bodiless cancellation reaches Python without a content-type header", async (t) => {
+  const mock = t.mock.method(globalThis, "fetch", async (url, init) => {
+    assert.equal(new URL(url).pathname, "/api/v2/runs/run-1/cancel");
+    assert.equal(init.method, "POST");
+    assert.equal(init.headers.get("content-type"), "application/json");
+    return Response.json({ status: "cancelled" });
+  });
+  assert.equal(
+    (
+      await worker.fetch(
+        request("/api/v2/runs/run-1/cancel", { method: "POST" }),
+        env(),
+      )
+    ).status,
+    200,
+  );
+  assert.equal(mock.mock.callCount(), 1);
+});
+
 test("identity gate rejects forged, expired, malformed and mis-scoped assertions", async () => {
   assert.equal(await verifyIdentity(token(), secret), true);
   for (const candidate of [
