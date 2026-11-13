@@ -214,9 +214,10 @@ def _register_thread_and_run_routes(
     def list_threads(
         user_id: Annotated[UserId, Depends(auth_dep)],
         limit: int = Query(default=100, ge=1, le=100),
+        external_ref: SafeShortText | None = None,
     ) -> tuple[ThreadRecord, ...]:
         _, active_store, _ = deps.require()
-        return active_store.list_threads(user_id=user_id, limit=limit)
+        return active_store.list_threads(user_id=user_id, limit=limit, external_ref=external_ref)
 
     @router.post("/threads", response_model=ThreadRecord, status_code=status.HTTP_201_CREATED)
     def create_thread(
