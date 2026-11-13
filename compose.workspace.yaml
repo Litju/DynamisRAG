@@ -22,6 +22,9 @@ services:
       - ./infra/workspace/init-db.sh:/docker-entrypoint-initdb.d/10-workspace.sh:ro
   agent-state:
     <<: *postgres
+    environment:
+      <<: *database-env
+      WORKSPACE_DB_PASSWORD: ${WORKSPACE_AGENT_PASSWORD:?set a separate agent database password}
     ports: ["127.0.0.1:55439:5432"]
     volumes:
       - agent-state:/var/lib/postgresql
@@ -44,10 +47,22 @@ services:
   api:
     build: { context: ., dockerfile: infra/workspace/Dockerfile }
     restart: unless-stopped
-    env_file: .env.workspace
     environment: &runtime-env
       DYNAMISRAG_DATABASE_URL: postgresql://workspace_reader:${WORKSPACE_READER_PASSWORD}@canonical:5432/workspace
-      DYNAMISRAG_AGENT_DATABASE_URL: postgresql://workspace_owner:${WORKSPACE_DB_PASSWORD}@agent-state:5432/workspace
+      DYNAMISRAG_AGENT_DATABASE_URL: postgresql://workspace_owner:${WORKSPACE_AGENT_PASSWORD}@agent-state:5432/workspace
+      DYNAMISRAG_ENVIRONMENT: ${DYNAMISRAG_ENVIRONMENT:-staging}
+      DYNAMISRAG_AGENT_ENABLED: "true"
+      DYNAMISRAG_AGENT_PROVIDER: ${DYNAMISRAG_AGENT_PROVIDER:-opencode_go}
+      DYNAMISRAG_AGENT_IDENTITY_SECRET: ${DYNAMISRAG_AGENT_IDENTITY_SECRET:?set a new shared identity secret}
+      DYNAMISRAG_AGENT_MODEL_API_KEY: ${DYNAMISRAG_AGENT_MODEL_API_KEY:-}
+      DYNAMISRAG_AGENT_OPENCODE_GO_USAGE_APPROVED: ${DYNAMISRAG_AGENT_OPENCODE_GO_USAGE_APPROVED:-false}
+      DYNAMISRAG_AGENT_MODEL_FAST: deepseek-v4.1-flash
+      DYNAMISRAG_AGENT_MODEL_COORDINATOR: gpt-6-luna
+      DYNAMISRAG_AGENT_MODEL_PRO: deepseek-v4-pro
+      DYNAMISRAG_AGENT_RUN_COST_BUDGET_USD: ${DYNAMISRAG_AGENT_RUN_COST_BUDGET_USD:-0.20}
+      DYNAMISRAG_AGENT_RUN_TOKEN_BUDGET: ${DYNAMISRAG_AGENT_RUN_TOKEN_BUDGET:-250000}
+      DYNAMISRAG_AGENT_MAX_PRO_ESCALATIONS: ${DYNAMISRAG_AGENT_MAX_PRO_ESCALATIONS:-1}
+      DYNAMISRAG_AGENT_RATE_LIMIT_PER_MINUTE: ${DYNAMISRAG_AGENT_RATE_LIMIT_PER_MINUTE:-60}
       DYNAMISRAG_OPENSEARCH_URL: https://opensearch:9200
       DYNAMISRAG_OPENSEARCH_USERNAME: admin
       DYNAMISRAG_OPENSEARCH_PASSWORD: ${WORKSPACE_SEARCH_PASSWORD}
@@ -62,7 +77,6 @@ services:
     build: { context: ., dockerfile: infra/workspace/Dockerfile }
     restart: unless-stopped
     command: [python, -m, dynamisrag.agent.worker]
-    env_file: .env.workspace
     environment: *runtime-env
     depends_on:
       canonical: { condition: service_healthy }

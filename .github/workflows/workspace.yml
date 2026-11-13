@@ -4,6 +4,9 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: res638-workspace-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   workspace:
     runs-on: ubuntu-latest
