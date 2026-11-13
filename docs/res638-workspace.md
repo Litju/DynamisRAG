@@ -2,6 +2,8 @@
 
 This branch adds a working Next.js/Eve client for the RES-637 Python agent. It is **not a qualified hosted release**. External OpenCode Go inference remains gated, and no dedicated external Python host has been selected. Do not promote a public deployment.
 
+The owner's new-spending ceiling is **$0/month**. Cloudflare Free is evaluated first; preserve the working Next.js frontend and retain Vercel Hobby if its free-plan/runtime compatibility is verified. Oracle accounts and paid hosts are prohibited. See the [zero-cost hosting policy and verification ledger](res638-zero-cost-hosting.md). No paid resources, subscriptions or inference are authorized.
+
 ## Runtime boundary
 
 The browser authenticates to Next.js with an individually hashed restricted-preview account. Next.js signs a two-minute Python identity assertion; browser-supplied owner IDs are never forwarded. The Eve channel verifies that assertion, maps its verified subject to a user principal, and checks the session's Python thread binding on every continuation and stream. Direct Eve routes reject browser Basic credentials.
@@ -28,7 +30,7 @@ Use the feature worktree, Node 24+ and the repository's locked Python environmen
 
 The two PostgreSQL services use separate new volumes and ports 55438/55439, with separate owner passwords. Canonical retrieval uses a read-only role; only bootstrap uses the corpus owner. Runtime containers receive an explicit application-variable allowlist and never receive the database admin or canonical-owner password. The API and worker images run as UID 10001. The image context excludes secrets and retained artifacts.
 
-The current container smoke uses `canonical_lexical_fallback`. Qdrant/OpenSearch definitions are private preparation, **not qualified dense retrieval**: no new embedding projection or TEI service has been qualified. The existing Qdrant driver remains loopback-only and does not support the keyed service definition yet. Keep scientific Qdrant disabled until its dedicated deployment integration is implemented and verified; do not reuse historical receipts. OpenSearch's internal demo TLS setting must be replaced by verified TLS on a hosted topology.
+The current container smoke uses `canonical_lexical_fallback`. Qdrant/OpenSearch definitions are private preparation, **not qualified dense retrieval**: no new embedding projection or TEI service has been qualified. The Qdrant driver now supports a read-only API key and an exact allowlisted HTTPS hostname while retaining loopback defaults. Keep scientific Qdrant disabled until fresh dense artifacts and the deployment integration are verified; do not reuse historical receipts. OpenSearch's internal demo TLS setting must be replaced by verified TLS on a hosted topology.
 
 ## Browser verification
 
