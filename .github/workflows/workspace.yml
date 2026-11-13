@@ -29,6 +29,7 @@ jobs:
         env:
           DYNAMISRAG_AGENT_IDENTITY_SECRET: unit-test-identity-secret-0123456789abcdef
           DYNAMISRAG_API_ORIGIN: http://127.0.0.1:8018
+          NEXT_PUBLIC_RESEARCH_MODE: deterministic-verification
         run: |
           uv run python -m tests.workspace_server > /tmp/res638-python.log 2>&1 &
           export WORKSPACE_ACCOUNTS=$(node -e "const c=require('node:crypto');const h='test-salt:'+c.scryptSync('workspace-test-only','test-salt',64).toString('hex');process.stdout.write(JSON.stringify({alice:h,bob:h}))")

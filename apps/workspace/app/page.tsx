@@ -159,7 +159,11 @@ export default function Workspace() {
       <section className="center">
         <header className="topbar">
           <span>Scientific research</span>
-          <span className="badge">Restricted workspace</span>
+          <span className="badge">
+            {process.env.NEXT_PUBLIC_RESEARCH_MODE === "deterministic-verification"
+              ? "Deterministic verification"
+              : "Inference qualification pending"}
+          </span>
         </header>
         {error && (
           <p role="alert" className="error">
