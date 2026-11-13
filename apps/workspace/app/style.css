@@ -375,3 +375,16 @@ mark {
   background: #ede1a8;
   color: #24382c;
 }
+
+.message.assistant {
+  white-space: normal;
+}
+.message code {
+  font-size: 0.85em;
+  background: #eef2e8;
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+.message li {
+  margin: 12px 0;
+}

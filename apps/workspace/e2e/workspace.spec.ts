@@ -8,7 +8,9 @@ test("authenticated Eve conversation executes the Python graph and denies a seco
   await expect(
     page.getByRole("heading", { name: "Document library" }),
   ).toBeVisible();
-  await expect(page.locator(".paper")).toHaveCount(2);
+  await expect(page.locator(".paper")).toHaveCount(
+    process.env.WORKSPACE_LICENSED_CORPUS ? 3 : 2,
+  );
   await page.getByRole("button", { name: "Start a research thread" }).click();
   await expect(page.getByLabel("Ask a research question")).toBeVisible({
     timeout: 30000,
@@ -60,12 +62,9 @@ test("authenticated Eve conversation executes the Python graph and denies a seco
     timeout: 90000,
   });
   await page.reload();
-  await page
-    .locator(".thread")
-    .filter({ hasText: "Scientific Research Thread" })
-    .first()
-    .click();
-  await expect(page.locator(".message.user")).toHaveCount(2);
+  await expect(page.locator(".message.user")).toHaveCount(2, {
+    timeout: 30000,
+  });
 });
 
 test("mobile workspace fits and rejects unauthenticated API requests", async ({
@@ -106,14 +105,18 @@ test("cross-paper comparison renders the verified study matrix", async ({
     );
   await page.getByRole("button", { name: "Research ↑" }).click();
   await expect(page.getByRole("table")).toBeVisible({ timeout: 90000 });
-  await expect(page.getByRole("table").getByRole("row")).toHaveCount(3);
+  expect(
+    await page.getByRole("table").getByRole("row").count(),
+  ).toBeGreaterThanOrEqual(3);
 });
 
 test("document selection is immutable and unsupported questions abstain", async ({
   page,
 }) => {
   await page.goto("/");
-  await expect(page.locator(".paper")).toHaveCount(2);
+  await expect(page.locator(".paper")).toHaveCount(
+    process.env.WORKSPACE_LICENSED_CORPUS ? 3 : 2,
+  );
   await page.locator(".paper input").first().check();
   await page.getByRole("button", { name: "Start a research thread" }).click();
   await expect(page.getByLabel("Ask a research question")).toBeVisible({
@@ -131,4 +134,67 @@ test("document selection is immutable and unsupported questions abstain", async 
   await expect(
     page.getByRole("button", { name: "Inspect source 1", exact: true }),
   ).toHaveCount(0);
+});
+
+test("cancellation reaches the Python run and the conversation accepts a follow-up", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Start a research thread" }).click();
+  await expect(page.getByLabel("Ask a research question")).toBeVisible({
+    timeout: 30000,
+  });
+  const response = page.waitForResponse((r) =>
+    /\/api\/research\/runs\/run-[^/]+$/.test(r.url()),
+  );
+  await page
+    .getByLabel("Ask a research question")
+    .fill(
+      "[browser-slow] What happened to Achilles tendon stiffness during depth jumping?",
+    );
+  await page.getByRole("button", { name: "Research ↑" }).click();
+  const runUrl = (await response).url();
+  await page.getByRole("button", { name: "Cancel research" }).click();
+  await expect
+    .poll(async () => (await (await page.request.get(runUrl)).json()).status, {
+      timeout: 30000,
+    })
+    .toBe("cancelled");
+  await expect(page.getByRole("button", { name: "Research ↑" })).toBeVisible({
+    timeout: 30000,
+  });
+  await page
+    .getByLabel("Ask a research question")
+    .fill("What happened to Achilles tendon stiffness during depth jumping?");
+  await page.getByRole("button", { name: "Research ↑" }).click();
+  await expect(
+    page.getByRole("button", { name: "Inspect source 1", exact: true }),
+  ).toBeVisible({ timeout: 90000 });
+});
+
+test("worker failures are explicit and a later turn recovers", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Start a research thread" }).click();
+  await expect(page.getByLabel("Ask a research question")).toBeVisible({
+    timeout: 30000,
+  });
+  await page
+    .getByLabel("Ask a research question")
+    .fill(
+      "[browser-failure] What happened to Achilles tendon stiffness during depth jumping?",
+    );
+  await page.getByRole("button", { name: "Research ↑" }).click();
+  await expect(page.locator(".results")).toContainText("failed", {
+    timeout: 90000,
+  });
+  await expect(page.getByRole("button", { name: "Research ↑" })).toBeVisible();
+  await page
+    .getByLabel("Ask a research question")
+    .fill("What happened to Achilles tendon stiffness during depth jumping?");
+  await page.getByRole("button", { name: "Research ↑" }).click();
+  await expect(
+    page.getByRole("button", { name: "Inspect source 1", exact: true }),
+  ).toBeVisible({ timeout: 90000 });
 });

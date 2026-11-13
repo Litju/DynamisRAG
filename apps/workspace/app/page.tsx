@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import { useEveAgent } from "eve/react";
+import Markdown from "react-markdown";
 
 type Thread = {
   thread_id: string;
@@ -72,22 +73,30 @@ export default function Workspace() {
   const [selected, setSelected] = useState<string[]>([]);
   const [active, setActive] = useState<Thread | null>(null);
   const [error, setError] = useState("");
-  const refresh = useCallback(
-    async () => setThreads(await api<Thread[]>("threads")),
-    [],
-  );
+  const refresh = useCallback(async () => {
+    const items = await api<Thread[]>("threads");
+    setThreads(items);
+    const saved = new URLSearchParams(window.location.search).get("thread");
+    setActive(items.find((t) => t.thread_id === saved) || null);
+    const catalog = await api<Thread>("threads", {
+      title: "Corpus catalog",
+      external_ref: "workspace-catalog",
+    });
+    const result = await api<{ papers: Paper[] }>(
+      `papers?thread_id=${catalog.thread_id}&limit=50`,
+    );
+    setPapers(result.papers);
+    setError("");
+  }, []);
+  function selectThread(thread: Thread | null) {
+    setActive(thread);
+    const url = new URL(window.location.href);
+    if (thread) url.searchParams.set("thread", thread.thread_id);
+    else url.searchParams.delete("thread");
+    window.history.replaceState(null, "", url);
+  }
   useEffect(() => {
-    void (async () => {
-      await refresh();
-      const catalog = await api<Thread>("threads", {
-        title: "Corpus catalog",
-        external_ref: "workspace-catalog",
-      });
-      const result = await api<{ papers: Paper[] }>(
-        `papers?thread_id=${catalog.thread_id}&limit=50`,
-      );
-      setPapers(result.papers);
-    })().catch((e) => setError(String(e.message)));
+    void refresh().catch((e) => setError(String(e.message)));
   }, [refresh]);
   async function create() {
     try {
@@ -104,7 +113,7 @@ export default function Workspace() {
       const { sessionId } = await response.json();
       const updated = await api<Thread[]>("threads");
       setThreads(updated);
-      setActive(updated.find((t) => t.external_ref === sessionId) || null);
+      selectThread(updated.find((t) => t.external_ref === sessionId) || null);
     } catch (e) {
       setError((e as Error).message);
     }
@@ -131,7 +140,7 @@ export default function Workspace() {
                   active?.thread_id === t.thread_id ? "thread active" : "thread"
                 }
                 key={t.thread_id}
-                onClick={() => setActive(t)}
+                onClick={() => selectThread(t)}
               >
                 {t.title}
               </button>
@@ -220,7 +229,7 @@ export default function Workspace() {
           </label>
         ))}
         {active && (
-          <button onClick={() => setActive(null)}>
+          <button onClick={() => selectThread(null)}>
             Choose documents for a new thread
           </button>
         )}
@@ -323,7 +332,11 @@ function Conversation({ thread }: { thread: Thread }) {
           <article className={`message ${message.role}`} key={message.id}>
             <h3>{message.role === "user" ? "You" : "Dynamis"}</h3>
             {message.parts.map((part, i) =>
-              part.type === "text" ? <p key={i}>{part.text}</p> : null,
+              part.type === "text" ? (
+                <Markdown key={i} skipHtml>
+                  {part.text}
+                </Markdown>
+              ) : null,
             )}
           </article>
         ))}
@@ -439,7 +452,7 @@ function Conversation({ thread }: { thread: Thread }) {
             <ul>
               {evidence.passage.source_spans.map((span) => (
                 <li key={span.span_key}>
-                  {span.paragraph_source_anchor} ? characters {span.start_char}?
+                  {span.paragraph_source_anchor} | characters {span.start_char}-
                   {span.end_char}
                 </li>
               ))}
