@@ -10,6 +10,8 @@ The installed Eve 0.67.2 Next adapter starts a separate Node/Nitro service throu
 
 Retain **Vercel Hobby as the candidate frontend host**, with Cloudflare Free as an optional edge gateway. [Vercel Standard Protection](https://vercel.com/docs/deployment-protection) protects previews on Hobby; no public production domain or paid protection add-on is required or authorized. Hosted qualification still requires an actual Hobby account and its Workflow quotas to be verified. The connector exposes the existing team's name but not its billing plan; the local Vercel CLI login is expired. No preview deployment is claimed.
 
+`apps/workspace/vercel.json` disables automatic Git deployments. Its build command additionally rejects any `VERCEL_ENV` other than `preview`, including a manual production build. This is separate from application login protection; connecting the repository must not create a public production assistant.
+
 Eve explicitly uses in-process `just-bash` sandbox support, with optional agent tools disabled, rather than provisionable cloud sandboxes. Its build and the Next.js production build pass. Neither build calls a scientific model. The preview proxy now forwards a Vercel authentication cookie only to the same-origin Eve service, never to Python or a separate Eve host; regression tests cover both cases.
 
 ## Cloudflare edge gateway
@@ -18,9 +20,13 @@ Eve explicitly uses in-process `just-bash` sandbox support, with optional agent 
 
 Default configuration has `workers_dev=false`, `preview_urls=false`, no domain route and an expired demo deadline. A temporary demo must expire within 24 hours, use a named HTTPS tunnel and a Cloudflare Access service token in addition to Python authentication. All credentials are server-side secrets. No API key is committed. The Worker does not turn a sleeping local computer into a persistent host.
 
+This configuration requires an **existing owned Cloudflare zone**, a suitable route/hostname and a **verified Zero Trust Free organization with machine-access credentials**. None is verified yet; onboarding/payment requirements must be checked without adding payment risk. A Worker account alone does not satisfy these prerequisites. No new domain purchase is permitted. The preflight now requires explicit zone, Access-plan and machine-auth evidence rather than treating a generic protection flag as sufficient.
+
 [Quick Tunnels](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/) explicitly do not support SSE; their email protection also excludes non-interactive clients. No Quick Tunnel was opened or used to claim a streaming demo. A named temporary tunnel with a protected existing hostname is required; no new domain purchase is authorized.
 
 Local checks: the gateway's authentication/streaming/limits tests pass, and Wrangler's **deploy --dry-run** successfully bundles it without publishing anything. `wrangler whoami` reports no authenticated Cloudflare account. Do not use its suggested temporary-account deployment: no protected account/route or verified free plan has been established. No tunnel or external endpoint is currently running.
+
+The browser suite now traverses Next/Eve -> **real local Workerd** -> the real Python/LangGraph test server. `wrangler.test.jsonc` uses a test-only transport shim mapping the configured HTTPS test name to loopback HTTP. Production uses the normal HTTPS fetch path; the shim is not the production entry point. This qualifies local gateway transport/authentication and cancellation, not deployed TLS or Cloudflare Access. Six scenarios pass, including a session-ID claiming attack and ordered Last-Event-ID replay.
 
 ## Deployment decision gate
 

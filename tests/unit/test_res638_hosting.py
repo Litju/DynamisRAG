@@ -24,6 +24,12 @@ def preview() -> dict[str, object]:
         "protection_verified": True,
         "checked_at_utc": NOW.isoformat(),
         "always_on_worker": False,
+        "existing_zone_verified": True,
+        "free_access_plan_verified": True,
+        "named_tunnel_machine_auth_verified": True,
+        "workflow_quota_verified": True,
+        "standard_protection_verified": True,
+        "production_deployments_disabled": True,
     }
 
 
@@ -55,6 +61,9 @@ def test_only_verified_free_previews_are_accepted() -> None:
         ("checked_at_utc", "2026-11-10T00:00:00+00:00"),
         ("deployment_kind", "python_container"),
         ("inference_mode", "opencode_go"),
+        ("existing_zone_verified", False),
+        ("free_access_plan_verified", False),
+        ("named_tunnel_machine_auth_verified", False),
     ],
 )
 def test_cost_gate_refuses_paid_unknown_or_misleading_conditions(field: str, value: object) -> None:

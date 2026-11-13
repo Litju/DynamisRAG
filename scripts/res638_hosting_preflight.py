@@ -33,12 +33,21 @@ def validate_hosting(evidence: Mapping[str, object], *, now: datetime | None = N
     current = now or datetime.now(UTC)
     if checked.tzinfo is None or not timedelta(0) <= current - checked <= timedelta(hours=24):
         raise ValueError("Free-plan evidence must be at most 24 hours old")
+    if evidence.get("always_on_worker") is not False:
+        raise ValueError("PERSISTENT_PYTHON_HOST_UNRESOLVED_AT_ZERO_COST")
     _validate_provider(evidence)
 
 
 def _validate_provider(evidence: Mapping[str, object]) -> None:
     provider = evidence.get("provider")
     if provider == "cloudflare_free":
+        for field in (
+            "existing_zone_verified",
+            "free_access_plan_verified",
+            "named_tunnel_machine_auth_verified",
+        ):
+            if evidence.get(field) is not True:
+                raise ValueError(f"Cloudflare {field} is unresolved")
         if evidence.get("plan") != "free":
             raise ValueError("Only Cloudflare Free is allowed")
         if evidence.get("deployment_kind") == "next_frontend":
@@ -50,12 +59,17 @@ def _validate_provider(evidence: Mapping[str, object]) -> None:
         elif evidence.get("deployment_kind") != "edge_gateway":
             raise ValueError("Cloudflare is not a persistent Python container host")
     elif provider == "vercel_hobby":
+        for field in (
+            "workflow_quota_verified",
+            "standard_protection_verified",
+            "production_deployments_disabled",
+        ):
+            if evidence.get(field) is not True:
+                raise ValueError(f"Vercel {field} is unresolved")
         if evidence.get("plan") != "hobby" or evidence.get("deployment_target") != "preview":
             raise ValueError("Only a protected Vercel Hobby preview is allowed")
     else:
         raise ValueError("No Oracle, Railway or unverified host is permitted")
-    if evidence.get("always_on_worker") is not False:
-        raise ValueError("PERSISTENT_PYTHON_HOST_UNRESOLVED_AT_ZERO_COST")
 
 
 def main() -> None:
