@@ -14,6 +14,7 @@ export async function python(
     ...init,
     headers,
     cache: "no-store",
+    redirect: "error",
   });
 }
 

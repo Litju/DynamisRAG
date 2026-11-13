@@ -47,6 +47,14 @@ async function handle(
     }
     const origin =
       process.env.EVE_INTERNAL_ORIGIN || new URL(request.url).origin;
+    const upstreamHeaders = new Headers({
+      authorization: `Bearer ${identity(user)}`,
+      "content-type": "application/json",
+    });
+    // Vercel preview protection also applies to the same-origin Eve service.
+    const cookie = request.headers.get("cookie");
+    if (cookie && new URL(origin).origin === new URL(request.url).origin)
+      upstreamHeaders.set("cookie", cookie);
     const response = await fetch(
       new URL(`/${route}${new URL(request.url).search}`, origin),
       {
@@ -54,12 +62,15 @@ async function handle(
         body,
         signal: request.signal,
         cache: "no-store",
-        headers: {
-          authorization: `Bearer ${identity(user)}`,
-          "content-type": "application/json",
-        },
+        redirect: "manual",
+        headers: upstreamHeaders,
       },
     );
+    if (response.status >= 300 && response.status < 400)
+      return Response.json(
+        { error: "Preview authentication is required" },
+        { status: 401 },
+      );
     if (!sessionId && response.ok) {
       const created = await response.json();
       if (typeof created.sessionId !== "string")
