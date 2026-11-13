@@ -281,6 +281,8 @@ class AgentConversationStore(Protocol):
         external_ref: str | None = None,
     ) -> ThreadRecord: ...
 
+    def list_threads(self, *, user_id: str, limit: int = 100) -> tuple[ThreadRecord, ...]: ...
+
     def get_thread(self, thread_id: str, *, user_id: str) -> ThreadRecord: ...
 
     def update_thread_context(
@@ -471,6 +473,13 @@ class InMemoryAgentConversationStore:
             if external_ref is not None:
                 self._external[(owner_id, external_ref)] = tid
             return rec
+
+    def list_threads(self, *, user_id: str, limit: int = 100) -> tuple[ThreadRecord, ...]:
+        with self._lock:
+            owned = (t for t in self._threads.values() if t.owner_id == user_id)
+            return tuple(
+                sorted(owned, key=lambda t: (t.updated_at, t.thread_id), reverse=True)[:limit]
+            )
 
     def get_thread(self, thread_id: str, *, user_id: str) -> ThreadRecord:
         with self._lock:
@@ -1120,6 +1129,15 @@ class PostgresAgentConversationStore:
                     tuple(row.get("allowed_version_keys_json") or ()), allowed_version_keys
                 )
         return self._row_to_thread(row)
+
+    def list_threads(self, *, user_id: str, limit: int = 100) -> tuple[ThreadRecord, ...]:
+        with self._pool.connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM agent_threads WHERE owner_id = %s "
+                "ORDER BY updated_at DESC, thread_id DESC LIMIT %s",
+                (user_id, limit),
+            ).fetchall()
+        return tuple(self._row_to_thread(row) for row in rows)
 
     def get_thread(self, thread_id: str, *, user_id: str) -> ThreadRecord:
         with self._pool.connection() as conn:
