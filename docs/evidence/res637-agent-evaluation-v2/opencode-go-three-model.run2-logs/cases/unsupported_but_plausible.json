@@ -1,0 +1,287 @@
+{
+  "case": {
+    "case_id": "unsupported_but_plausible",
+    "category": "abstention",
+    "corpus": "base",
+    "turns": [
+      "By what percentage did plyometric training improve 100 m sprint times?"
+    ],
+    "expected_tools": [],
+    "expect_abstain": true,
+    "must_cite": [],
+    "forbidden": [
+      "100 m"
+    ],
+    "context_expect_pmcid": null,
+    "injection_in_query": false,
+    "poison_marker": null,
+    "expect_not_comparable": false,
+    "rationale": "Topically adjacent to the corpus (sprinters, jump training) but unanswered."
+  },
+  "runs": [
+    {
+      "run_id": "run-3294e1d7a8c341a4",
+      "thread_id": "thread-4f7291a6e92d4384",
+      "owner_id": "eval-researcher",
+      "idempotency_key": "unsupported_but_plausible-0",
+      "question": "By what percentage did plyometric training improve 100 m sprint times?",
+      "status": "failed",
+      "require_confirmation": false,
+      "cancel_requested": false,
+      "attempt": 3,
+      "max_attempts": 3,
+      "worker_id": null,
+      "lease_expires_at": null,
+      "resume_payload": null,
+      "abort_reason": null,
+      "answer_markdown": null,
+      "abstention_reason": null,
+      "verified_citations": [],
+      "rejected_citations": [],
+      "proposed_findings": [],
+      "study_comparison": null,
+      "evidence_set_key": null,
+      "evidence_graph_key": null,
+      "telemetry": {},
+      "error_message": "ModelCallError",
+      "created_at": "2026-11-12T14:21:18.017832+00:00",
+      "updated_at": "2026-11-12T14:21:27.214931+00:00"
+    }
+  ],
+  "events_per_run": [
+    [
+      {
+        "run_id": "run-3294e1d7a8c341a4",
+        "thread_id": "thread-4f7291a6e92d4384",
+        "seq": 1,
+        "event_type": "run.queued",
+        "stage": "queued",
+        "payload": {},
+        "created_at": "2026-11-12T14:21:18.017832+00:00"
+      },
+      {
+        "run_id": "run-3294e1d7a8c341a4",
+        "thread_id": "thread-4f7291a6e92d4384",
+        "seq": 2,
+        "event_type": "run.started",
+        "stage": "resolve_conversation_context",
+        "payload": {
+          "require_confirmation": false
+        },
+        "created_at": "2026-11-12T14:21:18.017832+00:00"
+      },
+      {
+        "run_id": "run-3294e1d7a8c341a4",
+        "thread_id": "thread-4f7291a6e92d4384",
+        "seq": 3,
+        "event_type": "plan.created",
+        "stage": "interpret_and_plan",
+        "payload": {
+          "intent": "evidence_synthesis",
+          "needs_comparison": false,
+          "needs_context_expansion": false,
+          "scoped_version_count": 3,
+          "confirmation_required": false,
+          "context_resolution": "none_needed"
+        },
+        "created_at": "2026-11-12T14:21:18.019836+00:00"
+      },
+      {
+        "run_id": "run-3294e1d7a8c341a4",
+        "thread_id": "thread-4f7291a6e92d4384",
+        "seq": 4,
+        "event_type": "tool.called",
+        "stage": "model_tool_execution",
+        "payload": {
+          "tool_name": "hybrid_search",
+          "args": {
+            "query": "plyometric training 100 m sprint time improvement percentage",
+            "document_version_keys": [
+              "c484f564318e7f00095770e5ac4d46230bad62f220da3e4195c3851ffe9c22df",
+              "8f160dec729a9e7d1080b94cc3ed0daa61be0e312a1181fa99665444608e906f",
+              "8019516bbbcbdf37c742446c6f4d064a98f77850825fdac0d852cce2e5dc9f1a"
+            ],
+            "limit": 10
+          },
+          "origin": "model_directed",
+          "scope_defaulted": false,
+          "round": 0
+        },
+        "created_at": "2026-11-12T14:21:22.541720+00:00"
+      },
+      {
+        "run_id": "run-3294e1d7a8c341a4",
+        "thread_id": "thread-4f7291a6e92d4384",
+        "seq": 5,
+        "event_type": "tool.completed",
+        "stage": "model_tool_execution",
+        "payload": {
+          "tool_name": "hybrid_search",
+          "ok": true,
+          "origin": "model_directed",
+          "trace_id": "trace-4b627e1960a04ac1",
+          "duration_ms": 5.767
+        },
+        "created_at": "2026-11-12T14:21:22.548719+00:00"
+      },
+      {
+        "run_id": "run-3294e1d7a8c341a4",
+        "thread_id": "thread-4f7291a6e92d4384",
+        "seq": 6,
+        "event_type": "tool.called",
+        "stage": "model_tool_execution",
+        "payload": {
+          "tool_name": "list_papers",
+          "args": {
+            "limit": 20
+          },
+          "origin": "model_directed",
+          "scope_defaulted": false,
+          "round": 0
+        },
+        "created_at": "2026-11-12T14:21:22.548719+00:00"
+      },
+      {
+        "run_id": "run-3294e1d7a8c341a4",
+        "thread_id": "thread-4f7291a6e92d4384",
+        "seq": 7,
+        "event_type": "tool.completed",
+        "stage": "model_tool_execution",
+        "payload": {
+          "tool_name": "list_papers",
+          "ok": true,
+          "origin": "model_directed",
+          "trace_id": "trace-3a04a886fdb3475b",
+          "duration_ms": 3.535
+        },
+        "created_at": "2026-11-12T14:21:22.552719+00:00"
+      },
+      {
+        "run_id": "run-3294e1d7a8c341a4",
+        "thread_id": "thread-4f7291a6e92d4384",
+        "seq": 8,
+        "event_type": "tool.called",
+        "stage": "model_tool_execution",
+        "payload": {
+          "tool_name": "hybrid_search",
+          "args": {
+            "limit": 10,
+            "query": "sprint time 100 m performance seconds",
+            "document_version_keys": [
+              "c484f564318e7f00095770e5ac4d46230bad62f220da3e4195c3851ffe9c22df",
+              "8f160dec729a9e7d1080b94cc3ed0daa61be0e312a1181fa99665444608e906f",
+              "8019516bbbcbdf37c742446c6f4d064a98f77850825fdac0d852cce2e5dc9f1a"
+            ]
+          },
+          "origin": "model_directed",
+          "scope_defaulted": true,
+          "round": 1
+        },
+        "created_at": "2026-11-12T14:21:26.328570+00:00"
+      },
+      {
+        "run_id": "run-3294e1d7a8c341a4",
+        "thread_id": "thread-4f7291a6e92d4384",
+        "seq": 9,
+        "event_type": "tool.completed",
+        "stage": "model_tool_execution",
+        "payload": {
+          "tool_name": "hybrid_search",
+          "ok": true,
+          "origin": "model_directed",
+          "trace_id": "trace-332f8990cddd42eb",
+          "duration_ms": 8.809
+        },
+        "created_at": "2026-11-12T14:21:26.338568+00:00"
+      },
+      {
+        "run_id": "run-3294e1d7a8c341a4",
+        "thread_id": "thread-4f7291a6e92d4384",
+        "seq": 10,
+        "event_type": "tool.called",
+        "stage": "model_tool_execution",
+        "payload": {
+          "tool_name": "hybrid_search",
+          "args": {
+            "limit": 10,
+            "query": "sprint speed running performance outcome measure",
+            "document_version_keys": [
+              "c484f564318e7f00095770e5ac4d46230bad62f220da3e4195c3851ffe9c22df",
+              "8f160dec729a9e7d1080b94cc3ed0daa61be0e312a1181fa99665444608e906f",
+              "8019516bbbcbdf37c742446c6f4d064a98f77850825fdac0d852cce2e5dc9f1a"
+            ]
+          },
+          "origin": "model_directed",
+          "scope_defaulted": true,
+          "round": 1
+        },
+        "created_at": "2026-11-12T14:21:26.338568+00:00"
+      },
+      {
+        "run_id": "run-3294e1d7a8c341a4",
+        "thread_id": "thread-4f7291a6e92d4384",
+        "seq": 11,
+        "event_type": "tool.completed",
+        "stage": "model_tool_execution",
+        "payload": {
+          "tool_name": "hybrid_search",
+          "ok": true,
+          "origin": "model_directed",
+          "trace_id": "trace-244ea7bb62ef4540",
+          "duration_ms": 3.879
+        },
+        "created_at": "2026-11-12T14:21:26.343568+00:00"
+      },
+      {
+        "run_id": "run-3294e1d7a8c341a4",
+        "thread_id": "thread-4f7291a6e92d4384",
+        "seq": 12,
+        "event_type": "findings.extracted",
+        "stage": "extract_study_findings",
+        "payload": {
+          "findings_count": 6,
+          "origin": "graph_enforced"
+        },
+        "created_at": "2026-11-12T14:21:26.350574+00:00"
+      },
+      {
+        "run_id": "run-3294e1d7a8c341a4",
+        "thread_id": "thread-4f7291a6e92d4384",
+        "seq": 13,
+        "event_type": "run.retrying",
+        "stage": "retry",
+        "payload": {
+          "error": "ModelCallError",
+          "attempt": 1,
+          "max_attempts": 3
+        },
+        "created_at": "2026-11-12T14:21:26.660752+00:00"
+      },
+      {
+        "run_id": "run-3294e1d7a8c341a4",
+        "thread_id": "thread-4f7291a6e92d4384",
+        "seq": 14,
+        "event_type": "run.retrying",
+        "stage": "retry",
+        "payload": {
+          "error": "ModelCallError",
+          "attempt": 2,
+          "max_attempts": 3
+        },
+        "created_at": "2026-11-12T14:21:26.941037+00:00"
+      },
+      {
+        "run_id": "run-3294e1d7a8c341a4",
+        "thread_id": "thread-4f7291a6e92d4384",
+        "seq": 15,
+        "event_type": "run.failed",
+        "stage": "finalize",
+        "payload": {
+          "error": "ModelCallError",
+          "attempt": 3
+        },
+        "created_at": "2026-11-12T14:21:27.214931+00:00"
+      }
+    ]
+  ]
+}

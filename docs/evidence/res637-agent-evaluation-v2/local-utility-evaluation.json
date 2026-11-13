@@ -1,0 +1,32 @@
+{
+  "status": "LOCAL_UTILITY_SKIPPED",
+  "recorded_at_utc": "2026-11-12T23:44:54Z",
+  "purpose": "Optional offline utility-model experiment; not production qualification",
+  "model_requested": "lfm3:1.7b",
+  "host": {
+    "cpu": "AMD Ryzen 5 5600G with Radeon Graphics",
+    "logical_processors": 12,
+    "ram_total_gib": 31.4,
+    "ram_available_gib_before_run": 0.7,
+    "ollama_model_store_drive_free_gib": 70.2,
+    "repository_drive_free_gib": 226.8
+  },
+  "ollama": {
+    "executable_available": false,
+    "local_api_available": false,
+    "configured_model_store": "D:\\Dev\\State\\Ollama\\models",
+    "installed_model_manifests_found": 0
+  },
+  "decision": "Skipped before download or inference: Ollama is not installed or running, its configured model store has no installed manifests, and available RAM is below the model's expected CPU memory footprint.",
+  "tasks_run": 0,
+  "model_identity": null,
+  "digest": null,
+  "quantization": null,
+  "license": null,
+  "measurements": null,
+  "limitations": [
+    "No local model behavior, latency, resource use, token rate, JSON, or native tool-call validity was measured.",
+    "qwen3:4b and llama3.2:3b were not started or restarted.",
+    "No production routing or provider evaluation was changed."
+  ]
+}

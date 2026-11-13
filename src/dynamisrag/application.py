@@ -23,6 +23,10 @@ from typing import Final
 from fastapi import FastAPI
 
 from dynamisrag import __version__
+from dynamisrag.agent.auth import IdentityVerifier
+from dynamisrag.agent.observability import configure_privacy_safe_langsmith
+from dynamisrag.agent.router import build_agent_v2_router
+from dynamisrag.agent.services import build_agent_services
 from dynamisrag.config import Settings, load_settings
 from dynamisrag.db.engine import create_database_engine
 from dynamisrag.embedding.errors import EmbeddingProviderError
@@ -58,6 +62,19 @@ API_DESCRIPTION: Final[str] = (
 )
 
 _logger: Final[logging.Logger] = logging.getLogger(APP_LOGGER_NAME)
+
+
+def _build_identity_verifier(resolved: Settings) -> IdentityVerifier | None:
+    if not resolved.agent_enabled or resolved.agent_identity_secret is None:
+        return None
+    secrets = [resolved.agent_identity_secret.get_secret_value()]
+    if resolved.agent_identity_previous_secret is not None:
+        secrets.append(resolved.agent_identity_previous_secret.get_secret_value())
+    return IdentityVerifier(
+        secrets=tuple(secrets),
+        issuer=resolved.agent_identity_issuer,
+        audience=resolved.agent_identity_audience,
+    )
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -99,6 +116,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if resolved.scientific_answers_enabled and scientific is not None
         else None
     )
+    configure_privacy_safe_langsmith(
+        tracing_enabled=resolved.agent_langsmith_tracing_enabled,
+        project_name=resolved.agent_langsmith_project,
+    )
+    agent = build_agent_services(
+        settings=resolved,
+        engine=engine,
+        scientific=scientific,
+        search=search,
+        retrieval=retrieval,
+    )
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncGenerator[None]:
@@ -106,6 +134,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         with ExitStack() as cleanup:
             cleanup.callback(engine.dispose)
             cleanup.callback(opensearch_client.close)
+            if agent is not None:
+                cleanup.callback(agent.close)
+                agent.start_workers()
             if tei_provider is not None:
                 cleanup.callback(tei_provider.close)
             if scientific is not None:
@@ -130,6 +161,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(build_retrieval_router(retrieval=retrieval))
     app.include_router(build_scientific_router(scientific))
     app.include_router(build_answer_router(answers))
+    app.include_router(
+        build_agent_v2_router(
+            orchestrator=agent.orchestrator if agent else None,
+            store=agent.store if agent else None,
+            tool_registry=agent.registry if agent else None,
+            on_run_queued=agent.pool.wake if agent and agent.pool else None,
+            identity_verifier=_build_identity_verifier(resolved),
+            allow_dev_header=resolved.agent_dev_identity_header_enabled,
+            rate_limit_per_minute=resolved.agent_rate_limit_per_minute,
+        )
+    )
     app.include_router(build_research_ui_router())
 
     _logger.debug(

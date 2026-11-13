@@ -18,7 +18,15 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Final
 
-from pydantic import AliasChoices, AnyHttpUrl, Field, PostgresDsn, SecretStr, field_validator
+from pydantic import (
+    AliasChoices,
+    AnyHttpUrl,
+    Field,
+    PostgresDsn,
+    SecretStr,
+    field_validator,
+    model_validator,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 __all__ = [
@@ -124,6 +132,108 @@ class Settings(BaseSettings):
     scientific_qdrant_url: AnyHttpUrl = AnyHttpUrl("http://127.0.0.1:6333")
     scientific_tei_url: AnyHttpUrl = AnyHttpUrl("http://127.0.0.1:8081")
     scientific_evidence_directory: Path = _PROJECT_ROOT / "docs/evidence/real-science-v1"
+
+    # ------------------------------------------------------------------
+    # Conversational Scientific Research Agent (RES-637, /api/v2)
+    #
+    # Fail-closed by construction: the agent is OFF unless explicitly enabled, and
+    # enabling it requires (a) a signed-identity secret and (b) a dedicated agent
+    # database that is not the protected canonical database. See `_validate_agent`.
+    # ------------------------------------------------------------------
+    agent_enabled: bool = False
+    agent_provider: str = Field(
+        default="ollama",
+        pattern=r"^(ollama|openai|anthropic|opencode_go|deterministic)$",
+    )
+    agent_model_name: str = Field(default="qwen3:4b", min_length=1, max_length=200)
+    agent_model_revision: str | None = None
+    agent_model_base_url: str | None = "http://127.0.0.1:11435"
+    agent_model_api_key: SecretStr | None = Field(default=None, repr=False)
+    agent_model_num_ctx: int = Field(default=8192, ge=2048, le=131072)
+    agent_model_fast: str = Field(default="deepseek-v4.1-flash", min_length=1, max_length=200)
+    agent_model_coordinator: str = Field(default="gpt-6-luna", min_length=1, max_length=200)
+    agent_model_pro: str = Field(default="deepseek-v4-pro", min_length=1, max_length=200)
+    agent_max_pro_escalations: int = Field(default=1, ge=0, le=3)
+    agent_run_cost_budget_usd: float = Field(default=0.20, gt=0.0, le=100.0)
+    agent_run_token_budget: int = Field(default=250_000, ge=1_000, le=4_000_000)
+    agent_opencode_go_usage_approved: bool = False
+    """Explicit owner acknowledgement that OpenCode Go may serve this deployment.
+
+    OpenCode Go documents itself as "designed for OpenCode and other coding agents"; use for a
+    public scientific assistant is *unverified*. The provider is refused unless this is true.
+    """
+
+    agent_database_url: PostgresDsn | None = Field(default=None, repr=False)
+    """Dedicated agent PostgreSQL database (threads, runs, events, LangGraph checkpoints).
+
+    Must NOT address the protected canonical database (``database_url``)."""
+    agent_allow_ephemeral_store: bool = False
+    """Permit a non-durable in-memory store. Refused in ``staging`` and ``production``."""
+    agent_postgres_schema: str = Field(
+        default="agent_v2",
+        pattern=r"^[a-zA-Z_][a-zA-Z0-9_]{0,62}$",
+    )
+
+    agent_identity_secret: SecretStr | None = Field(default=None, repr=False)
+    agent_identity_previous_secret: SecretStr | None = Field(default=None, repr=False)
+    agent_identity_issuer: str = Field(default="dynamis-eve", min_length=1, max_length=200)
+    agent_identity_audience: str = Field(
+        default="dynamisrag-agent-v2", min_length=1, max_length=200
+    )
+    agent_dev_identity_header_enabled: bool = False
+    """Accept an unsigned ``X-Dynamis-User-Id`` header. Refused in ``staging``/``production``."""
+
+    agent_rate_limit_per_minute: int = Field(default=60, ge=1, le=600)
+    agent_inline_workers: int = Field(default=1, ge=0, le=16)
+    agent_run_timeout_seconds: float = Field(default=300.0, ge=5.0, le=3600.0)
+    agent_lease_seconds: float = Field(default=30.0, ge=2.0, le=600.0)
+    agent_max_run_attempts: int = Field(default=3, ge=1, le=10)
+    agent_langsmith_tracing_enabled: bool = False
+    agent_langsmith_mode: str = Field(
+        default="structure_only", pattern=r"^(structure_only|redacted_content)$"
+    )
+    """``structure_only`` exports no content at all; ``redacted_content`` exports scrubbed text."""
+    agent_langsmith_api_key: SecretStr | None = Field(default=None, repr=False)
+    agent_langsmith_project: str = Field(
+        default="dynamisrag-res637-eval",
+        min_length=1,
+        max_length=120,
+    )
+
+    @model_validator(mode="after")
+    def _validate_agent(self) -> Settings:
+        """Refuse unsafe agent configurations at startup instead of serving them."""
+        if self.agent_langsmith_tracing_enabled and self.agent_langsmith_api_key is None:
+            raise ValueError(
+                "agent_langsmith_tracing_enabled requires DYNAMISRAG_AGENT_LANGSMITH_API_KEY"
+            )
+        if not self.agent_enabled:
+            return self
+        production_like = self.environment in {Environment.STAGING, Environment.PRODUCTION}
+        if self.agent_database_url is None and not self.agent_allow_ephemeral_store:
+            raise ValueError(
+                "agent_enabled requires DYNAMISRAG_AGENT_DATABASE_URL (a dedicated agent "
+                "database) or, outside staging/production, agent_allow_ephemeral_store"
+            )
+        if production_like and self.agent_database_url is None:
+            raise ValueError("staging/production require a durable DYNAMISRAG_AGENT_DATABASE_URL")
+        if production_like and self.agent_allow_ephemeral_store:
+            raise ValueError("agent_allow_ephemeral_store is refused in staging/production")
+        if production_like and self.agent_dev_identity_header_enabled:
+            raise ValueError("agent_dev_identity_header_enabled is refused in staging/production")
+        if self.agent_identity_secret is None and not self.agent_dev_identity_header_enabled:
+            raise ValueError(
+                "agent_enabled requires DYNAMISRAG_AGENT_IDENTITY_SECRET (or the "
+                "non-production agent_dev_identity_header_enabled)"
+            )
+        if self.agent_provider == "deterministic" and production_like:
+            raise ValueError("The deterministic scripted model is refused in staging/production")
+        if self.agent_provider == "opencode_go" and not self.agent_opencode_go_usage_approved:
+            raise ValueError(
+                "agent_provider=opencode_go requires agent_opencode_go_usage_approved=true: "
+                "OpenCode Go usage rights for this deployment are unverified"
+            )
+        return self
 
     @field_validator("scientific_evidence_directory")
     @classmethod

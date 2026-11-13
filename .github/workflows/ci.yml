@@ -81,7 +81,19 @@ jobs:
         run: uv sync --locked
 
       - name: Install Chromium
-        run: uv run playwright install --with-deps chromium
+        # `--with-deps` runs apt-get against the runner's Ubuntu mirrors. A transient DNS outage
+        # there (observed on PR #34: "Temporary failure resolving 'archive.ubuntu.com'") fails
+        # the job before any browser test executes, which says nothing about the application.
+        # Retry the infrastructure step a bounded number of times; a real failure still fails.
+        shell: bash
+        run: |
+          set -uo pipefail
+          for attempt in 1 2 3; do
+            if uv run playwright install --with-deps chromium; then exit 0; fi
+            echo "playwright install failed (attempt ${attempt}/3); retrying after backoff"
+            sleep $((attempt * 20))
+          done
+          exit 1
 
       - name: Browser end-to-end tests
         run: uv run pytest -q -o "addopts=-ra --strict-config --strict-markers" -m browser
