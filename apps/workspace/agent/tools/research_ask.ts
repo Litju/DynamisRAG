@@ -1,3 +1,4 @@
+import { setTimeout as delay } from "node:timers/promises";
 import { defineTool } from "eve/tools";
 import { z } from "zod";
 import { researchEvents } from "../../lib/events";
@@ -36,26 +37,28 @@ export default defineTool({
     try {
       while (!terminal) {
         ctx.abortSignal.throwIfAborted();
-        const current = await json<Run>(
-          await python(user, `runs/${run.run_id}`, { signal: ctx.abortSignal }),
-        );
-        terminal = ["completed", "abstained", "cancelled", "failed"].includes(
-          current.status,
-        );
-        yield {
-          thread_id: thread.thread_id,
-          run_id: run.run_id,
-          status: current.status,
-          answer:
-            current.answer_markdown ||
-            current.abstention_reason ||
-            current.error_message ||
-            "Research is running",
-          origin: "MODEL_PROPOSED",
-          review_state: "PROPOSED",
-        };
-        if (!terminal) {
-          try {
+        try {
+          const current = await json<Run>(
+            await python(user, `runs/${run.run_id}`, {
+              signal: ctx.abortSignal,
+            }),
+          );
+          terminal = ["completed", "abstained", "cancelled", "failed"].includes(
+            current.status,
+          );
+          yield {
+            thread_id: thread.thread_id,
+            run_id: run.run_id,
+            status: current.status,
+            answer:
+              current.answer_markdown ||
+              current.abstention_reason ||
+              current.error_message ||
+              "Research is running",
+            origin: "MODEL_PROPOSED",
+            review_state: "PROPOSED",
+          };
+          if (!terminal) {
             const response = await python(
               user,
               `runs/${run.run_id}/events?after_seq=${cursor}`,
@@ -76,14 +79,19 @@ export default defineTool({
                 review_state: "PROPOSED",
               };
             }
-          } catch (error) {
-            if (ctx.abortSignal.aborted || ++streamFailures >= 3) throw error;
           }
+        } catch (error) {
+          if (ctx.abortSignal.aborted || ++streamFailures >= 3) throw error;
+          await delay(250 * streamFailures, undefined, {
+            signal: ctx.abortSignal,
+          });
         }
       }
     } finally {
-      if (!terminal && ctx.abortSignal.aborted)
-        await python(user, `runs/${run.run_id}/cancel`, { method: "POST" });
+      if (!terminal)
+        await json(
+          await python(user, `runs/${run.run_id}/cancel`, { method: "POST" }),
+        );
     }
   },
 });
