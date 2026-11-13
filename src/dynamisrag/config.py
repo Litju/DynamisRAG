@@ -130,6 +130,8 @@ class Settings(BaseSettings):
     scientific_answers_enabled: bool = False
     scientific_ollama_url: AnyHttpUrl = AnyHttpUrl("http://127.0.0.1:11434")
     scientific_qdrant_url: AnyHttpUrl = AnyHttpUrl("http://127.0.0.1:6333")
+    scientific_qdrant_api_key: SecretStr | None = Field(default=None, repr=False)
+    scientific_qdrant_allowed_remote_host: str | None = None
     scientific_tei_url: AnyHttpUrl = AnyHttpUrl("http://127.0.0.1:8081")
     scientific_evidence_directory: Path = _PROJECT_ROOT / "docs/evidence/real-science-v1"
 
