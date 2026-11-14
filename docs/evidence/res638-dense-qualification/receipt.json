@@ -1,0 +1,337 @@
+{
+ "schema": "res638-dense-retrieval-qualification-v1",
+ "generated_at": "2026-11-14T00:22:21.492577+00:00",
+ "code_revision": "57b2f2ec971b485957abd6b6f862b740d97db1f8",
+ "pinned": {
+  "model_id": "Qwen/Qwen3-Embedding-0.6B",
+  "model_revision": "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
+  "document_config_sha256": "8438d37d8e8c8f975f62cbc6f6c644abc27304b18b7a330d9157a70f21c9c1f7",
+  "query_config_sha256": "94245fa64ff582ab1428c7aea38387e9091a23e538c96d7fbf7b48e1755da8fd",
+  "chunker_revision": "structure-v1.1.b19e0939b5de",
+  "dimension": 512,
+  "tei_image": "ghcr.io/huggingface/text-embeddings-inference:cpu-1.9.4"
+ },
+ "isolation": {
+  "qdrant_url": "http://127.0.0.1:16335",
+  "tei_url": "http://127.0.0.1:8082",
+  "retained_qdrant_reused": false,
+  "retained_receipts_reused": false
+ },
+ "corpus": {
+  "document_versions": [
+   {
+    "version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643",
+    "title": "Impact of Starting Knee Flexion Angle on Muscle Activity and Performance during Plyometrics without Jumping"
+   },
+   {
+    "version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b",
+    "title": "Effect of plyometric versus complex training on core strength, lower limb, and upper limb power in male cricketers: a randomized controlled trial"
+   },
+   {
+    "version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e",
+    "title": "Plyometric Training Favors Optimizing Muscle–Tendon Behavior during Depth Jumping"
+   }
+  ],
+  "passage_count": 75,
+  "document_count": 3,
+  "chunker_revision": "structure-v1.1.b19e0939b5de"
+ },
+ "corpus_sha256": "7b3b6566907a9d3c8fa0768d69cb92e388d81e27b7456bf6345a632665cf08f3",
+ "observed_embedding_identity": {
+  "provider": "tei",
+  "protocol_revision": "tei-http-v1",
+  "runtime_version": "1.9.4",
+  "runtime_sha": "e80ef225ed0e6cb1717ce632a6a84b6cf211bb67",
+  "model_id": "Qwen/Qwen3-Embedding-0.6B",
+  "model_sha": "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
+  "model_dtype": "float32",
+  "model_pooling": "last_token",
+  "max_input_length": 2048,
+  "max_client_batch_size": 1,
+  "deployment": {
+   "tei_default_prompt_mode": "none",
+   "tei_default_prompt_name": null,
+   "tei_default_prompt_sha256": null,
+   "tei_dense_path": null,
+   "local_device": "cpu",
+   "local_backend": "candle-mkl",
+   "local_image_digest": "sha256:2538ea1c9640d3763b15af668039d24172d063b42337b0c27796fc2be180c78d",
+   "local_threads": 4,
+   "local_platform": "linux-amd64"
+  }
+ },
+ "status": "QUALIFIED",
+ "collection": "qdrant-passages-v1-5a20d2780fe6cd0ce0155ed7535c6507ec452f9ad4ae14cbd5990e13d7e8a709",
+ "alias": "dynamisrag-res638-dense-qualification-v1",
+ "embedding_manifest_sha256": "46f96db3a02cf61374003475e3f006258ecbd790a4a78bd858b305c25f5104ff",
+ "projection_sha256": "c805183fa694986ea127fb62c9541b7acdcaa1c4af2fa8cfae5ee099fa9e0eb4",
+ "collection_identity": {
+  "schema_revision": "qdrant-passages-v1",
+  "schema_sha256": "b83e0682ea5a90589e4411c2964703bcf3fd57203176729275818db13f0aaca1",
+  "projection_sha256": "c805183fa694986ea127fb62c9541b7acdcaa1c4af2fa8cfae5ee099fa9e0eb4",
+  "embedding_manifest_sha256": "46f96db3a02cf61374003475e3f006258ecbd790a4a78bd858b305c25f5104ff",
+  "embedding_config_sha256": "8438d37d8e8c8f975f62cbc6f6c644abc27304b18b7a330d9157a70f21c9c1f7",
+  "expected_count": 75,
+  "model_id": "Qwen/Qwen3-Embedding-0.6B",
+  "model_revision": "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3"
+ },
+ "point_count": 75,
+ "vector_dimension": 512,
+ "vector_norm_min": 0.9999999596104959,
+ "vector_norm_max": 1.0000000433284795,
+ "canonical_passage_membership": "exact",
+ "retrieval": [
+  {
+   "case_id": "positive_achilles",
+   "question": "What happened to Achilles tendon stiffness during depth jumping?",
+   "expected_pmcids": [
+    "PMC5263151"
+   ],
+   "expected_document_recalled": true,
+   "dense_hits": 50,
+   "lexical_hits": 50,
+   "top_fused": [
+    {
+     "rank": 1,
+     "score": 0.032018442622950824,
+     "passage_key": "9cbd015305b222b8ed8c37eb3b0ed0bb18b9847e13aaec41ae1f7410e9be7abe",
+     "title": "Plyometric Training Favors Optimizing Muscle–Tendon Behavior during Depth Jumping",
+     "document_version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e"
+    },
+    {
+     "rank": 2,
+     "score": 0.031754032258064516,
+     "passage_key": "29f81034bdd24d353929db515b8f2acbc75456f6aa50c6d693cb47ed915b64b2",
+     "title": "Plyometric Training Favors Optimizing Muscle–Tendon Behavior during Depth Jumping",
+     "document_version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e"
+    },
+    {
+     "rank": 3,
+     "score": 0.03125763125763126,
+     "passage_key": "20b882b966e04387a69e3f80782fd9dd266642f4a492120b415f5156a6ba25e8",
+     "title": "Plyometric Training Favors Optimizing Muscle–Tendon Behavior during Depth Jumping",
+     "document_version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e"
+    },
+    {
+     "rank": 4,
+     "score": 0.031054405392392875,
+     "passage_key": "ff98ea8cb2b6f9c9af22689a5b49868fcd816885ba0b2939ab5aae696deda73f",
+     "title": "Plyometric Training Favors Optimizing Muscle–Tendon Behavior during Depth Jumping",
+     "document_version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e"
+    },
+    {
+     "rank": 5,
+     "score": 0.031024531024531024,
+     "passage_key": "04d4565cd5a7cd106944580d4fe621057f1b7c32c870f638209e976303725dff",
+     "title": "Plyometric Training Favors Optimizing Muscle–Tendon Behavior during Depth Jumping",
+     "document_version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e"
+    }
+   ]
+  },
+  {
+   "case_id": "positive_knee_flexion",
+   "question": "How did knee flexion angle affect muscle activity?",
+   "expected_pmcids": [
+    "PMC10780924"
+   ],
+   "expected_document_recalled": true,
+   "dense_hits": 50,
+   "lexical_hits": 50,
+   "top_fused": [
+    {
+     "rank": 1,
+     "score": 0.03278688524590164,
+     "passage_key": "c15877f3938f3a25bc734c99fe15cfb29a25805bdfc2ec7b124ea41e41295cf0",
+     "title": "Impact of Starting Knee Flexion Angle on Muscle Activity and Performance during Plyometrics without Jumping",
+     "document_version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643"
+    },
+    {
+     "rank": 2,
+     "score": 0.03225806451612903,
+     "passage_key": "c95fa67ff09a49666ee2640e5f34963bcc08e2e8036ccdc7e2c689e7e539e037",
+     "title": "Impact of Starting Knee Flexion Angle on Muscle Activity and Performance during Plyometrics without Jumping",
+     "document_version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643"
+    },
+    {
+     "rank": 3,
+     "score": 0.030798389007344232,
+     "passage_key": "a2a28740ccd4e71ab85adc2970a962e5ab7ead39563ff9d217f9b8dfed84c877",
+     "title": "Impact of Starting Knee Flexion Angle on Muscle Activity and Performance during Plyometrics without Jumping",
+     "document_version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643"
+    },
+    {
+     "rank": 4,
+     "score": 0.03057889822595705,
+     "passage_key": "0a0cfb976e7bd8ce7f592764f258accd073b5c9455a1b901fb965212fc2fb92c",
+     "title": "Impact of Starting Knee Flexion Angle on Muscle Activity and Performance during Plyometrics without Jumping",
+     "document_version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643"
+    },
+    {
+     "rank": 5,
+     "score": 0.030536130536130537,
+     "passage_key": "a73f69fb8c9eb8d3a4c266f8af55febd81c892052838fe2577fd8a2f7e79ca86",
+     "title": "Impact of Starting Knee Flexion Angle on Muscle Activity and Performance during Plyometrics without Jumping",
+     "document_version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643"
+    }
+   ]
+  },
+  {
+   "case_id": "positive_comparison",
+   "question": "Compare the study designs and populations of the plyometric studies.",
+   "expected_pmcids": [
+    "PMC5263151",
+    "PMC10780924",
+    "PMC10680285"
+   ],
+   "expected_document_recalled": true,
+   "dense_hits": 50,
+   "lexical_hits": 50,
+   "top_fused": [
+    {
+     "rank": 1,
+     "score": 0.03125763125763126,
+     "passage_key": "efdea100f6fa04f0f696d2a22c6fe5f522db570a754bc61cf7886893a8e58c09",
+     "title": "Effect of plyometric versus complex training on core strength, lower limb, and upper limb power in male cricketers: a randomized controlled trial",
+     "document_version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b"
+    },
+    {
+     "rank": 2,
+     "score": 0.029726775956284153,
+     "passage_key": "b3054cca52f8534e5f1140541d072f651b61032b004e493b4070053bb5472d77",
+     "title": "Plyometric Training Favors Optimizing Muscle–Tendon Behavior during Depth Jumping",
+     "document_version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e"
+    },
+    {
+     "rank": 3,
+     "score": 0.02938045560996381,
+     "passage_key": "b55b0b7f60d34f60bfedc6669bdaa84a45fd1c912e73b9226d3baedaa0565357",
+     "title": "Effect of plyometric versus complex training on core strength, lower limb, and upper limb power in male cricketers: a randomized controlled trial",
+     "document_version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b"
+    },
+    {
+     "rank": 4,
+     "score": 0.028693528693528692,
+     "passage_key": "15e2c1ed194cd4fee1c88834b4344082648e23c54b8d15207a292c8b53788f77",
+     "title": "Effect of plyometric versus complex training on core strength, lower limb, and upper limb power in male cricketers: a randomized controlled trial",
+     "document_version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b"
+    },
+    {
+     "rank": 5,
+     "score": 0.028665028665028666,
+     "passage_key": "4f72bcf44071a4a1ebd326158834fefec6fee367b4331c07a03a42f66fcf6f7d",
+     "title": "Effect of plyometric versus complex training on core strength, lower limb, and upper limb power in male cricketers: a randomized controlled trial",
+     "document_version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b"
+    }
+   ]
+  },
+  {
+   "case_id": "negative_kepler",
+   "question": "What is the orbital period of the exoplanet Kepler-22b?",
+   "expected_pmcids": [],
+   "expected_document_recalled": false,
+   "dense_hits": 50,
+   "lexical_hits": 50,
+   "top_fused": [
+    {
+     "rank": 1,
+     "score": 0.03252247488101534,
+     "passage_key": "418af8928d919e2b4d9e887d1679ae1101b2768943433ca0e5d71b2e278ba002",
+     "title": "Plyometric Training Favors Optimizing Muscle–Tendon Behavior during Depth Jumping",
+     "document_version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e"
+    },
+    {
+     "rank": 2,
+     "score": 0.029910714285714284,
+     "passage_key": "3e70446abc81094002f983d350849237cf8acb3b3bac2db38ffbd973a2dbac46",
+     "title": "Effect of plyometric versus complex training on core strength, lower limb, and upper limb power in male cricketers: a randomized controlled trial",
+     "document_version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b"
+    },
+    {
+     "rank": 3,
+     "score": 0.026234567901234566,
+     "passage_key": "4f90bd9603475810e80898082a55911c3fcad15319249c84dd2f9d5e49f781c2",
+     "title": "Plyometric Training Favors Optimizing Muscle–Tendon Behavior during Depth Jumping",
+     "document_version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e"
+    },
+    {
+     "rank": 4,
+     "score": 0.026144907723855092,
+     "passage_key": "4cce03640fc14755bb8c875d9ec6cd82b50413cb633176b3f53a0e2067c9b744",
+     "title": "Plyometric Training Favors Optimizing Muscle–Tendon Behavior during Depth Jumping",
+     "document_version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e"
+    },
+    {
+     "rank": 5,
+     "score": 0.025451688923802042,
+     "passage_key": "beccf1a49d011638455e8cbe7f0dac994af79f1ebcd51097dd383013db4fc163",
+     "title": "Effect of plyometric versus complex training on core strength, lower limb, and upper limb power in male cricketers: a randomized controlled trial",
+     "document_version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b"
+    }
+   ]
+  },
+  {
+   "case_id": "negative_sourdough",
+   "question": "What hydration ratio do the studies recommend for sourdough bread?",
+   "expected_pmcids": [],
+   "expected_document_recalled": false,
+   "dense_hits": 50,
+   "lexical_hits": 50,
+   "top_fused": [
+    {
+     "rank": 1,
+     "score": 0.03128054740957967,
+     "passage_key": "3bc19674f9b0a1eb1b1cc3579f5b0c44906f379eed97622ea4b77826297a6ea0",
+     "title": "Effect of plyometric versus complex training on core strength, lower limb, and upper limb power in male cricketers: a randomized controlled trial",
+     "document_version_key": "ad23fd192c775bd4f5e54882f7c80ca5834924ff436f1611683faef5efbd241b"
+    },
+    {
+     "rank": 2,
+     "score": 0.029726775956284153,
+     "passage_key": "4f90bd9603475810e80898082a55911c3fcad15319249c84dd2f9d5e49f781c2",
+     "title": "Plyometric Training Favors Optimizing Muscle–Tendon Behavior during Depth Jumping",
+     "document_version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e"
+    },
+    {
+     "rank": 3,
+     "score": 0.02871794871794872,
+     "passage_key": "7e765a236a54826ab5dc089a1ecdb41e288e78bee407a6c05da939b79038a151",
+     "title": "Plyometric Training Favors Optimizing Muscle–Tendon Behavior during Depth Jumping",
+     "document_version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e"
+    },
+    {
+     "rank": 4,
+     "score": 0.028438886647841874,
+     "passage_key": "b8f51f5037a64cb1fa0419eda42f489e0745e769b9ff8c2c6fbf12a51b0479cf",
+     "title": "Plyometric Training Favors Optimizing Muscle–Tendon Behavior during Depth Jumping",
+     "document_version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e"
+    },
+    {
+     "rank": 5,
+     "score": 0.028370221327967807,
+     "passage_key": "1fab5010322a20942864efa1838766d23b1ce361445edc7436680ea462654e34",
+     "title": "Plyometric Training Favors Optimizing Muscle–Tendon Behavior during Depth Jumping",
+     "document_version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e"
+    }
+   ]
+  }
+ ],
+ "positive_cases_recalled": [
+  "positive_achilles",
+  "positive_knee_flexion",
+  "positive_comparison"
+ ],
+ "isolation_after": {
+  "collections": [
+   "qdrant-passages-v1-5a20d2780fe6cd0ce0155ed7535c6507ec452f9ad4ae14cbd5990e13d7e8a709"
+  ],
+  "aliases": {
+   "dynamisrag-res638-dense-qualification-v1": "qdrant-passages-v1-5a20d2780fe6cd0ce0155ed7535c6507ec452f9ad4ae14cbd5990e13d7e8a709"
+  }
+ },
+ "limitations": [
+  "Dense retrieval scores are not semantic entailment or scientific validity.",
+  "This qualifies the pinned CPU TEI model and a fresh local projection only.",
+  "Off-domain queries still return nearest neighbours; abstention is the answerability gate's job.",
+  "No hosted Qdrant/TEI, load test, or paid inference was used."
+ ]
+}

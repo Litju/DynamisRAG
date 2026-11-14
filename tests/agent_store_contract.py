@@ -74,6 +74,11 @@ def check_thread_ownership_and_external_ref(h: StoreHarness) -> None:
     again = h.store.create_thread(owner_id="alice", title="other", external_ref="eve-1")
     assert again.thread_id == t.thread_id
     other = h.store.create_thread(owner_id="bob", title="t", external_ref="eve-1")
+    assert h.store.list_threads(user_id="alice") == (t,)
+    assert h.store.list_threads(user_id="nobody") == ()
+    assert h.store.list_threads(user_id="alice", external_ref="eve-1") == (t,)
+    assert h.store.list_threads(user_id="alice", external_ref="missing") == ()
+    assert h.store.list_threads(user_id="bob", limit=1) == (other,)
     assert other.thread_id != t.thread_id
     with pytest.raises(ThreadAuthorizationError):
         h.store.get_thread(t.thread_id, user_id="bob")

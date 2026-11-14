@@ -304,7 +304,13 @@ class ScientificRetrievalService:
     def __init__(self, engine: Engine, settings: Settings) -> None:
         self.engine = engine
         self.directory = settings.scientific_evidence_directory
-        self.client = QdrantClient(str(settings.scientific_qdrant_url).rstrip("/"))
+        self.client = QdrantClient(
+            str(settings.scientific_qdrant_url).rstrip("/"),
+            api_key=settings.scientific_qdrant_api_key.get_secret_value()
+            if settings.scientific_qdrant_api_key
+            else None,
+            allowed_remote_host=settings.scientific_qdrant_allowed_remote_host,
+        )
         self.provider = TeiEmbeddingProvider(
             base_url=str(settings.scientific_tei_url).rstrip("/"),
             expected_model=ExpectedTeiModel(MODEL_ID, MODEL_REVISION),

@@ -1,0 +1,11 @@
+{
+  "name": "dynamisrag-res638-gateway",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-11-13",
+  "workers_dev": false,
+  "preview_urls": false,
+  "vars": {
+    "DEMO_EXPIRES_AT": "1970-01-01T00:00:00Z",
+    "PYTHON_API_ORIGIN": "https://configure-a-protected-named-tunnel.invalid"
+  }
+}

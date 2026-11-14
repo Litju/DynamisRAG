@@ -19,6 +19,7 @@ ENV/
 .env.*
 !.env.example
 !.env.research-edition.example
+!.env.workspace.example
 *.pem
 *.key
 secrets/

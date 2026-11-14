@@ -62,6 +62,7 @@ from dynamisrag.agent.persistence import (
 )
 from dynamisrag.agent.tools import ScientificToolRegistry
 from dynamisrag.domain.values import Sha256Hex
+from dynamisrag.evidence.inspection import HighlightMappingError
 
 
 class CreateThreadRequest(AgentContract):
@@ -88,10 +89,18 @@ class ResumeRunRequest(AgentContract):
 
 
 class EvidenceInspectionResponse(AgentContract):
-    """Response contract for `GET /api/v2/evidence/{passage_key}`."""
+    """Response contract for `GET /api/v2/evidence/{passage_key}`.
+
+    ``highlight`` is present only when the supplied citation coordinates were
+    independently mapped to the exact passage span. ``highlight_error`` explains
+    a refused mapping; the browser must then show no highlight rather than search
+    for another textual match.
+    """
 
     passage: dict[str, Any]
     expanded_context: dict[str, Any]
+    highlight: dict[str, Any] | None = None
+    highlight_error: str | None = None
 
 
 class SlidingWindowRateLimiter:
@@ -210,6 +219,15 @@ def _register_thread_and_run_routes(
     auth_dep: Callable[..., UserId],
     on_run_queued: Callable[[], None],
 ) -> None:
+    @router.get("/threads", response_model=tuple[ThreadRecord, ...])
+    def list_threads(
+        user_id: Annotated[UserId, Depends(auth_dep)],
+        limit: int = Query(default=100, ge=1, le=100),
+        external_ref: SafeShortText | None = None,
+    ) -> tuple[ThreadRecord, ...]:
+        _, active_store, _ = deps.require()
+        return active_store.list_threads(user_id=user_id, limit=limit, external_ref=external_ref)
+
     @router.post("/threads", response_model=ThreadRecord, status_code=status.HTTP_201_CREATED)
     def create_thread(
         body: CreateThreadRequest,
@@ -434,11 +452,15 @@ def _register_resource_routes(
     auth_dep: Callable[..., UserId],
 ) -> None:
     @router.get("/evidence/{passage_key}", response_model=EvidenceInspectionResponse)
-    def inspect_evidence_passage(
+    def inspect_evidence_passage(  # noqa: PLR0917 - FastAPI dependency signature
         passage_key: Sha256Hex,
         thread_id: Annotated[SafeShortText, Query()],
         user_id: Annotated[UserId, Depends(auth_dep)],
         sibling_distance: Annotated[int, Query(ge=1, le=3)] = 1,
+        span_key: Annotated[Sha256Hex | None, Query()] = None,
+        start_char: Annotated[int | None, Query(ge=0)] = None,
+        end_char: Annotated[int | None, Query(ge=0)] = None,
+        quote: Annotated[str | None, Query(max_length=650)] = None,
     ) -> EvidenceInspectionResponse:
         _, active_store, registry = deps.require()
         scope = _thread_scope(
@@ -461,9 +483,25 @@ def _register_resource_routes(
             ),
             scope,
         )
+        highlight: dict[str, Any] | None = None
+        highlight_error: str | None = None
+        if any(value is not None for value in (span_key, start_char, end_char, quote)):
+            try:
+                highlight = registry.locate_citation_highlight(
+                    passage_key=passage_key,
+                    span_key=span_key,
+                    start_char=start_char,
+                    end_char=end_char,
+                    quote=quote,
+                    scope=scope,
+                )
+            except HighlightMappingError as error:
+                highlight_error = error.reason
         return EvidenceInspectionResponse(
             passage=p_env.payload["passage"],
             expanded_context=ctx_env.payload or {},
+            highlight=highlight,
+            highlight_error=highlight_error,
         )
 
     @router.get("/papers")

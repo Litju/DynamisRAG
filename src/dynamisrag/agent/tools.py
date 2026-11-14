@@ -43,6 +43,7 @@ from sqlalchemy import Engine, func, select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from dynamisrag.agent.answerability import build_query_profile, stem_terms, surface_terms
 from dynamisrag.agent.claims import assess_numeric_provenance, assess_semantic_support
 from dynamisrag.agent.contracts import (
     CalculateStatisticsInput,
@@ -113,6 +114,7 @@ from dynamisrag.domain.evidence import (
     InvalidProvenanceError,
 )
 from dynamisrag.domain.identity import digest, evidence_identity, paragraph_key
+from dynamisrag.evidence.inspection import HighlightMappingError, locate_verified_quote
 from dynamisrag.generation.scientific import scientific_terms
 from dynamisrag.search.bm25 import Bm25SearchService, SearchHit
 from dynamisrag.search.errors import OpenSearchError
@@ -620,7 +622,10 @@ class ScientificToolRegistry:
             section_filter_lower = (
                 params.section_filter.casefold() if params.section_filter else None
             )
-            query_terms = scientific_terms(params.query)
+            profile = build_query_profile(params.query)
+            query_terms = set(profile.facets).union(
+                part for entity in profile.entities for part in entity
+            )
             query_lower = params.query.casefold()
             scored: list[tuple[float, PassageProjectionRecords, tuple[PassageSpanItem, ...]]] = []
 
@@ -696,9 +701,10 @@ class ScientificToolRegistry:
                 "Canonical passage failed source-span reconstruction",
             ) from err
 
-        title_terms = scientific_terms(rec.version.title)
-        sec_terms = scientific_terms(sec_title or "")
-        text_terms = scientific_terms(rec.passage.text)
+        title_terms = surface_terms(rec.version.title)
+        sec_terms = surface_terms(sec_title or "")
+        text_terms = surface_terms(rec.passage.text)
+        query_terms = stem_terms(query_terms)
 
         overlap_title = len(query_terms.intersection(title_terms))
         overlap_sec = len(query_terms.intersection(sec_terms))
@@ -978,6 +984,43 @@ class ScientificToolRegistry:
                 )
 
         return self._execute_bounded(ToolName.GET_PASSAGE, scope, _run)
+
+    def locate_citation_highlight(
+        self,
+        *,
+        passage_key: str,
+        span_key: str | None,
+        start_char: int | None,
+        end_char: int | None,
+        quote: str | None,
+        scope: DataScope,
+    ) -> dict[str, object]:
+        """Map verified citation coordinates to the exact passage span.
+
+        Raises :class:`HighlightMappingError` when the stored coordinates do not
+        identify the requested quotation. It never searches for a later match.
+        """
+        with self._read_only_session(scope) as session:
+            records = list_passage_projection_records(
+                session,
+                chunker_revision=self.chunker_revision,
+                passage_keys=(passage_key,),
+            )
+            if len(records) != 1:
+                raise HighlightMappingError("span_not_found")
+            record = records[0]
+            if not scope.allows_version(record.version.version_key):
+                raise ToolExecutionError(
+                    ToolErrorCode.UNAUTHORIZED_SCOPE,
+                    "Passage belongs to a document version outside the authorized scope",
+                )
+            return locate_verified_quote(
+                record,
+                span_key=span_key,
+                start_char=start_char,
+                end_char=end_char,
+                quote=quote,
+            ).payload()
 
     # ------------------------------------------------------------------
     # 5. expand_passage_context
