@@ -1318,9 +1318,7 @@ class ConversationalResearchOrchestrator:
         comparison = state.get("study_comparison") or {}
         compared_studies = comparison.get("studies")
         compared_count = (
-            len(cast("list[object]", compared_studies))
-            if isinstance(compared_studies, list)
-            else 0
+            len(cast("list[object]", compared_studies)) if isinstance(compared_studies, list) else 0
         )
         decision = assess_claims(
             state.get("question", ""),
