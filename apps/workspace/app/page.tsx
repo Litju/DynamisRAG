@@ -2,6 +2,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { useEveAgent } from "eve/react";
 import Markdown from "react-markdown";
+import {
+  highlightSegments,
+  type Highlight,
+} from "../lib/highlight";
 
 type Thread = {
   thread_id: string;
@@ -10,7 +14,14 @@ type Thread = {
   allowed_version_keys: string[];
 };
 type Paper = { document_version_key: string; title: string };
-type Citation = { passage_key?: string; [key: string]: unknown };
+type Citation = {
+  passage_key?: string;
+  span_key?: string;
+  start_char?: number;
+  end_char?: number;
+  verbatim_quote?: string;
+  [key: string]: unknown;
+};
 type Comparison = {
   studies: {
     title: string;
@@ -48,6 +59,8 @@ type Evidence = {
     }[];
   };
   expanded_context: unknown;
+  highlight?: Highlight | null;
+  highlight_error?: string | null;
 };
 async function api<T>(path: string, body?: unknown): Promise<T> {
   const response = await fetch(
@@ -267,7 +280,8 @@ function Conversation({ thread }: { thread: Thread }) {
   const [run, setRun] = useState<Run | null>(null);
   const [events, setEvents] = useState<string[]>([]);
   const [evidence, setEvidence] = useState<Evidence | null>(null);
-  const [quote, setQuote] = useState("");
+  const [highlight, setHighlight] = useState<Highlight | null>(null);
+  const [highlightQuote, setHighlightQuote] = useState("");
   const [error, setError] = useState("");
   const busy = ["resuming", "submitted", "streaming"].includes(agent.status);
   const ids = [
@@ -325,12 +339,24 @@ function Conversation({ thread }: { thread: Thread }) {
       controller.abort();
     };
   }, [runId]);
-  async function inspect(key: string, verbatim: string) {
+  async function inspect(key: string, citation?: Citation) {
     try {
-      setEvidence(
-        await api<Evidence>(`evidence/${key}?thread_id=${thread.thread_id}`),
-      );
-      setQuote(verbatim);
+      const params = new URLSearchParams({ thread_id: thread.thread_id });
+      if (
+        citation?.span_key &&
+        citation.start_char != null &&
+        citation.end_char != null &&
+        citation.verbatim_quote
+      ) {
+        params.set("span_key", citation.span_key);
+        params.set("start_char", String(citation.start_char));
+        params.set("end_char", String(citation.end_char));
+        params.set("quote", citation.verbatim_quote);
+      }
+      const result = await api<Evidence>(`evidence/${key}?${params}`);
+      setEvidence(result);
+      setHighlight(result.highlight ?? null);
+      setHighlightQuote(citation?.verbatim_quote ?? "");
     } catch (e) {
       setError((e as Error).message);
     }
@@ -372,10 +398,7 @@ function Conversation({ thread }: { thread: Thread }) {
                 key={index}
                 onClick={() =>
                   citation.passage_key &&
-                  void inspect(
-                    citation.passage_key,
-                    String(citation.verbatim_quote || ""),
-                  )
+                  void inspect(citation.passage_key, citation)
                 }
               >
                 Inspect source {index + 1}
@@ -416,7 +439,7 @@ function Conversation({ thread }: { thread: Thread }) {
                             {study.supporting_passage_keys.map((key) => (
                               <button
                                 key={key}
-                                onClick={() => void inspect(key, "")}
+                                onClick={() => void inspect(key)}
                               >
                                 Inspect study source
                               </button>
@@ -459,7 +482,17 @@ function Conversation({ thread }: { thread: Thread }) {
                 DOI: {evidence.passage.doi}
               </a>
             )}
-            <SourceText text={evidence.passage.text} quote={quote} />
+            {evidence.highlight_error && (
+              <p role="status">
+                Exact source span could not be mapped (
+                {evidence.highlight_error}). No highlight is shown.
+              </p>
+            )}
+            <SourceText
+              text={evidence.passage.text}
+              highlight={highlight}
+              quote={highlightQuote}
+            />
             <h3>Source coordinates</h3>
             <ul>
               {evidence.passage.source_spans.map((span) => (
@@ -515,18 +548,30 @@ function Conversation({ thread }: { thread: Thread }) {
   );
 }
 
-function SourceText({ text, quote }: { text: string; quote: string }) {
-  const index = quote ? text.indexOf(quote) : -1;
+function SourceText({
+  text,
+  highlight,
+  quote,
+}: {
+  text: string;
+  highlight: Highlight | null;
+  quote: string;
+}) {
+  const result = highlightSegments(text, highlight, quote);
   return (
     <blockquote>
-      {index < 0 ? (
-        text
-      ) : (
-        <>
-          {text.slice(0, index)}
-          <mark>{quote}</mark>
-          {text.slice(index + quote.length)}
-        </>
+      {result.segments.map((segment, index) =>
+        segment.marked ? (
+          <mark key={index}>{segment.text}</mark>
+        ) : (
+          <span key={index}>{segment.text}</span>
+        ),
+      )}
+      {!result.valid && highlight && (
+        <small role="status">
+          The verified citation coordinates did not match the canonical passage (
+          {result.reason}); nothing was highlighted.
+        </small>
       )}
     </blockquote>
   );
