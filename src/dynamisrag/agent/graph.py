@@ -46,6 +46,13 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command, interrupt
 from pydantic import ValidationError
 
+from dynamisrag.agent.answerability import (
+    AnswerabilityDecision,
+    ClaimEvidence,
+    EvidenceCandidate,
+    assess_claims,
+    assess_retrieval,
+)
 from dynamisrag.agent.contracts import (
     PROPOSED_LIMITATION_NOTICE,
     CandidateClaimInput,
@@ -189,6 +196,7 @@ class ResearchAgentState(TypedDict, total=False):
     expanded_paragraphs: list[dict[str, Any]]
     proposed_findings: list[dict[str, Any]]
     study_comparison: dict[str, Any] | None
+    answerability: dict[str, Any] | None
     provisional_claims: list[dict[str, Any]]
     verified_citations: list[dict[str, Any]]
     rejected_citations: list[dict[str, Any]]
@@ -240,14 +248,6 @@ _COMPARISON_KEYWORDS = (
     "methodologies and outcomes",
     "across these papers",
     "across the studies",
-)
-
-_OUT_OF_CORPUS_TOPICS = (
-    "quantum chromodynamics",
-    "superconducting qubit",
-    "exoplanet spectroscopy",
-    "black hole hawking radiation",
-    "crispr cas13 plant virology",
 )
 
 
@@ -733,7 +733,14 @@ class ConversationalResearchOrchestrator:
         resolved_q = question
         resolution_source = "none_needed"
         if has_coref and thread.conversation_summary:
-            resolved_q = f"{question} (Context: {thread.conversation_summary[:240]})"
+            # Never append the running summary itself: it contains labels such as
+            # "Last question:" and citation counts that are metadata, not question
+            # content, and a lexical gate would otherwise treat them as entities.
+            prior_question = next(
+                (m.content for m in reversed(thread.messages) if m.role == "user"),
+                "",
+            )
+            resolved_q = f"{prior_question} {question}".strip()[:500] or question
             resolution_source = "deterministic_summary"
             rewritten = self._model_resolve_question(
                 state, question, thread.conversation_summary, thread.messages[-4:]
@@ -812,13 +819,6 @@ class ConversationalResearchOrchestrator:
 
         if (aborted := self._control_abort(state, config)) is not None:
             return aborted
-
-        if any(topic in lower_q for topic in _OUT_OF_CORPUS_TOPICS):
-            return {
-                "abstained": True,
-                "abstention_reason": "requested_topic_outside_authorized_corpus",
-                "final_status": RunStatus.ABSTAINED.value,
-            }
 
         needs_comp = any(kw in lower_q for kw in _COMPARISON_KEYWORDS)
         needs_expand = any(
@@ -949,6 +949,41 @@ class ConversationalResearchOrchestrator:
         dedup_hits = {
             str(h.get("passage_key", "")): h for h in outcome.hits if str(h.get("passage_key", ""))
         }
+        retrieval_decision: AnswerabilityDecision | None = None
+        if dedup_hits:
+            authorized_keys = (
+                state.get("allowed_version_keys") or state.get("scoped_version_keys") or []
+            )
+            retrieval_decision = assess_retrieval(
+                state.get("question", ""),
+                tuple(
+                    EvidenceCandidate(
+                        passage_key=key,
+                        document_version_key=str(hit.get("document_version_key", "")),
+                        title=str(hit.get("title", "")),
+                        text=str(hit.get("text", "")),
+                        section_title=(
+                            str(hit["section_title"])
+                            if hit.get("section_title") is not None
+                            else None
+                        ),
+                        rank=index,
+                        canonical_verified=hit.get("canonical_verified") is True,
+                    )
+                    for index, (key, hit) in enumerate(dedup_hits.items(), start=1)
+                ),
+                authorized_document_count=len(authorized_keys) or None,
+            )
+            accepted = set(retrieval_decision.accepted_passage_keys)
+            dedup_hits = {key: hit for key, hit in dedup_hits.items() if key in accepted}
+            self._store.append_event(
+                run_id,
+                worker_id=worker_id,
+                thread_id=thread_id,
+                event_type=RunEventType.EVIDENCE_RELEVANCE_ASSESSED,
+                stage="model_tool_execution",
+                payload=retrieval_decision.to_payload(),
+            )
         update: ResearchAgentState = {
             "tool_calls_used": outcome.tool_calls_used,
             "tool_envelopes": outcome.envelopes,
@@ -956,14 +991,22 @@ class ConversationalResearchOrchestrator:
             "retrieved_hits": list(dedup_hits.values()),
             "study_comparison": outcome.comparison,
             "messages": outcome.messages,
+            "answerability": (
+                retrieval_decision.to_payload() if retrieval_decision is not None else None
+            ),
         }
         if (aborted := self._control_abort(state, config)) is not None:
             return {**update, **aborted}
-        if not dedup_hits:
+        if not dedup_hits or (retrieval_decision is not None and not retrieval_decision.answerable):
+            gate_code = (
+                retrieval_decision.code
+                if retrieval_decision is not None
+                else "insufficient_canonical_evidence_for_query"
+            )
             return {
                 **update,
                 "abstained": True,
-                "abstention_reason": "insufficient_canonical_evidence_for_query",
+                "abstention_reason": f"evidence_gate:{gate_code}",
                 "final_status": RunStatus.ABSTAINED.value,
             }
         return update
@@ -1259,6 +1302,68 @@ class ConversationalResearchOrchestrator:
     # Node 8: verify_canonical_citations
     # ------------------------------------------------------------------
 
+    def _gate_verified_claims(
+        self,
+        *,
+        state: ResearchAgentState,
+        verified: list[dict[str, Any]],
+        rejected: list[dict[str, Any]],
+        run_id: str,
+        thread_id: str,
+        config: RunnableConfig,
+    ) -> AnswerabilityDecision | None:
+        """Apply question relevance to already-verified quotations. Never entailment."""
+        if not verified:
+            return None
+        comparison = state.get("study_comparison") or {}
+        compared_studies = comparison.get("studies")
+        compared_count = (
+            len(cast("list[object]", compared_studies))
+            if isinstance(compared_studies, list)
+            else 0
+        )
+        decision = assess_claims(
+            state.get("question", ""),
+            tuple(
+                ClaimEvidence(
+                    passage_key=str(item["passage_key"]),
+                    document_version_key=str(item.get("document_version_key", "")),
+                    document_title=str(item.get("document_title", "")),
+                    claim_text=str(item.get("claim_text", "")),
+                    verbatim_quote=str(item.get("verbatim_quote", "")),
+                )
+                for item in verified
+            ),
+            comparison_document_count=max(
+                compared_count,
+                len(
+                    {
+                        str(item.get("document_version_key", ""))
+                        for item in verified
+                        if item.get("document_version_key")
+                    }
+                ),
+            ),
+        )
+        self._store.append_event(
+            run_id,
+            worker_id=self._worker_id(config),
+            thread_id=thread_id,
+            event_type=RunEventType.EVIDENCE_RELEVANCE_ASSESSED,
+            stage="verify_canonical_citations",
+            payload=decision.to_payload(),
+        )
+        if not decision.answerable:
+            for item in verified:
+                rejected.append(
+                    {
+                        **item,
+                        "verified": False,
+                        "rejection_reason": f"answerability_gate:{decision.code}",
+                    }
+                )
+        return decision
+
     def _node_verify_citations(
         self, state: ResearchAgentState, config: RunnableConfig
     ) -> ResearchAgentState:
@@ -1331,6 +1436,19 @@ class ConversationalResearchOrchestrator:
                 else:
                     rejected.append(item)
 
+        claim_decision = self._gate_verified_claims(
+            state=state,
+            verified=verified,
+            rejected=rejected,
+            run_id=run_id,
+            thread_id=thread_id,
+            config=config,
+        )
+        if claim_decision is not None and not claim_decision.answerable:
+            verified = []
+            ev_set_key = None
+            ev_graph_key = None
+
         self._store.append_event(
             run_id,
             worker_id=self._worker_id(config),
@@ -1344,6 +1462,9 @@ class ConversationalResearchOrchestrator:
                 "rejection_reasons": [str(r.get("rejection_reason", ""))[:160] for r in rejected],
                 "evidence_set_key": ev_set_key,
                 "evidence_graph_key": ev_graph_key,
+                "answerability": (
+                    claim_decision.to_payload() if claim_decision is not None else None
+                ),
             },
         )
         seen = {(str(r.get("claim_text")), str(r.get("passage_key"))) for r in history}
@@ -1355,7 +1476,7 @@ class ConversationalResearchOrchestrator:
                 if (str(r.get("claim_text")), str(r.get("passage_key"))) not in seen
             ),
         ]
-        return {
+        update: ResearchAgentState = {
             "verified_citations": verified,
             "rejected_citations": rejected,
             "rejected_history": merged_history,
@@ -1365,6 +1486,17 @@ class ConversationalResearchOrchestrator:
             "tool_calls_used": state.get("tool_calls_used", 0) + 1,
             "tool_origin_counts": self._bump_enforced(state),
         }
+        if claim_decision is not None:
+            update["answerability"] = claim_decision.to_payload()
+            if not claim_decision.answerable:
+                update.update(
+                    {
+                        "abstained": True,
+                        "abstention_reason": f"answerability_gate:{claim_decision.code}",
+                        "final_status": RunStatus.ABSTAINED.value,
+                    }
+                )
+        return update
 
     # ------------------------------------------------------------------
     # Node 9: bounded_correction_or_abstain
@@ -1375,6 +1507,16 @@ class ConversationalResearchOrchestrator:
         attempts = state.get("repair_attempts", 0)
         max_attempts = state.get("max_repair_attempts", 1)
         verified = state.get("verified_citations", [])
+        answerability = state.get("answerability") or {}
+        if answerability.get("verdict") == "ABSTAIN":
+            return {
+                "abstained": True,
+                "abstention_reason": (
+                    f"answerability_gate:{answerability.get('code', 'not_answerable')}"
+                ),
+                "final_status": RunStatus.ABSTAINED.value,
+                "repair_attempts": attempts + 1,
+            }
 
         if attempts < max_attempts and verified:
             return {"repair_attempts": attempts + 1}

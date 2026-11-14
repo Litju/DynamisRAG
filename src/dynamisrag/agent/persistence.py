@@ -108,6 +108,7 @@ class RunEventType(StrEnum):
     TOOL_REJECTED = "tool.rejected"
     FALLBACK_APPLIED = "fallback.applied"
     EVIDENCE_INSPECTED = "evidence.inspected"
+    EVIDENCE_RELEVANCE_ASSESSED = "evidence.relevance_assessed"
     FINDINGS_EXTRACTED = "findings.extracted"
     STUDIES_COMPARED = "studies.compared"
     SYNTHESIS_COMPLETED = "synthesis.completed"

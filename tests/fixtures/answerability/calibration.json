@@ -1,0 +1,256 @@
+{
+  "schema": "res638-answerability-calibration-v1",
+  "note": "Author-constructed calibration set. It contains no production credentials, no retained database rows and no question-specific production rule. It is disjoint from heldout.json and is used only to calibrate and regression-test the structured evidence gate.",
+  "retrieval_cases": [
+    {
+      "id": "cal-pos-jump-height",
+      "question": "Does plyometric training improve jump height?",
+      "expected_verdict": "ANSWERABLE",
+      "candidates": [
+        {
+          "passage_key": "1000000000000000000000000000000000000000000000000000000000000001",
+          "document_version_key": "2000000000000000000000000000000000000000000000000000000000000001",
+          "title": "Effects of Plyometric Training on Jump Performance",
+          "section_title": "Results",
+          "text": "Countermovement jump height increased by 14.2% after eight weeks of plyometric training.",
+          "canonical_verified": true,
+          "rank": 1
+        }
+      ]
+    },
+    {
+      "id": "cal-neg-incidental-period",
+      "question": "What is the orbital period of the exoplanet Kepler-22b?",
+      "expected_verdict": "ABSTAIN",
+      "expected_code": "unsupported_entity",
+      "candidates": [
+        {
+          "passage_key": "1000000000000000000000000000000000000000000000000000000000000002",
+          "document_version_key": "2000000000000000000000000000000000000000000000000000000000000002",
+          "title": "Rest Intervals during Plyometric Training",
+          "section_title": "Methods",
+          "text": "Participants rested for a period of 24 h before the testing session.",
+          "canonical_verified": true,
+          "rank": 1
+        }
+      ]
+    },
+    {
+      "id": "cal-pos-achilles-entity",
+      "question": "What happened to Achilles tendon stiffness during depth jumping?",
+      "expected_verdict": "ANSWERABLE",
+      "candidates": [
+        {
+          "passage_key": "1000000000000000000000000000000000000000000000000000000000000003",
+          "document_version_key": "2000000000000000000000000000000000000000000000000000000000000003",
+          "title": "Muscle-Tendon Behavior during Depth Jumping",
+          "section_title": "Results",
+          "text": "Achilles tendon stiffness increased by 24.5% during depth jumping after plyometric training.",
+          "canonical_verified": true,
+          "rank": 1
+        }
+      ]
+    },
+    {
+      "id": "cal-pos-emg-paraphrase",
+      "question": "Does EMG activity change with knee flexion angle?",
+      "expected_verdict": "ANSWERABLE",
+      "candidates": [
+        {
+          "passage_key": "1000000000000000000000000000000000000000000000000000000000000004",
+          "document_version_key": "2000000000000000000000000000000000000000000000000000000000000004",
+          "title": "Knee Flexion Angle and Muscle Activity",
+          "section_title": "Results",
+          "text": "Electromyographic activity of the vastus lateralis increased at greater knee flexion angles.",
+          "canonical_verified": true,
+          "rank": 1
+        }
+      ]
+    },
+    {
+      "id": "cal-pos-comparison-two-docs",
+      "question": "Compare the training protocols and populations of the two studies.",
+      "expected_verdict": "ANSWERABLE",
+      "candidates": [
+        {
+          "passage_key": "1000000000000000000000000000000000000000000000000000000000000005",
+          "document_version_key": "2000000000000000000000000000000000000000000000000000000000000005",
+          "title": "Plyometric Training in Collegiate Sprinters",
+          "section_title": "Methods",
+          "text": "Thirty-six collegiate sprinters completed eight weeks of plyometric drop-jump training in a randomized controlled trial.",
+          "canonical_verified": true,
+          "rank": 1
+        },
+        {
+          "passage_key": "1000000000000000000000000000000000000000000000000000000000000006",
+          "document_version_key": "2000000000000000000000000000000000000000000000000000000000000006",
+          "title": "Plyometric Conditioning in Adolescent Basketball Players",
+          "section_title": "Methods",
+          "text": "Forty-two adolescent basketball athletes completed six weeks of plyometric conditioning in a randomized intervention.",
+          "canonical_verified": true,
+          "rank": 2
+        }
+      ]
+    },
+    {
+      "id": "cal-neg-comparison-one-doc",
+      "question": "Compare the training protocols and populations of the two studies.",
+      "expected_verdict": "ABSTAIN",
+      "expected_code": "insufficient_cross_study_evidence",
+      "authorized_document_count": 1,
+      "candidates": [
+        {
+          "passage_key": "1000000000000000000000000000000000000000000000000000000000000007",
+          "document_version_key": "2000000000000000000000000000000000000000000000000000000000000007",
+          "title": "Plyometric Training in Collegiate Sprinters",
+          "section_title": "Methods",
+          "text": "Thirty-six collegiate sprinters completed eight weeks of plyometric drop-jump training in a randomized controlled trial.",
+          "canonical_verified": true,
+          "rank": 1
+        }
+      ]
+    },
+    {
+      "id": "cal-pos-rest-interval",
+      "question": "What was the rest interval between depth jump sets?",
+      "expected_verdict": "ANSWERABLE",
+      "candidates": [
+        {
+          "passage_key": "1000000000000000000000000000000000000000000000000000000000000008",
+          "document_version_key": "2000000000000000000000000000000000000000000000000000000000000008",
+          "title": "Depth Jump Protocol",
+          "section_title": "Methods",
+          "text": "Subjects performed 10 sets of 10 depth jumps with a 30 s rest interval between sets.",
+          "canonical_verified": true,
+          "rank": 1
+        }
+      ]
+    },
+    {
+      "id": "cal-neg-population-mismatch",
+      "question": "Does complex training improve upper limb power in female volleyball players?",
+      "expected_verdict": "ABSTAIN",
+      "expected_code": "insufficient_query_coverage",
+      "candidates": [
+        {
+          "passage_key": "1000000000000000000000000000000000000000000000000000000000000009",
+          "document_version_key": "2000000000000000000000000000000000000000000000000000000000000009",
+          "title": "Complex Training in Male Cricketers",
+          "section_title": "Results",
+          "text": "Upper limb power improved in male cricketers after four weeks of complex training.",
+          "canonical_verified": true,
+          "rank": 1
+        }
+      ]
+    },
+    {
+      "id": "cal-neg-off-domain",
+      "question": "What hydration ratio do the studies recommend for sourdough bread?",
+      "expected_verdict": "ABSTAIN",
+      "expected_code": "insufficient_query_coverage",
+      "candidates": [
+        {
+          "passage_key": "1000000000000000000000000000000000000000000000000000000000000010",
+          "document_version_key": "2000000000000000000000000000000000000000000000000000000000000010",
+          "title": "Plyometric Training and Jump Performance",
+          "section_title": "Results",
+          "text": "Jump height increased after plyometric training in recreationally active adults.",
+          "canonical_verified": true,
+          "rank": 1
+        }
+      ]
+    },
+    {
+      "id": "cal-neg-noncanonical",
+      "question": "Does plyometric training improve jump height?",
+      "expected_verdict": "ABSTAIN",
+      "expected_code": "source_not_canonical",
+      "candidates": [
+        {
+          "passage_key": "1000000000000000000000000000000000000000000000000000000000000011",
+          "document_version_key": "2000000000000000000000000000000000000000000000000000000000000011",
+          "title": "Plyometric Training and Jump Performance",
+          "section_title": "Results",
+          "text": "Jump height increased after plyometric training.",
+          "canonical_verified": false,
+          "rank": 1
+        }
+      ]
+    }
+  ],
+  "claim_cases": [
+    {
+      "id": "cal-pos-claim-achilles",
+      "question": "What happened to Achilles tendon stiffness during depth jumping?",
+      "expected_verdict": "ANSWERABLE",
+      "claims": [
+        {
+          "passage_key": "3000000000000000000000000000000000000000000000000000000000000001",
+          "document_version_key": "4000000000000000000000000000000000000000000000000000000000000001",
+          "document_title": "Muscle-Tendon Behavior during Depth Jumping",
+          "claim_text": "Achilles tendon stiffness increased during depth jumping.",
+          "verbatim_quote": "Achilles tendon stiffness increased by 24.5% during depth jumping."
+        }
+      ]
+    },
+    {
+      "id": "cal-neg-claim-kepler",
+      "question": "What is the orbital period of the exoplanet Kepler-22b?",
+      "expected_verdict": "ABSTAIN",
+      "expected_code": "unsupported_entity",
+      "claims": [
+        {
+          "passage_key": "3000000000000000000000000000000000000000000000000000000000000002",
+          "document_version_key": "4000000000000000000000000000000000000000000000000000000000000002",
+          "document_title": "Rest Intervals during Plyometric Training",
+          "claim_text": "A rest period of 24 h preceded testing.",
+          "verbatim_quote": "Participants rested for a period of 24 h before the testing session."
+        }
+      ]
+    },
+    {
+      "id": "cal-neg-claim-contradiction",
+      "question": "Does plyometric training increase jump height?",
+      "expected_verdict": "ABSTAIN",
+      "expected_code": "contradictory_evidence",
+      "claims": [
+        {
+          "passage_key": "3000000000000000000000000000000000000000000000000000000000000003",
+          "document_version_key": "4000000000000000000000000000000000000000000000000000000000000003",
+          "document_title": "Plyometric Training and Jump Height",
+          "claim_text": "Jump height increased after plyometric training.",
+          "verbatim_quote": "Jump height increased after plyometric training."
+        },
+        {
+          "passage_key": "3000000000000000000000000000000000000000000000000000000000000004",
+          "document_version_key": "4000000000000000000000000000000000000000000000000000000000000004",
+          "document_title": "Jump Height after Drop Jump Training",
+          "claim_text": "Jump height decreased after plyometric training.",
+          "verbatim_quote": "Jump height decreased after plyometric training."
+        }
+      ]
+    },
+    {
+      "id": "cal-pos-claim-comparison",
+      "question": "Compare the outcomes of the two plyometric studies.",
+      "expected_verdict": "ANSWERABLE",
+      "comparison_document_count": 2,
+      "claims": [
+        {
+          "passage_key": "3000000000000000000000000000000000000000000000000000000000000005",
+          "document_version_key": "4000000000000000000000000000000000000000000000000000000000000005",
+          "document_title": "Plyometric Training and Jump Height",
+          "claim_text": "Jump height improved.",
+          "verbatim_quote": "Jump height improved after plyometric training."
+        },
+        {
+          "passage_key": "3000000000000000000000000000000000000000000000000000000000000006",
+          "document_version_key": "4000000000000000000000000000000000000000000000000000000000000006",
+          "document_title": "Core Strength after Complex Training",
+          "claim_text": "Core strength improved.",
+          "verbatim_quote": "Core strength improved after complex training."
+        }
+      ]
+    }
+  ]
+}

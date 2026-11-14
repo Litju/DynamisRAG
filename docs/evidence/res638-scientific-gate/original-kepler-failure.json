@@ -1,0 +1,75 @@
+{
+ "schema": "res638-original-failed-kepler-receipt-v1",
+ "captured_at": "2026-11-13T12:00:00Z",
+ "code_revision": "a86b310a902e71b34e128ddc22d5a6fc713fd7ae",
+ "note": "PRESERVED ORIGINAL FAILURE. Captured before the answerability-gate repair. This receipt must not be edited to show a pass.",
+ "question": "What is the orbital period of the exoplanet Kepler-22b?",
+ "expected_behaviour": "abstain (off-domain entity not present in the licensed corpus)",
+ "observed_run": {
+  "run_id": "run-4871425015c5432b",
+  "thread_id": "thread-42fa6d50186442a8",
+  "status": "completed",
+  "abstention_reason": null
+ },
+ "observed_answer_markdown": "### Source-Verified Evidence (`MODEL_PROPOSED`, not expert-reviewed)\n\n1. **Effect of plyometric versus complex training on core strength, lower limb, and upper limb power in male cricketers: a randomized controlled trial** (`PMC10680285`, passage `3bc19674f9b0...`, anchor `jats:#Par23` chars `1389..1564`): \"[27] found a statistically significant effect of a bench press complex training on medicine ball throw with a four minutes rest period compared to three minutes in this study.\"\n   - Checks: source quotation `VERIFIED` · numbers `VERIFIED` · wording `IDENTICAL_TO_QUOTE` (heuristic, not entailment) · expert review `NOT_REVIEWED`\n2. **Impact of Starting Knee Flexion Angle on Muscle Activity and Performance during Plyometrics without Jumping** (`PMC10780924`, passage `3c1221391b9f...`, anchor `jats:/body[1]/sec[2]/sec[1]/p[2]` chars `219..359`): \"Additionally, participants were instructed to refrain from engaging in physical training for a period of 24 h preceding the testing session.\"\n   - Checks: source quotation `VERIFIED` · numbers `VERIFIED` · wording `IDENTICAL_TO_QUOTE` (heuristic, not entailment) · expert review `NOT_REVIEWED`\n3. **Effect of plyometric versus complex training on core strength, lower limb, and upper limb power in male cricketers: a randomized controlled trial** (`PMC10680285`, passage `3e70446abc81...`, anchor `jats:#Par9` chars `418..598`): \"Pre-intervention (or baseline) measures were taken after the familiarization period, and post-intervention readings were taken after four weeks of respective training [2, 17] (Fig.\"\n   - Checks: source quotation `VERIFIED` · numbers `VERIFIED` · wording `IDENTICAL_TO_QUOTE` (heuristic, not entailment) · expert review `NOT_REVIEWED`\n4. **Effect of plyometric versus complex training on core strength, lower limb, and upper limb power in male cricketers: a randomized controlled trial** (`PMC10680285`, passage `3bc19674f9b0...`, anchor `jats:#Par23` chars `212..299`): \"showed that a 65% load effectively produced increments in upper limb power output [11].\"\n   - Checks: source quotation `VERIFIED` · numbers `VERIFIED` · wording `IDENTICAL_TO_QUOTE` (heuristic, not entailment) · expert review `NOT_REVIEWED`\n\n---\n*All study findings, comparisons, and synthesized claims are MODEL_PROPOSED / PROPOSED. Exact quotation and canonical source-span checks verify text provenance only and do not establish scientific entailment, study validity, clinical applicability, or expert review.*",
+ "observed_verified_citations": [
+  {
+   "document_title": "Effect of plyometric versus complex training on core strength, lower limb, and upper limb power in male cricketers: a randomized controlled trial",
+   "pmcid": "PMC10680285",
+   "doi": "10.1186/s13102-023-00771-8",
+   "passage_key": "3bc19674f9b0a1eb1b1cc3579f5b0c44906f379eed97622ea4b77826297a6ea0",
+   "paragraph_key": "d370799df04b14839e150ce11efb7717287230eb8df9a8823c9380f0f90de439",
+   "span_key": "5fb16bfc13cfb08b846c7fc9a7a40ed15982f1fb0841154ac5cdb906f8535274",
+   "start_char": 1389,
+   "end_char": 1564,
+   "verbatim_quote": "[27] found a statistically significant effect of a bench press complex training on medicine ball throw with a four minutes rest period compared to three minutes in this study.",
+   "quote_verified": true,
+   "numeric_provenance": "VERIFIED",
+   "semantic_support": "IDENTICAL_TO_QUOTE"
+  },
+  {
+   "document_title": "Impact of Starting Knee Flexion Angle on Muscle Activity and Performance during Plyometrics without Jumping",
+   "pmcid": "PMC10780924",
+   "doi": "10.3390/s24010044",
+   "passage_key": "3c1221391b9f47231c9e38b28253127bedfb1efe21e9d0c42486962d2c517e93",
+   "paragraph_key": "883739663f4e9fe76c6d42481b2a8d96d7afa20794bc598e310730f59b9dc3d4",
+   "span_key": "fd6ca78d6c316e827887014eaceaed3b3187b1d374350d58be60c263f6a758aa",
+   "start_char": 219,
+   "end_char": 359,
+   "verbatim_quote": "Additionally, participants were instructed to refrain from engaging in physical training for a period of 24 h preceding the testing session.",
+   "quote_verified": true,
+   "numeric_provenance": "VERIFIED",
+   "semantic_support": "IDENTICAL_TO_QUOTE"
+  },
+  {
+   "document_title": "Effect of plyometric versus complex training on core strength, lower limb, and upper limb power in male cricketers: a randomized controlled trial",
+   "pmcid": "PMC10680285",
+   "doi": "10.1186/s13102-023-00771-8",
+   "passage_key": "3e70446abc81094002f983d350849237cf8acb3b3bac2db38ffbd973a2dbac46",
+   "paragraph_key": "49ab525b15026948e9c03982bde8a72f8481dade4ed52c6de995052722f04641",
+   "span_key": "9908685974f41ff8eca42e5b9607ef64cfc60f956b8add9caebedf66d95b02ed",
+   "start_char": 418,
+   "end_char": 598,
+   "verbatim_quote": "Pre-intervention (or baseline) measures were taken after the familiarization period, and post-intervention readings were taken after four weeks of respective training [2, 17] (Fig.",
+   "quote_verified": true,
+   "numeric_provenance": "VERIFIED",
+   "semantic_support": "IDENTICAL_TO_QUOTE"
+  },
+  {
+   "document_title": "Effect of plyometric versus complex training on core strength, lower limb, and upper limb power in male cricketers: a randomized controlled trial",
+   "pmcid": "PMC10680285",
+   "doi": "10.1186/s13102-023-00771-8",
+   "passage_key": "3bc19674f9b0a1eb1b1cc3579f5b0c44906f379eed97622ea4b77826297a6ea0",
+   "paragraph_key": "d370799df04b14839e150ce11efb7717287230eb8df9a8823c9380f0f90de439",
+   "span_key": "5fb16bfc13cfb08b846c7fc9a7a40ed15982f1fb0841154ac5cdb906f8535274",
+   "start_char": 212,
+   "end_char": 299,
+   "verbatim_quote": "showed that a 65% load effectively produced increments in upper limb power output [11].",
+   "quote_verified": true,
+   "numeric_provenance": "VERIFIED",
+   "semantic_support": "IDENTICAL_TO_QUOTE"
+  }
+ ],
+ "verdict": "FAILED_OFF_DOMAIN_ABSTENTION",
+ "honest_limit": "Source provenance and lexical claim checks passed for unrelated passages; they do not establish relevance or entailment."
+}

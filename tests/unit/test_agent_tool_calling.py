@@ -251,8 +251,10 @@ def test_model_sees_tool_results_and_may_call_again_in_a_second_round() -> None:
 
 
 def test_synthesis_prompt_reaches_the_model_untruncated() -> None:
-    long_tail = "ZZ_END_OF_QUESTION_MARKER"
-    long_question = (QUESTION + " " + "context " * 200 + long_tail)[:1900]
+    long_tail = "Keep this Achilles tendon stiffness and depth jumping question intact."
+    long_question = (
+        QUESTION + " " + "Please answer the same Achilles tendon question. " * 30 + long_tail
+    )[:1900]
 
     def script(messages: list[BaseMessage], bound: list[str], index: int) -> AIMessage:
         del bound, index

@@ -318,7 +318,8 @@ def test_abstention_on_out_of_corpus_and_prompt_injection(
         idempotency_key="ooc-1",
     )
     assert run_ooc.status == RunStatus.ABSTAINED
-    assert run_ooc.abstention_reason == "requested_topic_outside_authorized_corpus"
+    assert run_ooc.abstention_reason is not None
+    assert run_ooc.abstention_reason.startswith("evidence_gate:")
 
     # Prompt injection attempt
     run_inj = orchestrator.execute_run(
