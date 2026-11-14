@@ -1,12 +1,19 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { authenticate, sameOrigin, unauthorized } from "./lib/auth";
+import { authFailure, authorize, sameOrigin } from "./lib/auth";
+
 export function proxy(request: NextRequest) {
-  if (!authenticate(request.headers)) return unauthorized();
+  const auth = authorize(request);
+  if (!auth.ok) return authFailure(auth) ?? new Response(null, { status: 401 });
   if (
     !["GET", "HEAD", "OPTIONS"].includes(request.method) &&
-    !sameOrigin(request)
+    !sameOrigin(request, { requireOrigin: true })
   )
     return new Response(null, { status: 403 });
-  return NextResponse.next();
+  const response = NextResponse.next();
+  // The page request is the first point where Basic credentials are exchanged
+  // for a short-lived signed session, so subsequent API calls avoid scrypt.
+  if (auth.setCookie) response.headers.append("set-cookie", auth.setCookie);
+  return response;
 }
-export const config = { matcher: ["/", "/api/:path*"] };
+
+export const config = { matcher: ["/"] };

@@ -1,8 +1,9 @@
 import {
-  authenticate,
+  authFailure,
+  authorize,
   identity,
   sameOrigin,
-  unauthorized,
+  withSession,
 } from "../../../../lib/auth";
 import { json, ownedSession, python } from "../../../../lib/python";
 
@@ -10,10 +11,14 @@ async function handle(
   request: Request,
   context: { params: Promise<{ path: string[] }> },
 ) {
-  const user = authenticate(request.headers);
-  if (!user) return unauthorized();
-  if (request.method !== "GET" && !sameOrigin(request))
+  const auth = authorize(request);
+  if (!auth.ok) return authFailure(auth) ?? new Response(null, { status: 401 });
+  if (
+    request.method !== "GET" &&
+    !sameOrigin(request, { requireOrigin: true })
+  )
     return new Response(null, { status: 403 });
+  const user = auth.user;
   const { path } = await context.params;
   const route = path.join("/");
   if (
@@ -104,7 +109,10 @@ async function handle(
           }),
         }),
       );
-      return Response.json(created, { status: response.status });
+      return withSession(
+        Response.json(created, { status: response.status }),
+        auth,
+      );
     }
     const headers = new Headers({ "cache-control": "no-store" });
     response.headers.forEach((value, name) => {
@@ -114,7 +122,10 @@ async function handle(
       )
         headers.set(name, value);
     });
-    return new Response(response.body, { status: response.status, headers });
+    return withSession(
+      new Response(response.body, { status: response.status, headers }),
+      auth,
+    );
   } catch {
     return Response.json(
       { error: "Conversation service unavailable; retry or reconnect" },

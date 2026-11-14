@@ -1,14 +1,23 @@
-import { authenticate, sameOrigin, unauthorized } from "../../../../lib/auth";
+import {
+  authFailure,
+  authorize,
+  sameOrigin,
+  withSession,
+} from "../../../../lib/auth";
 import { python } from "../../../../lib/python";
 
 async function handle(
   request: Request,
   context: { params: Promise<{ path: string[] }> },
 ) {
-  const user = authenticate(request.headers);
-  if (!user) return unauthorized();
-  if (request.method !== "GET" && !sameOrigin(request))
+  const auth = authorize(request);
+  if (!auth.ok) return authFailure(auth) ?? new Response(null, { status: 401 });
+  if (
+    request.method !== "GET" &&
+    !sameOrigin(request, { requireOrigin: true })
+  )
     return new Response(null, { status: 403 });
+  const user = auth.user;
   const { path } = await context.params;
   const route = path.join("/");
   if (
@@ -42,15 +51,18 @@ async function handle(
       signal: request.signal,
       ...(request.method === "POST" ? { body } : {}),
     });
-    return new Response(result.body, {
-      status: result.status,
-      headers: {
-        "content-type":
-          result.headers.get("content-type") || "application/json",
-        "cache-control": "no-store",
-        "x-accel-buffering": "no",
-      },
-    });
+    return withSession(
+      new Response(result.body, {
+        status: result.status,
+        headers: {
+          "content-type":
+            result.headers.get("content-type") || "application/json",
+          "cache-control": "no-store",
+          "x-accel-buffering": "no",
+        },
+      }),
+      auth,
+    );
   } catch {
     return Response.json(
       { error: "Research service unavailable" },

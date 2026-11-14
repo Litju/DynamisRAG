@@ -171,6 +171,16 @@ export default function Workspace() {
             <br />
             Live-model qualification pending
           </small>
+          <button
+            type="button"
+            onClick={() =>
+              void fetch("/api/auth/logout", { method: "POST" }).finally(() =>
+                window.location.reload(),
+              )
+            }
+          >
+            Sign out
+          </button>
         </div>
       </aside>
       <section className="center">

@@ -66,6 +66,7 @@ test("authenticated Eve conversation executes the Python graph and denies a seco
       "http://127.0.0.1:3018/api/research/threads",
       {
         data: { external_ref: ref },
+        headers: { origin: "http://127.0.0.1:3018" },
       },
     );
     expect(claim.status()).toBe(400);
@@ -78,6 +79,7 @@ test("authenticated Eve conversation executes the Python graph and denies a seco
     (
       await bob.request.post(
         `http://127.0.0.1:3018/api/conversation/eve/v1/session/${current.external_ref.slice(4)}/cancel`,
+        { headers: { origin: "http://127.0.0.1:3018" } },
       )
     ).status(),
   ).toBe(403);
@@ -85,7 +87,10 @@ test("authenticated Eve conversation executes the Python graph and denies a seco
     (
       await bob.request.post(
         `http://127.0.0.1:3018/api/conversation/eve/v1/session/${current.external_ref.slice(4)}`,
-        { data: { message: "forged follow-up" } },
+        {
+          data: { message: "forged follow-up" },
+          headers: { origin: "http://127.0.0.1:3018" },
+        },
       )
     ).status(),
   ).toBe(403);
