@@ -105,6 +105,7 @@ def _run_case(
                         "document_title": citation.get("document_title"),
                         "pmcid": citation.get("pmcid"),
                         "passage_key": citation.get("passage_key"),
+                        "document_version_key": citation.get("document_version_key"),
                         "verbatim_quote": citation.get("verbatim_quote"),
                     }
                     for citation in run.verified_citations
@@ -152,7 +153,11 @@ def _case_specs() -> tuple[dict[str, object], ...]:
         },
         {
             "case_id": "positive_multi_turn",
-            "expect": {"status": "completed", "min_citations": 1},
+            "expect": {
+                "status": "completed",
+                "min_citations": 1,
+                "same_version_as_previous_turn": True,
+            },
             "turns": (
                 "What did the depth jumping study find about Achilles tendon stiffness?",
                 "How many weeks did those participants complete?",
@@ -165,7 +170,7 @@ def _case_specs() -> tuple[dict[str, object], ...]:
         },
         {
             "case_id": "negative_off_domain_proxima",
-            "expect": {"status": "abstained", "abstention_contains": "unsupported_entity"},
+            "expect": {"status": "abstained", "abstention_contains": "evidence_gate"},
             "turns": ("What is the orbital radius of Proxima Centauri b?",),
         },
         {
@@ -206,6 +211,33 @@ def _verify(case: dict[str, object], result: dict[str, object]) -> list[str]:
         failures.append(
             f"abstention_reason={result['final_abstention_reason']!r}; expected {needle!r}"
         )
+    if expected.get("same_version_as_previous_turn"):
+        turns = result["turns"]
+        if not isinstance(turns, list) or len(turns) < 2:
+            failures.append("multi-turn version check needs at least two turns")
+        else:
+            prior_turn, current_turn = turns[-2], turns[-1]
+            prior_quotes = (
+                prior_turn.get("verified_quotes") if isinstance(prior_turn, dict) else None
+            )
+            current_quotes = (
+                current_turn.get("verified_quotes") if isinstance(current_turn, dict) else None
+            )
+            prior_versions = {
+                str(item.get("document_version_key"))
+                for item in (prior_quotes or [])
+                if isinstance(item, dict) and item.get("document_version_key")
+            }
+            current_versions = {
+                str(item.get("document_version_key"))
+                for item in (current_quotes or [])
+                if isinstance(item, dict) and item.get("document_version_key")
+            }
+            if not current_versions or not current_versions <= prior_versions:
+                failures.append(
+                    "follow-up cited a document outside the prior turn's study: "
+                    f"current={sorted(current_versions)} prior={sorted(prior_versions)}"
+                )
     if expected.get("comparison"):
         turns = result["turns"]
         last = turns[-1] if isinstance(turns, list) and turns else {}

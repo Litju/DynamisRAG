@@ -43,7 +43,6 @@ from typing import Final, Literal
 from dynamisrag.generation.scientific import scientific_terms
 
 __all__ = [
-    "CALIBRATED_MIN_CLAIM_COVERAGE",
     "CALIBRATED_MIN_COMPARISON_COVERAGE",
     "CALIBRATED_MIN_RELEVANCE",
     "GATE_VERSION",
@@ -55,6 +54,9 @@ __all__ = [
     "assess_claims",
     "assess_retrieval",
     "build_query_profile",
+    "salient_terms",
+    "stem_terms",
+    "surface_terms",
 ]
 
 GATE_VERSION: Final = "structured-evidence-gate-v1"
@@ -63,7 +65,6 @@ GATE_VERSION: Final = "structured-evidence-gate-v1"
 # recomputes the separating threshold and fails if this constant drifts.
 CALIBRATED_MIN_RELEVANCE: Final[float] = 0.60
 CALIBRATED_MIN_COMPARISON_COVERAGE: Final[float] = 0.30
-CALIBRATED_MIN_CLAIM_COVERAGE: Final[float] = 0.60
 AMBIGUITY_MARGIN: Final[float] = 0.08
 MAX_REPORTED_TERMS: Final = 8
 
@@ -78,6 +79,7 @@ _GENERIC_QUERY_TERMS: Final[frozenset[str]] = frozenset(
         "after",
         "available",
         "before",
+        "both",
         "change",
         "changed",
         "changes",
@@ -111,7 +113,11 @@ _GENERIC_QUERY_TERMS: Final[frozenset[str]] = frozenset(
         "list",
         "paper",
         "papers",
+        "participant",
+        "participants",
         "please",
+        "player",
+        "players",
         "question",
         "report",
         "reported",
@@ -123,6 +129,8 @@ _GENERIC_QUERY_TERMS: Final[frozenset[str]] = frozenset(
         "results",
         "same",
         "show",
+        "subject",
+        "subjects",
         "shown",
         "shows",
         "specifically",
@@ -133,6 +141,8 @@ _GENERIC_QUERY_TERMS: Final[frozenset[str]] = frozenset(
         "summary",
         "tell",
         "thread",
+        "three",
+        "two",
         "versus",
         "work",
     }
@@ -374,6 +384,7 @@ class AnswerabilityDecision:
     assessments: tuple[CandidateAssessment, ...]
     accepted_passage_keys: tuple[str, ...]
     rejected_passage_keys: tuple[str, ...]
+    accepted_claim_indexes: tuple[int, ...] = ()
     contradictory: bool = False
     ambiguous: bool = False
 
@@ -394,6 +405,7 @@ class AnswerabilityDecision:
             "comparison_document_count": self.comparison_document_count,
             "accepted_passage_keys": list(self.accepted_passage_keys),
             "rejected_passage_keys": list(self.rejected_passage_keys),
+            "accepted_claim_indexes": list(self.accepted_claim_indexes),
             "contradictory": self.contradictory,
             "ambiguous": self.ambiguous,
             "candidates": [
@@ -423,7 +435,7 @@ def _fold(text: str) -> str:
     )
 
 
-def _stem(token: str) -> str:
+def _stem(token: str) -> str:  # noqa: PLR0911 - suffix ladder is explicit
     if token.isdigit():
         return token
     if len(token) <= 4:
@@ -463,6 +475,15 @@ _DOWN_WORDS: Final[frozenset[str]] = frozenset(
 _DIRECTION_STEMS: Final[frozenset[str]] = frozenset(_stem(word) for word in _UP_WORDS | _DOWN_WORDS)
 
 
+def stem_terms(terms: Iterable[str]) -> set[str]:
+    """Canonicalise retrieval terms with the gate's deterministic stemmer.
+
+    Exposed so lexical scoring and the answerability gate agree that
+    "completed" and "complete", or "weeks" and "week", are the same facet.
+    """
+    return {term if "_" in term else _stem(_fold(term).replace(",", ".")) for term in terms if term}
+
+
 def _surface_terms(text: str) -> set[str]:
     """Tokenised, stemmed terms plus general scientific concept aliases."""
     folded = _fold(text)
@@ -478,6 +499,11 @@ def _surface_terms(text: str) -> set[str]:
         if pattern.search(folded):
             terms.add(concept)
     return terms
+
+
+def surface_terms(text: str) -> set[str]:
+    """Public evidence-side term set: aliases plus deterministic stems."""
+    return _surface_terms(text)
 
 
 def _weighted_facets(
@@ -511,7 +537,11 @@ def _weighted_facets(
     folded_question = _fold(question)
     for pattern, concept in _CONCEPT_ALIASES:
         if pattern.search(folded_question) and concept not in entity_stems:
-            terms[concept] = max(terms.get(concept, 0.0), 1.25)
+            # A generic population noun ("participants", "subjects") is a
+            # reference, not a study qualifier. The qualifier words ("female",
+            # "volleyball", "cricketers") still carry full weight.
+            weight = 0.5 if concept == "population_member" else 1.25
+            terms[concept] = max(terms.get(concept, 0.0), weight)
     if comparison:
         # Meta facets are resolved structurally, so they must not decide retrieval.
         terms = {term: weight for term, weight in terms.items() if term not in _META_STEMS}
@@ -560,8 +590,15 @@ def _entities(question: str) -> tuple[tuple[str, ...], ...]:
     )
 
 
-def build_query_profile(question: str) -> QueryProfile:
-    """Derive the entities and weighted facets a candidate must support."""
+def build_query_profile(question: str, context: str = "") -> QueryProfile:
+    """Derive the entities and weighted facets a candidate must support.
+
+    ``context`` is prior user text for multi-turn references. It is used only
+    when the current question has no checkable content of its own (for example
+    "What about it?"): the current turn remains the required proposition, so a
+    prior entity cannot silently become a mandatory entity for a follow-up that
+    asks about a different facet.
+    """
     cleaned = " ".join(question.split())
     if _INVENTORY.search(cleaned):
         kind: QueryKind = "inventory"
@@ -573,6 +610,8 @@ def build_query_profile(question: str) -> QueryProfile:
         kind = "factual"
     entities = _entities(cleaned)
     facets, weights = _weighted_facets(cleaned, comparison=kind == "comparison", entities=entities)
+    if not facets and not entities and context.strip():
+        return build_query_profile(context)
     meta = tuple(term for term in facets if term in _META_STEMS)
     return QueryProfile(
         question=cleaned[:2000],
@@ -674,13 +713,23 @@ def _assess_candidate(profile: QueryProfile, candidate: EvidenceCandidate) -> Ca
     )
 
 
+def _salient_terms(profile: QueryProfile) -> tuple[str, ...]:
+    return tuple(
+        term
+        for term, weight in zip(profile.facets, profile.facet_weights, strict=True)
+        if weight >= 1.0 and term not in _GENERIC_STEMS
+    )
+
+
+def salient_terms(profile: QueryProfile) -> tuple[str, ...]:
+    """Public view of the topical terms a question actually asks about."""
+    return _salient_terms(profile)
+
+
 def _documents(assessments: Iterable[CandidateAssessment]) -> int:
+    """Count distinct documents in the supplied set, independent of lexical coverage."""
     return len(
-        {
-            a.candidate.document_version_key
-            for a in assessments
-            if a.admissible and a.candidate.document_version_key
-        }
+        {a.candidate.document_version_key for a in assessments if a.candidate.document_version_key}
     )
 
 
@@ -692,6 +741,7 @@ def _decision(
     detail: str,
     assessments: Sequence[CandidateAssessment],
     accepted: Sequence[CandidateAssessment] = (),
+    accepted_claim_indexes: tuple[int, ...] = (),
     contradictory: bool = False,
     ambiguous: bool = False,
     claim_support: ClaimSupport = "NOT_ASSESSED",
@@ -715,19 +765,21 @@ def _decision(
         rejected_passage_keys=tuple(
             a.candidate.passage_key for a in assessments if not a.admissible
         ),
+        accepted_claim_indexes=accepted_claim_indexes,
         contradictory=contradictory,
         ambiguous=ambiguous,
     )
 
 
-def assess_retrieval(  # noqa: PLR0911 - explicit fail-closed branches
+def assess_retrieval(  # noqa: PLR0911, PLR0912 - explicit fail-closed branches
     question: str,
     candidates: Sequence[EvidenceCandidate],
     *,
+    context: str = "",
     authorized_document_count: int | None = None,
 ) -> AnswerabilityDecision:
     """Reject irrelevant retrieval candidates and decide whether to attempt synthesis."""
-    profile = build_query_profile(question)
+    profile = build_query_profile(question, context)
     canonical_terms = [
         _candidate_terms(candidate) for candidate in candidates if candidate.canonical_verified
     ]
@@ -775,12 +827,8 @@ def assess_retrieval(  # noqa: PLR0911 - explicit fail-closed branches
                 accepted=admissible,
                 comparison_document_count=authorized_document_count,
             )
-        salient = tuple(
-            term
-            for term, weight in zip(profile.facets, profile.facet_weights, strict=True)
-            if weight >= 1.0 and term not in _GENERIC_STEMS
-        )
-        if canonical and (not salient or any(a.admissible for a in canonical)):
+        salient = _salient_terms(profile)
+        if canonical and not salient:
             return _decision(
                 profile=profile,
                 verdict="ANSWERABLE",
@@ -791,6 +839,20 @@ def assess_retrieval(  # noqa: PLR0911 - explicit fail-closed branches
                 ),
                 assessments=assessments,
                 accepted=canonical,
+            )
+        if canonical and any(a.admissible for a in canonical):
+            # When the question names salient facets, an irrelevant document is
+            # not made comparable merely by existing in the authorized scope.
+            return _decision(
+                profile=profile,
+                verdict="ANSWERABLE",
+                code="comparison_structurally_answerable",
+                detail=(
+                    "At least one canonical document covers the named comparison facets; "
+                    "the comparison tool extracts the structural design/population facets."
+                ),
+                assessments=assessments,
+                accepted=tuple(a for a in canonical if a.admissible),
             )
     if not admissible:
         missing_entity = any(a.missing_entities for a in assessments)
@@ -873,11 +935,14 @@ class ClaimEvidence:
 
 
 def _claim_candidate(claim: ClaimEvidence) -> EvidenceCandidate:
+    # Question relevance is judged on the quotation that will be shown to the
+    # reader, not on the model's paraphrase. A paraphrase may name the asked-about
+    # facet while the displayed quotation does not support it.
     return EvidenceCandidate(
         passage_key=claim.passage_key,
         document_version_key=claim.document_version_key,
         title=claim.document_title,
-        text=f"{claim.claim_text}\n{claim.verbatim_quote}",
+        text=claim.verbatim_quote,
     )
 
 
@@ -885,14 +950,14 @@ def assess_claims(  # noqa: PLR0911 - explicit fail-closed branches
     question: str,
     claims: Sequence[ClaimEvidence],
     *,
-    comparison_document_count: int = 0,
+    context: str = "",
 ) -> AnswerabilityDecision:
     """Final gate before synthesis/finalisation, after canonical claim verification.
 
     It answers only whether the *verified quotations* address the asked-about
     entities/facets. It cannot and does not establish entailment.
     """
-    profile = build_query_profile(question)
+    profile = build_query_profile(question, context)
     if not claims:
         return _decision(
             profile=profile,
@@ -907,6 +972,9 @@ def assess_claims(  # noqa: PLR0911 - explicit fail-closed branches
     )
     assessments = tuple(_assess_candidate(profile, candidate) for candidate in claim_candidates)
     admissible = tuple(a for a in assessments if a.admissible)
+    admissible_indexes = tuple(
+        index for index, assessment in enumerate(assessments) if assessment.admissible
+    )
     if profile.kind in {"inventory", "metadata"}:
         canonical = tuple(a for a in assessments if a.candidate.canonical_verified)
         if canonical:
@@ -917,17 +985,42 @@ def assess_claims(  # noqa: PLR0911 - explicit fail-closed branches
                 detail="A corpus inventory/metadata question does not synthesize a finding claim.",
                 assessments=assessments,
                 accepted=canonical,
+                accepted_claim_indexes=tuple(
+                    index
+                    for index, assessment in enumerate(assessments)
+                    if assessment.candidate.canonical_verified
+                ),
             )
     if profile.kind == "comparison":
-        if comparison_document_count < 2:
+        salient = _salient_terms(profile)
+        comparable = (
+            admissible
+            if salient
+            else tuple(a for a in assessments if a.candidate.canonical_verified)
+        )
+        comparable_indexes = (
+            admissible_indexes
+            if salient
+            else tuple(
+                index
+                for index, assessment in enumerate(assessments)
+                if assessment.candidate.canonical_verified
+            )
+        )
+        admissible_documents = _documents(comparable)
+        if admissible_documents < 2:
             return _decision(
                 profile=profile,
                 verdict="ABSTAIN",
                 code="insufficient_cross_study_evidence",
-                detail="Fewer than two studies were available for the requested comparison.",
+                detail=(
+                    "Fewer than two documents have verified quotations that answer the "
+                    "requested comparison facets."
+                ),
                 assessments=assessments,
-                accepted=admissible,
-                comparison_document_count=comparison_document_count,
+                accepted=comparable,
+                accepted_claim_indexes=comparable_indexes,
+                comparison_document_count=admissible_documents,
             )
         # The comparison tool extracts design/population/result facets structurally
         # from complete documents; a passage-level claim is not its only evidence.
@@ -937,8 +1030,9 @@ def assess_claims(  # noqa: PLR0911 - explicit fail-closed branches
             code="comparison_structurally_answerable",
             detail="At least two admissible studies were compared structurally.",
             assessments=assessments,
-            accepted=admissible,
-            comparison_document_count=comparison_document_count,
+            accepted=comparable,
+            accepted_claim_indexes=comparable_indexes,
+            comparison_document_count=admissible_documents,
         )
     if not admissible:
         missing_entity = any(a.missing_entities for a in assessments)
@@ -985,6 +1079,7 @@ def assess_claims(  # noqa: PLR0911 - explicit fail-closed branches
             ),
             assessments=assessments,
             accepted=admissible,
+            accepted_claim_indexes=admissible_indexes,
             contradictory=True,
         )
     return _decision(
@@ -997,6 +1092,7 @@ def assess_claims(  # noqa: PLR0911 - explicit fail-closed branches
         ),
         assessments=assessments,
         accepted=admissible,
+        accepted_claim_indexes=admissible_indexes,
         contradictory=contradictory,
         claim_support="SUPPORTED_BY_STRUCTURED_EVIDENCE_GATE",
     )

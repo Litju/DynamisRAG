@@ -15,7 +15,6 @@ import pytest
 from pydantic import BaseModel, ConfigDict, Field
 
 from dynamisrag.agent.answerability import (
-    CALIBRATED_MIN_CLAIM_COVERAGE,
     CALIBRATED_MIN_COMPARISON_COVERAGE,
     CALIBRATED_MIN_RELEVANCE,
     ClaimEvidence,
@@ -69,7 +68,6 @@ class _ClaimCase(BaseModel):
     question: str
     expected_verdict: _Verdict
     expected_code: str | None = None
-    comparison_document_count: int = 0
     claims: tuple[_ClaimFixture, ...]
 
 
@@ -135,7 +133,6 @@ def test_claim_cases_match_expected_decisions(filename: str) -> None:
                 )
                 for c in case.claims
             ),
-            comparison_document_count=case.comparison_document_count,
         )
         if decision.verdict != case.expected_verdict:
             failures.append(f"{case.id}: expected {case.expected_verdict}, got {decision.code}")
@@ -204,7 +201,9 @@ def test_claim_threshold_is_used_for_verified_quotations() -> None:
     fixture = _load("calibration.json")
     coverages: list[float] = []
     for case in fixture.claim_cases:
-        if case.expected_verdict != "ANSWERABLE" or case.comparison_document_count >= 2:
+        if case.expected_verdict != "ANSWERABLE":
+            continue
+        if build_query_profile(case.question).kind == "comparison":
             continue
         decision = assess_claims(
             case.question,
@@ -222,7 +221,7 @@ def test_claim_threshold_is_used_for_verified_quotations() -> None:
         assert decision.answerable
         coverages.extend(c.lexical_similarity for c in decision.assessments if c.admissible)
     assert coverages
-    assert min(coverages) >= CALIBRATED_MIN_CLAIM_COVERAGE
+    assert min(coverages) >= CALIBRATED_MIN_RELEVANCE
 
 
 def test_gate_separates_lexical_similarity_from_query_relevance() -> None:
@@ -244,6 +243,67 @@ def test_gate_separates_lexical_similarity_from_query_relevance() -> None:
     assert candidate.query_relevance < candidate.lexical_similarity
     assert candidate.entity_support == 0.0
     assert candidate.admissible is False
+
+
+def test_claim_gate_excludes_an_irrelevant_quotation_within_the_same_study() -> None:
+    decision = assess_claims(
+        "How many weeks did those participants complete?",
+        (
+            ClaimEvidence(
+                passage_key="a" * 64,
+                document_version_key="b" * 64,
+                document_title="Plyometric Training during Depth Jumping",
+                claim_text="The training group completed 12 weeks of training.",
+                verbatim_quote=(
+                    "The training group completed plyometric training for 12 weeks (3 days/week)."
+                ),
+            ),
+            ClaimEvidence(
+                passage_key="a" * 64,
+                document_version_key="b" * 64,
+                document_title="Plyometric Training during Depth Jumping",
+                claim_text="The subjects lay supine.",
+                verbatim_quote=(
+                    "The subjects lay in the supine position on the sliding bed of the "
+                    "sledge apparatus."
+                ),
+            ),
+        ),
+    )
+    assert decision.answerable
+    assert decision.accepted_claim_indexes == (0,)
+    assert decision.accepted_passage_keys == ("a" * 64,)
+
+
+def test_comparison_does_not_accept_an_irrelevant_document_for_two_doc_count() -> None:
+    fixture = _load("calibration.json")
+    case = next(
+        item for item in fixture.retrieval_cases if item.id == "cal-pos-comparison-mixed-relevance"
+    )
+    decision = assess_retrieval(case.question, _candidates(case))
+    assert decision.answerable
+    assert len(decision.accepted_passage_keys) == 1
+    assert "1000000000000000000000000000000000000000000000000000000000000013" not in (
+        decision.accepted_passage_keys
+    )
+
+
+def test_bare_followup_uses_prior_context_only_when_the_current_turn_is_empty() -> None:
+    candidate = EvidenceCandidate(
+        passage_key="a" * 64,
+        document_version_key="b" * 64,
+        title="Muscle-Tendon Behavior during Depth Jumping",
+        text="Achilles tendon stiffness increased during depth jumping.",
+    )
+    without_context = assess_retrieval("What about it?", (candidate,))
+    assert without_context.verdict == "ABSTAIN"
+    assert without_context.code == "ambiguous_question"
+    with_context = assess_retrieval(
+        "What about it?",
+        (candidate,),
+        context="What happened to Achilles tendon stiffness during depth jumping?",
+    )
+    assert with_context.answerable
 
 
 def test_ambiguous_question_without_checkable_content_abstains() -> None:

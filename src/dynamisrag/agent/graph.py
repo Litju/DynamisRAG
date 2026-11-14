@@ -52,6 +52,8 @@ from dynamisrag.agent.answerability import (
     EvidenceCandidate,
     assess_claims,
     assess_retrieval,
+    build_query_profile,
+    salient_terms,
 )
 from dynamisrag.agent.contracts import (
     PROPOSED_LIMITATION_NOTICE,
@@ -229,6 +231,18 @@ _COREFERENCE_TOKENS = (
     "those papers",
     "these studies",
     "those studies",
+    "that study",
+    "this study",
+    "those participants",
+    "these participants",
+    "that paper",
+    "this paper",
+    "those results",
+    "these results",
+    "those groups",
+    "these groups",
+    "the same study",
+    "the same participants",
     "those findings",
     "these findings",
     "among them",
@@ -725,11 +739,16 @@ class ConversationalResearchOrchestrator:
         lower_q = question.lower()
         has_coref = any(tok in lower_q for tok in _COREFERENCE_TOKENS)
 
-        scoped_versions = (
-            list(thread.active_version_keys)
-            if has_coref and thread.active_version_keys
-            else list(thread.allowed_version_keys)
-        )
+        is_comparison = any(keyword in lower_q for keyword in _COMPARISON_KEYWORDS)
+        if is_comparison:
+            # "these papers" means the authorized comparison set, not only the
+            # last active study. A one-paper authorized scope still abstains in
+            # the gate because fewer than two documents are available.
+            scoped_versions = list(thread.allowed_version_keys)
+        elif has_coref and thread.active_version_keys:
+            scoped_versions = list(thread.active_version_keys)
+        else:
+            scoped_versions = list(thread.allowed_version_keys)
         resolved_q = question
         resolution_source = "none_needed"
         if has_coref and thread.conversation_summary:
@@ -881,7 +900,16 @@ class ConversationalResearchOrchestrator:
         """Let the MODEL choose scientific tools; validate, execute, and record every decision."""
         run_id = state.get("run_id", "")
         thread_id = state.get("thread_id", "")
-        question = state.get("resolved_question") or state.get("question", "")
+        current_question = state.get("question", "")
+        current_profile = build_query_profile(current_question)
+        # Search with the current turn when it has its own content. The resolved
+        # question is a context aid, not a replacement: a follow-up about weeks
+        # must not be outranked by the prior turn's Achilles-stiffness vocabulary.
+        question = (
+            current_question
+            if current_profile.entities or salient_terms(current_profile)
+            else state.get("resolved_question") or current_question
+        )
 
         if (aborted := self._control_abort(state, config)) is not None:
             return aborted
@@ -950,9 +978,23 @@ class ConversationalResearchOrchestrator:
             str(h.get("passage_key", "")): h for h in outcome.hits if str(h.get("passage_key", ""))
         }
         retrieval_decision: AnswerabilityDecision | None = None
+        scoped_versions = set(state.get("scoped_version_keys", []))
+        if scoped_versions:
+            # A follow-up that references prior evidence must not silently answer
+            # from a different study in the authorized corpus.
+            dedup_hits = {
+                key: hit
+                for key, hit in dedup_hits.items()
+                if str(hit.get("document_version_key", "")) in scoped_versions
+            }
         if dedup_hits:
             authorized_keys = (
                 state.get("allowed_version_keys") or state.get("scoped_version_keys") or []
+            )
+            prior_user_context = " ".join(
+                str(turn.get("content", ""))
+                for turn in state.get("recent_turns", [])
+                if turn.get("role") == "user"
             )
             retrieval_decision = assess_retrieval(
                 state.get("question", ""),
@@ -972,6 +1014,7 @@ class ConversationalResearchOrchestrator:
                     )
                     for index, (key, hit) in enumerate(dedup_hits.items(), start=1)
                 ),
+                context=prior_user_context,
                 authorized_document_count=len(authorized_keys) or None,
             )
             accepted = set(retrieval_decision.accepted_passage_keys)
@@ -1302,7 +1345,7 @@ class ConversationalResearchOrchestrator:
     # Node 8: verify_canonical_citations
     # ------------------------------------------------------------------
 
-    def _gate_verified_claims(
+    def _gate_verified_claims(  # noqa: PLR0912 - explicit claim-filter branches
         self,
         *,
         state: ResearchAgentState,
@@ -1315,10 +1358,28 @@ class ConversationalResearchOrchestrator:
         """Apply question relevance to already-verified quotations. Never entailment."""
         if not verified:
             return None
-        comparison = state.get("study_comparison") or {}
-        compared_studies = comparison.get("studies")
-        compared_count = (
-            len(cast("list[object]", compared_studies)) if isinstance(compared_studies, list) else 0
+        retrieval = state.get("answerability") or {}
+        accepted_keys = {str(key) for key in retrieval.get("accepted_passage_keys", []) if key}
+        if accepted_keys:
+            kept: list[dict[str, Any]] = []
+            for item in verified:
+                if str(item.get("passage_key", "")) in accepted_keys:
+                    kept.append(item)
+                else:
+                    rejected.append(
+                        {
+                            **item,
+                            "verified": False,
+                            "rejection_reason": "retrieval_candidate_not_admissible",
+                        }
+                    )
+            verified[:] = kept
+            if not verified:
+                return None
+        prior_user_context = " ".join(
+            str(turn.get("content", ""))
+            for turn in state.get("recent_turns", [])
+            if turn.get("role") == "user"
         )
         decision = assess_claims(
             state.get("question", ""),
@@ -1332,16 +1393,7 @@ class ConversationalResearchOrchestrator:
                 )
                 for item in verified
             ),
-            comparison_document_count=max(
-                compared_count,
-                len(
-                    {
-                        str(item.get("document_version_key", ""))
-                        for item in verified
-                        if item.get("document_version_key")
-                    }
-                ),
-            ),
+            context=prior_user_context,
         )
         self._store.append_event(
             run_id,
@@ -1351,7 +1403,24 @@ class ConversationalResearchOrchestrator:
             stage="verify_canonical_citations",
             payload=decision.to_payload(),
         )
-        if not decision.answerable:
+        if decision.answerable:
+            keep = set(decision.accepted_claim_indexes)
+            kept: list[dict[str, Any]] = []
+            for index, item in enumerate(verified):
+                if index in keep:
+                    kept.append(item)
+                else:
+                    rejected.append(
+                        {
+                            **item,
+                            "verified": False,
+                            "rejection_reason": "answerability_gate:claim_not_relevant_to_question",
+                        }
+                    )
+            verified[:] = kept
+            if not verified:
+                return None
+        else:
             for item in verified:
                 rejected.append(
                     {
@@ -1505,6 +1574,7 @@ class ConversationalResearchOrchestrator:
         attempts = state.get("repair_attempts", 0)
         max_attempts = state.get("max_repair_attempts", 1)
         verified = state.get("verified_citations", [])
+        rejected = state.get("rejected_citations", [])
         answerability = state.get("answerability") or {}
         if answerability.get("verdict") == "ABSTAIN":
             return {
@@ -1513,6 +1583,23 @@ class ConversationalResearchOrchestrator:
                     f"answerability_gate:{answerability.get('code', 'not_answerable')}"
                 ),
                 "final_status": RunStatus.ABSTAINED.value,
+                "repair_attempts": attempts + 1,
+            }
+        if (
+            verified
+            and rejected
+            and all(
+                str(item.get("rejection_reason", "")).startswith(
+                    "answerability_gate:claim_not_relevant_to_question"
+                )
+                for item in rejected
+            )
+        ):
+            # Relevance filtering removed unsupported paraphrases while valid
+            # quotations remain. Repairing them would ask the model to re-propose
+            # the same filtered claims; finalise the supported subset instead.
+            return {
+                "rejected_citations": [],
                 "repair_attempts": attempts + 1,
             }
 

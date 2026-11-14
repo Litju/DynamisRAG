@@ -93,6 +93,31 @@
       ]
     },
     {
+      "id": "cal-pos-comparison-mixed-relevance",
+      "question": "Compare jump height outcomes of the plyometric studies.",
+      "expected_verdict": "ANSWERABLE",
+      "candidates": [
+        {
+          "passage_key": "1000000000000000000000000000000000000000000000000000000000000012",
+          "document_version_key": "2000000000000000000000000000000000000000000000000000000000000012",
+          "title": "Plyometric Training and Jump Height",
+          "section_title": "Results",
+          "text": "Jump height increased after plyometric training in the intervention group.",
+          "canonical_verified": true,
+          "rank": 1
+        },
+        {
+          "passage_key": "1000000000000000000000000000000000000000000000000000000000000013",
+          "document_version_key": "2000000000000000000000000000000000000000000000000000000000000013",
+          "title": "Core Strength in Male Cricketers",
+          "section_title": "Results",
+          "text": "McGill plank core strength endurance increased after complex training.",
+          "canonical_verified": true,
+          "rank": 2
+        }
+      ]
+    },
+    {
       "id": "cal-neg-comparison-one-doc",
       "question": "Compare the training protocols and populations of the two studies.",
       "expected_verdict": "ABSTAIN",
@@ -231,10 +256,31 @@
       ]
     },
     {
+      "id": "cal-neg-claim-comparison-mixed-relevance",
+      "question": "Compare jump height outcomes of the plyometric studies.",
+      "expected_verdict": "ABSTAIN",
+      "expected_code": "insufficient_cross_study_evidence",
+      "claims": [
+        {
+          "passage_key": "3000000000000000000000000000000000000000000000000000000000000007",
+          "document_version_key": "4000000000000000000000000000000000000000000000000000000000000007",
+          "document_title": "Plyometric Training and Jump Height",
+          "claim_text": "Jump height increased after plyometric training.",
+          "verbatim_quote": "Jump height increased after plyometric training."
+        },
+        {
+          "passage_key": "3000000000000000000000000000000000000000000000000000000000000008",
+          "document_version_key": "4000000000000000000000000000000000000000000000000000000000000008",
+          "document_title": "Core Strength in Male Cricketers",
+          "claim_text": "Core strength increased after complex training.",
+          "verbatim_quote": "Core strength increased after complex training."
+        }
+      ]
+    },
+    {
       "id": "cal-pos-claim-comparison",
       "question": "Compare the outcomes of the two plyometric studies.",
       "expected_verdict": "ANSWERABLE",
-      "comparison_document_count": 2,
       "claims": [
         {
           "passage_key": "3000000000000000000000000000000000000000000000000000000000000005",
@@ -246,7 +292,7 @@
         {
           "passage_key": "3000000000000000000000000000000000000000000000000000000000000006",
           "document_version_key": "4000000000000000000000000000000000000000000000000000000000000006",
-          "document_title": "Core Strength after Complex Training",
+          "document_title": "Plyometric and Complex Training: Core Strength",
           "claim_text": "Core strength improved.",
           "verbatim_quote": "Core strength improved after complex training."
         }

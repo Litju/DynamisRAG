@@ -43,6 +43,7 @@ from sqlalchemy import Engine, func, select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from dynamisrag.agent.answerability import build_query_profile, stem_terms, surface_terms
 from dynamisrag.agent.claims import assess_numeric_provenance, assess_semantic_support
 from dynamisrag.agent.contracts import (
     CalculateStatisticsInput,
@@ -621,7 +622,10 @@ class ScientificToolRegistry:
             section_filter_lower = (
                 params.section_filter.casefold() if params.section_filter else None
             )
-            query_terms = scientific_terms(params.query)
+            profile = build_query_profile(params.query)
+            query_terms = set(profile.facets).union(
+                part for entity in profile.entities for part in entity
+            )
             query_lower = params.query.casefold()
             scored: list[tuple[float, PassageProjectionRecords, tuple[PassageSpanItem, ...]]] = []
 
@@ -697,9 +701,10 @@ class ScientificToolRegistry:
                 "Canonical passage failed source-span reconstruction",
             ) from err
 
-        title_terms = scientific_terms(rec.version.title)
-        sec_terms = scientific_terms(sec_title or "")
-        text_terms = scientific_terms(rec.passage.text)
+        title_terms = surface_terms(rec.version.title)
+        sec_terms = surface_terms(sec_title or "")
+        text_terms = surface_terms(rec.passage.text)
+        query_terms = stem_terms(query_terms)
 
         overlap_title = len(query_terms.intersection(title_terms))
         overlap_sec = len(query_terms.intersection(sec_terms))

@@ -294,6 +294,48 @@ def test_bounded_verification_repair_and_abstention_on_fabricated_claims(
     assert len(run_abstained.verified_citations) == 0
 
 
+def test_multi_turn_followup_stays_with_the_prior_study(
+    graph_engine_and_studies: tuple[
+        Engine, dict[str, tuple[str, tuple[str, ...], tuple[str, ...]]]
+    ],
+) -> None:
+    engine, _ = graph_engine_and_studies
+    registry = ScientificToolRegistry(engine)
+    store = InMemoryAgentConversationStore()
+    runtime = build_agent_model_runtime(AgentModelConfig(provider=AgentProviderKind.DETERMINISTIC))
+    orchestrator = ConversationalResearchOrchestrator(
+        tool_registry=registry,
+        store=store,
+        model_runtime=runtime,
+    )
+    thread = store.create_thread(owner_id="multi-turn", title="Prior-study follow-up")
+
+    first = orchestrator.execute_run(
+        thread_id=thread.thread_id,
+        user_id="multi-turn",
+        question="What did the depth jumping study find about Achilles tendon stiffness?",
+        idempotency_key="prior-study",
+    )
+    assert first.status == RunStatus.COMPLETED
+    prior_versions = {
+        str(citation["document_version_key"]) for citation in first.verified_citations
+    }
+    assert len(prior_versions) == 1
+
+    follow_up = orchestrator.execute_run(
+        thread_id=thread.thread_id,
+        user_id="multi-turn",
+        question="How many weeks did those participants complete?",
+        idempotency_key="participant-weeks",
+    )
+    assert follow_up.status == RunStatus.COMPLETED
+    assert follow_up.verified_citations
+    cited_versions = {
+        str(citation["document_version_key"]) for citation in follow_up.verified_citations
+    }
+    assert cited_versions == prior_versions
+
+
 def test_abstention_on_out_of_corpus_and_prompt_injection(
     graph_engine_and_studies: tuple[
         Engine, dict[str, tuple[str, tuple[str, ...], tuple[str, ...]]]
