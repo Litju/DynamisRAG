@@ -21,4 +21,6 @@ Validation after repairs:
 
 The Workerd integration fixture maps only its test upstream transport to loopback Python. It is not a deployed tunnel or TLS/Access qualification. No paid inference, Oracle account, external tunnel or hosted public assistant was created. New resource spending remains $0.
 
-Scientific readiness is unchanged: the deterministic licensed-corpus Kepler-22b negative case failed; authorized real-model evaluation and dense retrieval qualification remain unresolved. `PERSISTENT_PYTHON_HOST_UNRESOLVED_AT_ZERO_COST` remains in force. Exact-head CI and the PR's draft status are tracked externally; these local results do not imply merge or launch authorization.
+Scientific readiness at the time of that review: the deterministic licensed-corpus Kepler-22b negative case failed; authorized real-model evaluation and dense retrieval qualification were unresolved. `PERSISTENT_PYTHON_HOST_UNRESOLVED_AT_ZERO_COST` remains in force. Exact-head CI and the PR's draft status are tracked externally; these local results do not imply merge or launch authorization.
+
+**Addendum 2026-11-14:** the Kepler-22b negative was repaired with a separate evidence relevance/answerability gate and re-run 9/9 on the licensed corpus; citation highlighting now maps verified spans rather than `indexOf`; and a fresh isolated dense projection is qualified. See [the final qualification](../res638-final-qualification.md). Authorized live-model evaluation, expert review and a persistent Python host remain unresolved.

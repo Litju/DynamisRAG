@@ -6,7 +6,7 @@ The owner's new-spending ceiling is **$0/month**. Cloudflare Free is evaluated f
 
 ## Runtime boundary
 
-The browser authenticates to Next.js with an individually hashed restricted-preview account. Next.js signs a two-minute Python identity assertion; browser-supplied owner IDs are never forwarded. The Eve channel verifies that assertion, maps its verified subject to a user principal, and checks the session's Python thread binding on every continuation and stream. Direct Eve routes reject browser Basic credentials.
+The browser authenticates to Next.js with an individually hashed restricted-preview account. The first Basic exchange is bounded (5 failures per user and 20 per client address per 60 s per instance) and is replaced by a 15-minute signed HttpOnly session bound to the account hash; changing the credential hash invalidates existing sessions. Unsafe cookie-authenticated requests require matching Origin evidence. Next.js signs a two-minute Python identity assertion; browser-supplied owner IDs are never forwarded. The Eve channel verifies that assertion, maps its verified subject to a user principal, and checks the session's Python thread binding on every continuation and stream. Direct Eve routes reject browser Basic credentials. Logout clears the session cookie.
 
 Eve bindings use the reserved `eve:<sessionId>` external reference. Only the server conversation route creates them; browser thread creation accepts the corpus catalog reference only. Legacy unprefixed local-preview bindings are not automatically trusted or resumed. Their database records are retained; start a new trusted conversation. Message posts accept only bounded text and reject Eve callback/control fields.
 
@@ -32,7 +32,7 @@ Use the feature worktree, Node 24+ and the repository's locked Python environmen
 
 The two PostgreSQL services use separate new volumes and ports 55438/55439, with separate owner passwords. Canonical retrieval uses a read-only role; only bootstrap uses the corpus owner. Runtime containers receive an explicit application-variable allowlist and never receive the database admin or canonical-owner password. The API and worker images run as UID 10001. The image context excludes secrets and retained artifacts.
 
-The current container smoke uses `canonical_lexical_fallback`. Qdrant/OpenSearch definitions are private preparation, **not qualified dense retrieval**: no new embedding projection or TEI service has been qualified. The Qdrant driver now supports a read-only API key and an exact allowlisted HTTPS hostname while retaining loopback defaults. Keep scientific Qdrant disabled until fresh dense artifacts and the deployment integration are verified; do not reuse historical receipts. OpenSearch's internal demo TLS setting must be replaced by verified TLS on a hosted topology.
+The current container smoke uses `canonical_lexical_fallback`. A fresh, isolated Qdrant 1.20.0 instance and the pinned Qwen3-Embedding-0.6B TEI container were then used to build and verify the 75-passage projection: exact model revision, document/query fingerprints, 512-dimensional normalized vectors, exact canonical membership and positive-query recall all passed. See the [dense qualification receipt](evidence/res638-dense-qualification/receipt.json). This qualifies the **local CPU projection only**, not hosted capacity, TLS, access control or backup/restore; do not reuse retained Qdrant data or historical receipts. OpenSearch's internal demo TLS setting must be replaced by verified TLS on a hosted topology.
 
 ## Browser verification
 
@@ -42,7 +42,7 @@ Start it with `uv run python -m tests.workspace_server`. Start Next.js with the 
 
 For the persistent licensed container stack, point Next.js at port 8019 with its actual identity secret, set test-only account hashes, and set `WORKSPACE_LICENSED_CORPUS=1` in the Playwright process. The first conversation/isolation/mobile and comparison scenarios passed against that stack. Fault-marker scenarios apply only to the synthetic fixture.
 
-**Known failed qualification case:** with the deterministic model on the licensed corpus, the off-domain Kepler-22b question retrieved incidental lexical matches and returned unrelated cited passages instead of abstaining. The synthetic-corpus abstention test passes. This is recorded as a failed deterministic scientific qualification, not a successful negative evaluation or evidence that a live model is safe. Authorized model evaluation remains required.
+**Repaired qualification case:** the original licensed-corpus Kepler-22b failure is preserved in [the failure receipt](evidence/res638-scientific-gate/original-kepler-failure.json). A separate `structured-evidence-gate-v1` now rejects unsupported entities and insufficient query-facet coverage before synthesis, and re-checks verified quotations against the asked-about entities/facets. On the licensed corpus the Kepler-22b and Proxima Centauri questions now abstain with `unsupported_entity`, close-domain sprint and off-domain sourdough questions abstain with `insufficient_query_coverage`, and supported/paraphrased/comparison/multi-turn cases complete. See the [9-case receipt](evidence/res638-scientific-gate/receipt.json). This is a lexical/structural gate, not semantic entailment; authorized live-model evaluation and expert review remain required.
 
 ## Hosting and operations
 
@@ -60,4 +60,4 @@ Capacity evidence is limited to the local sample: 3 articles, 75 passages, about
 
 ## Delivery status
 
-Local implementation and deterministic integration evidence are reviewable. Hosted preview, dedicated host connectivity, dense retrieval, authorized model E2E, adversarial scientific qualification and final external access checks remain open. CI results must be read at the exact PR head. The PR remains draft until those release blockers are resolved. No squash, merge, public promotion or broader access is authorized.
+Local implementation and deterministic integration evidence are reviewable, including the repaired relevance/abstention gate, verified citation highlighting, bounded signed sessions and a fresh pinned dense projection. Hosted preview, dedicated host connectivity, authorized live-model E2E, expert scientific review, hosted dense capacity and final external access checks remain open. CI results must be read at the exact PR head. The PR remains draft until those release blockers are resolved. No squash, merge, public promotion or broader access is authorized. Full results: [final qualification](evidence/res638-final-qualification.md).

@@ -1,7 +1,7 @@
 {
  "schema": "res638-dense-retrieval-qualification-v1",
- "generated_at": "2026-11-14T00:16:21.780392+00:00",
- "code_revision": "8f19b8f7bfc5caebf9c4db7b1c105e6276c02b00",
+ "generated_at": "2026-11-14T00:22:21.492577+00:00",
+ "code_revision": "57b2f2ec971b485957abd6b6f862b740d97db1f8",
  "pinned": {
   "model_id": "Qwen/Qwen3-Embedding-0.6B",
   "model_revision": "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
