@@ -1,7 +1,7 @@
 {
  "schema": "res638-scientific-gate-evaluation-v1",
- "generated_at": "2026-11-14T00:21:53.852483+00:00",
- "code_revision": "57b2f2ec971b485957abd6b6f862b740d97db1f8",
+ "generated_at": "2026-11-14T01:51:03.591274+00:00",
+ "code_revision": "502d4b5fd8dae701dfa9fd49019c04052a4b4769",
  "engine": {
   "provider": "deterministic",
   "paid_inference": false,
@@ -33,34 +33,31 @@
    "turns": [
     {
      "question": "What happened to Achilles tendon stiffness during depth jumping?",
-     "run_id": "run-458c927a9fb74ea4",
+     "run_id": "run-b4b4f6a405004725",
      "status": "completed",
      "abstention_reason": null,
-     "verified_citation_count": 4,
+     "verified_citation_count": 3,
      "verified_quotes": [
       {
        "document_title": "Plyometric Training Favors Optimizing Muscle–Tendon Behavior during Depth Jumping",
        "pmcid": "PMC5263151",
        "passage_key": "ff98ea8cb2b6f9c9af22689a5b49868fcd816885ba0b2939ab5aae696deda73f",
+       "document_version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e",
        "verbatim_quote": "The Achilles tendon stiffness was quantified using ultrasonography (ProSound α7, Hitachi Aloka Medical, Ltd., Tokyo, Japan)."
       },
       {
        "document_title": "Plyometric Training Favors Optimizing Muscle–Tendon Behavior during Depth Jumping",
        "pmcid": "PMC5263151",
-       "passage_key": "ff98ea8cb2b6f9c9af22689a5b49868fcd816885ba0b2939ab5aae696deda73f",
-       "verbatim_quote": "The slope of this relation from 50 to 100% peak torque was defined as the tendon stiffness (Kubo et al., 1999)."
+       "passage_key": "20b882b966e04387a69e3f80782fd9dd266642f4a492120b415f5156a6ba25e8",
+       "document_version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e",
+       "verbatim_quote": "The reason that no change was observed in fascicle length or contraction velocity despite the increase in muscle activation is probably related to an increase in Achilles tendon stiffness."
       },
       {
        "document_title": "Plyometric Training Favors Optimizing Muscle–Tendon Behavior during Depth Jumping",
        "pmcid": "PMC5263151",
        "passage_key": "03ef314b00f7475e7e55d6d7aeeeda89d72fb7c0a7f392e376ebdf0fd35a67d5",
+       "document_version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e",
        "verbatim_quote": "The Achilles tendon moment arm was determined from the magnetic resonance (MR) images with the center of rotation method described by Maganaris et al."
-      },
-      {
-       "document_title": "Plyometric Training Favors Optimizing Muscle–Tendon Behavior during Depth Jumping",
-       "pmcid": "PMC5263151",
-       "passage_key": "03ef314b00f7475e7e55d6d7aeeeda89d72fb7c0a7f392e376ebdf0fd35a67d5",
-       "verbatim_quote": "The moment arm was determined as the perpendicular distance from the center of rotation of the talocrural joint to the line of action of the Achilles tendon force at a neutral foot position."
       }
      ],
      "answerability_events": [
@@ -69,8 +66,8 @@
        "verdict": "ANSWERABLE",
        "code": "evidence_relevant_and_answerable",
        "question_kind": "factual",
-       "accepted": 3,
-       "rejected": 3
+       "accepted": 4,
+       "rejected": 2
       },
       {
        "stage": "verify_canonical_citations",
@@ -97,7 +94,7 @@
    "turns": [
     {
      "question": "How did knee flexion angle affect muscle activity?",
-     "run_id": "run-c6cf237d1aff4888",
+     "run_id": "run-b45887cf3ccc4ffd",
      "status": "completed",
      "abstention_reason": null,
      "verified_citation_count": 4,
@@ -105,26 +102,30 @@
       {
        "document_title": "Impact of Starting Knee Flexion Angle on Muscle Activity and Performance during Plyometrics without Jumping",
        "pmcid": "PMC10780924",
-       "passage_key": "4028f46395328d7c94a3f5bce085ae356b552234edff5b6fcb233154f74f14c7",
-       "verbatim_quote": "Higher EMG activity at varying knee flexion angles may indicate increased activation or engagement of specific muscles at those angles."
+       "passage_key": "c95fa67ff09a49666ee2640e5f34963bcc08e2e8036ccdc7e2c689e7e539e037",
+       "document_version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643",
+       "verbatim_quote": "Furthermore, if there is a need to increase the muscle activity of the vastus medialis in the nondominant leg to enhance stability during bipedal functional movements in rehabilitation programs, it is recommended to incorporate resisted nonjump plyometrics at 60° or 90° knee flexion angles."
       },
       {
        "document_title": "Impact of Starting Knee Flexion Angle on Muscle Activity and Performance during Plyometrics without Jumping",
        "pmcid": "PMC10780924",
        "passage_key": "0a0cfb976e7bd8ce7f592764f258accd073b5c9455a1b901fb965212fc2fb92c",
+       "document_version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643",
        "verbatim_quote": "Coaches and trainers should consider incorporating exercises with a 90° knee flexion angle to maximize muscle activation, particularly in the VM and VL."
       },
       {
        "document_title": "Impact of Starting Knee Flexion Angle on Muscle Activity and Performance during Plyometrics without Jumping",
        "pmcid": "PMC10780924",
        "passage_key": "0a0cfb976e7bd8ce7f592764f258accd073b5c9455a1b901fb965212fc2fb92c",
+       "document_version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643",
        "verbatim_quote": "Given that the nondominant leg is primarily responsible for stabilization during bipedal movements [14], this implies that during resisted nonjump plyometric exercises, the nondominant limb may require increased stabilization, resulting in higher vastus medialis activity, regardless of the knee flexion angle."
       },
       {
        "document_title": "Impact of Starting Knee Flexion Angle on Muscle Activity and Performance during Plyometrics without Jumping",
        "pmcid": "PMC10780924",
-       "passage_key": "4028f46395328d7c94a3f5bce085ae356b552234edff5b6fcb233154f74f14c7",
-       "verbatim_quote": "In this context, exploring the effects of SSC to increase muscle performance during resisted plyometrics without jumping at different knee flexion angles becomes particularly relevant to identify optimal training strategies for athletes and active individuals."
+       "passage_key": "c15877f3938f3a25bc734c99fe15cfb29a25805bdfc2ec7b124ea41e41295cf0",
+       "document_version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643",
+       "verbatim_quote": "Study results demonstrated notable variations in muscle activity between 60°and 90° positions, particularly in favor of the 90° knee flexion position."
       }
      ],
      "answerability_events": [
@@ -161,34 +162,38 @@
    "turns": [
     {
      "question": "Compare the study designs and populations of the plyometric studies in this corpus.",
-     "run_id": "run-c46088291c214b3a",
+     "run_id": "run-271f5ea63e6041c7",
      "status": "completed",
      "abstention_reason": null,
      "verified_citation_count": 4,
      "verified_quotes": [
       {
-       "document_title": "Effect of plyometric versus complex training on core strength, lower limb, and upper limb power in male cricketers: a randomized controlled trial",
-       "pmcid": "PMC10680285",
-       "passage_key": "32c7908acca84eb07cbb378abfba2f50fdaf7f7ba6eefa87e73a713532c39b41",
-       "verbatim_quote": "Thus, this study aimed to compare the effectiveness of complex and plyometric training for core muscle strength, power, and strength output in university-level male cricket players."
+       "document_title": "Plyometric Training Favors Optimizing Muscle–Tendon Behavior during Depth Jumping",
+       "pmcid": "PMC5263151",
+       "passage_key": "04d4565cd5a7cd106944580d4fe621057f1b7c32c870f638209e976303725dff",
+       "document_version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e",
+       "verbatim_quote": "In the present study, we aimed to elucidate the mechanisms behind how plyometric training improves SSC exercise performance with changes in muscle strength, tendon stiffness, and muscle–tendon behavior."
       },
       {
-       "document_title": "Effect of plyometric versus complex training on core strength, lower limb, and upper limb power in male cricketers: a randomized controlled trial",
-       "pmcid": "PMC10680285",
-       "passage_key": "32c7908acca84eb07cbb378abfba2f50fdaf7f7ba6eefa87e73a713532c39b41",
-       "verbatim_quote": "Even though complex training effectively improves physical performance in various sports, there is a paucity of research evidence that directly compares the efficacy of plyometric and complex training for the outcomes of physical performance in cricket players."
+       "document_title": "Impact of Starting Knee Flexion Angle on Muscle Activity and Performance during Plyometrics without Jumping",
+       "pmcid": "PMC10780924",
+       "passage_key": "37ad148429ed0342fb2bc0e02fadc5194a4be1aa8f16bab1df8d433336a50144",
+       "document_version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643",
+       "verbatim_quote": "The resisted plyometric exercise without jumping involved an initial position with the participants seated with knee joints bent at two different starting positions: 60° (Figure 1a) and 90° (Figure 1b)."
+      },
+      {
+       "document_title": "Impact of Starting Knee Flexion Angle on Muscle Activity and Performance during Plyometrics without Jumping",
+       "pmcid": "PMC10780924",
+       "passage_key": "37ad148429ed0342fb2bc0e02fadc5194a4be1aa8f16bab1df8d433336a50144",
+       "document_version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643",
+       "verbatim_quote": "The assessment encompassed an isokinetic mode at speeds of 5 cm/s (to determine maximum voluntary contraction) and a tonic mode at 80% of body weight (for resisted plyometric exercise without jumping)."
       },
       {
        "document_title": "Plyometric Training Favors Optimizing Muscle–Tendon Behavior during Depth Jumping",
        "pmcid": "PMC5263151",
        "passage_key": "418af8928d919e2b4d9e887d1679ae1101b2768943433ca0e5d71b2e278ba002",
+       "document_version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e",
        "verbatim_quote": "The training group completed plyometric training for 12 weeks (3 days/week), with a rest period of 1 week halfway through the training period."
-      },
-      {
-       "document_title": "Plyometric Training Favors Optimizing Muscle–Tendon Behavior during Depth Jumping",
-       "pmcid": "PMC5263151",
-       "passage_key": "418af8928d919e2b4d9e887d1679ae1101b2768943433ca0e5d71b2e278ba002",
-       "verbatim_quote": "For one session of plyometric training, the subjects repeated depth jumps (DJ) for 10 sets of 10 repetitions with a rest interval of 30 s."
       }
      ],
      "answerability_events": [
@@ -226,34 +231,24 @@
    "turns": [
     {
      "question": "What did the depth jumping study find about Achilles tendon stiffness?",
-     "run_id": "run-6b658652345e41a4",
+     "run_id": "run-cb2462426ad54cb1",
      "status": "completed",
      "abstention_reason": null,
-     "verified_citation_count": 4,
+     "verified_citation_count": 2,
      "verified_quotes": [
       {
        "document_title": "Plyometric Training Favors Optimizing Muscle–Tendon Behavior during Depth Jumping",
        "pmcid": "PMC5263151",
        "passage_key": "ff98ea8cb2b6f9c9af22689a5b49868fcd816885ba0b2939ab5aae696deda73f",
+       "document_version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e",
        "verbatim_quote": "The Achilles tendon stiffness was quantified using ultrasonography (ProSound α7, Hitachi Aloka Medical, Ltd., Tokyo, Japan)."
       },
       {
        "document_title": "Plyometric Training Favors Optimizing Muscle–Tendon Behavior during Depth Jumping",
        "pmcid": "PMC5263151",
        "passage_key": "20b882b966e04387a69e3f80782fd9dd266642f4a492120b415f5156a6ba25e8",
+       "document_version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e",
        "verbatim_quote": "The reason that no change was observed in fascicle length or contraction velocity despite the increase in muscle activation is probably related to an increase in Achilles tendon stiffness."
-      },
-      {
-       "document_title": "Plyometric Training Favors Optimizing Muscle–Tendon Behavior during Depth Jumping",
-       "pmcid": "PMC5263151",
-       "passage_key": "ff98ea8cb2b6f9c9af22689a5b49868fcd816885ba0b2939ab5aae696deda73f",
-       "verbatim_quote": "The slope of this relation from 50 to 100% peak torque was defined as the tendon stiffness (Kubo et al., 1999)."
-      },
-      {
-       "document_title": "Plyometric Training Favors Optimizing Muscle–Tendon Behavior during Depth Jumping",
-       "pmcid": "PMC5263151",
-       "passage_key": "03ef314b00f7475e7e55d6d7aeeeda89d72fb7c0a7f392e376ebdf0fd35a67d5",
-       "verbatim_quote": "The Achilles tendon moment arm was determined from the magnetic resonance (MR) images with the center of rotation method described by Maganaris et al."
       }
      ],
      "answerability_events": [
@@ -262,47 +257,8 @@
        "verdict": "ANSWERABLE",
        "code": "evidence_relevant_and_answerable",
        "question_kind": "factual",
-       "accepted": 3,
-       "rejected": 3
-      },
-      {
-       "stage": "verify_canonical_citations",
-       "verdict": "ANSWERABLE",
-       "code": "claims_relevant_and_answerable",
-       "question_kind": "factual",
-       "accepted": 3,
-       "rejected": 1
-      }
-     ]
-    },
-    {
-     "question": "How many weeks did those participants complete?",
-     "run_id": "run-92b111468fdc4234",
-     "status": "completed",
-     "abstention_reason": null,
-     "verified_citation_count": 2,
-     "verified_quotes": [
-      {
-       "document_title": "Effect of plyometric versus complex training on core strength, lower limb, and upper limb power in male cricketers: a randomized controlled trial",
-       "pmcid": "PMC10680285",
-       "passage_key": "3e70446abc81094002f983d350849237cf8acb3b3bac2db38ffbd973a2dbac46",
-       "verbatim_quote": "Pre-intervention (or baseline) measures were taken after the familiarization period, and post-intervention readings were taken after four weeks of respective training [2, 17] (Fig."
-      },
-      {
-       "document_title": "Effect of plyometric versus complex training on core strength, lower limb, and upper limb power in male cricketers: a randomized controlled trial",
-       "pmcid": "PMC10680285",
-       "passage_key": "3e70446abc81094002f983d350849237cf8acb3b3bac2db38ffbd973a2dbac46",
-       "verbatim_quote": "The outcome assessor was kept blind to the allocation of participants."
-      }
-     ],
-     "answerability_events": [
-      {
-       "stage": "model_tool_execution",
-       "verdict": "ANSWERABLE",
-       "code": "evidence_relevant_and_answerable",
-       "question_kind": "factual",
-       "accepted": 3,
-       "rejected": 3
+       "accepted": 4,
+       "rejected": 2
       },
       {
        "stage": "verify_canonical_citations",
@@ -310,7 +266,41 @@
        "code": "claims_relevant_and_answerable",
        "question_kind": "factual",
        "accepted": 2,
-       "rejected": 0
+       "rejected": 2
+      }
+     ]
+    },
+    {
+     "question": "How many weeks did those participants complete?",
+     "run_id": "run-f6d425d60fcb4fa7",
+     "status": "completed",
+     "abstention_reason": null,
+     "verified_citation_count": 1,
+     "verified_quotes": [
+      {
+       "document_title": "Plyometric Training Favors Optimizing Muscle–Tendon Behavior during Depth Jumping",
+       "pmcid": "PMC5263151",
+       "passage_key": "418af8928d919e2b4d9e887d1679ae1101b2768943433ca0e5d71b2e278ba002",
+       "document_version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e",
+       "verbatim_quote": "The training group completed plyometric training for 12 weeks (3 days/week), with a rest period of 1 week halfway through the training period."
+      }
+     ],
+     "answerability_events": [
+      {
+       "stage": "model_tool_execution",
+       "verdict": "ANSWERABLE",
+       "code": "evidence_relevant_and_answerable",
+       "question_kind": "factual",
+       "accepted": 1,
+       "rejected": 5
+      },
+      {
+       "stage": "verify_canonical_citations",
+       "verdict": "ANSWERABLE",
+       "code": "claims_relevant_and_answerable",
+       "question_kind": "factual",
+       "accepted": 1,
+       "rejected": 1
       }
      ]
     }
@@ -319,7 +309,8 @@
    "final_abstention_reason": null,
    "expect": {
     "status": "completed",
-    "min_citations": 1
+    "min_citations": 1,
+    "same_version_as_previous_turn": true
    },
    "passed": true,
    "failures": []
@@ -329,7 +320,7 @@
    "turns": [
     {
      "question": "What is the orbital period of the exoplanet Kepler-22b?",
-     "run_id": "run-c76a246efbcb4823",
+     "run_id": "run-9d2c2cffc9ce44ea",
      "status": "abstained",
      "abstention_reason": "evidence_gate:unsupported_entity",
      "verified_citation_count": 0,
@@ -360,28 +351,19 @@
    "turns": [
     {
      "question": "What is the orbital radius of Proxima Centauri b?",
-     "run_id": "run-932b09815b4b41e4",
+     "run_id": "run-05f85b3edac14171",
      "status": "abstained",
-     "abstention_reason": "evidence_gate:unsupported_entity",
+     "abstention_reason": "evidence_gate:insufficient_canonical_evidence_for_query",
      "verified_citation_count": 0,
      "verified_quotes": [],
-     "answerability_events": [
-      {
-       "stage": "model_tool_execution",
-       "verdict": "ABSTAIN",
-       "code": "unsupported_entity",
-       "question_kind": "factual",
-       "accepted": 0,
-       "rejected": 1
-      }
-     ]
+     "answerability_events": []
     }
    ],
    "final_status": "abstained",
-   "final_abstention_reason": "evidence_gate:unsupported_entity",
+   "final_abstention_reason": "evidence_gate:insufficient_canonical_evidence_for_query",
    "expect": {
     "status": "abstained",
-    "abstention_contains": "unsupported_entity"
+    "abstention_contains": "evidence_gate"
    },
    "passed": true,
    "failures": []
@@ -391,7 +373,7 @@
    "turns": [
     {
      "question": "By what percentage did plyometric training improve 100 m sprint times?",
-     "run_id": "run-08e93a7e1fcc453f",
+     "run_id": "run-aa5ba0d33cb54c74",
      "status": "abstained",
      "abstention_reason": "evidence_gate:insufficient_query_coverage",
      "verified_citation_count": 0,
@@ -422,7 +404,7 @@
    "turns": [
     {
      "question": "What hydration ratio do the studies recommend for sourdough bread?",
-     "run_id": "run-4a119795e8fe4daa",
+     "run_id": "run-a91f089a0986487b",
      "status": "abstained",
      "abstention_reason": "evidence_gate:insufficient_query_coverage",
      "verified_citation_count": 0,
@@ -434,7 +416,7 @@
        "code": "insufficient_query_coverage",
        "question_kind": "factual",
        "accepted": 0,
-       "rejected": 1
+       "rejected": 3
       }
      ]
     }
@@ -453,7 +435,7 @@
    "turns": [
     {
      "question": "What did the Proxima Centauri study report about jump height?",
-     "run_id": "run-1a4324a3704a48bf",
+     "run_id": "run-4614e4729e8e4d38",
      "status": "abstained",
      "abstention_reason": "evidence_gate:unsupported_entity",
      "verified_citation_count": 0,

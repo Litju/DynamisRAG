@@ -1,9 +1,9 @@
 # RES-638 final scientific and engineering qualification
 
-**Code under test:** `57b2f2e` (scientific gate, citation mapping, signed sessions, dense
-qualification). Documentation-only commits after this revision do not change runtime code.
-**Generated:** 2026-11-14. **Spend:** $0. No hosted deployment, paid inference, Oracle/Railway
-resource or additional local-model campaign was created.
+**Code under test:** `502d4b5` for the scientific gate, citation mapping and signed sessions;
+`57b2f2e` for the dense projection. Documentation-only commits after those revisions do not
+change runtime code. **Generated:** 2026-11-14. **Spend:** $0. No hosted deployment, paid
+inference, Oracle/Railway resource or additional local-model campaign was created.
 
 This record separates what was **executed** from what remains **unqualified**. The deterministic
 model is a fixed test adapter, not a scientific language model. The answerability gate is a
@@ -41,7 +41,7 @@ Receipt: [receipt.json](res638-scientific-gate/receipt.json) — 9/9 cases passe
 | Achilles tendon stiffness (supported) | completed, 4 citations | `evidence_relevant_and_answerable` |
 | Knee flexion / muscle activity (paraphrase) | completed, 4 citations | `evidence_relevant_and_answerable` |
 | Study designs and populations (comparison) | completed, 4 citations | `comparison_structurally_answerable` |
-| Multi-turn “How many weeks did those participants complete?” | completed, 2 citations | `evidence_relevant_and_answerable` |
+| Multi-turn “How many weeks did those participants complete?” | completed, 1 citation from the same study as turn 1 | `evidence_relevant_and_answerable` |
 | Kepler-22b orbital period | abstained, 0 citations | `unsupported_entity` |
 | Proxima Centauri b orbital radius | abstained, 0 citations | `unsupported_entity` |
 | 100 m sprint improvement (close-domain) | abstained, 0 citations | `insufficient_query_coverage` |
@@ -127,7 +127,7 @@ paid inference. The local CPU projection is evidence of compatibility, not capac
 
 | Check | Result |
 | --- | --- |
-| Python unit suite | **2,833 passed**, 309 deselected, 172 s |
+| Python unit suite | **2,837 passed**, 309 deselected, 121 s |
 | PostgreSQL/OpenSearch integration | **306 passed**, 2,836 deselected, 349 s |
 | Ruff lint/format | Passed on `src`, `tests`, `scripts` |
 | Strict Pyright | 0 errors, 0 warnings |
@@ -141,7 +141,22 @@ The integration rerun used the documented 1 s lease / 3 s expiry harness for the
 attempt-budget contract. One earlier run failed that single assertion under full-suite load; the
 contract passed alone and the adjusted harness passed all 306.
 
-## 6. Remaining blockers (not scientific-gate failures)
+## 6. Independent final-head review
+
+Claude Opus 5.5 independently reviewed `00ea816` without editing or deploying. It found two
+blocking scientific-gate defects and no blocking citation, authentication or worker-recovery
+defects:
+
+| Finding | Repair at `502d4b5` | Regression evidence |
+| --- | --- | --- |
+| P1: a multi-turn follow-up was gated on the raw question while retrieval used the resolved question; the receipt accepted a wrong-study citation | Gate follow-ups on the current proposition, use prior context only when the current turn has no content, scope follow-up evidence to the referenced study, and require the follow-up citation to remain in turn 1's study | New graph regression; the licensed receipt now cites the 12-week depth-jumping passage and asserts the same document version as turn 1 |
+| P2: an irrelevant document could satisfy the comparison "two studies" requirement | Accept only admissible comparison candidates when salient facets exist; require two distinct documents among admissible claims; filter verified citations by accepted claim index | Mixed-relevance comparison fixture and claim-index test |
+
+The reviewer's residual risks (first-occurrence verifier selection, Basic credentials surviving
+sign-out in the browser, thin calibration, corpus-fitted lexicon, per-instance login lockout)
+are recorded below as limits; they are not counted as passes or as scientific validation.
+
+## 7. Remaining blockers (not scientific-gate failures)
 
 - Hosting/provider authorization: OpenCode Go still requires written provider approval;
   `DYNAMISRAG_AGENT_OPENCODE_GO_USAGE_APPROVED=false`.
