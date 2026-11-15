@@ -485,6 +485,121 @@ def test_numeric_question_rejects_a_qualitative_quote_and_accepts_a_number() -> 
     assert numeric.accepted_claim_indexes == (0,)
 
 
+def test_contracted_value_question_still_requires_a_number() -> None:
+    qualitative = assess_claims(
+        "What's its sample size?",
+        (
+            ClaimEvidence(
+                passage_key="1" * 64,
+                document_version_key="2" * 64,
+                document_title="Plyometric Training during Depth Jumping",
+                claim_text="The study had a relatively small sample size.",
+                verbatim_quote="This study was conducted with a relatively small sample size.",
+            ),
+        ),
+    )
+    assert qualitative.verdict == "ABSTAIN"
+    assert qualitative.code == "insufficient_numeric_evidence"
+
+
+def test_study_qualifier_is_validated_against_the_title_without_being_claim_text() -> None:
+    depth = assess_claims(
+        "What did the depth jumping study find about Achilles tendon stiffness?",
+        (
+            ClaimEvidence(
+                passage_key="1" * 64,
+                document_version_key="2" * 64,
+                document_title=(
+                    "Plyometric Training Favors Optimizing Muscle-Tendon Behavior "
+                    "during Depth Jumping"
+                ),
+                claim_text="Achilles tendon stiffness was quantified.",
+                verbatim_quote=(
+                    "The Achilles tendon stiffness was quantified using ultrasonography."
+                ),
+            ),
+        ),
+    )
+    assert depth.verdict == "ANSWERABLE"
+    wrong_study = assess_claims(
+        "What did the female cricketers study find about upper limb power?",
+        (
+            ClaimEvidence(
+                passage_key="1" * 64,
+                document_version_key="2" * 64,
+                document_title="Complex Training in Male Cricketers",
+                claim_text="Upper limb power improved.",
+                verbatim_quote="Upper limb power improved in male cricketers.",
+            ),
+        ),
+    )
+    assert wrong_study.verdict == "ABSTAIN"
+    assert wrong_study.code == "insufficient_query_coverage"
+
+
+def test_claim_gate_does_not_score_the_document_title() -> None:
+    decision = assess_claims(
+        "What was the effect of knee flexion angle on muscle activity?",
+        (
+            ClaimEvidence(
+                passage_key="1" * 64,
+                document_version_key="2" * 64,
+                document_title=(
+                    "Impact of Starting Knee Flexion Angle on Muscle Activity and "
+                    "Performance during Plyometrics without Jumping"
+                ),
+                claim_text="Participants refrained from training before testing.",
+                verbatim_quote=(
+                    "Additionally, participants were instructed to refrain from engaging "
+                    "in physical training for a period of 24 h preceding the testing session."
+                ),
+            ),
+        ),
+    )
+    assert decision.verdict == "ABSTAIN"
+
+
+def test_absent_salient_qualifier_is_a_hard_abstention() -> None:
+    candidate = EvidenceCandidate(
+        passage_key="1" * 64,
+        document_version_key="2" * 64,
+        title="Complex Training in Male Cricketers",
+        text="Upper limb power improved in male cricketers after four weeks of complex training.",
+    )
+    decision = assess_retrieval(
+        "What did the female cricketers study find about upper limb power?", (candidate,)
+    )
+    assert decision.verdict == "ABSTAIN"
+    assert decision.code == "insufficient_query_coverage"
+    assert "female" in decision.detail
+
+
+def test_metadata_route_requires_every_topical_qualifier() -> None:
+    candidate = EvidenceCandidate(
+        passage_key="1" * 64,
+        document_version_key="2" * 64,
+        title="Achilles Tendon Stiffness during Depth Jumping",
+        text="Achilles tendon stiffness increased during depth jumping.",
+    )
+    decision = assess_retrieval("What is the DOI of the patellar tendon study?", (candidate,))
+    assert decision.verdict == "ABSTAIN"
+    assert decision.code == "insufficient_query_coverage"
+
+
+def test_common_training_noise_words_do_not_hide_a_missing_qualifier() -> None:
+    candidate = EvidenceCandidate(
+        passage_key="1" * 64,
+        document_version_key="2" * 64,
+        title="Plyometric Training Favors Optimizing Muscle-Tendon Behavior",
+        text="Achilles tendon stiffness increased during depth jumping.",
+    )
+    decision = assess_retrieval(
+        "What is patellar tendon stiffness after depth jumping?", (candidate,)
+    )
+    assert decision.verdict == "ABSTAIN"
+    assert decision.code == "insufficient_query_coverage"
+
+
 def test_payload_is_bounded_and_json_safe() -> None:
     case = _load("calibration.json").retrieval_cases[0]
     decision = assess_retrieval(case.question, _candidates(case))

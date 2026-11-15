@@ -79,6 +79,10 @@ _GENERIC_QUERY_TERMS: Final[frozenset[str]] = frozenset(
         "after",
         "available",
         "before",
+        "behavior",
+        "behaviors",
+        "behaviour",
+        "behaviours",
         "both",
         "change",
         "changed",
@@ -101,8 +105,10 @@ _GENERIC_QUERY_TERMS: Final[frozenset[str]] = frozenset(
         "effects",
         "evidence",
         "explain",
+        "find",
         "finding",
         "findings",
+        "found",
         "happen",
         "happened",
         "happens",
@@ -331,11 +337,12 @@ _METADATA: Final = re.compile(
     re.IGNORECASE,
 )
 _SINGLE_VALUE: Final = re.compile(
-    r"\b(?:how\s+(?:many|much|long|far|fast|often)|what\s+(?:is|was|were)\s+"
-    r"(?:the|its|their|this|that)\s+"
+    r"\b(?:how\s+(?:many|much|long|far|fast|often|large|small|heavy|tall|old)|"
+    r"what(?:'s|\u2019s| is| was| were)\s+"
+    r"(?:(?:the|its|their|this|that)\s+)?"
     r"(?:value|number|rate|period|duration|interval|angle|height|force|stiffness|"
-    r"percentage|percent|ratio|frequency|volume|load|distance|time|sample\s+size|"
-    r"sample\s+count))\b",
+    r"percentage|percent|ratio|frequency|volume|load|distance|time|size|length|"
+    r"mass|weight|age|count|proportion|sample\s+size|sample\s+count))\b",
     re.IGNORECASE,
 )
 
@@ -508,6 +515,35 @@ _DOWN_WORDS: Final[frozenset[str]] = frozenset(
     }
 )  # fmt: skip
 _DIRECTION_STEMS: Final[frozenset[str]] = frozenset(_stem(word) for word in _UP_WORDS | _DOWN_WORDS)
+# Relationship verbs are not directions. A question asking whether something was
+# "affected" is satisfied by a result sentence reporting "greater"/"increased",
+# but those words must not be treated as an up/down contradiction signal.
+_EFFECT_WORDS: Final[frozenset[str]] = frozenset(
+    {
+        "affect",
+        "affected",
+        "affects",
+        "association",
+        "associated",
+        "change",
+        "changed",
+        "changes",
+        "correlate",
+        "correlated",
+        "difference",
+        "differences",
+        "effect",
+        "effects",
+        "impact",
+        "impacts",
+        "influence",
+        "influenced",
+        "influences",
+        "relate",
+        "related",
+    }
+)
+_EFFECT_STEMS: Final[frozenset[str]] = frozenset(_stem(word) for word in _EFFECT_WORDS)
 
 
 def stem_terms(terms: Iterable[str]) -> set[str]:
@@ -679,6 +715,16 @@ def _with_corpus_specificity(profile: QueryProfile, term_sets: Sequence[set[str]
     return replace(profile, facet_weights=tuple(adjusted))
 
 
+def _term_present(term: str, terms: set[str], joined: set[str]) -> bool:
+    if term in terms or term.replace("_", "") in joined:
+        return True
+    if "_" in term:
+        parts = [part for part in term.split("_") if part not in {"of", "the"}]
+        if parts and all(part in terms or part.replace("_", "") in joined for part in parts):
+            return True
+    return False
+
+
 def _candidate_terms(candidate: EvidenceCandidate) -> set[str]:
     return _surface_terms(
         " ".join(
@@ -716,7 +762,7 @@ def _assess_candidate(profile: QueryProfile, candidate: EvidenceCandidate) -> Ca
     missing: list[str] = []
     matched_weight = 0.0
     for term, weight in zip(profile.facets, profile.facet_weights, strict=True):
-        if term in terms or term.replace("_", "") in joined:
+        if _term_present(term, terms, joined):
             matched.append(term)
             matched_weight += weight
         else:
@@ -748,10 +794,38 @@ def _assess_candidate(profile: QueryProfile, candidate: EvidenceCandidate) -> Ca
     )
 
 
-def _candidate_has_any(candidate: EvidenceCandidate, terms: Sequence[str]) -> bool:
+def _candidate_has_all(candidate: EvidenceCandidate, terms: Sequence[str]) -> bool:
     surface = _candidate_terms(candidate)
     joined = {term.replace("_", "") for term in surface}
-    return any(term in surface or term.replace("_", "") in joined for term in terms)
+    return all(_term_present(term, surface, joined) for term in terms)
+
+
+def _missing_from_every_candidate(
+    profile: QueryProfile, term_sets: Sequence[set[str]]
+) -> tuple[str, ...]:
+    """Salient query terms absent from every canonical candidate.
+
+    Weighted coverage can still pass at 0.60 when one high-weight qualifier (for
+    example "female" or "patellar") is missing everywhere. That is a topic
+    change, not partial relevance, so it is a hard abstention.
+    """
+    missing: list[str] = []
+    for term in _salient_terms(profile):
+        present = False
+        for terms in term_sets:
+            joined = {candidate_term.replace("_", "") for candidate_term in terms}
+            if _term_present(term, terms, joined):
+                present = True
+                break
+            if term in _DIRECTION_STEMS and terms & _DIRECTION_STEMS:
+                present = True
+                break
+            if term in _EFFECT_STEMS and terms & (_EFFECT_STEMS | _DIRECTION_STEMS):
+                present = True
+                break
+        if not present:
+            missing.append(term)
+    return tuple(missing)
 
 
 def _structural_topic_terms(profile: QueryProfile) -> tuple[str, ...]:
@@ -790,7 +864,7 @@ def _structural_route_indexes(
     topics = _structural_topic_terms(profile)
     if topics:
         topical = tuple(
-            index for index in supported if _candidate_has_any(assessments[index].candidate, topics)
+            index for index in supported if _candidate_has_all(assessments[index].candidate, topics)
         )
         if not topical:
             return (), "insufficient_query_coverage"
@@ -828,6 +902,73 @@ def _structural_route_decision(
         assessments=assessments,
         accepted=accepted,
         accepted_claim_indexes=indexes if claims else (),
+    )
+
+
+_STUDY_NOUNS: Final[frozenset[str]] = frozenset(
+    {"article", "articles", "paper", "papers", "study", "studies", "trial", "trials"}
+)
+_STUDY_QUALIFIER_STOP: Final[frozenset[str]] = _QUESTION_WORDS | {
+    "available",
+    "both",
+    "did",
+    "does",
+    "earlier",
+    "find",
+    "finding",
+    "findings",
+    "previous",
+    "prior",
+    "report",
+    "reported",
+    "same",
+    "three",
+    "two",
+}
+
+
+def _study_qualifier_terms(question: str) -> tuple[str, ...]:
+    """Terms immediately before "study/paper/article/trial", as query qualifiers.
+
+    "What did the depth jumping study find?" yields ("depth", "jump"). These
+    terms identify the study; they are not claim content. A claim may use the
+    document title to prove the study identity, but not to supply the finding.
+    """
+    tokens = re.findall(r"[a-z0-9]+", _fold(question))
+    for index, token in enumerate(tokens):
+        if token not in _STUDY_NOUNS:
+            continue
+        prior = tokens[max(0, index - 5) : index]
+        terms: list[str] = []
+        for word in reversed(prior):
+            if word in _STUDY_QUALIFIER_STOP or len(word) <= 1:
+                break
+            term = _stem(word)
+            if term not in terms:
+                terms.insert(0, term)
+            if len(terms) >= 3:
+                break
+        return tuple(terms)
+    return ()
+
+
+def _title_supports_qualifier(title: str, qualifier: Sequence[str]) -> bool:
+    terms = _surface_terms(title)
+    joined = {term.replace("_", "") for term in terms}
+    return all(term in terms or term.replace("_", "") in joined for term in qualifier)
+
+
+def _drop_qualifier_facets(profile: QueryProfile, qualifier: Sequence[str]) -> QueryProfile:
+    joined = "".join(qualifier)
+    kept = [
+        (term, weight)
+        for term, weight in zip(profile.facets, profile.facet_weights, strict=True)
+        if not (term.replace("_", "") and term.replace("_", "") in joined)
+    ]
+    return replace(
+        profile,
+        facets=tuple(term for term, _ in kept),
+        facet_weights=tuple(weight for _, weight in kept),
     )
 
 
@@ -904,6 +1045,23 @@ def assess_retrieval(  # noqa: PLR0911, PLR0912 - explicit fail-closed branches
     profile = _with_corpus_specificity(profile, canonical_terms)
     assessments = tuple(_assess_candidate(profile, candidate) for candidate in candidates)
     admissible = tuple(a for a in assessments if a.admissible)
+    if (
+        profile.kind in {"factual", "comparison"}
+        and canonical_terms
+        and not any(assessment.missing_entities for assessment in assessments)
+    ):
+        missing = _missing_from_every_candidate(profile, canonical_terms)
+        if missing:
+            return _decision(
+                profile=profile,
+                verdict="ABSTAIN",
+                code="insufficient_query_coverage",
+                detail=(
+                    "A salient query qualifier is absent from every canonical candidate: "
+                    + ", ".join(missing[:MAX_REPORTED_TERMS])
+                ),
+                assessments=assessments,
+            )
     if not candidates:
         return _decision(
             profile=profile,
@@ -990,7 +1148,7 @@ def assess_retrieval(  # noqa: PLR0911, PLR0912 - explicit fail-closed branches
                 accepted=tuple(a for a in canonical if a.admissible),
             )
     if not admissible:
-        missing_entity = any(a.missing_entities for a in assessments)
+        missing_entity = all(a.missing_entities for a in assessments)
         noncanonical = not any(a.candidate.canonical_verified for a in assessments)
         if missing_entity:
             code, detail = (
@@ -1070,14 +1228,51 @@ class ClaimEvidence:
 
 
 def _claim_candidate(claim: ClaimEvidence) -> EvidenceCandidate:
-    # Question relevance is judged on the quotation that will be shown to the
-    # reader, not on the model's paraphrase. A paraphrase may name the asked-about
-    # facet while the displayed quotation does not support it.
+    # The title identifies the study and is allowed to satisfy study-context
+    # facets. It is not allowed to supply the finding: _claim_has_finding_signal
+    # separately requires entity, direction/effect, value or non-title evidence
+    # in the quotation itself.
     return EvidenceCandidate(
         passage_key=claim.passage_key,
         document_version_key=claim.document_version_key,
         title=claim.document_title,
         text=claim.verbatim_quote,
+    )
+
+
+def _claim_has_finding_signal(
+    assessment: CandidateAssessment, claim: ClaimEvidence, profile: QueryProfile
+) -> bool:
+    """A quotation must do more than repeat its own document title.
+
+    Named-entity support, a direction/effect word or a value answer is enough.
+    Otherwise at least one asked-about facet must occur in the quotation but not
+    in the title. This keeps a methods sentence from passing because the title
+    names the topic.
+    """
+    if profile.entities and not assessment.missing_entities:
+        return True
+    missing_salient = (
+        (set(assessment.missing_terms) & set(_salient_terms(profile)))
+        - _DIRECTION_STEMS
+        - _EFFECT_STEMS
+    )
+    if missing_salient:
+        return False
+    if _direction_terms(claim.verbatim_quote) or (
+        _surface_terms(claim.verbatim_quote) & _EFFECT_STEMS
+    ):
+        return True
+    if _SINGLE_VALUE.search(profile.question) and re.search(r"\d", claim.verbatim_quote):
+        return True
+    quote_terms = _surface_terms(claim.verbatim_quote)
+    title_terms = _surface_terms(claim.document_title)
+    quote_joined = {term.replace("_", "") for term in quote_terms}
+    title_joined = {term.replace("_", "") for term in title_terms}
+    return any(
+        _term_present(term, quote_terms, quote_joined)
+        and not _term_present(term, title_terms, title_joined)
+        for term in profile.facets
     )
 
 
@@ -1101,15 +1296,63 @@ def assess_claims(  # noqa: PLR0911, PLR0912 - explicit fail-closed branches
             detail="No claim survived canonical quotation verification.",
             assessments=(),
         )
+    qualifier = _study_qualifier_terms(profile.question) if profile.kind == "factual" else ()
+    if qualifier:
+        entity_stems = {_stem(part) for entity in profile.entities for part in entity}
+        if not any(term in entity_stems for term in qualifier):
+            if not all(
+                _title_supports_qualifier(claim.document_title, qualifier) for claim in claims
+            ):
+                return _decision(
+                    profile=profile,
+                    verdict="ABSTAIN",
+                    code="insufficient_query_coverage",
+                    detail=(
+                        "The named study qualifier is absent from the verified document "
+                        "title: " + ", ".join(qualifier[:MAX_REPORTED_TERMS])
+                    ),
+                    assessments=(),
+                )
+            profile = _drop_qualifier_facets(profile, qualifier)
     claim_candidates = tuple(_claim_candidate(c) for c in claims)
     profile = _with_corpus_specificity(
         profile, [_candidate_terms(candidate) for candidate in claim_candidates]
     )
     assessments = tuple(_assess_candidate(profile, candidate) for candidate in claim_candidates)
+    if profile.kind == "factual":
+        assessments = tuple(
+            assessment
+            if _claim_has_finding_signal(assessment, claim, profile)
+            else replace(
+                assessment,
+                admissible=False,
+                reasons=(*assessment.reasons, "title_only_relevance"),
+            )
+            for assessment, claim in zip(assessments, claims, strict=True)
+        )
     admissible = tuple(a for a in assessments if a.admissible)
     admissible_indexes = tuple(
         index for index, assessment in enumerate(assessments) if assessment.admissible
     )
+    if (
+        admissible
+        and profile.kind in {"factual", "comparison"}
+        and not any(assessment.missing_entities for assessment in assessments)
+    ):
+        missing = _missing_from_every_candidate(
+            profile, [_candidate_terms(candidate) for candidate in claim_candidates]
+        )
+        if missing:
+            return _decision(
+                profile=profile,
+                verdict="ABSTAIN",
+                code="insufficient_query_coverage",
+                detail=(
+                    "A salient query qualifier is absent from every verified quotation: "
+                    + ", ".join(missing[:MAX_REPORTED_TERMS])
+                ),
+                assessments=assessments,
+            )
     if profile.kind in {"inventory", "metadata"}:
         structural = _structural_route_decision(
             profile=profile, assessments=assessments, claims=True
@@ -1187,7 +1430,7 @@ def assess_claims(  # noqa: PLR0911, PLR0912 - explicit fail-closed branches
             comparison_document_count=admissible_documents,
         )
     if not admissible:
-        missing_entity = any(a.missing_entities for a in assessments)
+        missing_entity = all(a.missing_entities for a in assessments)
         return _decision(
             profile=profile,
             verdict="ABSTAIN",

@@ -193,7 +193,7 @@ def _case_specs() -> tuple[dict[str, object], ...]:
                 "abstention_contains": "unresolved_coreference_reference",
             },
             "turns": (
-                "What did the depth jumping study find about jump height?",
+                "What did the female cricketers study find about upper limb power?",
                 "What was its sample size?",
             ),
         },

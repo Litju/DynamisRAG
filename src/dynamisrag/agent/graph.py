@@ -285,10 +285,18 @@ _REFERENCE_PATTERN = re.compile(
     + r")\b",
     re.IGNORECASE,
 )
+_DEFINITE_STUDY_REFERENCE = re.compile(
+    r"\b(?:the|this|that|these|those|previous|prior|earlier)\s+"
+    r"(?:study|paper|article|trial)(?:['\u2019]s)?\b",
+    re.IGNORECASE,
+)
 
 
 def _has_coreference(text: str) -> bool:
-    return _REFERENCE_PATTERN.search(text) is not None
+    return (
+        _REFERENCE_PATTERN.search(text) is not None
+        or _DEFINITE_STUDY_REFERENCE.search(text) is not None
+    )
 
 
 class ConversationalResearchOrchestrator:
@@ -1726,11 +1734,15 @@ class ConversationalResearchOrchestrator:
             abstained=abstained,
         )
         context = ThreadContextUpdate(
-            active_version_keys=tuple(
-                dict.fromkeys((*cited_vks, *state.get("prior_active_version_keys", [])))
+            # The active scope is the study the latest answer actually cited. It
+            # is not cumulative: a pronoun follow-up must refer to the most recent
+            # answered study, not to every study ever cited in the thread. If the
+            # latest turn abstained, retain the last successful active scope.
+            active_version_keys=(
+                tuple(dict.fromkeys(cited_vks)) or tuple(state.get("prior_active_version_keys", []))
             ),
-            active_passage_keys=tuple(
-                dict.fromkeys((*cited_pks, *state.get("active_passage_keys", [])))
+            active_passage_keys=(
+                tuple(dict.fromkeys(cited_pks)) or tuple(state.get("active_passage_keys", []))
             ),
             conversation_summary=(
                 f"Last question: {question[:200]} | Verified citations: {len(verified)}"

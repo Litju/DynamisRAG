@@ -162,11 +162,14 @@ def test_four_turn_scientific_research_conversation_flow(
     assert run_a.answer_markdown is not None
     assert "MODEL_PROPOSED" in run_a.answer_markdown
 
-    # Question B: Which findings specifically concern muscle-tendon behavior?
+    # Question B: Which findings specifically concern tendon stiffness?
+    # This question is answered by a quotation, not by the document title. The
+    # former "muscle-tendon behavior" wording depended on title relevance and
+    # was a false pass; the repaired claim gate judges the displayed quotation.
     run_b = orchestrator.execute_run(
         thread_id=thread.thread_id,
         user_id="researcher-alpha",
-        question="Which findings specifically concern muscle-tendon behavior?",
+        question="Which findings specifically concern tendon stiffness?",
         idempotency_key="turn-b",
     )
     assert run_b.status == RunStatus.COMPLETED
@@ -367,6 +370,91 @@ def test_pronoun_followup_without_an_antecedent_abstains_instead_of_changing_stu
     assert follow_up.status == RunStatus.ABSTAINED
     assert follow_up.abstention_reason == "unresolved_coreference_reference"
     assert follow_up.verified_citations == ()
+
+
+def test_definite_study_followup_stays_with_the_prior_study(
+    graph_engine_and_studies: tuple[
+        Engine, dict[str, tuple[str, tuple[str, ...], tuple[str, ...]]]
+    ],
+) -> None:
+    engine, _ = graph_engine_and_studies
+    registry = ScientificToolRegistry(engine)
+    store = InMemoryAgentConversationStore()
+    runtime = build_agent_model_runtime(AgentModelConfig(provider=AgentProviderKind.DETERMINISTIC))
+    orchestrator = ConversationalResearchOrchestrator(
+        tool_registry=registry,
+        store=store,
+        model_runtime=runtime,
+    )
+    thread = store.create_thread(owner_id="definite", title="Definite study follow-up")
+    first = orchestrator.execute_run(
+        thread_id=thread.thread_id,
+        user_id="definite",
+        question="What did the depth jumping study find about Achilles tendon stiffness?",
+        idempotency_key="definite-first",
+    )
+    assert first.status == RunStatus.COMPLETED
+    prior_versions = {
+        str(citation["document_version_key"]) for citation in first.verified_citations
+    }
+    assert len(prior_versions) == 1
+    follow_up = orchestrator.execute_run(
+        thread_id=thread.thread_id,
+        user_id="definite",
+        question="What was the study's jump height?",
+        idempotency_key="definite-second",
+    )
+    assert follow_up.status == RunStatus.COMPLETED
+    cited_versions = {
+        str(citation["document_version_key"]) for citation in follow_up.verified_citations
+    }
+    assert cited_versions == prior_versions
+
+
+def test_followup_uses_the_latest_answered_study_not_the_cumulative_history(
+    graph_engine_and_studies: tuple[
+        Engine, dict[str, tuple[str, tuple[str, ...], tuple[str, ...]]]
+    ],
+) -> None:
+    engine, _ = graph_engine_and_studies
+    registry = ScientificToolRegistry(engine)
+    store = InMemoryAgentConversationStore()
+    runtime = build_agent_model_runtime(AgentModelConfig(provider=AgentProviderKind.DETERMINISTIC))
+    orchestrator = ConversationalResearchOrchestrator(
+        tool_registry=registry,
+        store=store,
+        model_runtime=runtime,
+    )
+    thread = store.create_thread(owner_id="latest", title="Latest-study scope")
+    first = orchestrator.execute_run(
+        thread_id=thread.thread_id,
+        user_id="latest",
+        question="What did the depth jumping study find about Achilles tendon stiffness?",
+        idempotency_key="latest-first",
+    )
+    assert first.status == RunStatus.COMPLETED
+    second = orchestrator.execute_run(
+        thread_id=thread.thread_id,
+        user_id="latest",
+        question="How many participants were in the basketball study?",
+        idempotency_key="latest-second",
+    )
+    assert second.status == RunStatus.COMPLETED
+    latest_versions = {
+        str(citation["document_version_key"]) for citation in second.verified_citations
+    }
+    assert len(latest_versions) == 1
+    third = orchestrator.execute_run(
+        thread_id=thread.thread_id,
+        user_id="latest",
+        question="How many participants were in that study?",
+        idempotency_key="latest-third",
+    )
+    assert third.status == RunStatus.COMPLETED
+    cited_versions = {
+        str(citation["document_version_key"]) for citation in third.verified_citations
+    }
+    assert cited_versions == latest_versions
 
 
 def test_abstention_on_out_of_corpus_and_prompt_injection(

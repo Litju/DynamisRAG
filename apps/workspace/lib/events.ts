@@ -26,16 +26,27 @@ export async function* researchEvents(
           .filter((line) => line.startsWith("data:"))
           .map((line) => line.slice(5).trimStart())
           .join("\n");
+        const eventName = block
+          .split("\n")
+          .find((line) => line.startsWith("event:"))
+          ?.slice(6)
+          .trim();
         if (!data) continue;
-        const event = JSON.parse(data) as ResearchEvent;
+        // The Python stream ends with a terminal sentinel that intentionally has
+        // no sequence number. It carries no evidence; consume it instead of
+        // treating it as a malformed research event.
+        if (eventName === "stream.end") continue;
+        const event = JSON.parse(data) as Record<string, unknown>;
+        if (event.event_type === "stream.end") continue;
         if (
+          typeof event.seq !== "number" ||
           !Number.isSafeInteger(event.seq) ||
           event.seq < 1 ||
           typeof event.event_type !== "string" ||
           typeof event.stage !== "string"
         )
           throw new Error("Invalid research stream event");
-        yield event;
+        yield event as unknown as ResearchEvent;
       }
       if (done) break;
     }
