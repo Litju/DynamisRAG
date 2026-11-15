@@ -163,7 +163,7 @@ paid inference. The local CPU projection is evidence of compatibility, not capac
 | Edge-gateway tests + Wrangler dry-run bundle | **6 passed**; bundle passed |
 | Synthetic browser E2E | **6 passed**, 35.9 s through Next/Eve/Workerd/Python |
 | Licensed-corpus browser E2E | **5 passed**, 24.0 s (question/isolation, mobile, comparison, Kepler abstention, cancellation) |
-| Exact-head GitHub Actions | Tracked on draft PR #35; local results are not a substitute |
+| Exact-head GitHub Actions | **All 6 checks passed at `fad3410`**: Ubuntu and Windows lint/types/unit, Chromium browser, migrations/integration/live server, edge-gateway and workspace |
 
 The licensed browser suite intentionally excludes the synthetic-only worker-failure fault-marker
 scenario; that path is covered by the six synthetic scenarios. One earlier licensed run hit a
