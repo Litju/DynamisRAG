@@ -4,7 +4,7 @@ Initial code revision: `26b37a3`. Subsequent commits add the test-mode label, se
 
 > **Update 2026-11-14:** the scientific negatives, citation mapping and dense-retrieval status below were repaired and re-run. Read [the final qualification](../res638-final-qualification.md) and the receipts it links. This file is retained as the earlier verification record; its “Failed / not qualified” section is superseded where the final record says so.
 >
-> **Update 2026-11-15:** the final-head review found and repaired four reachable relevance defects (metadata/inventory entity bypass, possessive follow-up scope, unscoped generic question, qualitative answer to a value question). The licensed-corpus receipt now covers 14 cases; the Python unit suite is 2,846 passed, integration 306 passed, and the synthetic and licensed browser suites pass on `8220b1e`.
+> **Update 2026-11-15:** the final-head review found and repaired eight reachable relevance or streaming defects (metadata/inventory entity bypass, possessive follow-up scope, cumulative active-scope leakage, title-only claim relevance, unscoped generic question, qualitative answer to a value question, contracted-value bypass, terminal SSE sentinel). The licensed-corpus receipt now covers 14 cases; the Python unit suite is 2,854 passed, integration 306 passed, and the synthetic and licensed browser suites pass on `b616da0`.
 
 ## Passed
 

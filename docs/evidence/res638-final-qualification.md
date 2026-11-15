@@ -1,9 +1,9 @@
 # RES-638 final scientific and engineering qualification
 
-**Code under test:** `8220b1e` for the scientific gate, citation mapping, signed sessions and
+**Code under test:** `b616da0` for the scientific gate, citation mapping, signed sessions and
 pronoun/ambiguity repairs. `57b2f2e` introduced the original dense-qualification operator; the
-projection was re-created from scratch at `8220b1e` with identical fingerprints. Documentation-only
-commits after `8220b1e` do not change runtime code. **Generated:** 2026-11-15. **Spend:** $0. No
+projection was re-created from scratch at `b616da0` with identical fingerprints. Documentation-only
+commits after `b616da0` do not change runtime code. **Generated:** 2026-11-15. **Spend:** $0. No
 hosted deployment, paid inference, Oracle/Railway resource or additional local-model campaign was
 created.
 
@@ -124,7 +124,7 @@ multiplies the bound. Neither limit changes the server-side session, ownership o
 [receipt.json](res638-dense-qualification/receipt.json).
 
 A **new isolated Qdrant 1.20.0 instance** was started on `127.0.0.1:16336` with an ephemeral
-volume at final head `8220b1e`. The target was refused unless empty; no retained Qdrant
+volume at final head `b616da0`. The target was refused unless empty; no retained Qdrant
 collection, alias, snapshot or receipt was read. The licensed 75-passage corpus was read from the
 branch's fresh canonical database. A second independent run on a separate fresh instance produced
 the same collection identity, fingerprints, 75 points and 512-dimensional normalized vectors as
@@ -154,7 +154,7 @@ paid inference. The local CPU projection is evidence of compatibility, not capac
 
 | Check | Result |
 | --- | --- |
-| Python unit suite | **2,846 passed**, 309 deselected, 120 s |
+| Python unit suite | **2,854 passed**, 309 deselected, 120 s |
 | PostgreSQL/OpenSearch integration | **306 passed**, 2,848 deselected, 465 s |
 | Ruff lint/format | Passed on `src`, `tests`, `scripts` |
 | Strict Pyright | 0 errors, 0 warnings |
@@ -163,7 +163,7 @@ paid inference. The local CPU projection is evidence of compatibility, not capac
 | Edge-gateway tests + Wrangler dry-run bundle | **6 passed**; bundle passed |
 | Synthetic browser E2E | **6 passed**, 35.9 s through Next/Eve/Workerd/Python |
 | Licensed-corpus browser E2E | **5 passed**, 24.0 s (question/isolation, mobile, comparison, Kepler abstention, cancellation) |
-| Exact-head GitHub Actions | **All 6 checks passed at `fad3410`**: Ubuntu and Windows lint/types/unit, Chromium browser, migrations/integration/live server, edge-gateway and workspace |
+| Exact-head GitHub Actions | The preceding code head passed all 6 checks; the final-head run status is tracked on PR #35 |
 
 The licensed browser suite intentionally excludes the synthetic-only worker-failure fault-marker
 scenario; that path is covered by the six synthetic scenarios. One earlier licensed run hit a
@@ -189,21 +189,29 @@ The reviewer's residual risks (first-occurrence verifier selection, Basic creden
 sign-out in the browser, thin calibration, corpus-fitted lexicon, per-instance login lockout)
 are recorded below as limits; they are not counted as passes or as scientific validation.
 
-### Final-head adversarial review at `8220b1e`
+### Final-head adversarial review at `b616da0`
 
 A further independent-context review of the repaired gate and graph (separate review session, same
-repository, no edits) found four reachable relevance defects. They are repaired in `8220b1e` with
-new unit and licensed-corpus regressions:
+repository, no edits) found eight reachable relevance or streaming defects. They are repaired in
+`b616da0` with new unit and licensed-corpus regressions:
 
 | Finding | Repair | Regression evidence |
 | --- | --- | --- |
-| P1: the inventory/metadata shortcut returned `ANSWERABLE` for an unsupported named entity, e.g. “What is the DOI of the Kepler-22b paper?” | The structural route now requires every named entity and at least one topical qualifier in canonical evidence; metadata-only facets (`doi`, `section title`, …) are excluded from passage coverage | New unit positives/negatives; the 14-case licensed receipt abstains with `unsupported_entity` |
-| P1: a possessive follow-up (“What was its sample size?”) ignored the prior study and answered from a different paper | Word-boundary reference detection for possessives/demonstratives; the follow-up is scoped to the prior active document. If a prior turn abstained, the reference has no antecedent and abstains `unresolved_coreference_reference` | New graph regression; the licensed receipt cites only the turn-1 document and shows the unresolved case abstaining |
+| P1: the inventory/metadata shortcut returned `ANSWERABLE` for an unsupported named entity, e.g. “What is the DOI of the Kepler-22b paper?” | The structural route now requires every named entity and every topical qualifier in canonical evidence; metadata-only facets (`doi`, `section title`, …) are excluded from passage coverage | New unit positives/negatives; the 14-case licensed receipt abstains with `unsupported_entity` |
+| P1: a possessive follow-up (“What was its sample size?”) ignored the prior study and answered from a different paper | Word-boundary reference detection for possessives/demonstratives and definite study references; the follow-up is scoped to the latest cited document. If a prior turn abstained, the reference has no antecedent and abstains `unresolved_coreference_reference` | New graph regressions; the licensed receipt cites only the turn-1 document and shows the unresolved case abstaining |
+| P1: active version keys were cumulative, so a later pronoun could still resolve to an older study | The active scope is replaced by the latest answer's cited versions; an abstained turn retains the last successful scope | New three-turn graph regression |
+| P1: a claim passed because its document title contained the question facets while the quotation was a methods sentence | The title may satisfy study context; the quotation itself must supply an entity, a direction/effect word, a value, or a non-title query term. A missing salient qualifier is a hard abstention | New title-leak regression with the real knee-flexion methods sentence |
 | P2: an unscoped generic question (“What is the sample size?”) chose the top-ranked study | A factual question whose only salient terms are measurement nouns abstains `ambiguous_question` when candidates span several documents; a thread-scoped follow-up with one document remains answerable | Unit tests for both branches; licensed 14-case receipt |
-| P2: a value question accepted a qualitative sentence (“a relatively small sample size”) as its answer | A factual question matching the value pattern now requires at least one admissible quotation containing a digit; otherwise it abstains `insufficient_numeric_evidence` | New unit test and licensed numeric negative |
+| P2: a value question accepted a qualitative sentence (“a relatively small sample size”) as its answer | A factual value question now requires at least one admissible quotation containing a digit; otherwise it abstains `insufficient_numeric_evidence`. Contracted and “how large” forms are included | New unit tests and licensed numeric negative |
+| P2: a contracted value question (“What’s its sample size?”) bypassed the numeric check | The value pattern covers contractions, “how large/small”, and size/count/proportion forms | New contracted-value regression |
+| P2: the Python `stream.end` sentinel has no sequence number; the browser parser threw and retried a completed stream | The SSE adapter consumes the named terminal sentinel and does not treat it as a malformed research event | New TypeScript stream-termination test |
 
 The review also re-ran the preserved Kepler failure and confirmed the original receipt is not
-edited. The remaining limits below are unchanged.
+edited. Residual risks not counted as passes: the numeric check is digit-presence rather than
+unit alignment (a year or p-value can satisfy it); a comparison containing a possessive may still
+use all authorized documents and is labelled as a comparison; ABSTAIN audit payloads contain
+accepted keys but no returned citations; and the Basic-credential cache and per-process login
+counter limits are unchanged.
 
 ## 7. Remaining blockers (not scientific-gate failures)
 

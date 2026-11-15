@@ -1,7 +1,7 @@
 {
  "schema": "res638-scientific-gate-evaluation-v1",
- "generated_at": "2026-11-15T03:28:27.425868+00:00",
- "code_revision": "8220b1e88e8798775c5c403c8b8a469833c34589",
+ "generated_at": "2026-11-15T04:32:10.417186+00:00",
+ "code_revision": "b616da01c654fc60a3124ef66835ba04b4e865b4",
  "engine": {
   "provider": "deterministic",
   "paid_inference": false,
@@ -33,7 +33,7 @@
    "turns": [
     {
      "question": "What happened to Achilles tendon stiffness during depth jumping?",
-     "run_id": "run-90f0ca5736194536",
+     "run_id": "run-261c9d831b874987",
      "status": "completed",
      "abstention_reason": null,
      "verified_citation_count": 3,
@@ -94,10 +94,10 @@
    "turns": [
     {
      "question": "How did knee flexion angle affect muscle activity?",
-     "run_id": "run-3204fd93d1e842f0",
+     "run_id": "run-7405b028a04146a1",
      "status": "completed",
      "abstention_reason": null,
-     "verified_citation_count": 4,
+     "verified_citation_count": 2,
      "verified_quotes": [
       {
        "document_title": "Impact of Starting Knee Flexion Angle on Muscle Activity and Performance during Plyometrics without Jumping",
@@ -111,21 +111,7 @@
        "pmcid": "PMC10780924",
        "passage_key": "0a0cfb976e7bd8ce7f592764f258accd073b5c9455a1b901fb965212fc2fb92c",
        "document_version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643",
-       "verbatim_quote": "Coaches and trainers should consider incorporating exercises with a 90° knee flexion angle to maximize muscle activation, particularly in the VM and VL."
-      },
-      {
-       "document_title": "Impact of Starting Knee Flexion Angle on Muscle Activity and Performance during Plyometrics without Jumping",
-       "pmcid": "PMC10780924",
-       "passage_key": "0a0cfb976e7bd8ce7f592764f258accd073b5c9455a1b901fb965212fc2fb92c",
-       "document_version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643",
        "verbatim_quote": "Given that the nondominant leg is primarily responsible for stabilization during bipedal movements [14], this implies that during resisted nonjump plyometric exercises, the nondominant limb may require increased stabilization, resulting in higher vastus medialis activity, regardless of the knee flexion angle."
-      },
-      {
-       "document_title": "Impact of Starting Knee Flexion Angle on Muscle Activity and Performance during Plyometrics without Jumping",
-       "pmcid": "PMC10780924",
-       "passage_key": "c15877f3938f3a25bc734c99fe15cfb29a25805bdfc2ec7b124ea41e41295cf0",
-       "document_version_key": "958583513329768db12d9cd6c4b6730ed16d8b83ba5bc5203d5856983dd22643",
-       "verbatim_quote": "Study results demonstrated notable variations in muscle activity between 60°and 90° positions, particularly in favor of the 90° knee flexion position."
       }
      ],
      "answerability_events": [
@@ -142,8 +128,8 @@
        "verdict": "ANSWERABLE",
        "code": "claims_relevant_and_answerable",
        "question_kind": "factual",
-       "accepted": 4,
-       "rejected": 0
+       "accepted": 2,
+       "rejected": 2
       }
      ]
     }
@@ -162,7 +148,7 @@
    "turns": [
     {
      "question": "Compare the study designs and populations of the plyometric studies in this corpus.",
-     "run_id": "run-c543a3e60dbf4aea",
+     "run_id": "run-5ce06f3aa15a4049",
      "status": "completed",
      "abstention_reason": null,
      "verified_citation_count": 4,
@@ -231,7 +217,7 @@
    "turns": [
     {
      "question": "What did the depth jumping study find about Achilles tendon stiffness?",
-     "run_id": "run-19e88ef1b9ad408a",
+     "run_id": "run-25b65a11c71a4b8e",
      "status": "completed",
      "abstention_reason": null,
      "verified_citation_count": 2,
@@ -272,7 +258,7 @@
     },
     {
      "question": "How many weeks did those participants complete?",
-     "run_id": "run-b30a50d328554476",
+     "run_id": "run-60291288f5c843a0",
      "status": "completed",
      "abstention_reason": null,
      "verified_citation_count": 1,
@@ -320,7 +306,7 @@
    "turns": [
     {
      "question": "What did the depth jumping study find about Achilles tendon stiffness?",
-     "run_id": "run-e050285b886743d2",
+     "run_id": "run-5b885d40ea2744bb",
      "status": "completed",
      "abstention_reason": null,
      "verified_citation_count": 2,
@@ -361,7 +347,7 @@
     },
     {
      "question": "How many participants were in its training group?",
-     "run_id": "run-91ee7d9afead461b",
+     "run_id": "run-3dc7dc6b9f114835",
      "status": "completed",
      "abstention_reason": null,
      "verified_citation_count": 4,
@@ -430,7 +416,7 @@
    "turns": [
     {
      "question": "What did the depth jumping study find about Achilles tendon stiffness?",
-     "run_id": "run-677eb5fa227d4f69",
+     "run_id": "run-0d29e1f95cfd41ea",
      "status": "completed",
      "abstention_reason": null,
      "verified_citation_count": 2,
@@ -471,7 +457,7 @@
     },
     {
      "question": "What was its sample size?",
-     "run_id": "run-86ea0cbd0a714f6b",
+     "run_id": "run-7f6e3a4f3df64b2b",
      "status": "abstained",
      "abstention_reason": "answerability_gate:insufficient_numeric_evidence",
      "verified_citation_count": 0,
@@ -509,34 +495,26 @@
    "case_id": "negative_unresolved_reference",
    "turns": [
     {
-     "question": "What did the depth jumping study find about jump height?",
-     "run_id": "run-2313b8a57fc84f51",
+     "question": "What did the female cricketers study find about upper limb power?",
+     "run_id": "run-410a2835b98c4950",
      "status": "abstained",
-     "abstention_reason": "answerability_gate:claim_not_answerable",
+     "abstention_reason": "evidence_gate:insufficient_query_coverage",
      "verified_citation_count": 0,
      "verified_quotes": [],
      "answerability_events": [
       {
        "stage": "model_tool_execution",
-       "verdict": "ANSWERABLE",
-       "code": "evidence_relevant_and_answerable",
-       "question_kind": "factual",
-       "accepted": 1,
-       "rejected": 5
-      },
-      {
-       "stage": "verify_canonical_citations",
        "verdict": "ABSTAIN",
-       "code": "claim_not_answerable",
+       "code": "insufficient_query_coverage",
        "question_kind": "factual",
        "accepted": 0,
-       "rejected": 2
+       "rejected": 0
       }
      ]
     },
     {
      "question": "What was its sample size?",
-     "run_id": "run-d7973125abd0451a",
+     "run_id": "run-766fba98448c47c5",
      "status": "abstained",
      "abstention_reason": "unresolved_coreference_reference",
      "verified_citation_count": 0,
@@ -558,7 +536,7 @@
    "turns": [
     {
      "question": "What is the sample size?",
-     "run_id": "run-6f3da7c509d94ac6",
+     "run_id": "run-5461480b3d6a41c6",
      "status": "abstained",
      "abstention_reason": "evidence_gate:ambiguous_question",
      "verified_citation_count": 0,
@@ -589,7 +567,7 @@
    "turns": [
     {
      "question": "What is the orbital period of the exoplanet Kepler-22b?",
-     "run_id": "run-68fabe3474784383",
+     "run_id": "run-9b71119a62d24521",
      "status": "abstained",
      "abstention_reason": "evidence_gate:unsupported_entity",
      "verified_citation_count": 0,
@@ -620,7 +598,7 @@
    "turns": [
     {
      "question": "What is the DOI of the Kepler-22b paper?",
-     "run_id": "run-0f2fe25218524754",
+     "run_id": "run-d5799a7491894d88",
      "status": "abstained",
      "abstention_reason": "evidence_gate:unsupported_entity",
      "verified_citation_count": 0,
@@ -651,7 +629,7 @@
    "turns": [
     {
      "question": "What is the orbital radius of Proxima Centauri b?",
-     "run_id": "run-8d76950f80914eed",
+     "run_id": "run-b9731a4affb442e2",
      "status": "abstained",
      "abstention_reason": "evidence_gate:insufficient_canonical_evidence_for_query",
      "verified_citation_count": 0,
@@ -673,7 +651,7 @@
    "turns": [
     {
      "question": "By what percentage did plyometric training improve 100 m sprint times?",
-     "run_id": "run-58d65786b2a44463",
+     "run_id": "run-74b37cd0e8394958",
      "status": "abstained",
      "abstention_reason": "evidence_gate:insufficient_query_coverage",
      "verified_citation_count": 0,
@@ -704,7 +682,7 @@
    "turns": [
     {
      "question": "What hydration ratio do the studies recommend for sourdough bread?",
-     "run_id": "run-3174fe916b6d4855",
+     "run_id": "run-b879056f26a24d39",
      "status": "abstained",
      "abstention_reason": "evidence_gate:insufficient_query_coverage",
      "verified_citation_count": 0,
@@ -735,7 +713,7 @@
    "turns": [
     {
      "question": "What did the Proxima Centauri study report about jump height?",
-     "run_id": "run-f8500bd8843d4985",
+     "run_id": "run-9161d709bbab4794",
      "status": "abstained",
      "abstention_reason": "evidence_gate:unsupported_entity",
      "verified_citation_count": 0,
