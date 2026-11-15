@@ -1245,13 +1245,11 @@ def _claim_has_finding_signal(
 ) -> bool:
     """A quotation must do more than repeat its own document title.
 
-    Named-entity support, a direction/effect word or a value answer is enough.
-    Otherwise at least one asked-about facet must occur in the quotation but not
-    in the title. This keeps a methods sentence from passing because the title
-    names the topic.
+    Entity support is necessary but not sufficient: the title can name the
+    entity while the quotation reports no finding. The quotation must contain a
+    direction/effect word, a value answer, or an asked-about facet absent from
+    the title.
     """
-    if profile.entities and not assessment.missing_entities:
-        return True
     missing_salient = (
         (set(assessment.missing_terms) & set(_salient_terms(profile)))
         - _DIRECTION_STEMS

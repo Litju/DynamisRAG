@@ -502,6 +502,25 @@ def test_contracted_value_question_still_requires_a_number() -> None:
     assert qualitative.code == "insufficient_numeric_evidence"
 
 
+def test_title_only_entity_and_facets_cannot_supply_a_finding() -> None:
+    decision = assess_claims(
+        "What did the Depth Jumping study report about muscle-tendon behavior?",
+        (
+            ClaimEvidence(
+                passage_key="1" * 64,
+                document_version_key="2" * 64,
+                document_title=(
+                    "Plyometric Training Favors Optimizing Muscle-Tendon Behavior "
+                    "during Depth Jumping"
+                ),
+                claim_text="Participants completed depth jumping training.",
+                verbatim_quote=("Participants completed 12 weeks of depth jumping training."),
+            ),
+        ),
+    )
+    assert decision.verdict == "ABSTAIN"
+
+
 def test_study_qualifier_is_validated_against_the_title_without_being_claim_text() -> None:
     depth = assess_claims(
         "What did the depth jumping study find about Achilles tendon stiffness?",

@@ -457,6 +457,46 @@ def test_followup_uses_the_latest_answered_study_not_the_cumulative_history(
     assert cited_versions == latest_versions
 
 
+def test_possessive_comparison_followup_is_scoped_to_the_latest_study(
+    graph_engine_and_studies: tuple[
+        Engine, dict[str, tuple[str, tuple[str, ...], tuple[str, ...]]]
+    ],
+) -> None:
+    engine, _ = graph_engine_and_studies
+    registry = ScientificToolRegistry(engine)
+    store = InMemoryAgentConversationStore()
+    runtime = build_agent_model_runtime(AgentModelConfig(provider=AgentProviderKind.DETERMINISTIC))
+    orchestrator = ConversationalResearchOrchestrator(
+        tool_registry=registry,
+        store=store,
+        model_runtime=runtime,
+    )
+    thread = store.create_thread(owner_id="possessive-compare", title="Possessive compare")
+    first = orchestrator.execute_run(
+        thread_id=thread.thread_id,
+        user_id="possessive-compare",
+        question="What did the depth jumping study find about Achilles tendon stiffness?",
+        idempotency_key="pc-first",
+    )
+    assert first.status == RunStatus.COMPLETED
+    second = orchestrator.execute_run(
+        thread_id=thread.thread_id,
+        user_id="possessive-compare",
+        question="How many participants were in the basketball study?",
+        idempotency_key="pc-second",
+    )
+    assert second.status == RunStatus.COMPLETED
+    third = orchestrator.execute_run(
+        thread_id=thread.thread_id,
+        user_id="possessive-compare",
+        question="How does its jump height compare with the other studies?",
+        idempotency_key="pc-third",
+    )
+    assert third.status == RunStatus.ABSTAINED
+    assert third.verified_citations == ()
+    assert third.study_comparison is None
+
+
 def test_abstention_on_out_of_corpus_and_prompt_injection(
     graph_engine_and_studies: tuple[
         Engine, dict[str, tuple[str, tuple[str, ...], tuple[str, ...]]]

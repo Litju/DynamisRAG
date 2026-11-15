@@ -793,7 +793,8 @@ class ConversationalResearchOrchestrator:
             }
 
         is_comparison = any(keyword in lower_q for keyword in _COMPARISON_KEYWORDS)
-        if is_comparison:
+        has_possessive = re.search(r"\b(?:its|their|theirs)\b", question, re.IGNORECASE) is not None
+        if is_comparison and not has_possessive:
             # "these papers" means the authorized comparison set, not only the
             # last active study. A one-paper authorized scope still abstains in
             # the gate because fewer than two documents are available.
