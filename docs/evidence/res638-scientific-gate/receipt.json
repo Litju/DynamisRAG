@@ -1,7 +1,7 @@
 {
  "schema": "res638-scientific-gate-evaluation-v1",
- "generated_at": "2026-11-15T04:32:10.417186+00:00",
- "code_revision": "b616da01c654fc60a3124ef66835ba04b4e865b4",
+ "generated_at": "2026-11-15T04:56:39.682539+00:00",
+ "code_revision": "b3a46f03d94e2d231359fefc98201281a40e7c17",
  "engine": {
   "provider": "deterministic",
   "paid_inference": false,
@@ -33,10 +33,10 @@
    "turns": [
     {
      "question": "What happened to Achilles tendon stiffness during depth jumping?",
-     "run_id": "run-261c9d831b874987",
+     "run_id": "run-73f8fc8590894263",
      "status": "completed",
      "abstention_reason": null,
-     "verified_citation_count": 3,
+     "verified_citation_count": 2,
      "verified_quotes": [
       {
        "document_title": "Plyometric Training Favors Optimizing Muscle–Tendon Behavior during Depth Jumping",
@@ -51,13 +51,6 @@
        "passage_key": "20b882b966e04387a69e3f80782fd9dd266642f4a492120b415f5156a6ba25e8",
        "document_version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e",
        "verbatim_quote": "The reason that no change was observed in fascicle length or contraction velocity despite the increase in muscle activation is probably related to an increase in Achilles tendon stiffness."
-      },
-      {
-       "document_title": "Plyometric Training Favors Optimizing Muscle–Tendon Behavior during Depth Jumping",
-       "pmcid": "PMC5263151",
-       "passage_key": "03ef314b00f7475e7e55d6d7aeeeda89d72fb7c0a7f392e376ebdf0fd35a67d5",
-       "document_version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e",
-       "verbatim_quote": "The Achilles tendon moment arm was determined from the magnetic resonance (MR) images with the center of rotation method described by Maganaris et al."
       }
      ],
      "answerability_events": [
@@ -74,8 +67,8 @@
        "verdict": "ANSWERABLE",
        "code": "claims_relevant_and_answerable",
        "question_kind": "factual",
-       "accepted": 3,
-       "rejected": 1
+       "accepted": 2,
+       "rejected": 2
       }
      ]
     }
@@ -94,7 +87,7 @@
    "turns": [
     {
      "question": "How did knee flexion angle affect muscle activity?",
-     "run_id": "run-7405b028a04146a1",
+     "run_id": "run-40f5180a41074e5a",
      "status": "completed",
      "abstention_reason": null,
      "verified_citation_count": 2,
@@ -148,7 +141,7 @@
    "turns": [
     {
      "question": "Compare the study designs and populations of the plyometric studies in this corpus.",
-     "run_id": "run-5ce06f3aa15a4049",
+     "run_id": "run-ff58340749a74326",
      "status": "completed",
      "abstention_reason": null,
      "verified_citation_count": 4,
@@ -217,7 +210,7 @@
    "turns": [
     {
      "question": "What did the depth jumping study find about Achilles tendon stiffness?",
-     "run_id": "run-25b65a11c71a4b8e",
+     "run_id": "run-af9bdcf67916427a",
      "status": "completed",
      "abstention_reason": null,
      "verified_citation_count": 2,
@@ -258,7 +251,7 @@
     },
     {
      "question": "How many weeks did those participants complete?",
-     "run_id": "run-60291288f5c843a0",
+     "run_id": "run-5d994a6f438b4267",
      "status": "completed",
      "abstention_reason": null,
      "verified_citation_count": 1,
@@ -306,7 +299,7 @@
    "turns": [
     {
      "question": "What did the depth jumping study find about Achilles tendon stiffness?",
-     "run_id": "run-5b885d40ea2744bb",
+     "run_id": "run-2eef381745584a35",
      "status": "completed",
      "abstention_reason": null,
      "verified_citation_count": 2,
@@ -347,7 +340,7 @@
     },
     {
      "question": "How many participants were in its training group?",
-     "run_id": "run-3dc7dc6b9f114835",
+     "run_id": "run-71c5d59e479044c9",
      "status": "completed",
      "abstention_reason": null,
      "verified_citation_count": 4,
@@ -416,7 +409,7 @@
    "turns": [
     {
      "question": "What did the depth jumping study find about Achilles tendon stiffness?",
-     "run_id": "run-0d29e1f95cfd41ea",
+     "run_id": "run-6673c886804246f0",
      "status": "completed",
      "abstention_reason": null,
      "verified_citation_count": 2,
@@ -457,7 +450,7 @@
     },
     {
      "question": "What was its sample size?",
-     "run_id": "run-7f6e3a4f3df64b2b",
+     "run_id": "run-4d5699535a944b67",
      "status": "abstained",
      "abstention_reason": "answerability_gate:insufficient_numeric_evidence",
      "verified_citation_count": 0,
@@ -496,7 +489,7 @@
    "turns": [
     {
      "question": "What did the female cricketers study find about upper limb power?",
-     "run_id": "run-410a2835b98c4950",
+     "run_id": "run-d6bfe3b59a574d5d",
      "status": "abstained",
      "abstention_reason": "evidence_gate:insufficient_query_coverage",
      "verified_citation_count": 0,
@@ -514,7 +507,7 @@
     },
     {
      "question": "What was its sample size?",
-     "run_id": "run-766fba98448c47c5",
+     "run_id": "run-af2102732c5c4716",
      "status": "abstained",
      "abstention_reason": "unresolved_coreference_reference",
      "verified_citation_count": 0,
@@ -536,7 +529,7 @@
    "turns": [
     {
      "question": "What is the sample size?",
-     "run_id": "run-5461480b3d6a41c6",
+     "run_id": "run-f127e07c6f1f4dda",
      "status": "abstained",
      "abstention_reason": "evidence_gate:ambiguous_question",
      "verified_citation_count": 0,
@@ -567,7 +560,7 @@
    "turns": [
     {
      "question": "What is the orbital period of the exoplanet Kepler-22b?",
-     "run_id": "run-9b71119a62d24521",
+     "run_id": "run-0117a80d9d184d3a",
      "status": "abstained",
      "abstention_reason": "evidence_gate:unsupported_entity",
      "verified_citation_count": 0,
@@ -598,7 +591,7 @@
    "turns": [
     {
      "question": "What is the DOI of the Kepler-22b paper?",
-     "run_id": "run-d5799a7491894d88",
+     "run_id": "run-1f221fb9fc464783",
      "status": "abstained",
      "abstention_reason": "evidence_gate:unsupported_entity",
      "verified_citation_count": 0,
@@ -629,7 +622,7 @@
    "turns": [
     {
      "question": "What is the orbital radius of Proxima Centauri b?",
-     "run_id": "run-b9731a4affb442e2",
+     "run_id": "run-975fe6af1d424e5c",
      "status": "abstained",
      "abstention_reason": "evidence_gate:insufficient_canonical_evidence_for_query",
      "verified_citation_count": 0,
@@ -651,7 +644,7 @@
    "turns": [
     {
      "question": "By what percentage did plyometric training improve 100 m sprint times?",
-     "run_id": "run-74b37cd0e8394958",
+     "run_id": "run-68f2a540b1de4eb5",
      "status": "abstained",
      "abstention_reason": "evidence_gate:insufficient_query_coverage",
      "verified_citation_count": 0,
@@ -682,7 +675,7 @@
    "turns": [
     {
      "question": "What hydration ratio do the studies recommend for sourdough bread?",
-     "run_id": "run-b879056f26a24d39",
+     "run_id": "run-c92dd6f7eb194b14",
      "status": "abstained",
      "abstention_reason": "evidence_gate:insufficient_query_coverage",
      "verified_citation_count": 0,
@@ -713,7 +706,7 @@
    "turns": [
     {
      "question": "What did the Proxima Centauri study report about jump height?",
-     "run_id": "run-9161d709bbab4794",
+     "run_id": "run-57c1379a6c7e42b4",
      "status": "abstained",
      "abstention_reason": "evidence_gate:unsupported_entity",
      "verified_citation_count": 0,
