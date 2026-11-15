@@ -1,7 +1,7 @@
 {
  "schema": "res638-scientific-gate-evaluation-v1",
- "generated_at": "2026-11-14T01:51:03.591274+00:00",
- "code_revision": "502d4b5fd8dae701dfa9fd49019c04052a4b4769",
+ "generated_at": "2026-11-15T03:28:27.425868+00:00",
+ "code_revision": "8220b1e88e8798775c5c403c8b8a469833c34589",
  "engine": {
   "provider": "deterministic",
   "paid_inference": false,
@@ -33,7 +33,7 @@
    "turns": [
     {
      "question": "What happened to Achilles tendon stiffness during depth jumping?",
-     "run_id": "run-b4b4f6a405004725",
+     "run_id": "run-90f0ca5736194536",
      "status": "completed",
      "abstention_reason": null,
      "verified_citation_count": 3,
@@ -94,7 +94,7 @@
    "turns": [
     {
      "question": "How did knee flexion angle affect muscle activity?",
-     "run_id": "run-b45887cf3ccc4ffd",
+     "run_id": "run-3204fd93d1e842f0",
      "status": "completed",
      "abstention_reason": null,
      "verified_citation_count": 4,
@@ -162,7 +162,7 @@
    "turns": [
     {
      "question": "Compare the study designs and populations of the plyometric studies in this corpus.",
-     "run_id": "run-271f5ea63e6041c7",
+     "run_id": "run-c543a3e60dbf4aea",
      "status": "completed",
      "abstention_reason": null,
      "verified_citation_count": 4,
@@ -231,7 +231,7 @@
    "turns": [
     {
      "question": "What did the depth jumping study find about Achilles tendon stiffness?",
-     "run_id": "run-cb2462426ad54cb1",
+     "run_id": "run-19e88ef1b9ad408a",
      "status": "completed",
      "abstention_reason": null,
      "verified_citation_count": 2,
@@ -272,7 +272,7 @@
     },
     {
      "question": "How many weeks did those participants complete?",
-     "run_id": "run-f6d425d60fcb4fa7",
+     "run_id": "run-b30a50d328554476",
      "status": "completed",
      "abstention_reason": null,
      "verified_citation_count": 1,
@@ -316,11 +316,280 @@
    "failures": []
   },
   {
+   "case_id": "positive_multi_turn_pronoun",
+   "turns": [
+    {
+     "question": "What did the depth jumping study find about Achilles tendon stiffness?",
+     "run_id": "run-e050285b886743d2",
+     "status": "completed",
+     "abstention_reason": null,
+     "verified_citation_count": 2,
+     "verified_quotes": [
+      {
+       "document_title": "Plyometric Training Favors Optimizing Muscle–Tendon Behavior during Depth Jumping",
+       "pmcid": "PMC5263151",
+       "passage_key": "ff98ea8cb2b6f9c9af22689a5b49868fcd816885ba0b2939ab5aae696deda73f",
+       "document_version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e",
+       "verbatim_quote": "The Achilles tendon stiffness was quantified using ultrasonography (ProSound α7, Hitachi Aloka Medical, Ltd., Tokyo, Japan)."
+      },
+      {
+       "document_title": "Plyometric Training Favors Optimizing Muscle–Tendon Behavior during Depth Jumping",
+       "pmcid": "PMC5263151",
+       "passage_key": "20b882b966e04387a69e3f80782fd9dd266642f4a492120b415f5156a6ba25e8",
+       "document_version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e",
+       "verbatim_quote": "The reason that no change was observed in fascicle length or contraction velocity despite the increase in muscle activation is probably related to an increase in Achilles tendon stiffness."
+      }
+     ],
+     "answerability_events": [
+      {
+       "stage": "model_tool_execution",
+       "verdict": "ANSWERABLE",
+       "code": "evidence_relevant_and_answerable",
+       "question_kind": "factual",
+       "accepted": 4,
+       "rejected": 2
+      },
+      {
+       "stage": "verify_canonical_citations",
+       "verdict": "ANSWERABLE",
+       "code": "claims_relevant_and_answerable",
+       "question_kind": "factual",
+       "accepted": 2,
+       "rejected": 2
+      }
+     ]
+    },
+    {
+     "question": "How many participants were in its training group?",
+     "run_id": "run-91ee7d9afead461b",
+     "status": "completed",
+     "abstention_reason": null,
+     "verified_citation_count": 4,
+     "verified_quotes": [
+      {
+       "document_title": "Plyometric Training Favors Optimizing Muscle–Tendon Behavior during Depth Jumping",
+       "pmcid": "PMC5263151",
+       "passage_key": "b3054cca52f8534e5f1140541d072f651b61032b004e493b4070053bb5472d77",
+       "document_version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e",
+       "verbatim_quote": "The participants were randomly assigned to two groups: the training group (n = 11; age: 22 ± 3 years, height: 172.0 ± 5.8 cm, weight: 66.9 ± 10.5 kg, mean ± SD) and the control group (n = 10; age: 22 ± 4 years, height: 174.5 ± 5.4 cm, weight: 66.7 ± 8.0 kg)."
+      },
+      {
+       "document_title": "Plyometric Training Favors Optimizing Muscle–Tendon Behavior during Depth Jumping",
+       "pmcid": "PMC5263151",
+       "passage_key": "b3054cca52f8534e5f1140541d072f651b61032b004e493b4070053bb5472d77",
+       "document_version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e",
+       "verbatim_quote": "There were no significant differences between the training and control groups with respect to age, height, or weight."
+      },
+      {
+       "document_title": "Plyometric Training Favors Optimizing Muscle–Tendon Behavior during Depth Jumping",
+       "pmcid": "PMC5263151",
+       "passage_key": "418af8928d919e2b4d9e887d1679ae1101b2768943433ca0e5d71b2e278ba002",
+       "document_version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e",
+       "verbatim_quote": "The training group completed plyometric training for 12 weeks (3 days/week), with a rest period of 1 week halfway through the training period."
+      },
+      {
+       "document_title": "Plyometric Training Favors Optimizing Muscle–Tendon Behavior during Depth Jumping",
+       "pmcid": "PMC5263151",
+       "passage_key": "418af8928d919e2b4d9e887d1679ae1101b2768943433ca0e5d71b2e278ba002",
+       "document_version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e",
+       "verbatim_quote": "The control group was requested to maintain their daily activities during the period; they were allowed to carry on with their own exercise habits, but none of them had experience in plyometric training before and during the present study."
+      }
+     ],
+     "answerability_events": [
+      {
+       "stage": "model_tool_execution",
+       "verdict": "ANSWERABLE",
+       "code": "evidence_relevant_and_answerable",
+       "question_kind": "factual",
+       "accepted": 6,
+       "rejected": 0
+      },
+      {
+       "stage": "verify_canonical_citations",
+       "verdict": "ANSWERABLE",
+       "code": "claims_relevant_and_answerable",
+       "question_kind": "factual",
+       "accepted": 4,
+       "rejected": 0
+      }
+     ]
+    }
+   ],
+   "final_status": "completed",
+   "final_abstention_reason": null,
+   "expect": {
+    "status": "completed",
+    "min_citations": 1,
+    "same_version_as_previous_turn": true
+   },
+   "passed": true,
+   "failures": []
+  },
+  {
+   "case_id": "negative_numeric_unverifiable",
+   "turns": [
+    {
+     "question": "What did the depth jumping study find about Achilles tendon stiffness?",
+     "run_id": "run-677eb5fa227d4f69",
+     "status": "completed",
+     "abstention_reason": null,
+     "verified_citation_count": 2,
+     "verified_quotes": [
+      {
+       "document_title": "Plyometric Training Favors Optimizing Muscle–Tendon Behavior during Depth Jumping",
+       "pmcid": "PMC5263151",
+       "passage_key": "ff98ea8cb2b6f9c9af22689a5b49868fcd816885ba0b2939ab5aae696deda73f",
+       "document_version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e",
+       "verbatim_quote": "The Achilles tendon stiffness was quantified using ultrasonography (ProSound α7, Hitachi Aloka Medical, Ltd., Tokyo, Japan)."
+      },
+      {
+       "document_title": "Plyometric Training Favors Optimizing Muscle–Tendon Behavior during Depth Jumping",
+       "pmcid": "PMC5263151",
+       "passage_key": "20b882b966e04387a69e3f80782fd9dd266642f4a492120b415f5156a6ba25e8",
+       "document_version_key": "f13f906585464382d17a408081c7bd29434f67a49c124d4dc686dca902bce44e",
+       "verbatim_quote": "The reason that no change was observed in fascicle length or contraction velocity despite the increase in muscle activation is probably related to an increase in Achilles tendon stiffness."
+      }
+     ],
+     "answerability_events": [
+      {
+       "stage": "model_tool_execution",
+       "verdict": "ANSWERABLE",
+       "code": "evidence_relevant_and_answerable",
+       "question_kind": "factual",
+       "accepted": 4,
+       "rejected": 2
+      },
+      {
+       "stage": "verify_canonical_citations",
+       "verdict": "ANSWERABLE",
+       "code": "claims_relevant_and_answerable",
+       "question_kind": "factual",
+       "accepted": 2,
+       "rejected": 2
+      }
+     ]
+    },
+    {
+     "question": "What was its sample size?",
+     "run_id": "run-86ea0cbd0a714f6b",
+     "status": "abstained",
+     "abstention_reason": "answerability_gate:insufficient_numeric_evidence",
+     "verified_citation_count": 0,
+     "verified_quotes": [],
+     "answerability_events": [
+      {
+       "stage": "model_tool_execution",
+       "verdict": "ANSWERABLE",
+       "code": "evidence_relevant_and_answerable",
+       "question_kind": "factual",
+       "accepted": 1,
+       "rejected": 1
+      },
+      {
+       "stage": "verify_canonical_citations",
+       "verdict": "ABSTAIN",
+       "code": "insufficient_numeric_evidence",
+       "question_kind": "factual",
+       "accepted": 0,
+       "rejected": 0
+      }
+     ]
+    }
+   ],
+   "final_status": "abstained",
+   "final_abstention_reason": "answerability_gate:insufficient_numeric_evidence",
+   "expect": {
+    "status": "abstained",
+    "abstention_contains": "insufficient_numeric_evidence"
+   },
+   "passed": true,
+   "failures": []
+  },
+  {
+   "case_id": "negative_unresolved_reference",
+   "turns": [
+    {
+     "question": "What did the depth jumping study find about jump height?",
+     "run_id": "run-2313b8a57fc84f51",
+     "status": "abstained",
+     "abstention_reason": "answerability_gate:claim_not_answerable",
+     "verified_citation_count": 0,
+     "verified_quotes": [],
+     "answerability_events": [
+      {
+       "stage": "model_tool_execution",
+       "verdict": "ANSWERABLE",
+       "code": "evidence_relevant_and_answerable",
+       "question_kind": "factual",
+       "accepted": 1,
+       "rejected": 5
+      },
+      {
+       "stage": "verify_canonical_citations",
+       "verdict": "ABSTAIN",
+       "code": "claim_not_answerable",
+       "question_kind": "factual",
+       "accepted": 0,
+       "rejected": 2
+      }
+     ]
+    },
+    {
+     "question": "What was its sample size?",
+     "run_id": "run-d7973125abd0451a",
+     "status": "abstained",
+     "abstention_reason": "unresolved_coreference_reference",
+     "verified_citation_count": 0,
+     "verified_quotes": [],
+     "answerability_events": []
+    }
+   ],
+   "final_status": "abstained",
+   "final_abstention_reason": "unresolved_coreference_reference",
+   "expect": {
+    "status": "abstained",
+    "abstention_contains": "unresolved_coreference_reference"
+   },
+   "passed": true,
+   "failures": []
+  },
+  {
+   "case_id": "negative_ambiguous_generic",
+   "turns": [
+    {
+     "question": "What is the sample size?",
+     "run_id": "run-6f3da7c509d94ac6",
+     "status": "abstained",
+     "abstention_reason": "evidence_gate:ambiguous_question",
+     "verified_citation_count": 0,
+     "verified_quotes": [],
+     "answerability_events": [
+      {
+       "stage": "model_tool_execution",
+       "verdict": "ABSTAIN",
+       "code": "ambiguous_question",
+       "question_kind": "factual",
+       "accepted": 0,
+       "rejected": 0
+      }
+     ]
+    }
+   ],
+   "final_status": "abstained",
+   "final_abstention_reason": "evidence_gate:ambiguous_question",
+   "expect": {
+    "status": "abstained",
+    "abstention_contains": "ambiguous_question"
+   },
+   "passed": true,
+   "failures": []
+  },
+  {
    "case_id": "negative_off_domain_kepler",
    "turns": [
     {
      "question": "What is the orbital period of the exoplanet Kepler-22b?",
-     "run_id": "run-9d2c2cffc9ce44ea",
+     "run_id": "run-68fabe3474784383",
      "status": "abstained",
      "abstention_reason": "evidence_gate:unsupported_entity",
      "verified_citation_count": 0,
@@ -347,11 +616,42 @@
    "failures": []
   },
   {
+   "case_id": "negative_metadata_unsupported_entity",
+   "turns": [
+    {
+     "question": "What is the DOI of the Kepler-22b paper?",
+     "run_id": "run-0f2fe25218524754",
+     "status": "abstained",
+     "abstention_reason": "evidence_gate:unsupported_entity",
+     "verified_citation_count": 0,
+     "verified_quotes": [],
+     "answerability_events": [
+      {
+       "stage": "model_tool_execution",
+       "verdict": "ABSTAIN",
+       "code": "unsupported_entity",
+       "question_kind": "metadata",
+       "accepted": 0,
+       "rejected": 4
+      }
+     ]
+    }
+   ],
+   "final_status": "abstained",
+   "final_abstention_reason": "evidence_gate:unsupported_entity",
+   "expect": {
+    "status": "abstained",
+    "abstention_contains": "unsupported_entity"
+   },
+   "passed": true,
+   "failures": []
+  },
+  {
    "case_id": "negative_off_domain_proxima",
    "turns": [
     {
      "question": "What is the orbital radius of Proxima Centauri b?",
-     "run_id": "run-05f85b3edac14171",
+     "run_id": "run-8d76950f80914eed",
      "status": "abstained",
      "abstention_reason": "evidence_gate:insufficient_canonical_evidence_for_query",
      "verified_citation_count": 0,
@@ -373,7 +673,7 @@
    "turns": [
     {
      "question": "By what percentage did plyometric training improve 100 m sprint times?",
-     "run_id": "run-aa5ba0d33cb54c74",
+     "run_id": "run-58d65786b2a44463",
      "status": "abstained",
      "abstention_reason": "evidence_gate:insufficient_query_coverage",
      "verified_citation_count": 0,
@@ -404,7 +704,7 @@
    "turns": [
     {
      "question": "What hydration ratio do the studies recommend for sourdough bread?",
-     "run_id": "run-a91f089a0986487b",
+     "run_id": "run-3174fe916b6d4855",
      "status": "abstained",
      "abstention_reason": "evidence_gate:insufficient_query_coverage",
      "verified_citation_count": 0,
@@ -435,7 +735,7 @@
    "turns": [
     {
      "question": "What did the Proxima Centauri study report about jump height?",
-     "run_id": "run-4614e4729e8e4d38",
+     "run_id": "run-f8500bd8843d4985",
      "status": "abstained",
      "abstention_reason": "evidence_gate:unsupported_entity",
      "verified_citation_count": 0,
@@ -463,8 +763,8 @@
   }
  ],
  "summary": {
-  "total": 9,
-  "passed": 9,
+  "total": 14,
+  "passed": 14,
   "failed": 0
  },
  "limitations": [

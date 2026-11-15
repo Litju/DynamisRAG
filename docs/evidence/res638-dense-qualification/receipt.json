@@ -1,7 +1,7 @@
 {
  "schema": "res638-dense-retrieval-qualification-v1",
- "generated_at": "2026-11-14T00:22:21.492577+00:00",
- "code_revision": "57b2f2ec971b485957abd6b6f862b740d97db1f8",
+ "generated_at": "2026-11-15T03:28:37.899506+00:00",
+ "code_revision": "8220b1e88e8798775c5c403c8b8a469833c34589",
  "pinned": {
   "model_id": "Qwen/Qwen3-Embedding-0.6B",
   "model_revision": "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
@@ -12,7 +12,7 @@
   "tei_image": "ghcr.io/huggingface/text-embeddings-inference:cpu-1.9.4"
  },
  "isolation": {
-  "qdrant_url": "http://127.0.0.1:16335",
+  "qdrant_url": "http://127.0.0.1:16336",
   "tei_url": "http://127.0.0.1:8082",
   "retained_qdrant_reused": false,
   "retained_receipts_reused": false

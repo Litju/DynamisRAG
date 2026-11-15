@@ -1,9 +1,11 @@
 # RES-638 final scientific and engineering qualification
 
-**Code under test:** `502d4b5` for the scientific gate, citation mapping and signed sessions;
-`57b2f2e` for the dense projection. Documentation-only commits after those revisions do not
-change runtime code. **Generated:** 2026-11-14. **Spend:** $0. No hosted deployment, paid
-inference, Oracle/Railway resource or additional local-model campaign was created.
+**Code under test:** `8220b1e` for the scientific gate, citation mapping, signed sessions and
+pronoun/ambiguity repairs. `57b2f2e` introduced the original dense-qualification operator; the
+projection was re-created from scratch at `8220b1e` with identical fingerprints. Documentation-only
+commits after `8220b1e` do not change runtime code. **Generated:** 2026-11-15. **Spend:** $0. No
+hosted deployment, paid inference, Oracle/Railway resource or additional local-model campaign was
+created.
 
 This record separates what was **executed** from what remains **unqualified**. The deterministic
 model is a fixed test adapter, not a scientific language model. The answerability gate is a
@@ -21,7 +23,14 @@ The repair adds `structured-evidence-gate-v1` before synthesis:
 similarity, canonical authenticity, query relevance (entities and weighted facets) and claim
 support. It rejects retrieval candidates that do not contain the question's named entities or
 enough query facets, then applies a second gate to verified quotations. Contradictory directions
-on a shared outcome abstain; a comparison needs at least two structurally compared studies.
+on a shared outcome abstain; a comparison needs at least two structurally compared studies. The
+inventory/metadata route no longer bypasses relevance: a named entity or topical qualifier must
+still be present in canonical evidence. A pronoun/demonstrative follow-up is scoped to the prior
+study, and an unresolved reference abstains rather than switching studies. A generic measurement
+question ("What is the sample size?") abstains when it spans several studies and is answerable
+only when a thread scope identifies one document. A value question must have at least one
+admissible quotation containing a number; a qualitative sentence that merely says "small sample
+size" is not accepted as the requested value.
 
 The gate is calibrated against a disjoint author-constructed calibration/held-out fixture pair
 (`tests/fixtures/answerability/`). Thresholds are asserted from the calibration interval, not
@@ -33,20 +42,25 @@ from question strings. There is no question-specific blocklist; the former
 Command:
 `python -m scripts.res638_scientific_gate_eval --output docs/evidence/res638-scientific-gate/receipt.json`
 
-Receipt: [receipt.json](res638-scientific-gate/receipt.json) — 9/9 cases passed, 3 papers,
+Receipt: [receipt.json](res638-scientific-gate/receipt.json) — 14/14 cases passed, 3 papers,
 75 passages, deterministic inference, zero inference spend.
 
 | Case | Result | Gate code |
 | --- | --- | --- |
-| Achilles tendon stiffness (supported) | completed, 4 citations | `evidence_relevant_and_answerable` |
+| Achilles tendon stiffness (supported) | completed, 3 citations | `evidence_relevant_and_answerable` |
 | Knee flexion / muscle activity (paraphrase) | completed, 4 citations | `evidence_relevant_and_answerable` |
 | Study designs and populations (comparison) | completed, 4 citations | `comparison_structurally_answerable` |
 | Multi-turn “How many weeks did those participants complete?” | completed, 1 citation from the same study as turn 1 | `evidence_relevant_and_answerable` |
+| Multi-turn “How many participants were in its training group?” | completed, 4 citations from the same study as turn 1 | `evidence_relevant_and_answerable` |
+| Follow-up “What was its sample size?” (only qualitative quotes) | abstained, 0 citations | `insufficient_numeric_evidence` |
+| Follow-up pronoun after an abstained turn | abstained, 0 citations | `unresolved_coreference_reference` |
+| Unscoped “What is the sample size?” | abstained, 0 citations | `ambiguous_question` |
 | Kepler-22b orbital period | abstained, 0 citations | `unsupported_entity` |
-| Proxima Centauri b orbital radius | abstained, 0 citations | `unsupported_entity` |
+| Proxima Centauri b orbital radius | abstained, 0 citations | `insufficient_canonical_evidence_for_query` (no hits) |
 | 100 m sprint improvement (close-domain) | abstained, 0 citations | `insufficient_query_coverage` |
 | Sourdough hydration ratio (off-domain) | abstained, 0 citations | `insufficient_query_coverage` |
 | Unknown-entity jump-height study | abstained, 0 citations | `unsupported_entity` |
+| Metadata “DOI of the Kepler-22b paper” | abstained, 0 citations | `unsupported_entity` |
 
 The browser scenario “document selection is immutable and unsupported questions abstain” also
 passes against this stack, including no `Inspect source` button after abstention.
@@ -54,6 +68,8 @@ passes against this stack, including no `Inspect source` button after abstention
 **Limits.** A pass means the asked-about entities and facets are present and the quotation
 survives the existing exact/numeric/lexical checks. It does not prove entailment, study validity
 or clinical applicability. The deterministic adapter cannot qualify a live scientific model.
+Value detection is digit-based, so a spelled-out number is treated as unsupported rather than
+guessed.
 
 ## 2. Citation highlighting
 
@@ -73,13 +89,15 @@ citation and assert `<mark>` is visible; an invalid coordinate was verified live
 
 ## 3. Frontend authentication
 
-The synchronous Basic path blocked the Node request thread: 32 concurrent authentications took
-**1.23 s** and delayed the event loop by **1.245 s** on the benchmark host. A short-lived
-HttpOnly HMAC session (15 minutes) replaces scrypt after the first exchange: 32 concurrent
-session verifications took **1.3 ms** and delayed the loop by **13 ms** including timer overhead.
+The synchronous Basic path blocked the Node request thread: in the final benchmark, 32 concurrent
+authentications took **1.51 s** and delayed the event loop by **1.52 s** on the benchmark host
+(earlier runs ranged from 1.20 s to 1.51 s). A short-lived HttpOnly HMAC session (15 minutes)
+replaces scrypt after the first exchange: 32 concurrent session verifications took **1.9 ms**
+(earlier runs: 1.3–1.9 ms) and delayed the loop by less than 1 ms excluding timer overhead.
 
 Benchmark receipt: [benchmark.json](res638-auth/benchmark.json). Scope: one local Node 24
-process; hosted instances are separate bounds.
+process; hosted instances are separate bounds. The exact numbers vary by host load; the order of
+magnitude and the event-loop blocking are stable.
 
 Controls preserved or added:
 
@@ -94,14 +112,23 @@ Controls preserved or added:
 - The previously repaired Eve session takeover, bodyless cancellation, session streaming and
   worker-recovery paths pass again through Next/Eve/Workerd/Python.
 
+**Limits.** The browser's HTTP Basic credential cache is outside server control: clearing the
+session cookie does not necessarily clear credentials the browser already cached for the origin.
+A shared browser must use a private window and close it; a form-based login would be required to
+remove this residual. Failed-attempt counters are per process, so a multi-instance deployment
+multiplies the bound. Neither limit changes the server-side session, ownership or Origin checks.
+
 ## 4. Dense retrieval qualification
 
 **Status: `QUALIFIED` for the pinned local CPU projection.** Receipt:
 [receipt.json](res638-dense-qualification/receipt.json).
 
-A **new isolated Qdrant 1.20.0 instance** was started on `127.0.0.1:16335` with a new volume. The
-target was refused unless empty; no retained Qdrant collection, alias, snapshot or receipt was
-read. The licensed 75-passage corpus was read from the branch's fresh canonical database.
+A **new isolated Qdrant 1.20.0 instance** was started on `127.0.0.1:16336` with an ephemeral
+volume at final head `8220b1e`. The target was refused unless empty; no retained Qdrant
+collection, alias, snapshot or receipt was read. The licensed 75-passage corpus was read from the
+branch's fresh canonical database. A second independent run on a separate fresh instance produced
+the same collection identity, fingerprints, 75 points and 512-dimensional normalized vectors as
+the first run, so the projection is reproducible from the pinned artifacts.
 
 | Check | Observed |
 | --- | --- |
@@ -127,15 +154,21 @@ paid inference. The local CPU projection is evidence of compatibility, not capac
 
 | Check | Result |
 | --- | --- |
-| Python unit suite | **2,837 passed**, 309 deselected, 121 s |
-| PostgreSQL/OpenSearch integration | **306 passed**, 2,836 deselected, 349 s |
+| Python unit suite | **2,846 passed**, 309 deselected, 120 s |
+| PostgreSQL/OpenSearch integration | **306 passed**, 2,848 deselected, 465 s |
 | Ruff lint/format | Passed on `src`, `tests`, `scripts` |
 | Strict Pyright | 0 errors, 0 warnings |
 | TypeScript tests | **16 passed** (auth, sessions, SSE, dispatch, highlighting) |
-| Next route generation + TypeScript | Passed |
-| Synthetic browser E2E | **6 passed**, 52.8 s through Next/Eve/Workerd/Python |
-| Licensed-corpus browser E2E | **4 passed**, 27.4 s (question/isolation, mobile, comparison, Kepler abstention) |
+| Next route generation + TypeScript + production build | Passed |
+| Edge-gateway tests + Wrangler dry-run bundle | **6 passed**; bundle passed |
+| Synthetic browser E2E | **6 passed**, 35.9 s through Next/Eve/Workerd/Python |
+| Licensed-corpus browser E2E | **5 passed**, 24.0 s (question/isolation, mobile, comparison, Kepler abstention, cancellation) |
 | Exact-head GitHub Actions | Tracked on draft PR #35; local results are not a substitute |
+
+The licensed browser suite intentionally excludes the synthetic-only worker-failure fault-marker
+scenario; that path is covered by the six synthetic scenarios. One earlier licensed run hit a
+transient Eve "session is no longer active" after a dev-server restart and a cross-paper test
+timeout; a clean rerun passed 5/5. The exact-head CI run is the authoritative result.
 
 The integration rerun used the documented 1 s lease / 3 s expiry harness for the formerly flaky
 attempt-budget contract. One earlier run failed that single assertion under full-suite load; the
@@ -155,6 +188,22 @@ defects:
 The reviewer's residual risks (first-occurrence verifier selection, Basic credentials surviving
 sign-out in the browser, thin calibration, corpus-fitted lexicon, per-instance login lockout)
 are recorded below as limits; they are not counted as passes or as scientific validation.
+
+### Final-head adversarial review at `8220b1e`
+
+A further independent-context review of the repaired gate and graph (separate review session, same
+repository, no edits) found four reachable relevance defects. They are repaired in `8220b1e` with
+new unit and licensed-corpus regressions:
+
+| Finding | Repair | Regression evidence |
+| --- | --- | --- |
+| P1: the inventory/metadata shortcut returned `ANSWERABLE` for an unsupported named entity, e.g. “What is the DOI of the Kepler-22b paper?” | The structural route now requires every named entity and at least one topical qualifier in canonical evidence; metadata-only facets (`doi`, `section title`, …) are excluded from passage coverage | New unit positives/negatives; the 14-case licensed receipt abstains with `unsupported_entity` |
+| P1: a possessive follow-up (“What was its sample size?”) ignored the prior study and answered from a different paper | Word-boundary reference detection for possessives/demonstratives; the follow-up is scoped to the prior active document. If a prior turn abstained, the reference has no antecedent and abstains `unresolved_coreference_reference` | New graph regression; the licensed receipt cites only the turn-1 document and shows the unresolved case abstaining |
+| P2: an unscoped generic question (“What is the sample size?”) chose the top-ranked study | A factual question whose only salient terms are measurement nouns abstains `ambiguous_question` when candidates span several documents; a thread-scoped follow-up with one document remains answerable | Unit tests for both branches; licensed 14-case receipt |
+| P2: a value question accepted a qualitative sentence (“a relatively small sample size”) as its answer | A factual question matching the value pattern now requires at least one admissible quotation containing a digit; otherwise it abstains `insufficient_numeric_evidence` | New unit test and licensed numeric negative |
+
+The review also re-ran the preserved Kepler failure and confirmed the original receipt is not
+edited. The remaining limits below are unchanged.
 
 ## 7. Remaining blockers (not scientific-gate failures)
 
