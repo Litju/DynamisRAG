@@ -166,6 +166,29 @@ _META_FACETS: Final[frozenset[str]] = frozenset(
     }
 )
 
+# Inventory/metadata questions are answered from document identity and section
+# structure rather than a finding sentence, so these facets are deliberately not
+# required to appear in a passage. Named entities and topical qualifiers still
+# are: "DOI of the Kepler-22b paper" must not pass merely because the corpus has
+# some paper with a DOI.
+_METADATA_ROUTE_TERMS: Final[frozenset[str]] = frozenset(
+    {
+        "author",
+        "authors",
+        "doi",
+        "identifier",
+        "identifiers",
+        "journal",
+        "metadata",
+        "pmcid",
+        "pmid",
+        "section",
+        "sections",
+        "title",
+        "titles",
+    }
+)
+
 _QUESTION_WORDS: Final[frozenset[str]] = frozenset(
     {
         "a",
@@ -308,9 +331,11 @@ _METADATA: Final = re.compile(
     re.IGNORECASE,
 )
 _SINGLE_VALUE: Final = re.compile(
-    r"\b(?:how\s+(?:many|much|long|far|fast|often)|what\s+(?:is|was|were)\s+the\s+"
+    r"\b(?:how\s+(?:many|much|long|far|fast|often)|what\s+(?:is|was|were)\s+"
+    r"(?:the|its|their|this|that)\s+"
     r"(?:value|number|rate|period|duration|interval|angle|height|force|stiffness|"
-    r"percentage|percent|ratio|frequency|volume|load|distance|time))\b",
+    r"percentage|percent|ratio|frequency|volume|load|distance|time|sample\s+size|"
+    r"sample\s+count))\b",
     re.IGNORECASE,
 )
 
@@ -457,6 +482,16 @@ def _stem(token: str) -> str:  # noqa: PLR0911 - suffix ladder is explicit
 
 
 _META_STEMS: Final[frozenset[str]] = frozenset(_stem(term) for term in _META_FACETS)
+_METADATA_ROUTE_STEMS: Final[frozenset[str]] = frozenset(
+    _stem(term) for term in _METADATA_ROUTE_TERMS
+)
+# Measurement nouns carry content for retrieval ("sample size" must reach the
+# methods passage) but do not identify *which* study is meant. They are used
+# only by the ambiguity check, not to down-weight the query.
+_GENERIC_MEASUREMENT_TERMS: Final[frozenset[str]] = frozenset({"number", "sample", "size", "value"})
+_GENERIC_MEASUREMENT_STEMS: Final[frozenset[str]] = frozenset(
+    _stem(term) for term in _GENERIC_MEASUREMENT_TERMS
+)
 _GENERIC_STEMS: Final[frozenset[str]] = frozenset(_stem(term) for term in _GENERIC_QUERY_TERMS)
 _UP_WORDS: Final[frozenset[str]] = frozenset(
     {
@@ -713,6 +748,89 @@ def _assess_candidate(profile: QueryProfile, candidate: EvidenceCandidate) -> Ca
     )
 
 
+def _candidate_has_any(candidate: EvidenceCandidate, terms: Sequence[str]) -> bool:
+    surface = _candidate_terms(candidate)
+    joined = {term.replace("_", "") for term in surface}
+    return any(term in surface or term.replace("_", "") in joined for term in terms)
+
+
+def _structural_topic_terms(profile: QueryProfile) -> tuple[str, ...]:
+    """Topical qualifiers that structure/metadata evidence must still support.
+
+    Metadata terms such as ``doi`` or ``section title`` live in document identity,
+    not necessarily in passage text, so they are excluded here. Generic query
+    words carry no topical content. Everything else is a real qualifier.
+    """
+    return tuple(
+        term
+        for term, weight in zip(profile.facets, profile.facet_weights, strict=True)
+        if weight >= 1.0 and term not in _GENERIC_STEMS and term not in _METADATA_ROUTE_STEMS
+    )
+
+
+def _structural_route_indexes(
+    profile: QueryProfile, assessments: Sequence[CandidateAssessment]
+) -> tuple[tuple[int, ...], str | None]:
+    """Validate inventory/metadata evidence against entities and topical qualifiers.
+
+    Returns the accepted indexes plus an abstention code, or ``None`` when the
+    structural route is supported. This is a *relevance* check over canonical
+    candidates, not entailment: the metadata tool still reads identity fields.
+    """
+    canonical = tuple(
+        index
+        for index, assessment in enumerate(assessments)
+        if assessment.candidate.canonical_verified
+    )
+    if not canonical:
+        return (), "source_not_canonical"
+    supported = tuple(index for index in canonical if not assessments[index].missing_entities)
+    if profile.entities and not supported:
+        return (), "unsupported_entity"
+    topics = _structural_topic_terms(profile)
+    if topics:
+        topical = tuple(
+            index for index in supported if _candidate_has_any(assessments[index].candidate, topics)
+        )
+        if not topical:
+            return (), "insufficient_query_coverage"
+        return topical, None
+    return supported, None
+
+
+def _structural_route_decision(
+    *,
+    profile: QueryProfile,
+    assessments: Sequence[CandidateAssessment],
+    claims: bool = False,
+) -> AnswerabilityDecision | None:
+    indexes, code = _structural_route_indexes(profile, assessments)
+    if code is not None:
+        return _decision(
+            profile=profile,
+            verdict="ABSTAIN",
+            code=code,
+            detail=(
+                "Inventory/metadata evidence does not support the question's named "
+                "entities or topical qualifier."
+            ),
+            assessments=assessments,
+        )
+    accepted = tuple(assessments[index] for index in indexes)
+    return _decision(
+        profile=profile,
+        verdict="ANSWERABLE",
+        code="inventory_or_metadata_route",
+        detail=(
+            "A corpus inventory/metadata question does not synthesize a finding claim; "
+            "accepted evidence still covers its named entities and topical qualifier."
+        ),
+        assessments=assessments,
+        accepted=accepted,
+        accepted_claim_indexes=indexes if claims else (),
+    )
+
+
 def _salient_terms(profile: QueryProfile) -> tuple[str, ...]:
     return tuple(
         term
@@ -795,22 +913,39 @@ def assess_retrieval(  # noqa: PLR0911, PLR0912 - explicit fail-closed branches
             assessments=assessments,
         )
     if profile.kind in {"inventory", "metadata"}:
-        canonical = tuple(a for a in assessments if a.candidate.canonical_verified)
-        if canonical:
-            return _decision(
-                profile=profile,
-                verdict="ANSWERABLE",
-                code="inventory_or_metadata_route",
-                detail="A corpus inventory/metadata question does not synthesize a finding claim.",
-                assessments=assessments,
-                accepted=canonical,
-            )
+        structural = _structural_route_decision(profile=profile, assessments=assessments)
+        if structural is not None:
+            return structural
     if not profile.facets and not profile.entities:
         return _decision(
             profile=profile,
             verdict="ABSTAIN",
             code="ambiguous_question",
             detail="The question has no checkable entities or content facets.",
+            assessments=assessments,
+        )
+    if (
+        profile.kind == "factual"
+        and not profile.entities
+        and not (set(_salient_terms(profile)) - _GENERIC_MEASUREMENT_STEMS)
+        and len(
+            {
+                a.candidate.document_version_key
+                for a in assessments
+                if a.candidate.canonical_verified
+            }
+        )
+        > 1
+    ):
+        # "What is the sample size?" has no study reference. A scoped follow-up
+        # supplies one through its single active document; an unscoped question
+        # that spans several studies does not, and choosing the top-ranked one
+        # would silently change the subject.
+        return _decision(
+            profile=profile,
+            verdict="ABSTAIN",
+            code="ambiguous_question",
+            detail="The question does not identify which study it asks about.",
             assessments=assessments,
         )
     if profile.kind == "comparison":
@@ -946,7 +1081,7 @@ def _claim_candidate(claim: ClaimEvidence) -> EvidenceCandidate:
     )
 
 
-def assess_claims(  # noqa: PLR0911 - explicit fail-closed branches
+def assess_claims(  # noqa: PLR0911, PLR0912 - explicit fail-closed branches
     question: str,
     claims: Sequence[ClaimEvidence],
     *,
@@ -976,20 +1111,37 @@ def assess_claims(  # noqa: PLR0911 - explicit fail-closed branches
         index for index, assessment in enumerate(assessments) if assessment.admissible
     )
     if profile.kind in {"inventory", "metadata"}:
-        canonical = tuple(a for a in assessments if a.candidate.canonical_verified)
-        if canonical:
+        structural = _structural_route_decision(
+            profile=profile, assessments=assessments, claims=True
+        )
+        if structural is not None:
+            return structural
+    if (
+        profile.kind == "factual"
+        and not profile.entities
+        and not (set(_salient_terms(profile)) - _GENERIC_MEASUREMENT_STEMS)
+        and _documents(assessments) > 1
+    ):
+        return _decision(
+            profile=profile,
+            verdict="ABSTAIN",
+            code="ambiguous_question",
+            detail="The verified quotations span several studies without a study reference.",
+            assessments=assessments,
+        )
+    if profile.kind == "factual" and _SINGLE_VALUE.search(profile.question):
+        numeric = tuple(
+            index
+            for index in admissible_indexes
+            if re.search(r"\d", assessments[index].candidate.text)
+        )
+        if not numeric:
             return _decision(
                 profile=profile,
-                verdict="ANSWERABLE",
-                code="inventory_or_metadata_route",
-                detail="A corpus inventory/metadata question does not synthesize a finding claim.",
+                verdict="ABSTAIN",
+                code="insufficient_numeric_evidence",
+                detail=("The question asks for a value, but no admissible quotation contains one."),
                 assessments=assessments,
-                accepted=canonical,
-                accepted_claim_indexes=tuple(
-                    index
-                    for index, assessment in enumerate(assessments)
-                    if assessment.candidate.canonical_verified
-                ),
             )
     if profile.kind == "comparison":
         salient = _salient_terms(profile)

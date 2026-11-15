@@ -164,9 +164,53 @@ def _case_specs() -> tuple[dict[str, object], ...]:
             ),
         },
         {
+            "case_id": "positive_multi_turn_pronoun",
+            "expect": {
+                "status": "completed",
+                "min_citations": 1,
+                "same_version_as_previous_turn": True,
+            },
+            "turns": (
+                "What did the depth jumping study find about Achilles tendon stiffness?",
+                "How many participants were in its training group?",
+            ),
+        },
+        {
+            "case_id": "negative_numeric_unverifiable",
+            "expect": {
+                "status": "abstained",
+                "abstention_contains": "insufficient_numeric_evidence",
+            },
+            "turns": (
+                "What did the depth jumping study find about Achilles tendon stiffness?",
+                "What was its sample size?",
+            ),
+        },
+        {
+            "case_id": "negative_unresolved_reference",
+            "expect": {
+                "status": "abstained",
+                "abstention_contains": "unresolved_coreference_reference",
+            },
+            "turns": (
+                "What did the depth jumping study find about jump height?",
+                "What was its sample size?",
+            ),
+        },
+        {
+            "case_id": "negative_ambiguous_generic",
+            "expect": {"status": "abstained", "abstention_contains": "ambiguous_question"},
+            "turns": ("What is the sample size?",),
+        },
+        {
             "case_id": "negative_off_domain_kepler",
             "expect": {"status": "abstained", "abstention_contains": "unsupported_entity"},
             "turns": ("What is the orbital period of the exoplanet Kepler-22b?",),
+        },
+        {
+            "case_id": "negative_metadata_unsupported_entity",
+            "expect": {"status": "abstained", "abstention_contains": "unsupported_entity"},
+            "turns": ("What is the DOI of the Kepler-22b paper?",),
         },
         {
             "case_id": "negative_off_domain_proxima",

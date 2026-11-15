@@ -336,6 +336,39 @@ def test_multi_turn_followup_stays_with_the_prior_study(
     assert cited_versions == prior_versions
 
 
+def test_pronoun_followup_without_an_antecedent_abstains_instead_of_changing_study(
+    graph_engine_and_studies: tuple[
+        Engine, dict[str, tuple[str, tuple[str, ...], tuple[str, ...]]]
+    ],
+) -> None:
+    engine, _ = graph_engine_and_studies
+    registry = ScientificToolRegistry(engine)
+    store = InMemoryAgentConversationStore()
+    runtime = build_agent_model_runtime(AgentModelConfig(provider=AgentProviderKind.DETERMINISTIC))
+    orchestrator = ConversationalResearchOrchestrator(
+        tool_registry=registry,
+        store=store,
+        model_runtime=runtime,
+    )
+    thread = store.create_thread(owner_id="unresolved", title="Unresolved pronoun")
+    first = orchestrator.execute_run(
+        thread_id=thread.thread_id,
+        user_id="unresolved",
+        question="What did the Kepler-22b study report about orbital period?",
+        idempotency_key="unresolved-first",
+    )
+    assert first.status == RunStatus.ABSTAINED
+    follow_up = orchestrator.execute_run(
+        thread_id=thread.thread_id,
+        user_id="unresolved",
+        question="What was its sample size?",
+        idempotency_key="unresolved-second",
+    )
+    assert follow_up.status == RunStatus.ABSTAINED
+    assert follow_up.abstention_reason == "unresolved_coreference_reference"
+    assert follow_up.verified_citations == ()
+
+
 def test_abstention_on_out_of_corpus_and_prompt_injection(
     graph_engine_and_studies: tuple[
         Engine, dict[str, tuple[str, tuple[str, ...], tuple[str, ...]]]

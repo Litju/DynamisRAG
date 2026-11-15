@@ -264,6 +264,32 @@ _COMPARISON_KEYWORDS = (
     "across the studies",
 )
 
+# Possessives and demonstratives are references too. Bare "it" and "they" are
+# deliberately absent: they are common dummy subjects ("Is it true that ...")
+# and would over-scope a fresh question. Word boundaries matter here; substring
+# matching on "its" would match "limits".
+_REFERENCE_PRONOUNS = (
+    "its",
+    "their",
+    "theirs",
+    "them",
+    "they",
+    "these",
+    "those",
+    "the former",
+    "the latter",
+)
+_REFERENCE_PATTERN = re.compile(
+    r"\b(?:"
+    + "|".join(re.escape(token) for token in (*_COREFERENCE_TOKENS, *_REFERENCE_PRONOUNS))
+    + r")\b",
+    re.IGNORECASE,
+)
+
+
+def _has_coreference(text: str) -> bool:
+    return _REFERENCE_PATTERN.search(text) is not None
+
 
 class ConversationalResearchOrchestrator:
     """Builds and executes the 10-node LangGraph scientific research agent."""
@@ -737,7 +763,26 @@ class ConversationalResearchOrchestrator:
 
         thread = self._store.get_thread(thread_id, user_id=user_id)
         lower_q = question.lower()
-        has_coref = any(tok in lower_q for tok in _COREFERENCE_TOKENS)
+        has_coref = _has_coreference(question)
+        if has_coref and not thread.active_version_keys and thread.messages:
+            # A pronoun/demonstrative after a prior turn has no antecedent in the
+            # thread's verified evidence. Answering from another authorized study
+            # would silently change the subject; fail closed instead.
+            return {
+                "context_resolution_source": "unresolved_reference",
+                "resolved_question": question[:500],
+                "scoped_version_keys": [],
+                "allowed_version_keys": list(thread.allowed_version_keys),
+                "active_passage_keys": list(thread.active_passage_keys),
+                "prior_active_version_keys": [],
+                "conversation_summary": thread.conversation_summary,
+                "recent_turns": [
+                    {"role": m.role, "content": m.content} for m in thread.messages[-4:]
+                ],
+                "abstained": True,
+                "abstention_reason": "unresolved_coreference_reference",
+                "final_status": RunStatus.ABSTAINED.value,
+            }
 
         is_comparison = any(keyword in lower_q for keyword in _COMPARISON_KEYWORDS)
         if is_comparison:

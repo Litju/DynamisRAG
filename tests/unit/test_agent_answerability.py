@@ -358,6 +358,133 @@ def test_retrieval_never_upgrades_noncanonical_evidence() -> None:
     assert decision.code == "source_not_canonical"
 
 
+_DEPTH_JUMPING = EvidenceCandidate(
+    passage_key="c" * 64,
+    document_version_key="d" * 64,
+    title="Plyometric Training Favors Optimizing Muscle-Tendon Behavior during Depth Jumping",
+    section_title="Methods",
+    text="Participants completed 12 weeks of depth jumping training.",
+)
+
+
+def test_metadata_route_rejects_an_unsupported_entity() -> None:
+    decision = assess_retrieval("What is the DOI of the Kepler-22b paper?", (_DEPTH_JUMPING,))
+    assert decision.verdict == "ABSTAIN"
+    assert decision.code == "unsupported_entity"
+
+
+def test_metadata_route_accepts_a_supported_study_qualifier() -> None:
+    decision = assess_retrieval("What is the DOI of the depth jumping study?", (_DEPTH_JUMPING,))
+    assert decision.verdict == "ANSWERABLE"
+    assert decision.code == "inventory_or_metadata_route"
+    assert decision.accepted_passage_keys == (_DEPTH_JUMPING.passage_key,)
+
+
+def test_inventory_route_rejects_an_absent_topical_qualifier() -> None:
+    decision = assess_retrieval(
+        "Which papers are available about exoplanet atmospheres?", (_DEPTH_JUMPING,)
+    )
+    assert decision.verdict == "ABSTAIN"
+    assert decision.code == "insufficient_query_coverage"
+
+
+def test_inventory_route_accepts_a_plain_corpus_inventory() -> None:
+    decision = assess_retrieval("Which papers are available?", (_DEPTH_JUMPING,))
+    assert decision.verdict == "ANSWERABLE"
+    assert decision.code == "inventory_or_metadata_route"
+
+
+def test_claim_metadata_route_rejects_an_unsupported_entity_and_topical_qualifier() -> None:
+    unsupported_entity = assess_claims(
+        "What is the DOI of the Kepler-22b paper?",
+        (
+            ClaimEvidence(
+                passage_key="e" * 64,
+                document_version_key="f" * 64,
+                document_title="Plyometric Training during Depth Jumping",
+                claim_text="The study reported a DOI.",
+                verbatim_quote="The study was registered with a DOI.",
+            ),
+        ),
+    )
+    assert unsupported_entity.verdict == "ABSTAIN"
+    assert unsupported_entity.code == "unsupported_entity"
+    unsupported_topic = assess_claims(
+        "What are the section titles of the exoplanet transit study?",
+        (
+            ClaimEvidence(
+                passage_key="e" * 64,
+                document_version_key="f" * 64,
+                document_title="Plyometric Training during Depth Jumping",
+                claim_text="The methods section is described.",
+                verbatim_quote="The methods section describes the protocol.",
+            ),
+        ),
+    )
+    assert unsupported_topic.verdict == "ABSTAIN"
+    assert unsupported_topic.code == "insufficient_query_coverage"
+
+
+def test_unscoped_generic_question_abstains_when_multiple_documents_match() -> None:
+    candidate = EvidenceCandidate(
+        passage_key="1" * 64,
+        document_version_key="2" * 64,
+        title="Plyometric Training during Depth Jumping",
+        text="The sample size was 21 participants.",
+    )
+    other = EvidenceCandidate(
+        passage_key="3" * 64,
+        document_version_key="4" * 64,
+        title="Complex Training in Cricketers",
+        text="The sample size was 37 participants.",
+    )
+    decision = assess_retrieval("What is the sample size?", (candidate, other))
+    assert decision.verdict == "ABSTAIN"
+    assert decision.code == "ambiguous_question"
+
+
+def test_scoped_generic_question_answers_from_its_single_document() -> None:
+    candidate = EvidenceCandidate(
+        passage_key="1" * 64,
+        document_version_key="2" * 64,
+        title="Plyometric Training during Depth Jumping",
+        text="The sample size was 21 participants.",
+    )
+    decision = assess_retrieval("What is the sample size?", (candidate,))
+    assert decision.verdict == "ANSWERABLE"
+
+
+def test_numeric_question_rejects_a_qualitative_quote_and_accepts_a_number() -> None:
+    qualitative = assess_claims(
+        "What was its sample size?",
+        (
+            ClaimEvidence(
+                passage_key="1" * 64,
+                document_version_key="2" * 64,
+                document_title="Plyometric Training during Depth Jumping",
+                claim_text="The study had a relatively small sample size.",
+                verbatim_quote="This study was conducted with a relatively small sample size.",
+            ),
+        ),
+    )
+    assert qualitative.verdict == "ABSTAIN"
+    assert qualitative.code == "insufficient_numeric_evidence"
+    numeric = assess_claims(
+        "What was its sample size?",
+        (
+            ClaimEvidence(
+                passage_key="1" * 64,
+                document_version_key="2" * 64,
+                document_title="Plyometric Training during Depth Jumping",
+                claim_text="The sample size was 21.",
+                verbatim_quote="The sample size was 21 participants.",
+            ),
+        ),
+    )
+    assert numeric.verdict == "ANSWERABLE"
+    assert numeric.accepted_claim_indexes == (0,)
+
+
 def test_payload_is_bounded_and_json_safe() -> None:
     case = _load("calibration.json").retrieval_cases[0]
     decision = assess_retrieval(case.question, _candidates(case))
