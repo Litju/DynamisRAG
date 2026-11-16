@@ -71,7 +71,10 @@ async function handle(
       body = "{}";
     }
     const origin =
-      process.env.EVE_INTERNAL_ORIGIN || new URL(request.url).origin;
+      process.env.EVE_INTERNAL_ORIGIN ||
+      (process.env.NODE_ENV === "production" && !process.env.VERCEL
+        ? `http://127.0.0.1:${process.env.EVE_NEXT_PRODUCTION_PORT || "4274"}`
+        : new URL(request.url).origin);
     const upstreamHeaders = new Headers({
       authorization: `Bearer ${identity(user)}`,
       "content-type": "application/json",

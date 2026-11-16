@@ -1,5 +1,7 @@
 import { test, expect } from "@playwright/test";
 
+const testOrigin = process.env.WORKSPACE_TEST_URL || "http://127.0.0.1:3018";
+
 test("authenticated Eve conversation executes the Python graph and denies a second user", async ({
   page,
   browser,
@@ -63,39 +65,39 @@ test("authenticated Eve conversation executes the Python graph and denies a seco
   });
   for (const ref of [current.external_ref.slice(4), current.external_ref]) {
     const claim = await bob.request.post(
-      "http://127.0.0.1:3018/api/research/threads",
+      `${testOrigin}/api/research/threads`,
       {
         data: { external_ref: ref },
-        headers: { origin: "http://127.0.0.1:3018" },
+        headers: { origin: testOrigin },
       },
     );
     expect(claim.status()).toBe(400);
   }
   const denied = await bob.request.get(
-    `http://127.0.0.1:3018/api/conversation/eve/v1/session/${current.external_ref.slice(4)}/stream`,
+    `${testOrigin}/api/conversation/eve/v1/session/${current.external_ref.slice(4)}/stream`,
   );
   expect(denied.status()).toBe(403);
   expect(
     (
       await bob.request.post(
-        `http://127.0.0.1:3018/api/conversation/eve/v1/session/${current.external_ref.slice(4)}/cancel`,
-        { headers: { origin: "http://127.0.0.1:3018" } },
+        `${testOrigin}/api/conversation/eve/v1/session/${current.external_ref.slice(4)}/cancel`,
+        { headers: { origin: testOrigin } },
       )
     ).status(),
   ).toBe(403);
   expect(
     (
       await bob.request.post(
-        `http://127.0.0.1:3018/api/conversation/eve/v1/session/${current.external_ref.slice(4)}`,
+        `${testOrigin}/api/conversation/eve/v1/session/${current.external_ref.slice(4)}`,
         {
           data: { message: "forged follow-up" },
-          headers: { origin: "http://127.0.0.1:3018" },
+          headers: { origin: testOrigin },
         },
       )
     ).status(),
   ).toBe(403);
   const deniedThread = await bob.request.get(
-    `http://127.0.0.1:3018/api/research/threads/${current.thread_id}`,
+    `${testOrigin}/api/research/threads/${current.thread_id}`,
   );
   expect(deniedThread.status()).toBe(403);
   await bob.close();
@@ -131,7 +133,7 @@ test("mobile workspace fits and rejects unauthenticated API requests", async ({
   });
   expect(
     (
-      await anonymous.get("http://127.0.0.1:3018/api/research/threads")
+      await anonymous.get(`${testOrigin}/api/research/threads`)
     ).status(),
   ).toBe(401);
   await anonymous.dispose();
@@ -186,6 +188,8 @@ test("document selection is immutable and unsupported questions abstain", async 
 test("cancellation reaches the Python run and the conversation accepts a follow-up", async ({
   page,
 }) => {
+  test.skip(!!process.env.WORKSPACE_LICENSED_CORPUS,
+    "The slow marker belongs to the synthetic backend; licensed cancellation requires a queued run.");
   await page.goto("/");
   await page.getByRole("button", { name: "Start a research thread" }).click();
   await expect(page.getByLabel("Ask a research question")).toBeVisible({

@@ -64,3 +64,32 @@ test("Vercel preview cookies reach only the same-origin Eve service", async (t) 
   assert.equal(seen.length, 1); // Ownership lookup only; no Eve turn or external callback.
   delete process.env.EVE_INTERNAL_ORIGIN;
 });
+
+test("self-hosted production reaches Eve on loopback without forwarding browser cookies", async (t) => {
+  const previous = { ...process.env };
+  t.after(() => { process.env = previous; });
+  Object.assign(process.env, { NODE_ENV: "production" });
+  delete process.env.VERCEL;
+  delete process.env.EVE_INTERNAL_ORIGIN;
+  process.env.EVE_NEXT_PRODUCTION_PORT = "4274";
+  process.env.DYNAMISRAG_AGENT_IDENTITY_SECRET = "preview-test-secret-0123456789abcdef";
+  process.env.WORKSPACE_ACCOUNTS = JSON.stringify({
+    alice: `salt:${scryptSync("password", "salt", 64).toString("hex")}`,
+  });
+  const seen: Array<{ origin: string; cookie: string | null }> = [];
+  t.mock.method(globalThis, "fetch", async (input: URL, init: RequestInit) => {
+    seen.push({ origin: input.origin, cookie: new Headers(init.headers).get("cookie") });
+    return new Response(null, { status: 503 });
+  });
+  const response = await POST(new Request("https://preview.example/api/conversation/eve/v1/session", {
+    method: "POST",
+    body: "{}",
+    headers: {
+      authorization: `Basic ${Buffer.from("alice:password").toString("base64")}`,
+      cookie: "dynamis_session=private",
+      origin: "https://preview.example",
+    },
+  }), { params: Promise.resolve({ path: ["eve", "v1", "session"] }) });
+  assert.equal(response.status, 503);
+  assert.deepEqual(seen, [{ origin: "http://127.0.0.1:4274", cookie: null }]);
+});
