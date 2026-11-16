@@ -363,7 +363,10 @@ def run_model_tool_loop(  # noqa: PLR0912, PLR0915
             if result.get("ok") and isinstance(payload, dict):
                 pl = cast("dict[str, Any]", payload)
                 if verdict.name in _RETRIEVAL_TOOLS:
-                    hits.extend(cast("list[dict[str, Any]]", pl.get("hits", [])))
+                    hits.extend(
+                        {**h, "retrieval_mode": pl.get("retrieval_mode")}
+                        for h in cast("list[dict[str, Any]]", pl.get("hits", []))
+                    )
                 elif verdict.name == ToolName.COMPARE_STUDIES.value and isinstance(
                     pl.get("comparison"), dict
                 ):
@@ -412,5 +415,9 @@ def run_model_tool_loop(  # noqa: PLR0912, PLR0915
         outcome.tool_calls_used += 1
         _record(outcome.origin_counts, ToolOrigin.GRAPH_FALLBACK)
         if env.ok and env.payload is not None:
-            hits.extend(cast("list[dict[str, Any]]", env.payload.get("hits", [])))
+            mode = env.payload.get("retrieval_mode")
+            hits.extend(
+                {**h, "retrieval_mode": mode}
+                for h in cast("list[dict[str, Any]]", env.payload.get("hits", []))
+            )
     return outcome

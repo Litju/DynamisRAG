@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from contextlib import ExitStack
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from sqlalchemy.engine import Engine
 
@@ -42,12 +43,17 @@ from dynamisrag.search.retrieval import (
     QueryEmbeddingService,
     create_query_embedding_provider,
 )
-from dynamisrag.search.scientific import ScientificRetrievalService
+from dynamisrag.search.scientific import CHUNKER, ScientificRetrievalService
+
+if TYPE_CHECKING:
+    from dynamisrag.corpus.research import LiteratureAcquisition
 
 __all__ = [
     "AgentRuntime",
     "build_agent_services",
     "build_model_runtime",
+    "build_research_acquisition",
+    "build_research_retrieval",
     "build_standalone_agent_runtime",
     "model_config_from_settings",
     "tracing_policy_from_settings",
@@ -132,6 +138,84 @@ def tracing_policy_from_settings(settings: Settings) -> TracingPolicy:
     )
 
 
+def build_research_retrieval(settings: Settings, engine: Engine) -> ScientificRetrievalService:
+    """Dense retrieval that follows the research workspace's published Qdrant alias."""
+    from dynamisrag.search.qdrant import QdrantClient
+    from dynamisrag.search.research_projection import ResearchCorpusRetrieval
+
+    return ResearchCorpusRetrieval(
+        engine,
+        qdrant=QdrantClient(
+            str(settings.research_qdrant_url).rstrip("/"),
+            api_key=settings.research_qdrant_api_key.get_secret_value()
+            if settings.research_qdrant_api_key
+            else None,
+        ),
+        tei_url=str(settings.research_tei_url),
+        alias=settings.research_qdrant_alias,
+        store_root=settings.research_store_directory,
+        chunker_revision=CHUNKER,
+    )
+
+
+def build_research_acquisition(settings: Settings) -> tuple[LiteratureAcquisition, Engine]:
+    """The single canonical writer: owner engine, pinned document TEI, versioned Qdrant."""
+    from sqlalchemy import create_engine
+
+    from dynamisrag.config import to_sqlalchemy_url
+    from dynamisrag.corpus.research import AcquisitionLimits, LiteratureAcquisition
+    from dynamisrag.embedding import (
+        EmbeddingRetryPolicy,
+        EmbeddingRuntimeConfig,
+        ExpectedTeiModel,
+        TeiEmbeddingProvider,
+    )
+    from dynamisrag.embedding.scientific_cpu import (
+        DOCUMENT_CONFIG,
+        MODEL_ID,
+        MODEL_REVISION,
+        CpuDeployment,
+    )
+    from dynamisrag.search.qdrant import QdrantClient
+
+    if settings.research_ingest_database_url is None:
+        raise RuntimeError("research_ingest_database_url is required")
+    ingest_engine = create_engine(
+        to_sqlalchemy_url(settings.research_ingest_database_url), pool_pre_ping=True
+    )
+
+    def document_provider() -> TeiEmbeddingProvider:
+        return TeiEmbeddingProvider(
+            base_url=str(settings.research_tei_url).rstrip("/"),
+            expected_model=ExpectedTeiModel(MODEL_ID, MODEL_REVISION),
+            deployment_semantics=CpuDeployment(),
+            generation_config=DOCUMENT_CONFIG,
+            runtime_config=EmbeddingRuntimeConfig(
+                batch_size=1, timeout_seconds=180, retry=EmbeddingRetryPolicy(max_attempts=2)
+            ),
+            verify_tls=False,
+        )
+
+    acquisition = LiteratureAcquisition(
+        ingest_engine=ingest_engine,
+        store_root=settings.research_store_directory,
+        qdrant=QdrantClient(
+            str(settings.research_qdrant_url).rstrip("/"),
+            api_key=settings.research_qdrant_api_key.get_secret_value()
+            if settings.research_qdrant_api_key
+            else None,
+        ),
+        alias=settings.research_qdrant_alias,
+        document_provider=document_provider,
+        chunker_revision=CHUNKER,
+        limits=AcquisitionLimits(
+            max_papers=settings.research_max_papers,
+            deadline_seconds=settings.research_acquisition_deadline_seconds,
+        ),
+    )
+    return acquisition, ingest_engine
+
+
 def build_agent_services(
     *,
     settings: Settings,
@@ -139,6 +223,7 @@ def build_agent_services(
     scientific: ScientificRetrievalService | None,
     search: Bm25SearchService,
     retrieval: HybridRetrievalService,
+    acquisition: LiteratureAcquisition | None = None,
 ) -> AgentRuntime | None:
     """Build the agent runtime, or ``None`` when the agent is disabled.
 
@@ -170,6 +255,7 @@ def build_agent_services(
         lease_seconds=settings.agent_lease_seconds,
         max_attempts=settings.agent_max_run_attempts,
         tracing=tracing_policy_from_settings(settings),
+        literature_acquisition=acquisition,
     )
     pool = (
         AgentWorkerPool(orchestrator, size=settings.agent_inline_workers)
@@ -198,14 +284,28 @@ def build_standalone_agent_runtime(settings: Settings) -> AgentRuntime:
     retrieval = HybridRetrievalService(
         client, alias=settings.opensearch_index_alias, query_embedder=embedder
     )
-    scientific = (
-        ScientificRetrievalService(engine, settings) if settings.scientific_qdrant_enabled else None
-    )
+    acquisition: LiteratureAcquisition | None = None
+    if settings.research_acquisition_enabled:
+        scientific: ScientificRetrievalService | None = build_research_retrieval(settings, engine)
+        acquisition, ingest_engine = build_research_acquisition(settings)
+        stack.callback(ingest_engine.dispose)
+        stack.callback(acquisition.qdrant.close)
+    else:
+        scientific = (
+            ScientificRetrievalService(engine, settings)
+            if settings.scientific_qdrant_enabled
+            else None
+        )
     if scientific is not None:
         stack.callback(scientific.close)
         scientific.start()
     runtime = build_agent_services(
-        settings=settings, engine=engine, scientific=scientific, search=search, retrieval=retrieval
+        settings=settings,
+        engine=engine,
+        scientific=scientific,
+        search=search,
+        retrieval=retrieval,
+        acquisition=acquisition,
     )
     if runtime is None:
         stack.close()

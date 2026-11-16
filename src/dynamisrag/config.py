@@ -136,6 +136,26 @@ class Settings(BaseSettings):
     scientific_evidence_directory: Path = _PROJECT_ROOT / "docs/evidence/real-science-v1"
 
     # ------------------------------------------------------------------
+    # Live literature acquisition for the research workspace (RES-638)
+    # ------------------------------------------------------------------
+    research_acquisition_enabled: bool = False
+    """Let a run that finds no relevant evidence search Europe PMC/OpenAlex once, ingest
+    permitted open-access JATS and publish a new versioned Qdrant projection."""
+    research_ingest_database_url: PostgresDsn | None = Field(default=None, repr=False)
+    """Canonical-corpus *owner* role, used only by the acquisition writer. Runtime retrieval keeps
+    the read-only ``database_url``."""
+    research_store_directory: Path = _PROJECT_ROOT / ".dynamisrag/research-workspace"
+    """Exact source bytes and retained embedding manifests of published projections."""
+    research_qdrant_url: AnyHttpUrl = AnyHttpUrl("http://127.0.0.1:6333")
+    research_qdrant_api_key: SecretStr | None = Field(default=None, repr=False)
+    research_qdrant_alias: str = Field(
+        default="dynamisrag-research-workspace", pattern=r"^[a-z0-9][a-z0-9-]{2,62}$"
+    )
+    research_tei_url: AnyHttpUrl = AnyHttpUrl("http://127.0.0.1:8081")
+    research_max_papers: int = Field(default=5, ge=1, le=10)
+    research_acquisition_deadline_seconds: float = Field(default=900.0, ge=30.0, le=3600.0)
+
+    # ------------------------------------------------------------------
     # Conversational Scientific Research Agent (RES-637, /api/v2)
     #
     # Fail-closed by construction: the agent is OFF unless explicitly enabled, and
@@ -230,6 +250,14 @@ class Settings(BaseSettings):
             raise ValueError(
                 "agent_enabled requires DYNAMISRAG_AGENT_IDENTITY_SECRET (or the "
                 "non-production agent_dev_identity_header_enabled)"
+            )
+        if self.research_acquisition_enabled and (
+            self.research_ingest_database_url is None
+            or str(self.research_ingest_database_url) == str(self.agent_database_url)
+        ):
+            raise ValueError(
+                "research_acquisition_enabled requires a separate canonical owner "
+                "research_ingest_database_url"
             )
         if self.agent_provider == "deterministic" and production_like:
             raise ValueError("The deterministic scripted model is refused in staging/production")

@@ -271,3 +271,123 @@ def test_unauthorized_provider_retrieves_and_verifies_but_abstains_without_any_r
     kinds = [e.event_type.value for e in events]
     assert "fallback.applied" in kinds  # canonical retrieval still ran
     assert "evidence.relevance_assessed" in kinds
+
+
+class _SeedingAcquisition:
+    """Stands in for live acquisition: 'ingests' one relevant study into the canonical DB."""
+
+    def __init__(self, engine: Engine) -> None:
+        self.engine = engine
+        self.calls: list[tuple[str, str]] = []
+
+    def acquire(
+        self, question: str, *, context: str = "", should_stop: Any = None, progress: Any = None
+    ) -> dict[str, Any]:
+        from sqlalchemy import text
+        from sqlalchemy.orm import Session
+
+        from tests.unit.test_agent_tools import _seed_study  # pyright: ignore[reportPrivateUsage]
+
+        self.calls.append((question, context))
+        assert should_stop is not None and should_stop() is False
+        with Session(self.engine) as session:
+            # One shared SQLite connection: undo the read-only tool session's pragma (the real
+            # writer uses its own owner engine).
+            session.execute(text("PRAGMA query_only = OFF"))
+            _seed_study(
+                session,
+                pmcid="PMC12608286",
+                doi="10.3390/s25216542",
+                pmid="41228765",
+                title="Validity and reliability of a linear position transducer for velocity",
+                section_title="Results",
+                paragraphs_text=(
+                    "The linear position transducer showed high validity and reliability for "
+                    "measuring mean concentric velocity against the force plate reference in "
+                    "20 athletes.",
+                ),
+            )
+            session.commit()
+        progress("literature.discovered", {"unique_works": 1})
+        progress("literature.ingested", {"ingested": 1})
+        progress("corpus.projected", {"collection": "qdrant-passages-v1-test"})
+        return {
+            "status": "completed",
+            "discovered_records": 2,
+            "unique_works": 1,
+            "works": [{"doi": "10.3390/s25216542", "pmcid": "PMC12608286"}],
+            "ingested": [
+                {
+                    "title": "Validity and reliability of a linear position transducer",
+                    "doi": "10.3390/s25216542",
+                    "pmcid": "PMC12608286",
+                    "pmid": "41228765",
+                    "passages": 1,
+                    "license_uri": "https://creativecommons.org/licenses/by/4.0/",
+                }
+            ],
+            "rejected": [],
+            "projection": {"collection": "qdrant-passages-v1-test", "passage_count": 1},
+        }
+
+
+def test_empty_relevant_corpus_acquires_once_then_retrieves_and_abstains_without_a_model(
+    graph_engine_and_studies: tuple[Engine, Any],  # noqa: F811
+) -> None:
+    from dynamisrag.agent.routing import ProviderBlockedRuntime
+
+    engine, _ = graph_engine_and_studies
+    acquisition = _SeedingAcquisition(engine)
+    store = InMemoryAgentConversationStore()
+    orch = ConversationalResearchOrchestrator(
+        tool_registry=ScientificToolRegistry(engine),
+        store=store,
+        model_runtime=ProviderBlockedRuntime(),
+        literature_acquisition=acquisition,
+    )
+    thread = store.create_thread(owner_id=_USER, title="t")
+    question = (
+        "What is the validity and reliability of a linear position transducer for measuring "
+        "mean concentric velocity?"
+    )
+    run = orch.execute_run(
+        thread_id=thread.thread_id, user_id=_USER, question=question, idempotency_key="acq"
+    )
+    assert len(acquisition.calls) == 1
+    kinds = [e.event_type.value for e in store.list_events(run.run_id, user_id=_USER)]
+    assert kinds.index("literature.discovered") < kinds.index("corpus.projected")
+    assert kinds.count("evidence.relevance_assessed") == 2  # before and after acquisition
+    assert run.status == RunStatus.ABSTAINED
+    assert (run.abstention_reason or "").startswith("provider_authorization_blocked")
+    assert run.telemetry["literature_acquisition"]["ingested"][0]["doi"] == "10.3390/s25216542"
+    evidence = run.telemetry["retrieved_evidence"]
+    assert evidence and evidence[0]["pmcid"] == "PMC12608286"
+    assert "linear position transducer" in (run.answer_markdown or "")
+    assert "no model request was sent" in (run.answer_markdown or "")
+    assert run.telemetry["model_calls"] == 0
+
+
+def test_acquisition_is_never_attempted_in_a_thread_scoped_to_chosen_papers(
+    graph_engine_and_studies: tuple[Engine, Any],  # noqa: F811
+) -> None:
+    from dynamisrag.agent.routing import ProviderBlockedRuntime
+
+    engine, studies = graph_engine_and_studies
+    acquisition = _SeedingAcquisition(engine)
+    store = InMemoryAgentConversationStore()
+    orch = ConversationalResearchOrchestrator(
+        tool_registry=ScientificToolRegistry(engine),
+        store=store,
+        model_runtime=ProviderBlockedRuntime(),
+        literature_acquisition=acquisition,
+    )
+    version_key = studies["PMC10780924"][0]
+    thread = store.create_thread(owner_id=_USER, title="t", allowed_version_keys=(version_key,))
+    run = orch.execute_run(
+        thread_id=thread.thread_id,
+        user_id=_USER,
+        question="What is the orbital period of the exoplanet Kepler-22b?",
+        idempotency_key="scoped",
+    )
+    assert acquisition.calls == []
+    assert run.status == RunStatus.ABSTAINED

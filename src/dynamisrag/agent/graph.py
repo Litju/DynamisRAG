@@ -34,7 +34,7 @@ import logging
 import re
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
-from typing import Annotated, Any, Final, Literal, TypedDict, cast
+from typing import Annotated, Any, Final, Literal, Protocol, TypedDict, cast
 from uuid import uuid4
 
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
@@ -63,6 +63,7 @@ from dynamisrag.agent.contracts import (
     ExpandPassageContextInput,
     ExtractStudyFindingsInput,
     ListPapersInput,
+    ToolName,
     VerifyClaimsInput,
 )
 from dynamisrag.agent.observability import TracingPolicy, redact_trace_string
@@ -225,6 +226,8 @@ class ResearchAgentState(TypedDict, total=False):
     model_ledger: dict[str, Any]
     synthesis_source: str | None
     synthesis_fallback_reason: str | None
+    acquisition_attempted: bool
+    literature_acquisition: dict[str, Any] | None
 
 
 _COREFERENCE_TOKENS = (
@@ -300,6 +303,80 @@ def _has_coreference(text: str) -> bool:
     )
 
 
+def _ident(item: dict[str, Any]) -> str:
+    if item.get("doi"):
+        return f"DOI `{item['doi']}`"
+    if item.get("pmcid"):
+        return f"`{item['pmcid']}`"
+    return f"`{str(item.get('document_version_key', ''))[:12]}`"
+
+
+def retrieved_evidence(hits: Sequence[dict[str, Any]], limit: int = 8) -> list[dict[str, Any]]:
+    """Gate-accepted canonical hits, compact: identity, section and an exact text prefix."""
+    out: list[dict[str, Any]] = []
+    for hit in list(hits)[:limit]:
+        text_value = str(hit.get("text") or "")
+        excerpt = text_value[:280]
+        if len(text_value) > 280:
+            cut = excerpt.rfind(" ")
+            excerpt = excerpt[: cut if cut > 120 else 280]
+        out.append(
+            {
+                "passage_key": hit.get("passage_key"),
+                "document_version_key": hit.get("document_version_key"),
+                "title": str(hit.get("title") or "Canonical study")[:300],
+                "section_title": hit.get("section_title"),
+                "doi": hit.get("doi"),
+                "pmcid": hit.get("pmcid"),
+                "pmid": hit.get("pmid"),
+                "rank": hit.get("rank"),
+                "retrieval_mode": hit.get("retrieval_mode"),
+                "excerpt": excerpt.replace("\n", " "),
+                "canonical_verified": hit.get("canonical_verified") is True,
+            }
+        )
+    return out
+
+
+def _acquisition_markdown(acquisition: dict[str, Any] | None) -> str:
+    if not acquisition:
+        return ""
+    ingested = cast("list[dict[str, Any]]", acquisition.get("ingested") or [])
+    lines = [
+        "#### Literature search (Europe PMC / OpenAlex, open access only)",
+        f"Status `{acquisition.get('status')}` · {acquisition.get('discovered_records', 0)} "
+        f"records → {acquisition.get('unique_works', 0)} unique works (DOI/PMID/PMCID) · "
+        f"{len(ingested)} permitted full texts ingested · "
+        f"{len(acquisition.get('rejected') or [])} rejected · 0 model requests.",
+    ]
+    for paper in ingested:
+        lines.append(
+            f"- {paper.get('title')} — DOI `{paper.get('doi')}`, `{paper.get('pmcid')}`, "
+            f"PMID `{paper.get('pmid')}`, {paper.get('passages')} passages, "
+            f"licence {paper.get('license_uri')}"
+        )
+    projection = cast("dict[str, Any] | None", acquisition.get("projection"))
+    if projection:
+        lines.append(
+            f"- Qdrant collection `{projection.get('collection')}` "
+            f"({projection.get('passage_count')} passages, alias `{projection.get('alias')}`)"
+        )
+    return "\n".join(lines) + "\n"
+
+
+class LiteratureAcquisitionPort(Protocol):
+    """What the graph needs from live literature acquisition (``corpus.research``)."""
+
+    def acquire(
+        self,
+        question: str,
+        *,
+        context: str = "",
+        should_stop: Callable[[], bool] = ...,
+        progress: Callable[[str, dict[str, Any]], None] = ...,
+    ) -> dict[str, Any]: ...
+
+
 class ConversationalResearchOrchestrator:
     """Builds and executes the 10-node LangGraph scientific research agent."""
 
@@ -313,8 +390,10 @@ class ConversationalResearchOrchestrator:
         lease_seconds: float = 30.0,
         max_attempts: int = 3,
         tracing: TracingPolicy | None = None,
+        literature_acquisition: LiteratureAcquisitionPort | None = None,
     ) -> None:
         self._registry = tool_registry
+        self._acquisition = literature_acquisition
         self._store = store
         self._model = model_runtime
         self._run_timeout_seconds = run_timeout_seconds
@@ -362,6 +441,7 @@ class ConversationalResearchOrchestrator:
         builder.add_node("interpret_and_plan", self._guard(self._node_interpret_and_plan))
         builder.add_node("await_confirmation", self._guard(self._node_await_confirmation))
         builder.add_node("model_tool_execution", self._guard(self._node_model_tool_execution))
+        builder.add_node("acquire_external_literature", self._guard(self._node_acquire_literature))
         builder.add_node("inspect_and_expand_evidence", self._guard(self._node_inspect_and_expand))
         builder.add_node("extract_study_findings", self._guard(self._node_extract_findings))
         builder.add_node("compare_studies", self._guard(self._node_compare_studies))
@@ -404,8 +484,17 @@ class ConversationalResearchOrchestrator:
             "model_tool_execution",
             self._route_after_tools,
             {
+                "acquire_external_literature": "acquire_external_literature",
                 "inspect_and_expand_evidence": "inspect_and_expand_evidence",
                 "extract_study_findings": "extract_study_findings",
+                "finalize_durable_response": "finalize_durable_response",
+            },
+        )
+        builder.add_conditional_edges(
+            "acquire_external_literature",
+            self._route_after_acquisition,
+            {
+                "model_tool_execution": "model_tool_execution",
                 "finalize_durable_response": "finalize_durable_response",
             },
         )
@@ -665,6 +754,8 @@ class ConversationalResearchOrchestrator:
         telemetry["autonomous_tool_decisions"] = int(
             origins.get(ToolOrigin.MODEL_DIRECTED.value, 0)
         )
+        telemetry["literature_acquisition"] = values.get("literature_acquisition")
+        telemetry["retrieved_evidence"] = retrieved_evidence(values.get("retrieved_hits") or [])
         abort = values.get("abort_reason")
         if abort == "timeout":
             return RunCompletion(
@@ -1108,6 +1199,130 @@ class ConversationalResearchOrchestrator:
                 "final_status": RunStatus.ABSTAINED.value,
             }
         return update
+
+    def _node_acquire_literature(
+        self, state: ResearchAgentState, config: RunnableConfig
+    ) -> ResearchAgentState:
+        """Discover, rights-check, ingest and project open-access literature, once per run.
+
+        Runs only after the evidence gate found nothing relevant in the whole authorized corpus
+        (never inside a thread scoped to chosen papers). It is a deterministic, bounded tool
+        (``discover_external_literature``): no model chooses the queries, every external request
+        and every rejected work is recorded, and a failure is an explicit abstention, never a
+        silent answer from the old corpus.
+        """
+        run_id = state.get("run_id", "")
+        thread_id = state.get("thread_id", "")
+        if (aborted := self._control_abort(state, config)) is not None:
+            return aborted
+        worker_id = self._worker_id(config)
+        acquisition = self._acquisition
+        assert acquisition is not None  # noqa: S101 - guaranteed by the router
+
+        def _emit(event_type: RunEventType, payload: dict[str, Any]) -> None:
+            self._store.append_event(
+                run_id,
+                worker_id=worker_id,
+                thread_id=thread_id,
+                event_type=event_type,
+                stage="acquire_external_literature",
+                payload=payload,
+            )
+
+        def _should_stop() -> bool:
+            ctl = self._store.run_control(run_id, worker_id=worker_id)
+            if not ctl.lease_held:
+                raise RunLeaseLostError(f"Worker {worker_id} no longer owns the run")
+            return ctl.cancel_requested or ctl.deadline_exceeded
+
+        progress_events = {
+            "literature.discovered": RunEventType.LITERATURE_DISCOVERED,
+            "literature.ingested": RunEventType.LITERATURE_INGESTED,
+            "corpus.projected": RunEventType.CORPUS_PROJECTED,
+        }
+        context = " ".join(
+            str(turn.get("content", ""))
+            for turn in state.get("recent_turns", [])
+            if turn.get("role") == "user"
+        )
+        _emit(
+            RunEventType.TOOL_CALLED,
+            {
+                "tool_name": ToolName.DISCOVER_EXTERNAL_LITERATURE.value,
+                "origin": ToolOrigin.GRAPH_ENFORCED.value,
+                "reason": state.get("abstention_reason"),
+            },
+        )
+        try:
+            receipt = acquisition.acquire(
+                state.get("question", ""),
+                context=context,
+                should_stop=_should_stop,
+                progress=lambda stage, payload: _emit(progress_events[stage], payload),
+            )
+        except RunLeaseLostError:
+            raise
+        except Exception as error:
+            _logger.exception("literature acquisition failed for run %s", run_id)
+            receipt = {"status": "failed", "error_class": type(error).__name__[:80]}
+        status = str(receipt.get("status", "failed"))
+        summary: dict[str, Any] = {
+            "status": status,
+            "query_ladder": receipt.get("query_ladder", []),
+            "search_requests": len(receipt.get("search_requests", [])),
+            "provider_failures": receipt.get("provider_failures", []),
+            "discovered_records": receipt.get("discovered_records", 0),
+            "unique_works": receipt.get("unique_works", 0),
+            "works": receipt.get("works", [])[:20],
+            "ingested": receipt.get("ingested", []),
+            "rejected": receipt.get("rejected", [])[:20],
+            "projection": receipt.get("projection"),
+            "error_class": receipt.get("error_class"),
+            "model_requests": 0,
+        }
+        _emit(
+            RunEventType.TOOL_COMPLETED,
+            {
+                "tool_name": ToolName.DISCOVER_EXTERNAL_LITERATURE.value,
+                "ok": status == "completed",
+                "origin": ToolOrigin.GRAPH_ENFORCED.value,
+                "status": status,
+                "ingested": len(summary["ingested"]),
+            },
+        )
+        origins = self._merge_counts(
+            state.get("tool_origin_counts"), {ToolOrigin.GRAPH_ENFORCED.value: 1}
+        )
+        if status != "completed":
+            return {
+                "acquisition_attempted": True,
+                "literature_acquisition": summary,
+                "tool_origin_counts": origins,
+                "abstention_reason": (
+                    f"{state.get('abstention_reason')}; literature_acquisition:{status}"
+                ),
+            }
+        refresh = getattr(self._registry.scientific_retrieval, "refresh", None)
+        if callable(refresh):
+            refresh()
+        return {
+            "acquisition_attempted": True,
+            "literature_acquisition": summary,
+            "tool_origin_counts": origins,
+            "abstained": False,
+            "abstention_reason": None,
+            "final_status": "",
+            "retrieved_hits": [],
+            "answerability": None,
+        }
+
+    @staticmethod
+    def _route_after_acquisition(
+        state: ResearchAgentState,
+    ) -> Literal["model_tool_execution", "finalize_durable_response"]:
+        if state.get("abstained") or state.get("abort_reason"):
+            return "finalize_durable_response"
+        return "model_tool_execution"
 
     @staticmethod
     def _merge_counts(existing: dict[str, int] | None, new: dict[str, int]) -> dict[str, int]:
@@ -1711,6 +1926,8 @@ class ConversationalResearchOrchestrator:
             synthesis_source=state.get("synthesis_source"),
             synthesis_fallback_reason=state.get("synthesis_fallback_reason"),
             rejected=state.get("rejected_history", []),
+            acquisition=state.get("literature_acquisition"),
+            retrieved=retrieved_evidence(state.get("retrieved_hits") or []),
         )
 
         cited_pks = tuple(
@@ -1775,15 +1992,39 @@ class ConversationalResearchOrchestrator:
         synthesis_source: str | None = None,
         synthesis_fallback_reason: str | None = None,
         rejected: list[dict[str, Any]] | None = None,
+        acquisition: dict[str, Any] | None = None,
+        retrieved: list[dict[str, Any]] | None = None,
     ) -> tuple[str, RunStatus]:
+        literature = _acquisition_markdown(acquisition)
         if abstained:
-            answer_md = (
-                f"**Abstained from Scientific Synthesis (`{abstention_reason}`)**\n\n"
-                "The agent could not verify canonical source spans supporting a scientific "
-                "answer within the authorized corpus.\n\n"
-                f"*{PROPOSED_LIMITATION_NOTICE}*"
-            )
-            return answer_md, RunStatus.ABSTAINED
+            blocked = str(abstention_reason or "").startswith("provider_authorization_blocked")
+            parts = [f"**Abstained from Scientific Synthesis (`{abstention_reason}`)**\n"]
+            if blocked:
+                parts.append(
+                    "The configured model (`gpt-6-luna`, OpenCode Go) is not authorized for "
+                    "research use, so **no model request was sent and no claim was written**. "
+                    "Discovery, ingestion, retrieval and canonical verification below ran without "
+                    "a model.\n"
+                )
+            else:
+                parts.append(
+                    "The agent could not verify canonical source spans supporting a scientific "
+                    "answer within the authorized corpus.\n"
+                )
+            if literature:
+                parts.append(literature)
+            if blocked and retrieved:
+                parts.append(
+                    "#### Retrieved canonical passages (gate-accepted, not synthesized)\n"
+                    + "\n".join(
+                        f"{i}. **{h['title']}** ({_ident(h)}; section "
+                        f'`{h.get("section_title") or "body"}`): "{h["excerpt"]}"'
+                        for i, h in enumerate(retrieved[:6], start=1)
+                    )
+                    + "\n"
+                )
+            parts.append(f"*{PROPOSED_LIMITATION_NOTICE}*")
+            return "\n".join(parts), RunStatus.ABSTAINED
 
         lines: list[str] = [
             "### Source-Verified Evidence (`MODEL_PROPOSED`, not expert-reviewed)\n"
@@ -1828,6 +2069,8 @@ class ConversationalResearchOrchestrator:
             compat = comparison.get("evidence_compatibility", "METHODOLOGICALLY_HETEROGENEOUS")
             rationale = comparison.get("compatibility_rationale", "")
             lines.append(f"\n#### Cross-Study Comparison (`{compat}`)\n{rationale}")
+        if literature:
+            lines.append("\n" + literature)
         lines.append(f"\n---\n*{PROPOSED_LIMITATION_NOTICE}*")
         return "\n".join(lines), RunStatus.COMPLETED
 
@@ -1869,14 +2112,26 @@ class ConversationalResearchOrchestrator:
             return "finalize_durable_response"
         return "model_tool_execution"
 
-    @staticmethod
     def _route_after_tools(
+        self,
         state: ResearchAgentState,
     ) -> Literal[
+        "acquire_external_literature",
         "inspect_and_expand_evidence",
         "extract_study_findings",
         "finalize_durable_response",
     ]:
+        if (
+            self._acquisition is not None
+            and state.get("abstained")
+            and str(state.get("abstention_reason") or "").startswith("evidence_gate:")
+            and not state.get("acquisition_attempted")
+            and not state.get("abort_reason")
+            and not state.get("scoped_version_keys")
+            and not state.get("allowed_version_keys")
+        ):
+            # The authorized corpus has no relevant evidence: search the literature once.
+            return "acquire_external_literature"
         if state.get("abstained") or not state.get("retrieved_hits"):
             return "finalize_durable_response"
         if state.get("needs_context_expansion", False):

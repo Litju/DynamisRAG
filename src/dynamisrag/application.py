@@ -26,7 +26,7 @@ from dynamisrag import __version__
 from dynamisrag.agent.auth import IdentityVerifier
 from dynamisrag.agent.observability import configure_privacy_safe_langsmith
 from dynamisrag.agent.router import build_agent_v2_router
-from dynamisrag.agent.services import build_agent_services
+from dynamisrag.agent.services import build_agent_services, build_research_retrieval
 from dynamisrag.config import Settings, load_settings
 from dynamisrag.db.engine import create_database_engine
 from dynamisrag.embedding.errors import EmbeddingProviderError
@@ -109,7 +109,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         query_embedder=query_embedder,
     )
     scientific = (
-        ScientificRetrievalService(engine, resolved) if resolved.scientific_qdrant_enabled else None
+        build_research_retrieval(resolved, engine)
+        if resolved.research_acquisition_enabled
+        else ScientificRetrievalService(engine, resolved)
+        if resolved.scientific_qdrant_enabled
+        else None
     )
     answers = (
         ScientificAnswerService(scientific, OllamaClient(str(resolved.scientific_ollama_url)))
