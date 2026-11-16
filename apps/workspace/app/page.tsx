@@ -71,6 +71,9 @@ type Retrieved = {
   pmcid?: string | null;
   excerpt: string;
   retrieval_mode?: string | null;
+  admitted?: boolean;
+  query_relevance?: number | null;
+  gate_reasons?: string[];
 };
 type Run = {
   run_id: string;
@@ -83,6 +86,7 @@ type Run = {
   telemetry?: {
     literature_acquisition?: Acquisition | null;
     retrieved_evidence?: Retrieved[];
+    retrieval_candidates?: Retrieved[];
     model_calls?: number;
   };
 };
@@ -510,15 +514,25 @@ function Conversation({ thread }: { thread: Thread }) {
                 )}
               </details>
             )}
-            {(run.telemetry?.retrieved_evidence?.length ?? 0) > 0 &&
+            {(run.telemetry?.retrieval_candidates?.length ?? 0) > 0 &&
               run.verified_citations.length === 0 && (
                 <details open aria-label="Retrieved passages">
-                  <summary>Retrieved canonical passages (not synthesized)</summary>
+                  <summary>
+                    Retrieved canonical passages (not synthesized, not claims)
+                  </summary>
+                  <p>
+                    These passages were retrieved from the corpus. Passages marked “not
+                    admitted” did not cover enough of the question for the relevance
+                    gate and are not evidence for an answer.
+                  </p>
                   <ol>
-                    {run.telemetry!.retrieved_evidence!.map((h) => (
-                      <li key={h.passage_key}>
+                    {run.telemetry!.retrieval_candidates!.map((h) => (
+                      <li key={h.passage_key} data-testid="retrieved-passage">
                         <strong>{h.title}</strong> · {h.doi ? `DOI ${h.doi}` : h.pmcid} ·{" "}
-                        {h.section_title || "body"} · {h.retrieval_mode}
+                        {h.section_title || "body"} · {h.retrieval_mode} ·{" "}
+                        {h.admitted
+                          ? "admitted by the relevance gate"
+                          : `not admitted (coverage ${h.query_relevance ?? "?"})`}
                         <p>“{h.excerpt}”</p>
                         <button onClick={() => void inspect(h.passage_key)}>
                           Inspect retrieved passage

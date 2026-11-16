@@ -362,6 +362,9 @@ def test_empty_relevant_corpus_acquires_once_then_retrieves_and_abstains_without
     assert run.telemetry["literature_acquisition"]["ingested"][0]["doi"] == "10.3390/s25216542"
     evidence = run.telemetry["retrieved_evidence"]
     assert evidence and evidence[0]["pmcid"] == "PMC12608286"
+    candidates = run.telemetry["retrieval_candidates"]
+    assert candidates[0]["pmcid"] == "PMC12608286" and candidates[0]["admitted"] is True
+    assert {c["admitted"] for c in candidates} == {True, False}  # gate verdicts are kept
     assert "linear position transducer" in (run.answer_markdown or "")
     assert "no model request was sent" in (run.answer_markdown or "")
     assert run.telemetry["model_calls"] == 0

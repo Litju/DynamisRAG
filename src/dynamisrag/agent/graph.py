@@ -227,6 +227,7 @@ class ResearchAgentState(TypedDict, total=False):
     synthesis_source: str | None
     synthesis_fallback_reason: str | None
     acquisition_attempted: bool
+    retrieval_candidates: list[dict[str, Any]]
     literature_acquisition: dict[str, Any] | None
 
 
@@ -756,6 +757,9 @@ class ConversationalResearchOrchestrator:
         )
         telemetry["literature_acquisition"] = values.get("literature_acquisition")
         telemetry["retrieved_evidence"] = retrieved_evidence(values.get("retrieved_hits") or [])
+        # Everything the last retrieval returned, with the gate's verdict: transparency only,
+        # never cited. Non-admitted passages are not evidence for any answer.
+        telemetry["retrieval_candidates"] = values.get("retrieval_candidates") or []
         abort = values.get("abort_reason")
         if abort == "timeout":
             return RunCompletion(
@@ -1124,6 +1128,7 @@ class ConversationalResearchOrchestrator:
             str(h.get("passage_key", "")): h for h in outcome.hits if str(h.get("passage_key", ""))
         }
         retrieval_decision: AnswerabilityDecision | None = None
+        retrieval_candidates: list[dict[str, Any]] = []
         scoped_versions = set(state.get("scoped_version_keys", []))
         if scoped_versions:
             # A follow-up that references prior evidence must not silently answer
@@ -1164,6 +1169,21 @@ class ConversationalResearchOrchestrator:
                 authorized_document_count=len(authorized_keys) or None,
             )
             accepted = set(retrieval_decision.accepted_passage_keys)
+            verdicts = {
+                str(c["passage_key"]): c
+                for c in cast("list[dict[str, Any]]", retrieval_decision.to_payload()["candidates"])
+            }
+            retrieval_candidates = [
+                {
+                    **item,
+                    "admitted": item["passage_key"] in accepted,
+                    "query_relevance": verdicts.get(str(item["passage_key"]), {}).get(
+                        "query_relevance"
+                    ),
+                    "gate_reasons": verdicts.get(str(item["passage_key"]), {}).get("reasons", []),
+                }
+                for item in retrieved_evidence(list(dedup_hits.values()))
+            ]
             dedup_hits = {key: hit for key, hit in dedup_hits.items() if key in accepted}
             self._store.append_event(
                 run_id,
@@ -1183,6 +1203,7 @@ class ConversationalResearchOrchestrator:
             "answerability": (
                 retrieval_decision.to_payload() if retrieval_decision is not None else None
             ),
+            "retrieval_candidates": retrieval_candidates,
         }
         if (aborted := self._control_abort(state, config)) is not None:
             return {**update, **aborted}

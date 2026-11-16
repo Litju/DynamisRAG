@@ -75,11 +75,14 @@ test("live research workflow: empty corpus, real discovery, ingestion, retrieval
   await page.screenshot({ path: join(evidenceDir, "1-initial-answer.png"), fullPage: true });
 
   if (providerBlocked) {
+    // No model may answer: the run abstains, either at synthesis (provider blocked) or at the
+    // relevance gate. Retrieval over the NEW projection must still have happened.
     expect(first.run.status).toBe("abstained");
-    expect(first.run.abstention_reason).toMatch(/^provider_authorization_blocked/);
+    expect(first.run.abstention_reason).toMatch(/^(provider_authorization_blocked|evidence_gate:)/);
     expect(first.run.telemetry.model_calls).toBe(0);
-    expect(first.run.telemetry.retrieved_evidence.length).toBeGreaterThan(0);
-    expect(first.run.telemetry.retrieved_evidence[0].retrieval_mode).toBe("qdrant_hybrid_rrf");
+    expect(first.run.telemetry.retrieval_candidates.length).toBeGreaterThan(0);
+    expect(first.run.telemetry.retrieval_candidates[0].retrieval_mode).toBe("qdrant_hybrid_rrf");
+    await expect(page.getByTestId("retrieved-passage").first()).toBeVisible();
     await page.getByRole("button", { name: "Inspect retrieved passage" }).first().click();
   } else {
     expect(first.run.status).toBe("completed");
@@ -97,8 +100,9 @@ test("live research workflow: empty corpus, real discovery, ingestion, retrieval
   await page.screenshot({ path: join(evidenceDir, "3-follow-up.png"), fullPage: true });
   if (providerBlocked) {
     expect(second.run.status).toBe("abstained");
-    expect(second.run.abstention_reason).toMatch(/^provider_authorization_blocked/);
+    expect(second.run.abstention_reason).toMatch(/^(provider_authorization_blocked|evidence_gate:)/);
     expect(second.run.telemetry.model_calls).toBe(0);
+    expect(second.run.telemetry.retrieval_candidates.length).toBeGreaterThan(0);
   } else {
     expect(second.run.status).toBe("completed");
     expect(second.run.verified_citations.length).toBeGreaterThan(0);
@@ -107,6 +111,8 @@ test("live research workflow: empty corpus, real discovery, ingestion, retrieval
     provider_blocked: providerBlocked,
     full_acceptance: !providerBlocked,
     initial_status: first.run.status,
+    initial_abstention: first.run.abstention_reason,
     follow_up_status: second.run.status,
+    follow_up_abstention: second.run.abstention_reason,
   });
 });
