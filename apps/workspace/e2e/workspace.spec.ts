@@ -2,6 +2,37 @@ import { test, expect } from "@playwright/test";
 
 const testOrigin = process.env.WORKSPACE_TEST_URL || "http://127.0.0.1:3018";
 
+test.beforeEach(async ({ page }, info) => {
+  if (info.title.startsWith("a visitor signs in")) return;
+  await page.goto("/login");
+  await page.getByLabel("Username", { exact: true }).fill("alice");
+  await page.getByLabel("Password", { exact: true }).fill(process.env.WORKSPACE_TEST_PASSWORD || "workspace-test-only");
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Document library" })).toBeVisible();
+});
+
+test("a visitor signs in with the form and asks a cited question", async ({ browser }) => {
+  const context = await browser.newContext();
+  try {
+    const page = await context.newPage();
+    await page.goto(testOrigin);
+    await expect(page.getByRole("heading", { name: "Sign in to DynamisRAG" })).toBeVisible();
+    await page.getByLabel("Username", { exact: true }).fill("alice");
+    await page.getByLabel("Password", { exact: true }).fill("incorrect-password");
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    await expect(page.getByRole("alert")).toContainText("Username or password is incorrect");
+    await page.getByLabel("Username", { exact: true }).fill("alice");
+    await page.getByLabel("Password", { exact: true }).fill(process.env.WORKSPACE_TEST_PASSWORD || "workspace-test-only");
+    await page.getByRole("button", { name: "Sign in", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Document library" })).toBeVisible();
+    await page.getByRole("button", { name: "Start a research thread" }).click();
+    await expect(page.getByLabel("Ask a research question")).toBeVisible({ timeout: 30000 });
+    await page.getByLabel("Ask a research question").fill("What happened to Achilles tendon stiffness during depth jumping?");
+    await page.getByRole("button", { name: "Research ↑" }).click();
+    await expect(page.getByRole("button", { name: "Inspect source 1", exact: true })).toBeVisible({ timeout: 90000 });
+  } finally { await context.close(); }
+});
+
 test("authenticated Eve conversation executes the Python graph and denies a second user", async ({
   page,
   browser,

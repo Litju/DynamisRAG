@@ -7,6 +7,24 @@ launch. No merge was performed. The earlier failed attempt is retained below.
 
 ## Repair and current verification
 
+Owner-facing login repair: open `/login`, enter username `alice` and its password
+value from the private credentials file (not the whole JSON). Normal visits to
+`/` now redirect to this form. Incorrect credentials show a readable error;
+five failures still enforce the existing 60-second username lockout and display
+the remaining wait. Successful same-origin form login creates the existing
+HttpOnly session cookie; API and Eve authorization remain unchanged. No
+credentials are embedded in the page or URL. The native browser Basic prompt is
+no longer required. Logout or session expiration returns the next page visit to
+the form.
+
+Validation of this repair: production build/typecheck, 19 unit tests, and 5/5
+licensed external browser scenarios passed (15.5 s). Browser tests now log in
+through the real form. The new clean-context case proves incorrect-password
+feedback, correct login, conversation creation and a cited response without
+preloaded HTTP credentials. Earlier tests' automatic Basic exchange missed this
+owner-facing failure. Original reviewed head `9d09af0` passed all six CI checks;
+the login repair requires its own exact-head CI.
+
 Self-hosted production conversation requests now go directly to Eve's loopback
 port (`EVE_NEXT_PRODUCTION_PORT`, default 4274), matching the installed Eve
 Next integration. They no longer derive their upstream from the incoming public

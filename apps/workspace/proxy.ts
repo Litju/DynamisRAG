@@ -1,9 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { authFailure, authorize, sameOrigin } from "./lib/auth";
+import { authorize, sameOrigin } from "./lib/auth";
 
 export function proxy(request: NextRequest) {
   const auth = authorize(request);
-  if (!auth.ok) return authFailure(auth) ?? new Response(null, { status: 401 });
+  if (!auth.ok) return NextResponse.redirect(new URL("/login", request.url));
   if (
     !["GET", "HEAD", "OPTIONS"].includes(request.method) &&
     !sameOrigin(request, { requireOrigin: true })
