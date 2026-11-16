@@ -37,6 +37,41 @@ type Comparison = {
   compatibility_rationale: string;
   limitation_notice: string;
 };
+type Work = {
+  doi?: string | null;
+  pmid?: string | null;
+  pmcid?: string | null;
+  title: string;
+  passages?: number;
+  license_uri?: string;
+  reason?: string;
+};
+type Acquisition = {
+  status: string;
+  discovered_records: number;
+  unique_works: number;
+  search_requests: number;
+  provider_failures: unknown[];
+  works: Work[];
+  ingested: Work[];
+  rejected: Work[];
+  projection?: {
+    collection: string;
+    alias: string;
+    passage_count: number;
+    model_id: string;
+    model_revision: string;
+  } | null;
+};
+type Retrieved = {
+  passage_key: string;
+  title: string;
+  section_title?: string | null;
+  doi?: string | null;
+  pmcid?: string | null;
+  excerpt: string;
+  retrieval_mode?: string | null;
+};
 type Run = {
   run_id: string;
   status: string;
@@ -45,6 +80,11 @@ type Run = {
   study_comparison: Comparison | null;
   error_message?: string;
   abstention_reason?: string;
+  telemetry?: {
+    literature_acquisition?: Acquisition | null;
+    retrieved_evidence?: Retrieved[];
+    model_calls?: number;
+  };
 };
 type Evidence = {
   passage: {
@@ -194,10 +234,14 @@ export default function Workspace() {
           </span>
         </header>
         <div className="notice" role="note" style={{ margin: "16px 24px" }}>
-          <strong>Searches loaded papers only</strong>
+          <strong>Open-access literature, verified at the source</strong>
           <p>
-            This workspace searches the document library shown here. It does not
-            search the web, find new papers, or build a method beyond those sources.
+            When the library has no relevant evidence, a thread without a fixed
+            document scope searches Europe PMC and OpenAlex once, and ingests only
+            open-access full texts whose licence permits reuse. Every answer cites
+            canonical passages you can inspect.
+            {process.env.NEXT_PUBLIC_RESEARCH_MODE === "provider-blocked" &&
+              " The language model is not authorized for research use: retrieval runs, synthesis abstains."}
             {process.env.NEXT_PUBLIC_RESEARCH_MODE === "deterministic-verification" &&
               " This is a sample-corpus demo with fixed response logic, not a live AI research assistant."}
           </p>
@@ -265,7 +309,7 @@ export default function Workspace() {
             />
             <span>
               {p.title}
-              <small>Canonical source · sample corpus</small>
+              <small>Canonical source · open-access full text</small>
             </span>
           </label>
         ))}
@@ -322,6 +366,9 @@ function Conversation({ thread }: { thread: Thread }) {
         "run.started",
         "tool.called",
         "tool.completed",
+        "literature.discovered",
+        "literature.ingested",
+        "corpus.projected",
         "evidence.inspected",
         "studies.compared",
         "verification.completed",
@@ -408,14 +455,79 @@ function Conversation({ thread }: { thread: Thread }) {
         )}
         {run && (
           <section className="results">
-            <h2>{run.status === "abstained" ? "No supported answer in these papers" : "Verified evidence"}</h2>
-            {run.status === "abstained" && (
-              <p>
-                The loaded papers do not provide enough support for this question.
-                This is a limit of this library, not a finding that the method or
-                evidence does not exist. Try a question about a listed study.
+            <h2>
+              {run.status === "abstained"
+                ? "No synthesized answer"
+                : "Verified evidence"}
+            </h2>
+            {run.status === "abstained" &&
+              !run.abstention_reason?.startsWith("provider_authorization_blocked") && (
+                <p>
+                  The available papers do not provide enough support for this
+                  question. This is a limit of this library, not a finding that the
+                  method or evidence does not exist.
+                </p>
+              )}
+            {run.abstention_reason?.startsWith("provider_authorization_blocked") && (
+              <p role="note">
+                The language model is not authorized for research use, so no model
+                request was sent and no claim was written. The literature search,
+                ingestion and retrieval below ran without a model.
               </p>
             )}
+            {run.telemetry?.literature_acquisition && (
+              <details open aria-label="Literature search">
+                <summary>
+                  Literature search · {run.telemetry.literature_acquisition.status}
+                </summary>
+                <p>
+                  {run.telemetry.literature_acquisition.discovered_records} records →{" "}
+                  {run.telemetry.literature_acquisition.unique_works} unique works ·{" "}
+                  {run.telemetry.literature_acquisition.ingested.length} open-access
+                  full texts ingested ·{" "}
+                  {run.telemetry.literature_acquisition.rejected.length} rejected
+                </p>
+                <ul>
+                  {run.telemetry.literature_acquisition.ingested.map((w) => (
+                    <li key={w.pmcid || w.doi || w.title} data-testid="ingested-paper">
+                      {w.title}{" "}
+                      {w.doi && (
+                        <a href={`https://doi.org/${encodeURIComponent(w.doi)}`}>
+                          DOI {w.doi}
+                        </a>
+                      )}{" "}
+                      · {w.pmcid} · PMID {w.pmid} · {w.passages} passages
+                    </li>
+                  ))}
+                </ul>
+                {run.telemetry.literature_acquisition.projection && (
+                  <p data-testid="qdrant-collection">
+                    Qdrant collection{" "}
+                    <code>{run.telemetry.literature_acquisition.projection.collection}</code>{" "}
+                    ({run.telemetry.literature_acquisition.projection.passage_count}{" "}
+                    passages)
+                  </p>
+                )}
+              </details>
+            )}
+            {(run.telemetry?.retrieved_evidence?.length ?? 0) > 0 &&
+              run.verified_citations.length === 0 && (
+                <details open aria-label="Retrieved passages">
+                  <summary>Retrieved canonical passages (not synthesized)</summary>
+                  <ol>
+                    {run.telemetry!.retrieved_evidence!.map((h) => (
+                      <li key={h.passage_key}>
+                        <strong>{h.title}</strong> · {h.doi ? `DOI ${h.doi}` : h.pmcid} ·{" "}
+                        {h.section_title || "body"} · {h.retrieval_mode}
+                        <p>“{h.excerpt}”</p>
+                        <button onClick={() => void inspect(h.passage_key)}>
+                          Inspect retrieved passage
+                        </button>
+                      </li>
+                    ))}
+                  </ol>
+                </details>
+              )}
             <p>{run.status} · MODEL_PROPOSED / PROPOSED</p>
             {run.error_message && <p role="alert">{run.error_message}</p>}
             {run.abstention_reason && <p>{run.abstention_reason}</p>}

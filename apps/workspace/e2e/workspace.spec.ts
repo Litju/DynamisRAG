@@ -219,12 +219,12 @@ test("document selection is immutable and unsupported questions abstain", async 
 test("the sample preview explains its limits for force velocity profiling", async ({ page }) => {
   test.skip(!process.env.WORKSPACE_LICENSED_CORPUS, "Uses the licensed sample corpus.");
   await page.goto("/");
-  await expect(page.getByRole("note")).toContainText("does not search the web");
+  await expect(page.getByRole("note").first()).toContainText("Europe PMC and OpenAlex");
   await page.getByRole("button", { name: "Start a research thread" }).click();
   await expect(page.getByLabel("Ask a research question")).toBeVisible({ timeout: 30000 });
   await page.getByLabel("Ask a research question").fill("lets research about force velocity profiling in jumps, need a method using LPT and Force plates");
   await page.getByRole("button", { name: "Research ↑" }).click();
-  await expect(page.getByRole("heading", { name: "No supported answer in these papers" })).toBeVisible({ timeout: 90000 });
+  await expect(page.getByRole("heading", { name: "No synthesized answer" })).toBeVisible({ timeout: 90000 });
   await expect(page.locator(".results")).toContainText("not a finding that the method or evidence does not exist");
   await expect(page.getByRole("button", { name: "Inspect source 1", exact: true })).toHaveCount(0);
 });
