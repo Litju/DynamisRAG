@@ -239,3 +239,35 @@ def test_followup_rewrite_must_preserve_what_the_user_asked() -> None:
     assert not _rewrite_preserves_question(
         q, "Which findings not measured during depth jumping in " + "a" * 64
     )
+
+
+def test_unauthorized_provider_retrieves_and_verifies_but_abstains_without_any_request(
+    graph_engine_and_studies: tuple[Engine, Any],  # noqa: F811
+) -> None:
+    from dynamisrag.agent.routing import ProviderBlockedRuntime
+
+    engine, _ = graph_engine_and_studies
+    runtime = ProviderBlockedRuntime(model_name="gpt-6-luna")
+    store = InMemoryAgentConversationStore()
+    orch = ConversationalResearchOrchestrator(
+        tool_registry=ScientificToolRegistry(engine), store=store, model_runtime=runtime
+    )
+    thread = store.create_thread(owner_id=_USER, title="t")
+    run = orch.execute_run(
+        thread_id=thread.thread_id,
+        user_id=_USER,
+        question="What do the available studies report about plyometric training?",
+        idempotency_key="k-blocked",
+    )
+    assert run.status == RunStatus.ABSTAINED
+    assert (run.abstention_reason or "").startswith("provider_authorization_blocked")
+    assert run.telemetry["synthesis_source"] == "provider_authorization_blocked"
+    assert run.telemetry["model_calls"] == 0
+    assert run.telemetry["estimated_cost_usd"] == 0.0
+    assert {c["outcome"] for c in run.telemetry["calls"]} == {
+        "refused_provider_authorization_unverified"
+    }
+    events = store.list_events(run.run_id, user_id=_USER)
+    kinds = [e.event_type.value for e in events]
+    assert "fallback.applied" in kinds  # canonical retrieval still ran
+    assert "evidence.relevance_assessed" in kinds

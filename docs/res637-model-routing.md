@@ -4,6 +4,24 @@ Status: implemented and contract-tested; **real scientific inference is blocked 
 authorization** (section 5). LangGraph remains the only bounded execution engine; Eve owns the
 user-facing conversation in RES-638. Nothing here adds a competing agent loop.
 
+## 0. RES-638 update (2026-11-16): sole `gpt-6-luna`, call-refusing gate
+
+* The workspace roster is **`gpt-6-luna` only**: `DYNAMISRAG_AGENT_MODEL_FAST`, `_COORDINATOR` and
+  `_PRO` all default to `gpt-6-luna` on its native Responses endpoint
+  (`https://opencode.ai/inference/go/openai/v1/responses`, `store=false`, `x-opencode-session`).
+  Roles keep separate budgets and the single Pro escalation; nothing is routed to a second model.
+  Three distinct models remain configurable; two-of-three overlaps are refused.
+* The catalogue URL is the documented `https://opencode.ai/inference/go/v1/models`. On 2026-11-16 it
+  listed `gpt-6-luna` (`openai/gpt-6-luna`, chat, `tools.supported: true`, `api.responses`) without a
+  key ([receipt](evidence/res638-research-workflow/opencode-go-authorization.json)).
+* Research use remains **unauthorized**: the Go page says Go is "designed for OpenCode and other
+  coding agents" and asks clients to "Send typical coding agent traffic"; the Terms (effective
+  2026-11-08) restrict use to "your own internal use, and not on behalf of or for the benefit of
+  any third party". With `DYNAMISRAG_AGENT_OPENCODE_GO_USAGE_APPROVED=false` the service now starts
+  with `ProviderBlockedRuntime`: no HTTP client is built, the key is never read, and every model
+  call raises `ProviderAuthorizationBlocked` before any request. Retrieval, the evidence gate and
+  citation verification still run; synthesis abstains with `provider_authorization_blocked`.
+
 ## 1. Roster (verified against the live catalogue, 2026-11-12)
 
 Source of truth: `GET https://opencode.ai/zen/go/v1/models`. The verifier

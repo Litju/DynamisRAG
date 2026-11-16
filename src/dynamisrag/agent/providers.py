@@ -76,7 +76,8 @@ class AgentModelConfig(AgentContract):
 
 
 OPENCODE_GO_OPENAI_BASE_URL = "https://opencode.ai/inference/go/openai/v1"
-OPENCODE_GO_MODELS_URL = "https://opencode.ai/zen/go/v1/models"
+# Documented Go catalogue (https://opencode.ai/docs/go/, checked 2026-11-16).
+OPENCODE_GO_MODELS_URL = "https://opencode.ai/inference/go/v1/models"
 AGENT_USER_AGENT = "dynamisrag-research-agent/0.2"
 
 

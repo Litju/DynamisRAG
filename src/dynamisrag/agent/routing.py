@@ -67,6 +67,8 @@ __all__ = [
     "ModelRole",
     "ModelRuntime",
     "OpenCodeGoRosterConfig",
+    "ProviderAuthorizationBlocked",
+    "ProviderBlockedRuntime",
     "RoleModelSpec",
     "RoutedModelRuntime",
     "RoutingPolicy",
@@ -103,6 +105,18 @@ class ModelBudgetExceeded(RuntimeError):  # noqa: N818 - domain name, not a gene
         self.role = role
         self.dimension = dimension
         super().__init__(f"model budget exhausted: {role.value if role else 'run'}/{dimension}")
+
+
+class ProviderAuthorizationBlocked(ModelBudgetExceeded):
+    """The provider's usage terms for this workload are unverified; no request was sent.
+
+    A subclass of :class:`ModelBudgetExceeded` so every existing degradation applies unchanged
+    (canonical retrieval instead of model tool selection, deterministic follow-up resolution,
+    explicit synthesis abstention). It is never retried and never substituted by another model.
+    """
+
+    def __init__(self, role: ModelRole | None) -> None:
+        super().__init__(role, "provider_authorization_unverified")
 
 
 class ModelCallError(RuntimeError):
@@ -627,11 +641,20 @@ class OpenCodeGoRosterConfig(AgentContract):
 
 
 def _resolve_specs(config: OpenCodeGoRosterConfig) -> dict[ModelRole, RoleModelSpec]:
-    """Each role must name a model with a verified price card and endpoint; no guessing."""
+    """Each role must name a model with a verified price card and endpoint; no guessing.
+
+    Either three distinct models, or one *sole* model for every role (``gpt-6-luna`` in the
+    RES-638 workspace). In sole-model mode every call goes to that one model on its own native
+    endpoint: the roles keep their separate budgets and the single Pro escalation, but nothing is
+    ever routed to a second model.
+    """
     known = {spec.model_name: spec for spec in DEFAULT_ROSTER.values()}
     names = config.role_models()
-    if len(set(names.values())) != 3:
-        raise ProviderConfigurationError("the three roles must use three distinct models")
+    distinct = len(set(names.values()))
+    if distinct not in (1, 3):
+        raise ProviderConfigurationError(
+            "the three roles must use three distinct models, or one sole model for every role"
+        )
     specs: dict[ModelRole, RoleModelSpec] = {}
     for role, name in names.items():
         card = known.get(name)
@@ -640,7 +663,12 @@ def _resolve_specs(config: OpenCodeGoRosterConfig) -> dict[ModelRole, RoleModelS
                 f"model {name!r} has no verified price card or endpoint; the roster is limited to "
                 f"{sorted(known)}"
             )
-        specs[role] = card.model_copy(update={"role": role})
+        update: dict[str, Any] = {"role": role}
+        if distinct == 1 and role is ModelRole.PRO:
+            # The escalation stays a single, separately budgeted call on the same model.
+            update["budget"] = card.budget.model_copy(update={"max_requests": 1})
+            update["reasoning_effort"] = "medium"
+        specs[role] = card.model_copy(update=update)
     return specs
 
 
@@ -750,3 +778,106 @@ def verify_opencode_go_roster(
             )
         canonical[role] = report.canonical_id or spec.model_name
     return canonical
+
+
+@dataclass
+class ProviderBlockedRuntime:
+    """OpenCode Go configured, but research use is not authorized: refuse every model call.
+
+    It never builds an HTTP client and never holds the API key, so no request (and no catalogue
+    read with credentials) can leave the process. Each refused call is recorded with zero tokens
+    and zero cost so the run telemetry states exactly why no model answered.
+    """
+
+    model_name: str = "gpt-6-luna"
+    _records: dict[str, list[ModelCallTelemetry]] = field(
+        default_factory=lambda: cast("dict[str, list[ModelCallTelemetry]]", {})
+    )
+    _lock: threading.Lock = field(default_factory=threading.Lock)
+
+    @property
+    def config(self) -> AgentModelConfig:
+        return AgentModelConfig(
+            provider=AgentProviderKind.OPENCODE_GO,
+            model_name=self.model_name,
+            base_url=OPENCODE_GO_OPENAI_BASE_URL,
+            usage_approved=False,
+        )
+
+    def reset_telemetry(self, run_id: str) -> None:
+        with self._lock:
+            self._records[run_id] = []
+
+    def begin_telemetry(self, run_id: str) -> None:
+        with self._lock:
+            self._records.setdefault(run_id, [])
+
+    def discard_telemetry(self, run_id: str) -> None:
+        with self._lock:
+            self._records.pop(run_id, None)
+
+    def export_ledger(self, run_id: str) -> dict[str, Any]:
+        with self._lock:
+            return {"records": [r.model_dump(mode="json") for r in self._records.get(run_id, [])]}
+
+    def restore_ledger(self, run_id: str, snapshot: Mapping[str, Any] | None) -> None:
+        raw = cast("list[dict[str, Any]]", (snapshot or {}).get("records") or [])
+        with self._lock:
+            self._records[run_id] = [ModelCallTelemetry.model_validate(r) for r in raw]
+
+    def _refuse(self, run_id: str, stage: str) -> AIMessage:
+        role, reason = select_role(stage)
+        with self._lock:
+            rows = self._records.setdefault(run_id, [])
+            rows.append(
+                ModelCallTelemetry(
+                    call_id=f"llm-{hashlib.sha256(f'{run_id}{len(rows)}'.encode()).hexdigest()[:12]}",
+                    provider=AgentProviderKind.OPENCODE_GO,
+                    model_name=self.model_name,
+                    stage=stage[:200],
+                    role=role.value,
+                    endpoint=ModelEndpoint.RESPONSES.value,
+                    selection_reason=reason[:200],
+                    outcome="refused_provider_authorization_unverified",
+                )
+            )
+        raise ProviderAuthorizationBlocked(role)
+
+    def invoke_with_tools(
+        self, messages: Sequence[BaseMessage], tools: Sequence[BaseTool], *, stage: str, run_id: str
+    ) -> AIMessage:
+        del messages, tools
+        return self._refuse(run_id, stage)
+
+    def invoke_plain(
+        self,
+        messages: Sequence[BaseMessage],
+        *,
+        stage: str,
+        run_id: str,
+        json_output: bool = False,
+        escalate: EscalationReason | None = None,
+    ) -> AIMessage:
+        del messages, json_output, escalate
+        return self._refuse(run_id, stage)
+
+    def summarize(self, run_id: str, *, tool_calls_count: int) -> RunTelemetrySummary:
+        with self._lock:
+            records = tuple(self._records.get(run_id, []))
+        return RunTelemetrySummary(
+            provider=AgentProviderKind.OPENCODE_GO,
+            model_name=self.model_name,
+            model_calls=0,
+            tool_calls=tool_calls_count,
+            calls=records,
+            models=(
+                ModelUsageSummary(
+                    role="sole",
+                    model_name=self.model_name,
+                    endpoint=ModelEndpoint.RESPONSES.value,
+                    requests=0,
+                    failed_requests=len(records),
+                ),
+            ),
+            routing_events=("provider_authorization_unverified:no_request_sent",),
+        )

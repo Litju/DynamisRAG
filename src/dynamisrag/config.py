@@ -152,17 +152,20 @@ class Settings(BaseSettings):
     agent_model_base_url: str | None = "http://127.0.0.1:11435"
     agent_model_api_key: SecretStr | None = Field(default=None, repr=False)
     agent_model_num_ctx: int = Field(default=8192, ge=2048, le=131072)
-    agent_model_fast: str = Field(default="deepseek-v4.1-flash", min_length=1, max_length=200)
+    agent_model_fast: str = Field(default="gpt-6-luna", min_length=1, max_length=200)
     agent_model_coordinator: str = Field(default="gpt-6-luna", min_length=1, max_length=200)
-    agent_model_pro: str = Field(default="deepseek-v4-pro", min_length=1, max_length=200)
+    agent_model_pro: str = Field(default="gpt-6-luna", min_length=1, max_length=200)
     agent_max_pro_escalations: int = Field(default=1, ge=0, le=3)
     agent_run_cost_budget_usd: float = Field(default=0.20, gt=0.0, le=100.0)
     agent_run_token_budget: int = Field(default=250_000, ge=1_000, le=4_000_000)
     agent_opencode_go_usage_approved: bool = False
     """Explicit owner acknowledgement that OpenCode Go may serve this deployment.
 
-    OpenCode Go documents itself as "designed for OpenCode and other coding agents"; use for a
-    public scientific assistant is *unverified*. The provider is refused unless this is true.
+    OpenCode Go documents itself as "designed for OpenCode and other coding agents" and its
+    Terms limit use to "your own internal use"; use for a scientific research workspace is
+    *unverified*. While this is false the runtime refuses every model call before any request is
+    sent (``ProviderBlockedRuntime``): retrieval and verification still run, synthesis abstains
+    with ``provider_authorization_blocked``.
     """
 
     agent_database_url: PostgresDsn | None = Field(default=None, repr=False)
@@ -230,11 +233,6 @@ class Settings(BaseSettings):
             )
         if self.agent_provider == "deterministic" and production_like:
             raise ValueError("The deterministic scripted model is refused in staging/production")
-        if self.agent_provider == "opencode_go" and not self.agent_opencode_go_usage_approved:
-            raise ValueError(
-                "agent_provider=opencode_go requires agent_opencode_go_usage_approved=true: "
-                "OpenCode Go usage rights for this deployment are unverified"
-            )
         return self
 
     @field_validator("scientific_evidence_directory")

@@ -305,15 +305,29 @@ def test_production_refuses_ephemeral_store_dev_header_and_deterministic_model()
         )
 
 
-def test_opencode_go_requires_explicit_usage_approval() -> None:
+def test_unapproved_opencode_go_builds_only_the_call_refusing_runtime() -> None:
+    from dynamisrag.agent.routing import ProviderAuthorizationBlocked, ProviderBlockedRuntime
+    from dynamisrag.agent.services import build_model_runtime
+
     kwargs: dict[str, object] = {
         "agent_enabled": True,
         "agent_identity_secret": "x" * 40,
         "agent_allow_ephemeral_store": True,
         "agent_provider": "opencode_go",
+        "agent_model_api_key": "sk-never-sent",
     }
-    with pytest.raises(ValidationError, match="usage_approved"):
-        _settings(**kwargs)
+    settings = _settings(**kwargs)
+    assert settings.agent_opencode_go_usage_approved is False
+    runtime = build_model_runtime(settings)
+    assert isinstance(runtime, ProviderBlockedRuntime)
+    assert runtime.config.api_key is None
+    assert runtime.config.model_name == "gpt-6-luna"
+    with pytest.raises(ProviderAuthorizationBlocked):
+        runtime.invoke_plain([], stage="synthesize_provisional_answer", run_id="r1")
+    summary = runtime.summarize("r1", tool_calls_count=0)
+    assert summary.model_calls == 0
+    assert summary.estimated_cost_usd == 0.0
+    assert summary.calls[0].outcome == "refused_provider_authorization_unverified"
     assert (
         _settings(**kwargs, agent_opencode_go_usage_approved=True).agent_provider == "opencode_go"
     )

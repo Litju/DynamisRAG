@@ -82,6 +82,7 @@ from dynamisrag.agent.routing import (
     ModelBudgetExceeded,
     ModelCallError,
     ModelRuntime,
+    ProviderAuthorizationBlocked,
 )
 from dynamisrag.agent.synthesis import build_synthesis_messages, parse_model_claims
 from dynamisrag.agent.tool_loop import ToolOrigin, build_untrusted_context, run_model_tool_loop
@@ -1346,6 +1347,8 @@ class ConversationalResearchOrchestrator:
                 escalate=escalation_reason(state.get("study_comparison")),
             )
         except ModelBudgetExceeded as budget:
+            blocked = isinstance(budget, ProviderAuthorizationBlocked)
+            source = "provider_authorization_blocked" if blocked else "model_budget_exhausted"
             self._store.append_event(
                 run_id,
                 worker_id=self._worker_id(config),
@@ -1353,17 +1356,21 @@ class ConversationalResearchOrchestrator:
                 event_type=RunEventType.SYNTHESIS_COMPLETED,
                 stage="synthesize_provisional_answer",
                 payload={
-                    "source": "model_budget_exhausted",
+                    "source": source,
                     "claims_proposed": 0,
                     "abstain_reason": f"{budget.dimension}",
                 },
             )
             return {
                 "provisional_claims": [],
-                "synthesis_source": "model_budget_exhausted",
+                "synthesis_source": source,
                 "synthesis_fallback_reason": f"budget:{budget.dimension}",
                 "abstained": True,
-                "abstention_reason": f"model_budget_exhausted: {budget.dimension}",
+                "abstention_reason": (
+                    "provider_authorization_blocked: no model request was sent"
+                    if blocked
+                    else f"model_budget_exhausted: {budget.dimension}"
+                ),
                 "final_status": RunStatus.ABSTAINED.value,
             }
         outcome = parse_model_claims(ai_msg.text, findings, question=state.get("question", ""))

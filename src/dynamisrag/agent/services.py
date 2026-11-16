@@ -27,6 +27,7 @@ from dynamisrag.agent.providers import (
 from dynamisrag.agent.routing import (
     ModelRuntime,
     OpenCodeGoRosterConfig,
+    ProviderBlockedRuntime,
     build_opencode_go_runtime,
 )
 from dynamisrag.agent.tools import ScientificToolRegistry
@@ -100,6 +101,9 @@ def model_config_from_settings(settings: Settings) -> AgentModelConfig:
 def build_model_runtime(settings: Settings) -> ModelRuntime:
     """OpenCode Go builds the three-model routed roster; other providers stay single-model."""
     if settings.agent_provider == AgentProviderKind.OPENCODE_GO.value:
+        if not settings.agent_opencode_go_usage_approved:
+            # Research-use authorization is unverified: no client, no key, no request.
+            return ProviderBlockedRuntime(model_name=settings.agent_model_coordinator)
         return build_opencode_go_runtime(
             OpenCodeGoRosterConfig(
                 api_key=settings.agent_model_api_key,
