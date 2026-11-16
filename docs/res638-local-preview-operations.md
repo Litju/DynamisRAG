@@ -5,6 +5,17 @@ URL: https://desktop-f2intni.tailda42d7.ts.net/ . This is a deterministic,
 lexical-retrieval demonstration, not a qualified live-model release or production
 launch. No merge was performed. The earlier failed attempt is retained below.
 
+**Capability blocker reported by the owner:** a request for force–velocity
+profiling in jumps using LPT and force plates abstained. This is not resolved by
+successful transport/login checks: the preview has three fixed sample studies,
+no web discovery/ingestion interface and deterministic response logic. The
+owner's request requires relevant evidence and authorized model inference.
+The UI now states these limits persistently and distinguishes an unsupported
+library answer from a claim that the requested method/evidence does not exist.
+This presentation repair does not implement general research capability or
+complete the original usable-research-assistant objective. Corpus expansion is
+pending owner direction; provider usage approval remains false.
+
 ## Repair and current verification
 
 Owner-facing login repair: open `/login`, enter username `alice` and its password

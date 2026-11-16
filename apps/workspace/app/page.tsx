@@ -193,6 +193,15 @@ export default function Workspace() {
               : "Inference qualification pending"}
           </span>
         </header>
+        <div className="notice" role="note" style={{ margin: "16px 24px" }}>
+          <strong>Searches loaded papers only</strong>
+          <p>
+            This workspace searches the document library shown here. It does not
+            search the web, find new papers, or build a method beyond those sources.
+            {process.env.NEXT_PUBLIC_RESEARCH_MODE === "deterministic-verification" &&
+              " This is a sample-corpus demo with fixed response logic, not a live AI research assistant."}
+          </p>
+        </div>
         {error && (
           <p role="alert" className="error">
             {error}{" "}
@@ -209,13 +218,13 @@ export default function Workspace() {
           <div className="welcome">
             <p className="eyebrow">FOLLOW THE EVIDENCE</p>
             <h1>
-              A clearer view of
+              Explore the loaded
               <br />
-              the research.
+              papers.
             </h1>
             <p>
-              Ask a question, compare studies and inspect the passages behind
-              every supported claim.
+              Ask about the papers in this library, compare their studies and
+              inspect the passages behind supported claims.
             </p>
             <div className="suggestions">
               <p>“Compare the training protocols across these papers”</p>
@@ -399,7 +408,14 @@ function Conversation({ thread }: { thread: Thread }) {
         )}
         {run && (
           <section className="results">
-            <h2>Verified evidence</h2>
+            <h2>{run.status === "abstained" ? "No supported answer in these papers" : "Verified evidence"}</h2>
+            {run.status === "abstained" && (
+              <p>
+                The loaded papers do not provide enough support for this question.
+                This is a limit of this library, not a finding that the method or
+                evidence does not exist. Try a question about a listed study.
+              </p>
+            )}
             <p>{run.status} · MODEL_PROPOSED / PROPOSED</p>
             {run.error_message && <p role="alert">{run.error_message}</p>}
             {run.abstention_reason && <p>{run.abstention_reason}</p>}
@@ -535,7 +551,7 @@ function Conversation({ thread }: { thread: Thread }) {
           value={question}
           maxLength={16000}
           onChange={(e) => setQuestion(e.target.value)}
-          placeholder="What would you like to understand?"
+          placeholder="Ask about a study in the document library"
           required
         />
         <div>
