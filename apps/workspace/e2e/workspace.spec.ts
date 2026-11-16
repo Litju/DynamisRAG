@@ -59,7 +59,7 @@ test("authenticated Eve conversation executes the Python graph and denies a seco
       t.external_ref && t.external_ref !== "workspace-catalog",
   );
   const bob = await browser.newContext({
-    httpCredentials: { username: "bob", password: "workspace-test-only" },
+    httpCredentials: { username: "bob", password: process.env.WORKSPACE_TEST_BOB_PASSWORD || "workspace-test-only" },
   });
   for (const ref of [current.external_ref.slice(4), current.external_ref]) {
     const claim = await bob.request.post(
