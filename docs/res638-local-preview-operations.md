@@ -1,7 +1,43 @@
 # RES-638 temporary local preview — 2026-11-16
 
-Status: **external acceptance failed; Funnel disabled**. This is not a usable
-qualified external preview or a production launch. No merge was performed.
+Status: **authenticated temporary preview online**, repaired on 2026-11-16.
+URL: https://desktop-f2intni.tailda42d7.ts.net/ . This is a deterministic,
+lexical-retrieval demonstration, not a qualified live-model release or production
+launch. No merge was performed. The earlier failed attempt is retained below.
+
+## Repair and current verification
+
+Self-hosted production conversation requests now go directly to Eve's loopback
+port (`EVE_NEXT_PRODUCTION_PORT`, default 4274), matching the installed Eve
+Next integration. They no longer derive their upstream from the incoming public
+request origin. Vercel routing and explicit operator origins are unchanged.
+The regression asserts that browser cookies never reach the loopback service.
+No blocked environment override was used.
+
+Production Next build and all 18 TypeScript tests passed. Licensed browser
+checks passed locally (4/4, 10.5 s) and through the actual HTTPS Funnel URL
+(4/4, 9.7 s): questions/follow-up, source highlighting, SSE sequence/replay,
+refresh, cross-user stream/cancel/message/thread denial, mobile/auth negative,
+comparison and abstention. All isolation requests now use the selected test
+origin, rather than silently testing localhost during an external run.
+
+The cancellation failure was a harness race: `[browser-slow]` delays only the
+synthetic server. That test is now explicitly skipped for the licensed backend.
+An additional external browser check paused only `dynamisrag-res638-worker-1`,
+submitted a normal question, asserted `queued`, clicked Cancel research,
+asserted `cancelled`, unpaused the worker in cleanup, then submitted a follow-up
+and asserted a visible source citation. Both assertions passed. Running-step
+cancellation is cooperative; a terminal run correctly retains its result.
+
+Funnel is enabled only for port 3018. Next and Eve are foreground production
+Node processes, not automatically restarted services; owner logout/reboot or
+process termination can end the demo. Use the startup and shutdown commands
+below. Both isolated databases/API/worker remain available. Owner credentials
+are the private local file documented below; do not publish them.
+
+The original 30 commits remain intact. Follow-up commits require fresh CI before
+the merge-commit handoff can be approved. No live-model, dense-runtime or expert
+scientific qualification is implied by these browser results.
 
 Reviewed PR #35 head: `644fab4bfdb97de44cf5b4574d4db8ee462dff87`, 30 commits,
 mergeable. All six exact-head checks succeeded in Actions runs 43679234921 and
@@ -52,10 +88,13 @@ node --env-file=.env.local .output/server/index.mjs
 npm run start -- --hostname 127.0.0.1 --port 3018
 ```
 
-Next was stopped after the failed external check; Eve and the existing Python
-stack remain running. The commands above document the tested local startup;
-they do not resolve external conversation routing. Do not re-enable exposure
-until that failure is repaired and verified.
+Next and Eve are currently running. The explicit Eve process and the repaired
+production conversation route resolve the earlier external startup failure.
+After local checks pass, the owner-authorized temporary Funnel can be started:
+
+```powershell
+& 'C:/Program Files/Tailscale/tailscale.exe' funnel --bg --yes http://127.0.0.1:3018
+```
 
 Browser tests accept `WORKSPACE_TEST_URL`, `WORKSPACE_TEST_PASSWORD`, and
 `WORKSPACE_TEST_BOB_PASSWORD`; defaults remain CI-only loopback credentials.
@@ -81,6 +120,7 @@ Do not use `down -v`, delete volumes, or stop unrelated historical services.
 ## Resource, cost and qualification limits
 
 Initial free host RAM: about 1.19 GiB of 31.4 GiB; later 0.54–1.60 GiB.
+During the repair, 5.2–6.3 GiB was free; no unrelated services were stopped.
 Docker snapshot: API 187 MiB, worker 192 MiB, canonical PostgreSQL 27 MiB,
 agent PostgreSQL 45 MiB. Other existing stacks consume substantial memory.
 No new dense model stack was launched under this pressure. Existing pinned
