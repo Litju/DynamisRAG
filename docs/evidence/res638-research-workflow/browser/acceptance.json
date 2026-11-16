@@ -1,0 +1,8 @@
+{
+ "provider_blocked": true,
+ "full_acceptance": false,
+ "initial_status": "abstained",
+ "initial_abstention": "evidence_gate:insufficient_query_coverage",
+ "follow_up_status": "abstained",
+ "follow_up_abstention": "evidence_gate:insufficient_query_coverage"
+}

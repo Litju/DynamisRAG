@@ -1,0 +1,102 @@
+{
+ "schema": "res638-opencode-go-authorization-v1",
+ "checked_at": "2026-11-16",
+ "decision": "RESEARCH_USE_NOT_AUTHORIZED",
+ "key_used": false,
+ "inference_requests_sent": 0,
+ "approval_flag": "DYNAMISRAG_AGENT_OPENCODE_GO_USAGE_APPROVED=false",
+ "catalogue": {
+  "url": "https://opencode.ai/inference/go/v1/models",
+  "fetched_without_credentials": true,
+  "http_status": 200,
+  "body_sha256": "d0b20035a1825209c8d001a53a1a4325ccc4e847d0f5fd06f1de548b5c3118e9",
+  "model_count": 32,
+  "gpt-6-luna": {
+   "id": "gpt-6-luna",
+   "canonical_id": "openai/gpt-6-luna",
+   "type": "chat",
+   "tools_supported": true,
+   "structured_output": true,
+   "reasoning_effort": [
+    "none",
+    "low",
+    "medium",
+    "high",
+    "xhigh",
+    "max"
+   ],
+   "endpoints": [
+    "responses"
+   ],
+   "responses_base_url": "https://opencode.ai/inference/go/openai/v1",
+   "responses_tool_capabilities": {
+    "strict": true,
+    "choice": [
+     "auto",
+     "none",
+     "required",
+     "tool"
+    ],
+    "search": true,
+    "freeform": [
+     "text",
+     "lark",
+     "regex"
+    ],
+    "updates": true
+   },
+   "price_usd_per_mtok": {
+    "input": 0.1,
+    "output": 0.5
+   },
+   "limit": {
+    "context": 1050000,
+    "input": 922000,
+    "output": 128000
+   }
+  },
+  "legacy_url_also_served": "https://opencode.ai/zen/go/v1/models"
+ },
+ "configured_wire_contract": {
+  "endpoint": "https://opencode.ai/inference/go/openai/v1/responses",
+  "store": false,
+  "session_header": "x-opencode-session (stable per run: 32-hex SHA-256 prefix of the run id)",
+  "user_agent": "own client identifier, not a generic SDK name",
+  "sdk_retries": 0
+ },
+ "official_statements": [
+  {
+   "url": "https://opencode.ai/docs/go/",
+   "quote": "OpenCode Go is designed for OpenCode and other coding agents that produce similar types of requests."
+  },
+  {
+   "url": "https://opencode.ai/docs/go/",
+   "quote": "Send typical coding agent traffic."
+  },
+  {
+   "url": "https://opencode.ai/docs/go/",
+   "quote": "Traffic is monitored for abuse that degrades the experience for other users."
+  },
+  {
+   "url": "https://opencode.ai/docs/go/",
+   "quote": "Send a stable session ID in `x-opencode-session` for each conversation so we can optimize routing and prompt caching."
+  },
+  {
+   "url": "https://opencode.ai/docs/go/",
+   "quote": "Abuse monitoring logs are generated for all API feature usage and retained for up to 30 days.",
+   "applies_to": "GPT Luna models"
+  },
+  {
+   "url": "https://opencode.ai/legal/terms-of-service",
+   "effective": "2026-11-08",
+   "quote": "You will only use the Services for your own internal use, and not on behalf of or for the benefit of any third party"
+  },
+  {
+   "url": "https://opencode.ai/legal/terms-of-service",
+   "effective": "2026-11-08",
+   "quote": "any other purpose not reasonably intended by OpenCode"
+  }
+ ],
+ "reasoning": "A conversational scientific research workspace serving accounts other than the owner is not typical coding-agent traffic and may benefit third parties. No written confirmation from OpenCode is recorded. Technical access (a valid key, a public catalogue) is not permission, so the key was not used.",
+ "to_unblock": "Owner obtains written confirmation from OpenCode for this workload, records it, sets DYNAMISRAG_AGENT_OPENCODE_GO_USAGE_APPROVED=true, and reruns the browser acceptance without WORKSPACE_PROVIDER_BLOCKED."
+}

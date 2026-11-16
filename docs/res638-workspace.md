@@ -60,4 +60,6 @@ Capacity evidence is limited to the local sample: 3 articles, 75 passages, about
 
 ## Delivery status
 
+**Live research workflow (2026-11-16):** empty-corpus discovery, rights-gated open-access ingestion, a fresh versioned Qdrant projection and retrieval now run from the browser; full acceptance is blocked by provider authorization. See [the research workflow](res638-research-workflow.md).
+
 Local implementation and deterministic integration evidence are reviewable, including the repaired relevance/abstention gate, verified citation highlighting, bounded signed sessions and a fresh pinned dense projection. Hosted preview, dedicated host connectivity, authorized live-model E2E, expert scientific review, hosted dense capacity and final external access checks remain open. CI results must be read at the exact PR head. The PR remains draft until those release blockers are resolved. No squash, merge, public promotion or broader access is authorized. Full results: [final qualification](evidence/res638-final-qualification.md).
