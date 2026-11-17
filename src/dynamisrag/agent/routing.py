@@ -678,7 +678,8 @@ def _resolve_specs(config: OpenCodeGoRosterConfig) -> dict[ModelRole, RoleModelS
         if distinct == 1 and role is ModelRole.PRO:
             # The escalation stays a single, separately budgeted call on the same model.
             update["budget"] = card.budget.model_copy(update={"max_requests": 1})
-            update["reasoning_effort"] = "medium"
+            if card.endpoint is ModelEndpoint.RESPONSES:
+                update["reasoning_effort"] = "medium"
         specs[role] = card.model_copy(update=update)
     return specs
 
@@ -707,6 +708,7 @@ def _build_chat_model(
         )
     return ReasoningPreservingChatOpenAI(
         **common,
+        store=False,
         max_completion_tokens=spec.max_output_tokens,
         reasoning_effort=spec.reasoning_effort,
     )

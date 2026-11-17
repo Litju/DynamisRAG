@@ -215,6 +215,33 @@ def test_sole_luna_roster_uses_one_model_on_its_native_responses_endpoint() -> N
     assert {m.model_name for m in summary.models} == {"gpt-6-luna"}
 
 
+def test_sole_flash_uses_chat_tools_and_supported_reasoning_without_storage() -> None:
+    wire = _Wire()
+    wire.chat_replies = [_chat_response(tool_call=True), _chat_response(tool_call=False)]
+    runtime = _runtime(
+        wire,
+        fast_model="deepseek-v4.1-flash",
+        coordinator_model="deepseek-v4.1-flash",
+        pro_model="deepseek-v4.1-flash",
+    )
+    assert {s.model_name for s in runtime.specs.values()} == {"deepseek-v4.1-flash"}
+    runtime.invoke_with_tools(
+        [HumanMessage(content="q")], [_tool()], stage="model_tool_execution:0", run_id="r"
+    )
+    runtime.invoke_plain(
+        [HumanMessage(content="q")],
+        stage="synthesize_provisional_answer",
+        run_id="r",
+        escalate=EscalationReason.CROSS_STUDY_COMPARISON,
+    )
+    for index in range(2):
+        assert wire.requests[index].url.path.endswith("/chat/completions")
+        assert wire.body(index)["model"] == "deepseek-v4.1-flash"
+        assert wire.body(index)["reasoning_effort"] == "low"
+        assert wire.body(index)["store"] is False
+        assert wire.requests[index].headers["x-opencode-session"]
+
+
 def test_roster_verification_checks_catalogue_and_endpoint() -> None:
     def handler(request: httpx2.Request) -> httpx2.Response:
         return httpx2.Response(200, json=CATALOGUE)
