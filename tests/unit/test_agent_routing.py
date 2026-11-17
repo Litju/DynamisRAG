@@ -225,6 +225,8 @@ def test_sole_flash_uses_chat_tools_and_supported_reasoning_without_storage() ->
         pro_model="deepseek-v4.1-flash",
     )
     assert {s.model_name for s in runtime.specs.values()} == {"deepseek-v4.1-flash"}
+    assert runtime.specs[ModelRole.FAST].max_output_tokens == 2048
+    assert runtime.specs[ModelRole.COORDINATOR].max_output_tokens == 8192
     runtime.invoke_with_tools(
         [HumanMessage(content="q")], [_tool()], stage="model_tool_execution:0", run_id="r"
     )

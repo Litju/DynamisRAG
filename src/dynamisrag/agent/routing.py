@@ -675,6 +675,13 @@ def _resolve_specs(config: OpenCodeGoRosterConfig) -> dict[ModelRole, RoleModelS
                 f"{sorted(known)}"
             )
         update: dict[str, Any] = {"role": role}
+        if (
+            distinct == 1
+            and card.model_name == "deepseek-v4.1-flash"
+            and role is not ModelRole.FAST
+        ):
+            # Scientific synthesis includes verbatim source spans; reasoning shares this cap.
+            update["max_output_tokens"] = max(card.max_output_tokens, 8192)
         if distinct == 1 and role is ModelRole.PRO:
             # The escalation stays a single, separately budgeted call on the same model.
             update["budget"] = card.budget.model_copy(update={"max_requests": 1})
