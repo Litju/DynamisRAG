@@ -20,7 +20,10 @@ from alembic import command
 from alembic.config import Config
 from dotenv import dotenv_values
 
-PROJECT = "dynamisrag-res638-research"
+ENV_FILE = os.environ.get("RESEARCH_ENV_FILE", ".env.research")
+PROJECT = str(
+    dotenv_values(ENV_FILE).get("RESEARCH_COMPOSE_PROJECT") or "dynamisrag-res638-research"
+)
 
 
 def _attest(container: str) -> None:
@@ -37,11 +40,13 @@ def _attest(container: str) -> None:
 def main() -> None:
     for service in ("canonical", "agent-state", "qdrant", "tei"):
         _attest(f"{PROJECT}-{service}-1")
-    values = dotenv_values(".env.research")
+    values = dotenv_values(ENV_FILE)
     owner = values.get("RESEARCH_OWNER_PASSWORD") or ""
     if len(owner) < 32 or not all(c in "0123456789abcdef" for c in owner):
-        raise ValueError("Use a generated hex owner password in .env.research")
-    url = f"postgresql://workspace_owner:{owner}@127.0.0.1:55448/workspace"
+        raise ValueError(f"Use a generated hex owner password in {ENV_FILE}")
+    canonical_port = values.get("RESEARCH_CANONICAL_PORT") or "55448"
+    qdrant_port = values.get("RESEARCH_QDRANT_PORT") or "16346"
+    url = f"postgresql://workspace_owner:{owner}@127.0.0.1:{canonical_port}/workspace"
     os.environ["DYNAMISRAG_DATABASE_URL"] = url
     os.environ["DYNAMISRAG_AGENT_ENABLED"] = "false"
     os.environ.setdefault("DYNAMISRAG_OPENSEARCH_PASSWORD", "not-used-by-bootstrap")
@@ -58,7 +63,7 @@ def main() -> None:
     with psycopg.connect(url) as connection:
         documents = connection.execute("SELECT count(*) FROM document_version").fetchone()
     qdrant = httpx.get(
-        "http://127.0.0.1:16346/collections",
+        f"http://127.0.0.1:{qdrant_port}/collections",
         headers={"api-key": values.get("RESEARCH_QDRANT_KEY") or ""},
         timeout=10,
     ).json()["result"]["collections"]

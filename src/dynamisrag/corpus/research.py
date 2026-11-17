@@ -18,8 +18,11 @@ One acquisition turns a research question into canonical evidence:
    from exactly the previous collection. The embedding manifest is kept so any process can
    reconstruct and verify the same projection.
 
-No model is involved: queries are derived by fixed rules, so the step is reproducible from its
-receipt. Nothing here deletes a collection or rewrites a canonical row.
+Queries come from the research model when it asked for this search (``discover_external_literature``
+with validated concept groups) and from fixed rules otherwise; every query actually sent is in the
+receipt with its origin. No model is called here. Works already in the canonical corpus are
+recorded as such and never count against the new-paper budget. Nothing here deletes a collection
+or rewrites a canonical row.
 """
 
 from __future__ import annotations
@@ -39,7 +42,7 @@ from urllib.parse import urlsplit
 
 import httpx2
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
-from sqlalchemy import Engine
+from sqlalchemy import Engine, text
 from sqlalchemy.orm import Session
 
 from dynamisrag.chunking.materializer import PassageMaterializer
@@ -70,8 +73,10 @@ __all__ = [
     "LiteratureAcquisition",
     "RateLimitedHttp",
     "build_query_ladder",
+    "infer_acronyms",
     "link_identities",
     "load_published_projection",
+    "model_query_levels",
 ]
 
 ACQUISITION_REVISION: Final = "research-acquisition-v1"
@@ -93,6 +98,10 @@ _ASPECT_TERMS: Final = (
     "concordance",
 )
 _ASPECT_ALIASES: Final = {"valid": "validity", "reliable": "reliability", "accurate": "accuracy"}
+# Generic measurement-science wording for a comparison against a reference instrument. It names no
+# instrument or domain; the research model proposes the domain-specific reference systems.
+_REFERENCE_TERMS: Final = ("criterion", "gold standard", "concurrent validity", "agreement")
+_REFERENCE_WORDS: Final = frozenset({"reference", "criterion"})
 _STOP_WORDS: Final = """
 a an and are as at be between by can compare compared comparison could do does did evidence
 for from how in into is it its of on or other say says such than that the their them these
@@ -108,6 +117,8 @@ _ABBREVIATION = re.compile(
 _DASHES: Final = "-\u2010\u2011\u2013"  # hyphen-minus, hyphen, non-breaking hyphen, en dash
 _HYPHENATED = re.compile(rf"\b([A-Za-z]{{3,}}(?:[{_DASHES}][A-Za-z]{{3,}})+)\b")
 _WORD = re.compile(r"[A-Za-z][A-Za-z0-9]*")
+_ACRONYM = re.compile(r"\b([A-Z]{2,6})s?\b")
+_QUERY_TERM = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 \-]{0,58}[A-Za-z0-9]$")
 
 
 class AcquisitionError(RuntimeError):
@@ -241,7 +252,55 @@ def _singular(phrase: str) -> str:
     return " ".join(words)
 
 
-def build_query_ladder(question: str, context: str = "") -> tuple[QueryLevel, ...]:
+def infer_acronyms(question: str, context: str = "") -> dict[str, str]:
+    """Undefined acronyms in ``question`` whose letters are the initials of an earlier phrase.
+
+    "LPT" after a turn about "linear position transducers" becomes "linear position transducer".
+    Only exact initial matches of consecutive words are accepted; nothing is guessed.
+    """
+    known = " ".join(f"{context} {question}".split())
+    words = _WORD.findall(known)
+    found: dict[str, str] = {}
+    for match in _ACRONYM.finditer(question):
+        acronym = match.group(1)
+        size = len(acronym)
+        for start in range(len(words) - size + 1):
+            window = words[start : start + size]
+            if any(w.isupper() for w in window) or any(w.lower() in _STOP for w in window):
+                continue
+            if "".join(w[0] for w in window).upper() == acronym:
+                found[acronym] = _singular(" ".join(w.lower() for w in window))
+                break
+    return found
+
+
+def model_query_levels(searches: Sequence[Sequence[Sequence[str]]]) -> tuple[QueryLevel, ...]:
+    """Validated research-model searches: each search is AND-ed groups of OR-synonym terms.
+
+    Invalid terms (quotes, operators, field syntax, over-long text) are dropped, never repaired
+    into query syntax; a search left without a group is discarded.
+    """
+    levels: list[tuple[tuple[str, ...], ...]] = []
+    for search in list(searches)[:4]:
+        groups: list[tuple[str, ...]] = []
+        for group in list(search)[:4]:
+            terms = tuple(
+                dict.fromkeys(
+                    " ".join(str(t).split())
+                    for t in list(group)[:6]
+                    if _QUERY_TERM.match(" ".join(str(t).split()))
+                )
+            )
+            if terms:
+                groups.append(terms)
+        if groups and tuple(groups) not in levels:
+            levels.append(tuple(groups))
+    return tuple(QueryLevel(level=i + 1, groups=g) for i, g in enumerate(levels))
+
+
+def build_query_ladder(  # noqa: PLR0912 - one branch per fixed query rule
+    question: str, context: str = ""
+) -> tuple[QueryLevel, ...]:
     """Fixed-rule search groups, most specific first. No model, no domain dictionary.
 
     * an abbreviation defined in the question or earlier user turns ("linear position
@@ -259,6 +318,8 @@ def build_query_ladder(question: str, context: str = "") -> tuple[QueryLevel, ..
         phrase = " ".join(words[-len(abbreviation) :]) if len(words) >= len(abbreviation) else ""
         if phrase:
             definitions[abbreviation] = _singular(phrase)
+    for abbreviation, phrase in infer_acronyms(text, context).items():
+        definitions.setdefault(abbreviation, phrase)
     anchors: list[tuple[str, ...]] = []
     for abbreviation, phrase in definitions.items():
         if re.search(rf"\b{re.escape(abbreviation)}s?\b", text) or phrase.lower() in text.lower():
@@ -279,6 +340,8 @@ def build_query_ladder(question: str, context: str = "") -> tuple[QueryLevel, ..
             if word in _ASPECT_TERMS or word in _ASPECT_ALIASES
         )
     )
+    if _REFERENCE_WORDS & set(_WORD.findall(lowered)):
+        aspects = tuple(dict.fromkeys((*aspects, *_REFERENCE_TERMS)))
     # Words of an abbreviation's expansion are already searched as one phrase.
     covered = {w.lower() for group in anchors for t in group for w in t.split()}
     words = [
@@ -288,7 +351,9 @@ def build_query_ladder(question: str, context: str = "") -> tuple[QueryLevel, ..
         and w.lower() not in covered
         and w.lower() not in _ASPECT_TERMS
         and w.lower() not in _ASPECT_ALIASES
+        and w.lower() not in _REFERENCE_WORDS
         and w.upper() not in definitions
+        and w.rstrip("s").upper() not in definitions
         and len(w) > 2
     ]
     # Adjacent content words; never the tail of a hyphenated compound ("force-velocity
@@ -298,7 +363,16 @@ def build_query_ladder(question: str, context: str = "") -> tuple[QueryLevel, ..
         for a, b in itertools.pairwise(words)
         if re.search(rf"(?<![{_DASHES}\w]){re.escape(a)}\s+{re.escape(b)}\b", text)
     ]
-    topics = [*compounds, *bigrams[:2]]
+    # Three adjacent content words are one term ("linear position transducers"), not two
+    # overlapping bigrams; the bigrams inside it are dropped.
+    triples = [
+        (a.lower(), b.lower(), c.lower())
+        for a, b, c in zip(words, words[1:], words[2:], strict=False)
+        if re.search(rf"(?<![{_DASHES}\w]){re.escape(a)}\s+{re.escape(b)}\s+{re.escape(c)}\b", text)
+    ][:1]
+    inside = {f"{x} {y}" for t in triples for x, y in itertools.pairwise(t)}
+    bigrams = [b for b in bigrams if b[0] not in inside]
+    topics = [*compounds, *((_singular(" ".join(t)),) for t in triples), *bigrams[:2]]
     if not anchors and not topics:
         topics = [(w.lower(),) for w in words[:3]]
     if not anchors and not topics:
@@ -566,8 +640,13 @@ class LiteratureAcquisition:
         context: str = "",
         should_stop: Callable[[], bool] = lambda: False,
         progress: Callable[[str, dict[str, Any]], None] = lambda _stage, _payload: None,
+        model_searches: Sequence[Sequence[Sequence[str]]] = (),
     ) -> dict[str, Any]:
-        """Run one bounded acquisition and return its receipt (never raises on provider data)."""
+        """Run one bounded acquisition and return its receipt (never raises on provider data).
+
+        ``model_searches`` are the research model's own concept groups (validated here); they are
+        sent first, then the fixed-rule ladder fills any remaining search budget.
+        """
         started = time.monotonic()
         limits = self.limits
         receipt: dict[str, Any] = {
@@ -578,10 +657,18 @@ class LiteratureAcquisition:
             "allowed_hosts": sorted(ALLOWED_HOSTS),
             "model_requests": 0,
         }
-        ladder = build_query_ladder(question, context)
+        proposed = model_query_levels(model_searches)
+        rules = build_query_ladder(question, context)
+        merged = [*proposed, *(q for q in rules if q.groups not in {p.groups for p in proposed})]
+        ladder = tuple(q.model_copy(update={"level": i + 1}) for i, q in enumerate(merged))
         receipt["query_ladder"] = [
-            {"level": q.level, "europe_pmc": q.europe_pmc(), "openalex": q.openalex()}
-            for q in ladder
+            {
+                "level": q.level,
+                "origin": "model_directed" if i < len(proposed) else "fixed_rule",
+                "europe_pmc": q.europe_pmc(),
+                "openalex": q.openalex(),
+            }
+            for i, q in enumerate(ladder)
         ]
         if not ladder:
             receipt["status"] = "no_searchable_terms"
@@ -619,9 +706,10 @@ class LiteratureAcquisition:
             receipt["status"] = "stopped"
             return receipt
         with _LOCK:  # one canonical writer and one Qdrant publisher per process
-            ingested, rejected = self._ingest(groups, raw_epmc, started, should_stop)
+            ingested, rejected, present = self._ingest(groups, raw_epmc, started, should_stop)
             receipt["ingested"] = ingested
             receipt["rejected"] = rejected
+            receipt["already_in_corpus"] = present
             progress(
                 "literature.ingested",
                 {
@@ -633,10 +721,12 @@ class LiteratureAcquisition:
                         for p in ingested
                     ],
                     "rejected": len(rejected),
+                    "already_in_corpus": len(present),
                 },
             )
             if not ingested:
-                receipt["status"] = "nothing_ingested"
+                # Discovered works that are already canonical are still evidence to retrieve.
+                receipt["status"] = "already_in_corpus" if present else "nothing_ingested"
                 return receipt
             receipt["projection"] = self._project(started)
             progress("corpus.projected", receipt["projection"])
@@ -727,16 +817,26 @@ class LiteratureAcquisition:
         raw_epmc: dict[str, dict[str, Any]],
         started: float,
         should_stop: Callable[[], bool],
-    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
         limits = self.limits
         ingested: list[dict[str, Any]] = []
         rejected: list[dict[str, Any]] = []
+        present: list[dict[str, Any]] = []
+        existing = self._existing_identifiers()
         fetches = 0
         store = FileSystemObjectStore(self.store_root / "sources")
         fulltext = self._fulltext_factory()
         try:
             for group in groups:
                 identity = _identity(group)
+                if any(
+                    (kind, str(identity[kind]).lower()) in existing
+                    for kind in ("doi", "pmid", "pmcid")
+                    if identity.get(kind)
+                ):
+                    # Already canonical: it is evidence for this turn but not a new paper.
+                    present.append(identity)
+                    continue
                 if len(ingested) >= limits.max_papers:
                     break
                 if should_stop() or time.monotonic() - started > limits.deadline_seconds:
@@ -779,7 +879,14 @@ class LiteratureAcquisition:
                 )
         finally:
             fulltext.close()
-        return ingested, rejected
+        return ingested, rejected, present
+
+    def _existing_identifiers(self) -> set[tuple[str, str]]:
+        with Session(self.ingest_engine) as session:
+            rows = session.execute(
+                text("SELECT namespace, normalized_value FROM document_identifier")
+            ).all()
+        return {(str(kind), str(value).lower()) for kind, value in rows}
 
     def _import(
         self, payload: AcquiredFulltext, acquisition: EuropePmcAcquisition
