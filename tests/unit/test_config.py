@@ -238,3 +238,13 @@ def test_load_settings_is_uncached(monkeypatch: pytest.MonkeyPatch) -> None:
     assert first is not second
     assert isinstance(first.opensearch_password, SecretStr)
     assert first.environment is Environment.CI
+
+
+def test_research_defaults_use_only_flash() -> None:
+    settings = Settings(_env_file=None, **_MINIMAL_MAPPING)
+    assert {
+        settings.agent_model_fast,
+        settings.agent_model_coordinator,
+        settings.agent_model_pro,
+    } == {"deepseek-v4.1-flash"}
+    assert settings.agent_opencode_go_usage_approved is False

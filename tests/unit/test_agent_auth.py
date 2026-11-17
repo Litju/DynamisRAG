@@ -321,7 +321,7 @@ def test_unapproved_opencode_go_builds_only_the_call_refusing_runtime() -> None:
     runtime = build_model_runtime(settings)
     assert isinstance(runtime, ProviderBlockedRuntime)
     assert runtime.config.api_key is None
-    assert runtime.config.model_name == "gpt-6-luna"
+    assert runtime.config.model_name == "deepseek-v4.1-flash"
     with pytest.raises(ProviderAuthorizationBlocked):
         runtime.invoke_plain([], stage="synthesize_provisional_answer", run_id="r1")
     summary = runtime.summarize("r1", tool_calls_count=0)
