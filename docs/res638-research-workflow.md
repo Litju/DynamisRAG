@@ -1,5 +1,25 @@
 # RES-638 real research workflow
 
+## Current result (2026-11-17)
+
+**REAL_RESEARCH_WORKFLOW_OPERATIONAL** with owner-authorized paid
+`deepseek-v4.1-flash`, superseding the original Luna-only / zero-spend request.
+The exact initial question and reference-system follow-up passed in the real Next.js
+interface from fresh empty stores: model-directed discovery, four CC BY ingestions,
+125 pinned-Qwen3 passage vectors, model-written claims, canonical citation inspection,
+and a follow-up that added two new studies. The successful run used 11 model calls
+with nominal estimated usage USD 0.01885395. Earlier unsuccessful attempts incurred
+additional usage; this is not a provider billing receipt.
+
+See [current acceptance and limitations](res638-flash-acceptance.md) and the
+[v3 receipt](evidence/res638-research-workflow/flash-v3/receipt.json).
+Scientific scope remains limited: the initial answer principally cites background
+statements and declares missing primary evidence; the follow-up provides primary
+countermovement-jump reliability measurements and does not confuse them with criterion
+validity or establish validity for every resistance-training task. All claims remain proposed.
+
+The sections below describe the historical v1 run and its failures, not current provider status.
+
 Status: **REAL_RESEARCH_WORKFLOW_PARTIAL_PROVIDER_BLOCKED** (2026-11-17,
 [live-v2 receipt](evidence/res638-research-workflow/live-v2/receipt.json)). Full acceptance did **not** pass.
 
