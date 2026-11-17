@@ -43,6 +43,12 @@ services:
     # Pinned CPU runtime and exact model revision; the identity is re-attested on every call.
     image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.9.4@sha256:2538ea1c9640d3763b15af668039d24172d063b42337b0c27796fc2be180c78d
     restart: unless-stopped
+    healthcheck:
+      test: [CMD, curl, -fsS, http://localhost/health]
+      interval: 3s
+      timeout: 5s
+      start_period: 30s
+      retries: 60
     command:
       - --model-id=Qwen/Qwen3-Embedding-0.6B
       - --revision=97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3
