@@ -2,7 +2,7 @@
  "schema": "res638-opencode-go-authorization-v2",
  "checked_at": "2026-11-17",
  "decision": "OWNER_APPROVED_LOCAL_OWNER_ONLY",
- "approval_flag": "DYNAMISRAG_AGENT_OPENCODE_GO_USAGE_APPROVED=true in the git-ignored local acceptance env only; every committed template and the hosted preview keep false",
+ "approval_flag": "was true only in the git-ignored local acceptance env for attempt 1; reset to false on 2026-11-17 because a zero incremental charge is unverified (owner budget USD 0). Every committed template and the hosted preview keep false.",
  "approved_by": "account owner (the user), for their own local research coding agent",
  "scope": [
   "the owner's own internal use on this machine (OpenCode Terms: own internal use, not on behalf of or for the benefit of any third party)",
