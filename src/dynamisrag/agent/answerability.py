@@ -51,6 +51,7 @@ __all__ = [
     "EvidenceCandidate",
     "QueryKind",
     "QueryProfile",
+    "acronym_expansions",
     "assess_claims",
     "assess_retrieval",
     "build_query_profile",
@@ -151,6 +152,13 @@ _GENERIC_QUERY_TERMS: Final[frozenset[str]] = frozenset(
         "two",
         "versus",
         "work",
+        # Literature-question framing ("what does the literature establish ... evaluate ...").
+        "assess",
+        "establish",
+        "established",
+        "evaluate",
+        "literature",
+        "scientific",
     }
 )
 
@@ -252,6 +260,8 @@ _QUESTION_WORDS: Final[frozenset[str]] = frozenset(
         "will",
         "with",
         "would",
+        "using",
+        "via",
     }
 )
 
@@ -301,6 +311,16 @@ _CONCEPT_ALIASES: Final[tuple[tuple[re.Pattern[str], str], ...]] = (
         "range_of_motion",
     ),
     (
+        # Measurement-science wording for the instrument a device is validated against.
+        re.compile(
+            r"\b(?:reference\s+(?:[a-z]+\s+)?(?:standards?|systems?|methods?|devices?|"
+            r"instruments?|measures?)|criterion(?:\s+(?:measures?|methods?|devices?|"
+            r"standards?|systems?))?|gold[\s-]+standards?|concurrent\s+validity)\b",
+            re.IGNORECASE,
+        ),
+        "reference_standard",
+    ),
+    (
         re.compile(r"\b(?:randomi[sz]ed\s+controlled\s+trial|rct)\b", re.IGNORECASE),
         "randomized_controlled_trial",
     ),
@@ -313,6 +333,8 @@ _CONCEPT_ALIASES: Final[tuple[tuple[re.Pattern[str], str], ...]] = (
         "population_member",
     ),
 )
+
+_SUBSUMING_CONCEPTS: Final[frozenset[str]] = frozenset({"reference_standard"})
 
 _DESIGNATION: Final = re.compile(
     r"\b[A-Z][A-Za-z]*(?:[-\u2013]?\d+[A-Za-z0-9]*(?:[-\u2013][A-Za-z0-9]+)*)\b"
@@ -359,6 +381,11 @@ class QueryProfile:
     facets: tuple[str, ...]
     facet_weights: tuple[float, ...]
     meta_facets: tuple[str, ...]
+    # Enumerated aspects ("validity, reliability, applications and limitations"): a passage needs
+    # the core topic plus ANY one aspect; which aspects have evidence is reported, not assumed.
+    aspects: tuple[str, ...] = ()
+    # Acronym facet -> stems of its expansion ("lpt" -> linear, positi, transd), both directions.
+    expansions: tuple[tuple[str, tuple[str, ...]], ...] = ()
 
     @property
     def minimum_coverage(self) -> float:
@@ -419,6 +446,7 @@ class AnswerabilityDecision:
     accepted_claim_indexes: tuple[int, ...] = ()
     contradictory: bool = False
     ambiguous: bool = False
+    aspect_coverage: tuple[tuple[str, int], ...] = ()
 
     @property
     def answerable(self) -> bool:
@@ -440,6 +468,8 @@ class AnswerabilityDecision:
             "accepted_claim_indexes": list(self.accepted_claim_indexes),
             "contradictory": self.contradictory,
             "ambiguous": self.ambiguous,
+            "aspect_coverage": dict(self.aspect_coverage),
+            "uncovered_aspects": [a for a, n in self.aspect_coverage if n == 0],
             "candidates": [
                 {
                     "passage_key": a.candidate.passage_key,
@@ -577,7 +607,7 @@ def surface_terms(text: str) -> set[str]:
     return _surface_terms(text)
 
 
-def _weighted_facets(
+def _weighted_facets(  # noqa: PLR0912 - explicit facet weighting branches
     question: str,
     *,
     comparison: bool,
@@ -590,7 +620,7 @@ def _weighted_facets(
     terms: dict[str, float] = {}
     for raw in stems:
         term = _stem(_fold(raw).replace(",", "."))
-        if not term or term in _QUESTION_WORDS:
+        if not term or term in _QUESTION_WORDS or _fold(raw) in _QUESTION_WORDS:
             continue
         if len(term) == 1 and not term.isdigit():
             continue
@@ -607,7 +637,13 @@ def _weighted_facets(
         terms[term] = max(terms.get(term, 0.0), weight)
     folded_question = _fold(question)
     for pattern, concept in _CONCEPT_ALIASES:
-        if pattern.search(folded_question) and concept not in entity_stems:
+        match = pattern.search(folded_question)
+        if match is not None and concept in _SUBSUMING_CONCEPTS:
+            # The concept replaces its own wording: "reference measurement systems" is met by a
+            # "criterion" or "gold standard" passage, not by the words "reference" and "system".
+            for word in _WORD.findall(match.group(0)):
+                terms.pop(_stem(word), None)
+        if match is not None and concept not in entity_stems:
             # A generic population noun ("participants", "subjects") is a
             # reference, not a study qualifier. The qualifier words ("female",
             # "volleyball", "cricketers") still carry full weight.
@@ -661,6 +697,91 @@ def _entities(question: str) -> tuple[tuple[str, ...], ...]:
     )
 
 
+_ENUM_WORD: Final = r"[a-z][a-z\-]*"
+_ENUMERATION: Final = re.compile(
+    rf"((?:{_ENUM_WORD}\s+){{0,2}}{_ENUM_WORD}(?:\s*,\s*(?:{_ENUM_WORD}\s+){{0,2}}{_ENUM_WORD})+"
+    rf"\s*,?\s+(?:and|or)\s+(?:{_ENUM_WORD}\s+){{0,2}}{_ENUM_WORD})\s*$"
+)
+_ACRONYM_DEFINITION: Final = re.compile(
+    r"((?:[A-Za-z][\w-]*\s+){1,5}?[A-Za-z][\w-]*)\s*\(\s*([A-Z][A-Z0-9]{1,7})s?\s*\)"
+)
+_ACRONYM_TOKEN: Final = re.compile(r"\b([A-Z]{2,6})s?\b")
+
+
+def _enumerated_aspects(question: str) -> tuple[str, ...]:
+    """Heads of a 3+ item enumeration clause, e.g. "validity, reliability, ... and limitations"."""
+    folded = _fold(question)
+    for clause in re.split(r"[.?!;:]", folded):
+        match = _ENUMERATION.search(clause.strip())
+        if match is None:
+            continue
+        items = [i for i in re.split(r"\s*,\s*|\s+(?:and|or)\s+", match.group(1)) if i.strip()]
+        heads = tuple(
+            dict.fromkeys(
+                _stem(item.split()[-1])
+                for item in items
+                if item.split() and item.split()[-1] not in _QUESTION_WORDS
+            )
+        )
+        if len(heads) >= 3:
+            return heads
+    return ()
+
+
+def _initials(words: Sequence[str]) -> str:
+    return "".join(word[0] for word in words).upper()
+
+
+def acronym_expansions(question: str, texts: Iterable[str] = ()) -> dict[str, tuple[str, ...]]:
+    """Acronym stem -> expansion stems, from explicit "phrase (ACR)" definitions in the question,
+    prior turns or evidence, or from an exact-initials match against earlier words.
+
+    Only an exact initial-letter match is accepted ("LPT" = "linear position transducer").
+    """
+    found: dict[str, tuple[str, ...]] = {}
+    sources = [question, *texts]
+    for source in sources:
+        for match in _ACRONYM_DEFINITION.finditer(source):
+            acronym = match.group(2)
+            words = [w for w in re.split(r"[\s\-]+", match.group(1)) if w][-len(acronym) :]
+            if len(words) == len(acronym) and _initials(words) == acronym:
+                found.setdefault(_stem(_fold(acronym)), tuple(_stem(_fold(w)) for w in words))
+    joined = " ".join(sources)
+    words = re.findall(r"[A-Za-z][A-Za-z0-9]*", joined)
+    for match in _ACRONYM_TOKEN.finditer(question):
+        acronym = match.group(1)
+        key = _stem(_fold(acronym))
+        if key in found:
+            continue
+        for start in range(len(words) - len(acronym) + 1):
+            window = words[start : start + len(acronym)]
+            if any(w.isupper() or w.lower() in _QUESTION_WORDS for w in window):
+                continue
+            if _initials(window) == acronym:
+                found[key] = tuple(_stem(_fold(w)) for w in window)
+                break
+    return found
+
+
+def _with_expansions(profile: QueryProfile, texts: Iterable[str]) -> QueryProfile:
+    expansions = acronym_expansions(profile.question, texts)
+    if not expansions:
+        return profile
+    return replace(profile, expansions=tuple(sorted(expansions.items())))
+
+
+def _facet_present(profile: QueryProfile, term: str, terms: set[str], joined: set[str]) -> bool:
+    """Facet match, where an acronym and its expansion satisfy each other."""
+    if _term_present(term, terms, joined):
+        return True
+    for acronym, stems in profile.expansions:
+        if term == acronym and stems and all(stem in terms for stem in stems):
+            return True
+        if term in stems and acronym in terms:
+            return True
+    return False
+
+
 def build_query_profile(question: str, context: str = "") -> QueryProfile:
     """Derive the entities and weighted facets a candidate must support.
 
@@ -684,14 +805,19 @@ def build_query_profile(question: str, context: str = "") -> QueryProfile:
     if not facets and not entities and context.strip():
         return build_query_profile(context)
     meta = tuple(term for term in facets if term in _META_STEMS)
-    return QueryProfile(
+    aspects = (
+        tuple(a for a in _enumerated_aspects(cleaned) if a in facets) if kind == "factual" else ()
+    )
+    profile = QueryProfile(
         question=cleaned[:2000],
         kind=kind,
         entities=entities,
         facets=facets,
         facet_weights=weights,
         meta_facets=meta,
+        aspects=aspects if len(aspects) >= 3 else (),
     )
+    return _with_expansions(profile, [context] if context.strip() else [])
 
 
 def _with_corpus_specificity(profile: QueryProfile, term_sets: Sequence[set[str]]) -> QueryProfile:
@@ -709,7 +835,10 @@ def _with_corpus_specificity(profile: QueryProfile, term_sets: Sequence[set[str]
     for term, weight in zip(profile.facets, profile.facet_weights, strict=True):
         folded = term.replace("_", "")
         present = any(
-            term in terms or folded in {t.replace("_", "") for t in terms} for terms in term_sets
+            term in terms
+            or folded in {t.replace("_", "") for t in terms}
+            or _facet_present(profile, term, terms, {t.replace("_", "") for t in terms})
+            for terms in term_sets
         )
         adjusted.append(weight * (2.0 if not present else 1.0))
     return replace(profile, facet_weights=tuple(adjusted))
@@ -761,13 +890,24 @@ def _assess_candidate(profile: QueryProfile, candidate: EvidenceCandidate) -> Ca
     matched: list[str] = []
     missing: list[str] = []
     matched_weight = 0.0
+    aspect_weights: list[float] = []
+    matched_aspect = 0.0
     for term, weight in zip(profile.facets, profile.facet_weights, strict=True):
-        if _term_present(term, terms, joined):
-            matched.append(term)
+        present = _facet_present(profile, term, terms, joined)
+        (matched if present else missing).append(term)
+        if term in profile.aspects:
+            aspect_weights.append(weight)
+            matched_aspect = max(matched_aspect, weight if present else 0.0)
+        elif present:
             matched_weight += weight
-        else:
-            missing.append(term)
-    coverage = matched_weight / profile.total_weight if profile.total_weight else 0.0
+    if aspect_weights:
+        # Core topic plus the best single aspect: a reliability passage need not also report
+        # applications. Missing aspects are reported by the decision, never silently assumed.
+        unit = max(aspect_weights)
+        core_total = profile.total_weight - sum(aspect_weights)
+        coverage = (matched_weight + min(matched_aspect, unit)) / (core_total + unit)
+    else:
+        coverage = matched_weight / profile.total_weight if profile.total_weight else 0.0
     reasons: list[str] = []
     if not candidate.canonical_verified:
         reasons.append("source_not_canonical")
@@ -811,10 +951,12 @@ def _missing_from_every_candidate(
     """
     missing: list[str] = []
     for term in _salient_terms(profile):
+        if term in profile.aspects:
+            continue  # an aspect without evidence is a reported gap, not a topic change
         present = False
         for terms in term_sets:
             joined = {candidate_term.replace("_", "") for candidate_term in terms}
-            if _term_present(term, terms, joined):
+            if _facet_present(profile, term, terms, joined):
                 present = True
                 break
             if term in _DIRECTION_STEMS and terms & _DIRECTION_STEMS:
@@ -1006,7 +1148,16 @@ def _decision(
     claim_support: ClaimSupport = "NOT_ASSESSED",
     comparison_document_count: int | None = None,
 ) -> AnswerabilityDecision:
+    coverage: list[tuple[str, int]] = []
+    for aspect in profile.aspects:
+        count = 0
+        for assessment in accepted:
+            terms = _candidate_terms(assessment.candidate)
+            if _facet_present(profile, aspect, terms, {t.replace("_", "") for t in terms}):
+                count += 1
+        coverage.append((aspect, count))
     return AnswerabilityDecision(
+        aspect_coverage=tuple(coverage),
         verdict=verdict,
         code=code,
         detail=detail[:400],
@@ -1039,6 +1190,7 @@ def assess_retrieval(  # noqa: PLR0911, PLR0912 - explicit fail-closed branches
 ) -> AnswerabilityDecision:
     """Reject irrelevant retrieval candidates and decide whether to attempt synthesis."""
     profile = build_query_profile(question, context)
+    profile = _with_expansions(profile, [context, *(f"{c.title} {c.text}" for c in candidates)])
     canonical_terms = [
         _candidate_terms(candidate) for candidate in candidates if candidate.canonical_verified
     ]
@@ -1250,6 +1402,16 @@ def _claim_has_finding_signal(
     direction/effect word, a value answer, or an asked-about facet absent from
     the title.
     """
+    if profile.aspects:
+        # Enumerated multi-aspect question: the quotation itself must name an asked-about
+        # aspect or report a value/direction; the title may not supply the finding.
+        quote = _surface_terms(claim.verbatim_quote)
+        quote_joined = {term.replace("_", "") for term in quote}
+        return (
+            any(_facet_present(profile, a, quote, quote_joined) for a in profile.aspects)
+            or bool(_direction_terms(claim.verbatim_quote))
+            or bool(re.search(r"\d", claim.verbatim_quote))
+        )
     missing_salient = (
         (set(assessment.missing_terms) & set(_salient_terms(profile)))
         - _DIRECTION_STEMS
@@ -1272,6 +1434,34 @@ def _claim_has_finding_signal(
         and not _term_present(term, title_terms, title_joined)
         for term in profile.facets
     )
+
+
+def _aspect_claim_assessment(
+    profile: QueryProfile, assessment: CandidateAssessment
+) -> CandidateAssessment:
+    terms = _candidate_terms(assessment.candidate)
+    joined = {term.replace("_", "") for term in terms}
+    aspects = [a for a in profile.aspects if _facet_present(profile, a, terms, joined)]
+    core = [
+        (term, weight)
+        for term, weight in zip(profile.facets, profile.facet_weights, strict=True)
+        if term not in profile.aspects
+    ]
+    total = sum(weight for _, weight in core)
+    matched = sum(weight for term, weight in core if _facet_present(profile, term, terms, joined))
+    core_coverage = matched / total if total else 0.0
+    admissible = (
+        assessment.candidate.canonical_verified
+        and not assessment.missing_entities
+        and bool(aspects)
+        and core_coverage >= CALIBRATED_MIN_COMPARISON_COVERAGE
+    )
+    reasons = tuple(r for r in assessment.reasons if r != "insufficient_query_facet_coverage")
+    if not aspects:
+        reasons = (*reasons, "no_asked_aspect_in_quotation")
+    if core_coverage < CALIBRATED_MIN_COMPARISON_COVERAGE:
+        reasons = (*reasons, "insufficient_core_topic_coverage")
+    return replace(assessment, admissible=admissible, reasons=reasons)
 
 
 def assess_claims(  # noqa: PLR0911, PLR0912 - explicit fail-closed branches
@@ -1313,10 +1503,21 @@ def assess_claims(  # noqa: PLR0911, PLR0912 - explicit fail-closed branches
                 )
             profile = _drop_qualifier_facets(profile, qualifier)
     claim_candidates = tuple(_claim_candidate(c) for c in claims)
+    profile = _with_expansions(
+        profile, [context, *(f"{c.document_title} {c.verbatim_quote}" for c in claims)]
+    )
     profile = _with_corpus_specificity(
         profile, [_candidate_terms(candidate) for candidate in claim_candidates]
     )
     assessments = tuple(_assess_candidate(profile, candidate) for candidate in claim_candidates)
+    if profile.aspects:
+        # A broad multi-aspect question: the caller admits only quotations from passages that
+        # passed the retrieval gate (core topic + an aspect). One quotation is one finding, so it
+        # must address an asked-about aspect and keep part of the core topic; it need not restate
+        # the whole question. Which aspects stay without a quotation is reported.
+        assessments = tuple(
+            _aspect_claim_assessment(profile, assessment) for assessment in assessments
+        )
     if profile.kind == "factual":
         assessments = tuple(
             assessment
@@ -1335,6 +1536,7 @@ def assess_claims(  # noqa: PLR0911, PLR0912 - explicit fail-closed branches
     if (
         admissible
         and profile.kind in {"factual", "comparison"}
+        and not profile.aspects
         and not any(assessment.missing_entities for assessment in assessments)
     ):
         missing = _missing_from_every_candidate(
