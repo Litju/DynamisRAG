@@ -241,7 +241,7 @@ def test_load_settings_is_uncached(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_research_defaults_use_only_flash() -> None:
-    settings = Settings(_env_file=None, **_MINIMAL_MAPPING)
+    settings = Settings.from_mapping(_MINIMAL_MAPPING)
     assert {
         settings.agent_model_fast,
         settings.agent_model_coordinator,
