@@ -98,8 +98,10 @@ privacy region *Global*. Technical access (a valid key) is not permission, so
 [`evidence/res637-agent-evaluation-v2/opencode-go-three-model.BLOCKED.json`](evidence/res637-agent-evaluation-v2/opencode-go-three-model.BLOCKED.json)
 and sends nothing but the public catalogue read.
 
-**To unblock:** the owner obtains written confirmation from OpenCode for this use (and sets the
-workspace region), sets `DYNAMISRAG_AGENT_OPENCODE_GO_USAGE_APPROVED=true`, then runs
+**To unblock:** the account owner records the usage basis against OpenCode's published terms
+(RES-638 corrected this: the terms contain no written-confirmation requirement; see the
+[authorization record](evidence/res638-research-workflow/opencode-go-authorization.json)), sets the
+workspace region for DeepSeek models, sets `DYNAMISRAG_AGENT_OPENCODE_GO_USAGE_APPROVED=true`, then runs
 `uv run python -m scripts.res637_agent_eval --provider opencode_go --out docs/evidence/res637-agent-evaluation-v2/opencode-go-three-model.json`.
 Report that receipt as generative evidence only after reading its per-metric denominators.
 
