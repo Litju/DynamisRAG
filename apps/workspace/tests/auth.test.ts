@@ -72,8 +72,24 @@ test("a signed session avoids scrypt on subsequent requests and expires", () => 
   assert.equal(outcome.ok, true);
   if (outcome.ok) {
     assert.equal(outcome.user, "alice");
-    assert.equal(outcome.setCookie, undefined);
+    assert.ok(outcome.setCookie?.includes("HttpOnly"));
   }
+});
+
+test("active research renews sessions while expired tokens cannot renew", () => {
+  process.env.WORKSPACE_ACCOUNTS = JSON.stringify({ alice: hash("correct") });
+  const now = Date.parse("2026-11-13T12:00:00Z");
+  const token = createSession("alice", now);
+  const request = (value: string) => new Request("https://preview.example/api/research/runs/r", {
+    headers: { cookie: `${SESSION_COOKIE}=${value}` },
+  });
+  const renewed = authorize(request(token), now + 800_000);
+  assert.ok(renewed.ok && renewed.setCookie);
+  if (!renewed.ok || !renewed.setCookie) return;
+  const next = renewed.setCookie.split(";")[0].slice(SESSION_COOKIE.length + 1);
+  assert.equal(verifySession(next, now + 1000_000), "alice");
+  assert.equal(verifySession(next, now + 1700_000), null);
+  assert.equal(authorize(request(token), now + 901_000).ok, false);
 });
 
 test("credential rotation invalidates an existing session", () => {

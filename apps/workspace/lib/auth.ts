@@ -244,7 +244,11 @@ export function authorize(
   );
   if (existing) {
     const user = verifySession(existing, nowMs);
-    if (user) return { ok: true, user };
+    // Research can exceed one token lifetime; activity renews the 15-minute idle window.
+    if (user) return {
+      ok: true, user,
+      setCookie: sessionCookie(createSession(user, nowMs), request),
+    };
   }
   const authorization = request.headers.get("authorization") || "";
   if (!authorization.startsWith("Basic ")) {
