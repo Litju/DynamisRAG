@@ -410,6 +410,18 @@ class DiscoveredRecord(BaseModel):
     in_europe_pmc: bool | None = None
     query_level: int
     rank: int
+    # Query groups (of the most specific search) matched by title + abstract: a broad fallback
+    # hit about another topic must not displace a work on the asked topic.
+    topical_score: int = 0
+
+
+def topical_score(title: str, abstract: str, groups: Sequence[Sequence[str]]) -> int:
+    text = " ".join(f"{title} {abstract}".lower().replace("\u2013", "-").split())
+    return sum(
+        1
+        for group in groups
+        if any(re.search(rf"\b{re.escape(term.lower())}", text) for term in group)
+    )
 
 
 def _pmid(value: object) -> str | None:
@@ -495,9 +507,10 @@ def link_identities(
         kinds = [{getattr(r, k) for r in group if getattr(r, k)} for k in ("doi", "pmid", "pmcid")]
         (conflicts if any(len(values) > 1 for values in kinds) else accepted).append(group)
 
-    def order(group: list[DiscoveredRecord]) -> tuple[int, int, int]:
+    def order(group: list[DiscoveredRecord]) -> tuple[int, int, int, int]:
         best = min(group, key=lambda r: (r.provider != "europe_pmc", r.query_level, r.rank))
-        return (best.provider != "europe_pmc", best.query_level, best.rank)
+        topical = max((r.topical_score for r in group), default=0)
+        return (-topical, best.provider != "europe_pmc", best.query_level, best.rank)
 
     return sorted(accepted, key=order), conflicts
 
@@ -514,6 +527,7 @@ def _identity(group: list[DiscoveredRecord]) -> dict[str, Any]:
         "pmcid": pick("pmcid"),
         "title": first.title[:300],
         "year": pick("year"),
+        "topical_score": max(r.topical_score for r in group),
         "providers": sorted({r.provider for r in group}),
         "europe_pmc_license": next(
             (r.license for r in group if r.provider == "europe_pmc" and r.license), None
@@ -779,6 +793,15 @@ class LiteratureAcquisition:
                     record = _europe_pmc_record(cast("dict[str, Any]", raw), level.level, rank)
                 except (ValidationError, ValueError, TypeError, AttributeError, KeyError):
                     continue
+                record = record.model_copy(
+                    update={
+                        "topical_score": topical_score(
+                            record.title,
+                            str(cast("dict[str, Any]", raw).get("abstractText") or ""),
+                            ladder[0].groups,
+                        )
+                    }
+                )
                 if record.source_id in seen:
                     continue
                 seen.add(record.source_id)
