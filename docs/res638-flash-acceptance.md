@@ -86,3 +86,10 @@ cannot be determined exactly from the client. No claim is made about actual bill
 Validation: 2,874 unit tests passed before the final narrow timeout/health changes;
 subsequent targeted routing tests, workspace tests (20), Ruff and full Pyright/type checks
 passed. Exact-head GitHub CI is recorded on PR #35. No public deployment or merge.
+
+Final CI exposed a pre-existing database identity collision: two isolated servers can
+share a start timestamp and port. The isolation check now compares PostgreSQL's
+immutable cluster system identifier and database name. Tests cover same-cluster aliases,
+distinct clusters and distinct databases; a live check allowed the new isolated stores
+and rejected a protected-database alias. The scientific browser evidence predates this
+guard-only repair; final CI validates the complete head.

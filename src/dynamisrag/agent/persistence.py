@@ -997,21 +997,20 @@ class PostgresAgentConversationStore:
 
     # -- setup ------------------------------------------------------------------
     @staticmethod
-    def _fingerprint(database_url: str) -> tuple[str, str, int]:
+    def _fingerprint(database_url: str) -> tuple[str, str]:
         import psycopg
 
         conninfo = database_url.replace("postgresql+psycopg://", "postgresql://", 1)
         with psycopg.connect(conninfo, autocommit=True) as conn:
             row = conn.execute(
-                "SELECT current_database(), pg_postmaster_start_time()::text, "
-                "COALESCE(inet_server_port(), 0)"
+                "SELECT current_database(), system_identifier::text FROM pg_control_system()"
             ).fetchone()
         assert row is not None  # noqa: S101
-        return str(row[0]), str(row[1]), int(row[2])
+        return str(row[0]), str(row[1])
 
     @classmethod
     def _assert_distinct_server_database(cls, agent_url: str, protected_url: str) -> None:
-        """Live check: same database name on the same running server is the same database."""
+        """Cluster identity survives aliases/restarts; simultaneous starts are not identity."""
         agent = cls._fingerprint(agent_url)
         protected = cls._fingerprint(protected_url)
         if agent == protected:
