@@ -46,7 +46,10 @@ SYNTHESIS_RULES: Final[str] = (
     "item's `passage_key` and `span_key`. Never invent quotes, numbers, units, or identifiers.\n"
     "3. `claim_text` may be a concise paraphrase of the quote, but it must not state anything the "
     "quote does not support (no extra numbers, no stronger or reversed effect, no "
-    "generalisation).\n"
+    "generalisation). Keep the quote's own words, negations and hedges (may, might, "
+    "suggest); put your interpretation, caveats and cross-study judgements in "
+    "`evidence_gaps` or `tensions`, never in `claim_text`. Only quote passages that are "
+    "about the question's own topic.\n"
     "4. Return 1 to 8 claims that answer the question, covering each asked aspect the evidence "
     "addresses and drawing on several studies when they exist. `aspect` names the asked aspect "
     'the claim addresses (or "general"). `support` is your proposed label for what the quote '
@@ -94,6 +97,7 @@ def build_synthesis_messages(
     findings: list[dict[str, Any]],
     comparison: dict[str, Any] | None,
     aspect_coverage: dict[str, int] | None = None,
+    repair_feedback: list[dict[str, str]] | None = None,
 ) -> list[BaseMessage]:
     """Assemble the synthesis prompt. Nothing here truncates evidence or the question."""
     candidates = [
@@ -128,6 +132,14 @@ def build_synthesis_messages(
         )
         + (f"COMPARISON_JSON: {json.dumps(comparison, default=str)}\n" if comparison else "")
         + f"USER_QUESTION: {question}\n"
+        + (
+            "REPAIR (one attempt): the canonical verifier rejected the claims in "
+            "REJECTED_CLAIMS_JSON. Propose claims again following rule 3 exactly; the same "
+            "checks apply. "
+            f"REJECTED_CLAIMS_JSON: {json.dumps(repair_feedback, ensure_ascii=False)}\n"
+            if repair_feedback
+            else ""
+        )
         # Last on purpose: consumers locate the evidence list by this marker.
         + f"CANDIDATE_EVIDENCE_JSON: {json.dumps(candidates, ensure_ascii=False)}"
     )

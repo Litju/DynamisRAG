@@ -1662,6 +1662,14 @@ class ConversationalResearchOrchestrator:
                 ]
             }
 
+        repair_feedback = [
+            {
+                "passage_key": str(c.get("passage_key", "")),
+                "claim_text": str(c.get("claim_text", ""))[:300],
+                "rejection_reason": str(c.get("rejection_reason", ""))[:200],
+            }
+            for c in state.get("rejected_citations", [])
+        ][:8]
         messages = build_synthesis_messages(
             question=state.get("question", ""),
             resolved_question=state.get("resolved_question") or state.get("question", ""),
@@ -1674,6 +1682,7 @@ class ConversationalResearchOrchestrator:
                 "dict[str, int]",
                 (state.get("answerability") or {}).get("aspect_coverage") or {},
             ),
+            repair_feedback=repair_feedback if state.get("repair_attempts", 0) > 0 else None,
         )
         try:
             ai_msg = self._model.invoke_plain(
@@ -2003,6 +2012,11 @@ class ConversationalResearchOrchestrator:
             }
 
         if attempts < max_attempts and verified:
+            return {"repair_attempts": attempts + 1}
+
+        if attempts < max_attempts and rejected:
+            # Nothing verified: give the model ONE bounded repair round with the verifier's
+            # reasons. The verifier is unchanged; the repaired claims face the same checks.
             return {"repair_attempts": attempts + 1}
 
         if verified:
