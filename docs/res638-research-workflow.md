@@ -1,14 +1,41 @@
 # RES-638 real research workflow
 
-Status: **REAL_RESEARCH_WORKFLOW_PARTIAL_PROVIDER_BLOCKED**. Real discovery, rights-gated
-ingestion, a fresh versioned dense projection, retrieval, canonical citation inspection and the
-follow-up turn run end to end in the Next.js/Eve workspace. **Full acceptance fails**: the sole
-configured model, `gpt-6-luna` on OpenCode Go, is not authorized for this workload, so no model
-request is sent and no claim is synthesized. Independently, the lexical relevance gate admitted
-no retrieved passage for these broad questions (best weighted coverage 0.43 initial, 0.65
-follow-up; 0.60 required), so even an authorized model would have abstained on this corpus.
-Evidence: [receipt](evidence/res638-research-workflow/receipt.json) and the
-[browser run](evidence/res638-research-workflow/browser/acceptance.json).
+Status: **REAL_RESEARCH_WORKFLOW_PARTIAL_PROVIDER_BLOCKED** (2026-11-17,
+[live-v2 receipt](evidence/res638-research-workflow/live-v2/receipt.json)). Full acceptance did **not** pass.
+
+## Live v2 (2026-11-17): the real model drives the research
+
+On fresh, empty stores (`dynamisrag-res638-accept2`) and the exact acceptance question,
+`gpt-6-luna` itself chose the tools: `list_papers`, a `discover_external_literature` request with
+three concept-group searches (force–velocity / load–velocity profiling × linear position
+transducer × resistance training × validity / reliability / applications), and four
+aspect-focused `hybrid_search` calls. Europe PMC returned 41 records (38 works); 4 CC BY 4.0
+JATS full texts were ingested (107 passages, collection
+`qdrant-passages-v1-56c6358c…7fd8`, pinned TEI). 5 model requests, nominal USD 0.0024421.
+
+**It abstained** (`canonical_citation_verification_failed`): both model claims added
+interpretation that the unchanged verifier rejected, and 2 of the 4 ingested works were
+off-topic (query-order ingestion). Fixes since: one bounded model repair round with the
+verifier's reasons, a stricter paraphrase rule, topical ranking of discovered works, and
+serialized agent-schema setup (attempt 2 crashed at startup with a deadlock, 0 requests).
+None of these fixes is re-verified live.
+
+**Budget.** The owner requires USD 0 new spending. Whether the 5 requests were inside the
+existing Go allowance is **unverified** (console-only). Inference was stopped, the local approval
+flags were reset to `false`, and no further live run is made until a zero incremental charge is
+verified. **Authorization** was re-evaluated against the published terms: no written permission is
+required and OpenCode never rejected anything; the owner approved local, owner-only use
+([record](evidence/res638-research-workflow/opencode-go-authorization.json)).
+
+What changed in code: the model may request a literature search (validated concept groups,
+once per turn, rights gate unchanged); works already in the corpus are not recounted, so a
+follow-up can add new studies; undefined acronyms ("LPT") are resolved from the conversation;
+enumerated multi-aspect questions are judged collectively (core topic plus any one aspect per
+passage, uncovered aspects reported) while a missing core topic still abstains; synthesis labels
+each claim with its aspect and a proposed support label (study finding / author interpretation /
+background citation) and lists gaps and tensions, all `MODEL_PROPOSED`.
+
+The sections below describe the 2026-11-16 provider-blocked run (v1).
 
 ## 0. Accepted run (2026-11-16, code `a0e147d`)
 
@@ -39,11 +66,9 @@ passage and its source spans.
 * Verified without the key on 2026-11-16: the documented catalogue
   `https://opencode.ai/inference/go/v1/models` lists `gpt-6-luna` (`openai/gpt-6-luna`, chat,
   `tools.supported: true`, `api.responses`).
-* Authorization: OpenCode documents Go as "designed for OpenCode and other coding agents", asks
-  for "typical coding agent traffic", and its Terms (effective 2026-11-08) limit use to "your own
-  internal use, and not on behalf of or for the benefit of any third party". No written
-  permission for a research workspace exists, so `DYNAMISRAG_AGENT_OPENCODE_GO_USAGE_APPROVED`
-  stays `false` and the key was never used ([receipt](evidence/res638-research-workflow/opencode-go-authorization.json)).
+* Authorization (v1, corrected 2026-11-17): the v1 record treated written permission from
+  OpenCode as required; the Terms require none. The block was the local flag, not OpenCode
+  ([record v2](evidence/res638-research-workflow/opencode-go-authorization.json)).
 * With approval false the service runs `ProviderBlockedRuntime`: no client, no key, every call
   refused before the network. Retrieval and verification still run; synthesis abstains with
   `provider_authorization_blocked`. No local or substitute model is used.
