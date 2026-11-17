@@ -596,4 +596,8 @@ def test_provider_failure_is_sanitized_and_never_substituted() -> None:
     summary = runtime.summarize("run-4", tool_calls_count=0)
     assert [c.outcome for c in summary.calls] == ["error"]
     assert summary.models[1].failed_requests == 1
+    assert (
+        summary.calls[0].completion_tokens
+        == DEFAULT_ROSTER[ModelRole.COORDINATOR].max_output_tokens
+    )
     assert summary.pro_escalations == 0

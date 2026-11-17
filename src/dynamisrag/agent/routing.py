@@ -533,9 +533,9 @@ class RoutedModelRuntime:
         completion = int(usage.get("output_tokens", 0) or 0)
         if not usage:
             # The provider reported nothing (or the call failed after sending): never treat that
-            # as free. Charge the prompt estimate, plus the output allowance if text came back.
+            # as free: a timeout can occur after generation. Reserve the full output allowance.
             prompt = estimate
-            completion = spec.max_output_tokens if message is not None else 0
+            completion = spec.max_output_tokens
         total = int(usage.get("total_tokens", prompt + completion) or (prompt + completion))
         record = reservation.model_copy(
             update={
@@ -682,6 +682,8 @@ def _resolve_specs(config: OpenCodeGoRosterConfig) -> dict[ModelRole, RoleModelS
         ):
             # Scientific synthesis includes verbatim source spans; reasoning shares this cap.
             update["max_output_tokens"] = max(card.max_output_tokens, 8192)
+            update["timeout_seconds"] = 120.0
+            update["budget"] = card.budget.model_copy(update={"max_latency_ms": 240_000})
         if distinct == 1 and role is ModelRole.PRO:
             # The escalation stays a single, separately budgeted call on the same model.
             update["budget"] = card.budget.model_copy(update={"max_requests": 1})
