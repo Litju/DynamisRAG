@@ -660,6 +660,36 @@ class DiscoverExternalLiteratureInput(AgentContract):
     pmcid: Annotated[str, StringConstraints(pattern=r"^PMC[0-9]{1,12}$")]
 
 
+LiteratureTerm = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True,
+        min_length=2,
+        max_length=60,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9 \-]*[A-Za-z0-9]$",
+    ),
+]
+
+
+class LiteratureSearch(AgentContract):
+    """One search: every group must match; any term within a group may match (synonyms)."""
+
+    all_of: tuple[Annotated[tuple[LiteratureTerm, ...], Field(min_length=1, max_length=6)], ...] = (
+        Field(min_length=1, max_length=4)
+    )
+
+
+class LiteratureSearchRequestInput(AgentContract):
+    """The research model's request to search open-access literature (RES-638).
+
+    Plain terms only: no quotes, operators or field syntax. The graph turns each search into a
+    bounded Europe PMC / OpenAlex query and runs the rights-gated acquisition once per run.
+    """
+
+    searches: tuple[LiteratureSearch, ...] = Field(min_length=1, max_length=4)
+    rationale: SafeShortText
+
+
 class DiscoverExternalLiteratureOutput(AgentContract):
     """Output contract for restricted external literature discovery.
 

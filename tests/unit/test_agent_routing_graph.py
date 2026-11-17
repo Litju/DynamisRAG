@@ -281,7 +281,13 @@ class _SeedingAcquisition:
         self.calls: list[tuple[str, str]] = []
 
     def acquire(
-        self, question: str, *, context: str = "", should_stop: Any = None, progress: Any = None
+        self,
+        question: str,
+        *,
+        context: str = "",
+        should_stop: Any = None,
+        progress: Any = None,
+        model_searches: Any = (),
     ) -> dict[str, Any]:
         from sqlalchemy import text
         from sqlalchemy.orm import Session

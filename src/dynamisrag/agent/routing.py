@@ -307,6 +307,17 @@ class RoutedModelRuntime:
     sleep: Callable[[float], None] = time.sleep
     _ledgers: dict[str, _Ledger] = field(default_factory=_empty_ledgers)
     _lock: threading.Lock = field(default_factory=threading.Lock)
+    _sessions: dict[str, str] = field(default_factory=lambda: cast("dict[str, str]", {}))
+
+    def bind_session(self, run_id: str, conversation_id: str) -> None:
+        """Use one provider session per conversation: every turn of a thread shares it."""
+        with self._lock:
+            self._sessions[run_id] = conversation_id
+
+    def session_header(self, run_id: str) -> str:
+        with self._lock:
+            key = self._sessions.get(run_id, run_id)
+        return hashlib.sha256(key.encode()).hexdigest()[:32]
 
     def __post_init__(self) -> None:
         if set(self.specs) != set(ModelRole) or set(self.models) != set(ModelRole):
@@ -506,7 +517,7 @@ class RoutedModelRuntime:
             ledger.records.append(reservation)
             slot = len(ledger.records) - 1
         spec = self.specs[role]
-        headers = {"x-opencode-session": hashlib.sha256(run_id.encode()).hexdigest()[:32]}
+        headers = {"x-opencode-session": self.session_header(run_id)}
         started = time.perf_counter()
         outcome = "ok"
         error_class: str | None = None
@@ -723,8 +734,9 @@ def build_opencode_go_runtime(
     """
     if not config.usage_approved:
         raise ProviderConfigurationError(
-            "OpenCode Go usage rights for this deployment are unverified; set "
-            "agent_opencode_go_usage_approved only after written confirmation from OpenCode"
+            "OpenCode Go use is not approved for this deployment; the account owner sets "
+            "agent_opencode_go_usage_approved only after recording the usage basis against "
+            "OpenCode's published terms"
         )
     if config.api_key is None or not config.api_key.get_secret_value().strip():
         raise ProviderConfigurationError("OpenCode Go requires a server-side API key")
@@ -738,6 +750,10 @@ def build_opencode_go_runtime(
         api_key=config.api_key,
         usage_approved=config.usage_approved,
         max_tokens=specs[ModelRole.COORDINATOR].max_output_tokens,
+        # A research turn needs several focused searches plus a literature request; the
+        # per-role request, token and cost budgets still bound the model side.
+        max_tool_calls_per_run=14,
+        max_tool_rounds=3,
     )
     policy = RoutingPolicy(
         max_pro_escalations=config.max_pro_escalations,

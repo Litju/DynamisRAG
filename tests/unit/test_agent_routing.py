@@ -177,7 +177,7 @@ def test_roster_matches_the_three_mandated_models_and_endpoints() -> None:
 
 
 def test_build_refuses_without_approval_key_or_verified_model() -> None:
-    with pytest.raises(ProviderConfigurationError, match="unverified"):
+    with pytest.raises(ProviderConfigurationError, match="not approved"):
         build_opencode_go_runtime(_config(usage_approved=False))
     with pytest.raises(ProviderConfigurationError, match="API key"):
         build_opencode_go_runtime(_config(api_key=None))

@@ -689,7 +689,8 @@ def _build_opencode_go_model(
     if not config.usage_approved:
         raise ProviderConfigurationError(
             "OpenCode Go usage rights for this deployment are unverified; set "
-            "agent_opencode_go_usage_approved only after written confirmation from OpenCode"
+            "agent_opencode_go_usage_approved only after recording the usage basis against "
+            "OpenCode's published terms"
         )
     if not config.api_key:
         raise ProviderConfigurationError("OpenCode Go requires a server-side API key")
