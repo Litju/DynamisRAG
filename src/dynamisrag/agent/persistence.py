@@ -931,6 +931,15 @@ _RUN_COLUMNS: Final[tuple[tuple[str, str], ...]] = (
 )
 
 
+# Advisory-lock key for one-at-a-time agent schema setup (ASCII "DRAGSETU").
+_SETUP_LOCK_KEY: Final[int] = 0x4452414753455455
+
+
+def _try_lock(connection: Any) -> bool:  # noqa: ANN401 - psycopg connection with dict rows
+    row = connection.execute("SELECT pg_try_advisory_lock(%s) AS ok", (_SETUP_LOCK_KEY,)).fetchone()
+    return bool(row and row["ok"])
+
+
 class PostgresAgentConversationStore:
     """PostgreSQL-backed :class:`AgentConversationStore` in a dedicated agent database."""
 
@@ -969,8 +978,18 @@ class PostgresAgentConversationStore:
         )
         try:
             self._checkpointer = PostgresSaver(self._pool)
-            self._checkpointer.setup()
-            self._setup_agent_tables()
+            # API and worker may start together: serialize schema setup on one advisory lock
+            # (concurrent CREATE INDEX deadlocked live in RES-638). Waiters poll with
+            # pg_try_advisory_lock between statements: a blocked pg_advisory_lock call is an
+            # open snapshot that CREATE INDEX CONCURRENTLY in the holder would wait for.
+            with self._control_pool.connection() as lock:
+                while not _try_lock(lock):
+                    time.sleep(0.2)
+                try:
+                    self._checkpointer.setup()
+                    self._setup_agent_tables()
+                finally:
+                    lock.execute("SELECT pg_advisory_unlock(%s)", (_SETUP_LOCK_KEY,))
         except BaseException:
             self._control_pool.close()
             self._pool.close()
@@ -1015,7 +1034,14 @@ class PostgresAgentConversationStore:
             boot_pool.connection() as conn,
         ):
             stmt = sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(sql.Identifier(schema_name))
-            conn.execute(stmt)
+            while not conn.execute(
+                "SELECT pg_try_advisory_lock(%s)", (_SETUP_LOCK_KEY,)
+            ).fetchone()[0]:  # type: ignore[index]
+                time.sleep(0.2)  # concurrent IF NOT EXISTS still races on the catalog
+            try:
+                conn.execute(stmt)
+            finally:
+                conn.execute("SELECT pg_advisory_unlock(%s)", (_SETUP_LOCK_KEY,))
 
     def _setup_agent_tables(self) -> None:
         with self._pool.connection() as conn, conn.transaction():
