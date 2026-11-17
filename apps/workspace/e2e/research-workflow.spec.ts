@@ -8,13 +8,12 @@ const enabled = !!process.env.WORKSPACE_RESEARCH_WORKFLOW;
 const providerBlocked = process.env.WORKSPACE_PROVIDER_BLOCKED === "1";
 const evidenceDir = process.env.WORKSPACE_RESEARCH_EVIDENCE_DIR || "test-results/research-workflow";
 
+// The exact acceptance questions (RES-638). "LPT" is deliberately not defined in turn 1.
 const INITIAL =
-  "What does the evidence say about the validity, reliability, practical applications and " +
-  "limitations of force–velocity profiling using linear position transducers (LPT) in " +
-  "resistance training?";
-const FOLLOW_UP =
-  "How do LPT-derived force–velocity measures compare with reference systems such as force " +
-  "plates or 3D motion capture?";
+  "What does the scientific literature establish about force–velocity profiling using linear " +
+  "position transducers in resistance training? Evaluate measurement validity, reliability, " +
+  "applications and limitations.";
+const FOLLOW_UP = "How do LPT measurements compare with reference measurement systems?";
 
 function save(name: string, value: unknown) {
   mkdirSync(evidenceDir, { recursive: true });
@@ -87,6 +86,10 @@ test("live research workflow: empty corpus, real discovery, ingestion, retrieval
   } else {
     expect(first.run.status).toBe("completed");
     expect(first.run.verified_citations.length).toBeGreaterThan(0);
+    // The real model chose tools and wrote the synthesis; nothing deterministic passes here.
+    expect(first.run.telemetry.model_calls).toBeGreaterThan(0);
+    expect(first.run.telemetry.autonomous_tool_decisions).toBeGreaterThan(0);
+    expect(first.run.telemetry.synthesis_source).toBe("model");
     await page.getByRole("button", { name: "Inspect source 1", exact: true }).click();
     await expect(page.locator("mark")).toBeVisible();
   }
@@ -106,6 +109,12 @@ test("live research workflow: empty corpus, real discovery, ingestion, retrieval
   } else {
     expect(second.run.status).toBe("completed");
     expect(second.run.verified_citations.length).toBeGreaterThan(0);
+    expect(second.run.telemetry.model_calls).toBeGreaterThan(0);
+    expect(second.run.telemetry.synthesis_source).toBe("model");
+    await page.getByRole("button", { name: "Inspect source 1", exact: true }).click();
+    await expect(page.locator("mark")).toBeVisible();
+    await page.screenshot({ path: join(evidenceDir, "4-follow-up-source.png"), fullPage: true });
+    await page.getByRole("button", { name: "Close source" }).click();
   }
   save("acceptance.json", {
     provider_blocked: providerBlocked,

@@ -55,6 +55,10 @@ type Acquisition = {
   works: Work[];
   ingested: Work[];
   rejected: Work[];
+  already_in_corpus?: Work[];
+  origin?: string;
+  model_rationale?: string | null;
+  query_ladder?: { level: number; origin?: string; europe_pmc: string }[];
   projection?: {
     collection: string;
     alias: string;
@@ -88,6 +92,10 @@ type Run = {
     retrieved_evidence?: Retrieved[];
     retrieval_candidates?: Retrieved[];
     model_calls?: number;
+    model_name?: string;
+    estimated_cost_usd?: number;
+    autonomous_tool_decisions?: number;
+    synthesis_source?: string | null;
   };
 };
 type Evidence = {
@@ -231,21 +239,25 @@ export default function Workspace() {
         <header className="topbar">
           <span>Scientific research</span>
           <span className="badge">
-            {process.env.NEXT_PUBLIC_RESEARCH_MODE ===
-            "deterministic-verification"
+            {process.env.NEXT_PUBLIC_RESEARCH_MODE === "deterministic-verification"
               ? "Deterministic verification"
-              : "Inference qualification pending"}
+              : process.env.NEXT_PUBLIC_RESEARCH_MODE === "model-research"
+                ? "Model research (MODEL_PROPOSED)"
+                : "Inference qualification pending"}
           </span>
         </header>
         <div className="notice" role="note" style={{ margin: "16px 24px" }}>
           <strong>Open-access literature, verified at the source</strong>
           <p>
-            When the library has no relevant evidence, a thread without a fixed
-            document scope searches Europe PMC and OpenAlex once, and ingests only
-            open-access full texts whose licence permits reuse. Every answer cites
+            In a thread without a fixed document scope the research model can search
+            Europe PMC and OpenAlex once per turn (and the library is searched
+            automatically when it has no relevant evidence); only open-access full
+            texts whose licence permits reuse are ingested. Every answer cites
             canonical passages you can inspect.
             {process.env.NEXT_PUBLIC_RESEARCH_MODE === "provider-blocked" &&
               " The language model is not authorized for research use: retrieval runs, synthesis abstains."}
+            {process.env.NEXT_PUBLIC_RESEARCH_MODE === "model-research" &&
+              " Tool choices, searches and synthesis come from the configured model; quotations are checked against canonical sources, scientific support is not."}
             {process.env.NEXT_PUBLIC_RESEARCH_MODE === "deterministic-verification" &&
               " This is a sample-corpus demo with fixed response logic, not a live AI research assistant."}
           </p>
@@ -490,7 +502,23 @@ function Conversation({ thread }: { thread: Thread }) {
                   {run.telemetry.literature_acquisition.ingested.length} open-access
                   full texts ingested ·{" "}
                   {run.telemetry.literature_acquisition.rejected.length} rejected
+                  {(run.telemetry.literature_acquisition.already_in_corpus?.length ?? 0) > 0 &&
+                    ` · ${run.telemetry.literature_acquisition.already_in_corpus!.length} already in the corpus`}
                 </p>
+                {run.telemetry.literature_acquisition.origin === "model_directed" && (
+                  <p data-testid="search-origin">
+                    Searches chosen by the research model
+                    {run.telemetry.literature_acquisition.model_rationale &&
+                      `: ${run.telemetry.literature_acquisition.model_rationale}`}
+                  </p>
+                )}
+                <ul aria-label="Queries sent">
+                  {(run.telemetry.literature_acquisition.query_ladder ?? []).map((q) => (
+                    <li key={q.level}>
+                      <code>{q.europe_pmc}</code> ({q.origin ?? "fixed_rule"})
+                    </li>
+                  ))}
+                </ul>
                 <ul>
                   {run.telemetry.literature_acquisition.ingested.map((w) => (
                     <li key={w.pmcid || w.doi || w.title} data-testid="ingested-paper">
@@ -543,6 +571,14 @@ function Conversation({ thread }: { thread: Thread }) {
                 </details>
               )}
             <p>{run.status} · MODEL_PROPOSED / PROPOSED</p>
+            {run.telemetry?.model_calls !== undefined && (
+              <p data-testid="model-telemetry">
+                {run.telemetry.model_name ?? "model"} · {run.telemetry.model_calls} model
+                calls · {run.telemetry.autonomous_tool_decisions ?? 0} model-chosen tool calls ·
+                synthesis {run.telemetry.synthesis_source ?? "none"} · estimated USD{" "}
+                {(run.telemetry.estimated_cost_usd ?? 0).toFixed(4)}
+              </p>
+            )}
             {run.error_message && <p role="alert">{run.error_message}</p>}
             {run.abstention_reason && <p>{run.abstention_reason}</p>}
             {run.verified_citations.map((citation, index) => (
