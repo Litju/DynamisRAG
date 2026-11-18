@@ -33,12 +33,13 @@ from typing import Any, Final, cast
 from uuid import uuid4
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
-from langchain_core.tools import BaseTool
+from langchain_core.tools import BaseTool, StructuredTool
 from pydantic import BaseModel, ValidationError
 
 from dynamisrag.agent.contracts import (
     DataScope,
     HybridSearchInput,
+    LiteratureSearchRequestInput,
     ToolExecutionEnvelope,
     ToolName,
 )
@@ -47,6 +48,7 @@ from dynamisrag.agent.routing import ModelBudgetExceeded, ModelRuntime
 from dynamisrag.agent.tools import ScientificToolRegistry, contains_prompt_injection
 
 __all__ = [
+    "LITERATURE_TOOL_NAME",
     "NODE3_TOOL_NAMES",
     "SNIPPET_CHARS",
     "ToolLoopOutcome",
@@ -70,6 +72,31 @@ _RETRIEVAL_TOOLS: Final[frozenset[str]] = frozenset(
     {ToolName.HYBRID_SEARCH.value, ToolName.SEARCH_INDEX.value}
 )
 SNIPPET_CHARS: Final[int] = 600
+LITERATURE_TOOL_NAME: Final[str] = ToolName.DISCOVER_EXTERNAL_LITERATURE.value
+
+
+def literature_request_tool() -> BaseTool:
+    """Schema-only tool: the model asks for an open-access literature search.
+
+    It never runs inside the loop. A valid request is recorded and the graph runs the bounded,
+    rights-gated acquisition node next (once per run), then lets the model search again.
+    """
+
+    def _queued(**_: object) -> dict[str, Any]:  # pragma: no cover - never invoked
+        return {"ok": True, "status": "queued"}
+
+    return StructuredTool.from_function(
+        func=_queued,
+        name=LITERATURE_TOOL_NAME,
+        description=(
+            "Search open-access literature (Europe PMC, OpenAlex) and ingest permitted papers "
+            "(CC BY / CC0 full text only) into the corpus. Use when the corpus lacks studies that "
+            "address the question or one of its aspects. Each search is a list of concept groups: "
+            "all groups must match, any synonym inside a group may match. Plain terms only. Runs "
+            "once per turn, after which you can search the corpus again."
+        ),
+        args_schema=LiteratureSearchRequestInput,
+    )
 
 
 class ToolOrigin(StrEnum):
@@ -100,6 +127,7 @@ class ToolLoopOutcome:
     fallback_reason: str | None = None
     origin_counts: dict[str, int] = field(default_factory=_empty_counts)
     stopped: bool = False
+    literature_request: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -246,8 +274,13 @@ def run_model_tool_loop(  # noqa: PLR0912, PLR0915
     hits: list[dict[str, Any]],
     comparison: dict[str, Any] | None,
     envelopes: list[dict[str, Any]],
+    literature_tool: BaseTool | None = None,
 ) -> ToolLoopOutcome:
-    """Run the bounded model-directed tool loop and (only if needed) the recorded fallback."""
+    """Run the bounded model-directed tool loop and (only if needed) the recorded fallback.
+
+    With ``literature_tool`` the model may also request an open-access literature search; a
+    valid request ends the loop (the acquisition node runs next) and is never executed here.
+    """
     outcome = ToolLoopOutcome(
         hits=hits, comparison=comparison, envelopes=envelopes, messages=[], tool_calls_used=used
     )
@@ -271,6 +304,8 @@ def run_model_tool_loop(  # noqa: PLR0912, PLR0915
     lc_tools = registry.build_langchain_tools(scope, on_tool_executed=_on_tool)
     tool_map = {t.name: t for t in lc_tools}
     offered = [t for t in lc_tools if t.name in NODE3_TOOL_NAMES]
+    if literature_tool is not None:
+        offered.append(literature_tool)
 
     messages: list[BaseMessage] = [
         SystemMessage(content=system_prompt),
@@ -316,6 +351,55 @@ def run_model_tool_loop(  # noqa: PLR0912, PLR0915
 
         for call in requested:
             call_id = str(call.get("id") or f"call_{uuid4().hex[:10]}")
+            if literature_tool is not None and call.get("name") == LITERATURE_TOOL_NAME:
+                try:
+                    request = LiteratureSearchRequestInput.model_validate(call.get("args") or {})
+                except ValidationError as error:
+                    detail = f"{error.error_count()} validation error(s)"
+                    outcome.rejected_calls.append(
+                        {"tool_name": LITERATURE_TOOL_NAME, "reason": "invalid_arguments"}
+                    )
+                    emit(
+                        RunEventType.TOOL_REJECTED,
+                        {
+                            "tool_name": LITERATURE_TOOL_NAME,
+                            "reason": "invalid_arguments",
+                            "detail": detail,
+                            "round": round_index,
+                            "origin": ToolOrigin.MODEL_DIRECTED.value,
+                        },
+                    )
+                    messages.append(
+                        ToolMessage(
+                            content=json.dumps(
+                                {"ok": False, "error_code": "invalid_arguments", "message": detail}
+                            ),
+                            tool_call_id=call_id,
+                            name=LITERATURE_TOOL_NAME,
+                        )
+                    )
+                    continue
+                if outcome.literature_request is None:
+                    outcome.literature_request = request.model_dump(mode="json")
+                    outcome.tool_calls_used += 1
+                    _record(outcome.origin_counts, ToolOrigin.MODEL_DIRECTED)
+                    emit(
+                        RunEventType.TOOL_CALLED,
+                        {
+                            "tool_name": LITERATURE_TOOL_NAME,
+                            "args": outcome.literature_request,
+                            "origin": ToolOrigin.MODEL_DIRECTED.value,
+                            "round": round_index,
+                        },
+                    )
+                messages.append(
+                    ToolMessage(
+                        content=json.dumps({"ok": True, "status": "queued_after_this_step"}),
+                        tool_call_id=call_id,
+                        name=LITERATURE_TOOL_NAME,
+                    )
+                )
+                continue
             verdict = validate_tool_call(
                 call, tools=tool_map, scope=scope, default_version_keys=default_version_keys
             )
@@ -363,7 +447,10 @@ def run_model_tool_loop(  # noqa: PLR0912, PLR0915
             if result.get("ok") and isinstance(payload, dict):
                 pl = cast("dict[str, Any]", payload)
                 if verdict.name in _RETRIEVAL_TOOLS:
-                    hits.extend(cast("list[dict[str, Any]]", pl.get("hits", [])))
+                    hits.extend(
+                        {**h, "retrieval_mode": pl.get("retrieval_mode")}
+                        for h in cast("list[dict[str, Any]]", pl.get("hits", []))
+                    )
                 elif verdict.name == ToolName.COMPARE_STUDIES.value and isinstance(
                     pl.get("comparison"), dict
                 ):
@@ -375,11 +462,12 @@ def run_model_tool_loop(  # noqa: PLR0912, PLR0915
                     name=verdict.name,
                 )
             )
-        if outcome.stopped:
+        if outcome.stopped or outcome.literature_request is not None:
             break
 
     outcome.messages = messages
-    if outcome.stopped:
+    if outcome.stopped or outcome.literature_request is not None:
+        # A requested literature search runs next; the corpus is searched again after it.
         return outcome
 
     if not hits and outcome.tool_calls_used < budget:
@@ -412,5 +500,9 @@ def run_model_tool_loop(  # noqa: PLR0912, PLR0915
         outcome.tool_calls_used += 1
         _record(outcome.origin_counts, ToolOrigin.GRAPH_FALLBACK)
         if env.ok and env.payload is not None:
-            hits.extend(cast("list[dict[str, Any]]", env.payload.get("hits", [])))
+            mode = env.payload.get("retrieval_mode")
+            hits.extend(
+                {**h, "retrieval_mode": mode}
+                for h in cast("list[dict[str, Any]]", env.payload.get("hits", []))
+            )
     return outcome

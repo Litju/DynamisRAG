@@ -1,0 +1,217 @@
+{
+  "schema": "res638-answerability-heldout-v1",
+  "note": "Disjoint held-out cases written after the calibration thresholds were fixed. They exercise paraphrases, resolved multi-turn questions, close-domain negatives, cross-study comparisons and unsupported entities. They are author-constructed, not expert-adjudicated.",
+  "retrieval_cases": [
+    {
+      "id": "hold-pos-weeks-trained",
+      "question": "How many weeks of plyometric training did the depth jumping study participants complete?",
+      "expected_verdict": "ANSWERABLE",
+      "candidates": [
+        {
+          "passage_key": "5000000000000000000000000000000000000000000000000000000000000001",
+          "document_version_key": "6000000000000000000000000000000000000000000000000000000000000001",
+          "title": "Plyometric Training Favors Optimizing Muscle-Tendon Behavior during Depth Jumping",
+          "section_title": "Methods",
+          "text": "Twenty-one young adults completed 12 weeks of plyometric training with measurements during depth jumping.",
+          "canonical_verified": true,
+          "rank": 1
+        }
+      ]
+    },
+    {
+      "id": "hold-neg-remdesivir",
+      "question": "What is the binding affinity of remdesivir to SARS-CoV-2 polymerase?",
+      "expected_verdict": "ABSTAIN",
+      "expected_code": "unsupported_entity",
+      "candidates": [
+        {
+          "passage_key": "5000000000000000000000000000000000000000000000000000000000000002",
+          "document_version_key": "6000000000000000000000000000000000000000000000000000000000000002",
+          "title": "Knee Flexion Angle and Muscle Activity",
+          "section_title": "Results",
+          "text": "Vastus lateralis activity was greater at 90 degrees of knee flexion.",
+          "canonical_verified": true,
+          "rank": 1
+        }
+      ]
+    },
+    {
+      "id": "hold-pos-vastus-activation",
+      "question": "Did knee flexion angle affect vastus lateralis activation?",
+      "expected_verdict": "ANSWERABLE",
+      "candidates": [
+        {
+          "passage_key": "5000000000000000000000000000000000000000000000000000000000000003",
+          "document_version_key": "6000000000000000000000000000000000000000000000000000000000000003",
+          "title": "Impact of Starting Knee Flexion Angle on Muscle Activity",
+          "section_title": "Results",
+          "text": "Vastus lateralis activation was greater at 90 degrees than at 30 degrees of knee flexion.",
+          "canonical_verified": true,
+          "rank": 1
+        }
+      ]
+    },
+    {
+      "id": "hold-neg-creatine",
+      "question": "Does creatine supplementation increase sprint speed?",
+      "expected_verdict": "ABSTAIN",
+      "expected_code": "insufficient_query_coverage",
+      "candidates": [
+        {
+          "passage_key": "5000000000000000000000000000000000000000000000000000000000000004",
+          "document_version_key": "6000000000000000000000000000000000000000000000000000000000000004",
+          "title": "Plyometric Training and Sprint Performance",
+          "section_title": "Results",
+          "text": "Sprint performance increased after plyometric training in collegiate sprinters.",
+          "canonical_verified": true,
+          "rank": 1
+        }
+      ]
+    },
+    {
+      "id": "hold-pos-comparison-core-strength",
+      "question": "Compare core strength outcomes between the training groups.",
+      "expected_verdict": "ANSWERABLE",
+      "candidates": [
+        {
+          "passage_key": "5000000000000000000000000000000000000000000000000000000000000005",
+          "document_version_key": "6000000000000000000000000000000000000000000000000000000000000005",
+          "title": "Complex Training and Core Strength in Cricketers",
+          "section_title": "Results",
+          "text": "Core strength increased significantly in the complex training group compared with control.",
+          "canonical_verified": true,
+          "rank": 1
+        },
+        {
+          "passage_key": "5000000000000000000000000000000000000000000000000000000000000006",
+          "document_version_key": "6000000000000000000000000000000000000000000000000000000000000006",
+          "title": "Plyometric Conditioning and Core Endurance",
+          "section_title": "Results",
+          "text": "McGill plank core strength endurance increased after plyometric conditioning.",
+          "canonical_verified": true,
+          "rank": 2
+        }
+      ]
+    },
+    {
+      "id": "hold-neg-comparison-one-doc",
+      "question": "Compare core strength outcomes between the training groups.",
+      "expected_verdict": "ABSTAIN",
+      "expected_code": "insufficient_cross_study_evidence",
+      "authorized_document_count": 1,
+      "candidates": [
+        {
+          "passage_key": "5000000000000000000000000000000000000000000000000000000000000007",
+          "document_version_key": "6000000000000000000000000000000000000000000000000000000000000007",
+          "title": "Complex Training and Core Strength in Cricketers",
+          "section_title": "Results",
+          "text": "Core strength increased significantly in the complex training group compared with control.",
+          "canonical_verified": true,
+          "rank": 1
+        }
+      ]
+    },
+    {
+      "id": "hold-pos-medicine-ball",
+      "question": "Which training group improved medicine ball throw distance?",
+      "expected_verdict": "ANSWERABLE",
+      "candidates": [
+        {
+          "passage_key": "5000000000000000000000000000000000000000000000000000000000000008",
+          "document_version_key": "6000000000000000000000000000000000000000000000000000000000000008",
+          "title": "Complex Training and Upper Limb Power",
+          "section_title": "Results",
+          "text": "The complex training group improved medicine ball throw distance compared with the control group.",
+          "canonical_verified": true,
+          "rank": 1
+        }
+      ]
+    },
+    {
+      "id": "hold-neg-mariana",
+      "question": "What is the maximum depth of the Mariana Trench?",
+      "expected_verdict": "ABSTAIN",
+      "expected_code": "no_retrieval_candidates",
+      "candidates": []
+    },
+    {
+      "id": "hold-pos-resolved-followup",
+      "question": "How many weeks of plyometric training did those depth jumping participants complete?",
+      "expected_verdict": "ANSWERABLE",
+      "candidates": [
+        {
+          "passage_key": "5000000000000000000000000000000000000000000000000000000000000009",
+          "document_version_key": "6000000000000000000000000000000000000000000000000000000000000009",
+          "title": "Plyometric Training Favors Optimizing Muscle-Tendon Behavior during Depth Jumping",
+          "section_title": "Methods",
+          "text": "Participants completed 12 weeks of plyometric training, with a rest period of one week halfway through the training period.",
+          "canonical_verified": true,
+          "rank": 1
+        }
+      ]
+    },
+    {
+      "id": "hold-neg-soccer-population",
+      "question": "Does plyometric training improve jump height in professional soccer players?",
+      "expected_verdict": "ABSTAIN",
+      "expected_code": "insufficient_query_coverage",
+      "candidates": [
+        {
+          "passage_key": "5000000000000000000000000000000000000000000000000000000000000010",
+          "document_version_key": "6000000000000000000000000000000000000000000000000000000000000010",
+          "title": "Plyometric Training in Male Cricketers",
+          "section_title": "Results",
+          "text": "Jump height increased after plyometric training in male cricketers.",
+          "canonical_verified": true,
+          "rank": 1
+        }
+      ]
+    }
+  ],
+  "claim_cases": [
+    {
+      "id": "hold-pos-claim-interval",
+      "question": "What was the rest interval between depth jump sets?",
+      "expected_verdict": "ANSWERABLE",
+      "claims": [
+        {
+          "passage_key": "7000000000000000000000000000000000000000000000000000000000000001",
+          "document_version_key": "8000000000000000000000000000000000000000000000000000000000000001",
+          "document_title": "Depth Jump Protocol",
+          "claim_text": "The rest interval was 30 s.",
+          "verbatim_quote": "A 30 s rest interval separated depth jump sets."
+        }
+      ]
+    },
+    {
+      "id": "hold-neg-claim-off-domain",
+      "question": "What is the maximum depth of the Mariana Trench?",
+      "expected_verdict": "ABSTAIN",
+      "expected_code": "unsupported_entity",
+      "claims": [
+        {
+          "passage_key": "7000000000000000000000000000000000000000000000000000000000000002",
+          "document_version_key": "8000000000000000000000000000000000000000000000000000000000000002",
+          "document_title": "Depth Jump Protocol",
+          "claim_text": "The maximum depth was measured with a force plate.",
+          "verbatim_quote": "Depth was measured with a force plate."
+        }
+      ]
+    },
+    {
+      "id": "hold-neg-claim-entity",
+      "question": "What did the Proxima Centauri study report?",
+      "expected_verdict": "ABSTAIN",
+      "expected_code": "unsupported_entity",
+      "claims": [
+        {
+          "passage_key": "7000000000000000000000000000000000000000000000000000000000000003",
+          "document_version_key": "8000000000000000000000000000000000000000000000000000000000000003",
+          "document_title": "Plyometric Training and Jump Height",
+          "claim_text": "The study reported a jump height increase.",
+          "verbatim_quote": "The study reported a jump height increase."
+        }
+      ]
+    }
+  ]
+}

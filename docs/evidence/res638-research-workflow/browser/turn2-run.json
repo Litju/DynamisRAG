@@ -1,0 +1,638 @@
+{
+ "run_id": "run-76c51a5e9c6948a7",
+ "thread_id": "thread-05c14e1c506149b5",
+ "owner_id": "alice",
+ "idempotency_key": "turn_1",
+ "question": "How do LPT-derived force–velocity measures compare with reference systems such as force plates or 3D motion capture?",
+ "status": "abstained",
+ "require_confirmation": false,
+ "cancel_requested": false,
+ "attempt": 1,
+ "max_attempts": 3,
+ "worker_id": null,
+ "lease_expires_at": null,
+ "resume_payload": null,
+ "abort_reason": null,
+ "answer_markdown": "**Abstained from Scientific Synthesis (`evidence_gate:insufficient_query_coverage`)**\n\nThe agent could not verify canonical source spans supporting a scientific answer within the authorized corpus.\n\n#### Literature search (Europe PMC / OpenAlex, open access only)\nStatus `completed` · 26 records → 26 unique works (DOI/PMID/PMCID) · 4 permitted full texts ingested · 5 rejected · 0 model requests.\n- Eccentric Force-Velocity Characteristics during a Novel Squat Protocol in Trained Rugby Union Athletes-Pilot Study. — DOI `10.3390/jfmk6020032`, `PMC8103256`, PMID `33808291`, 24 passages, licence https://creativecommons.org/licenses/by/4.0/\n- Validity and reliability of the Valkyria Trainer Free® linear position transducer in the propulsive phase of bench press in men. — DOI `10.7717/peerj.21357`, `PMC13380235`, PMID `42472305`, 36 passages, licence https://creativecommons.org/licenses/by/4.0/\n- The Validity and Reliability of the Force Plates and the Linear Position Transducer in Measuring Countermovement Depth and Velocity During Countermovement Jump. — DOI `10.3390/s25216542`, `PMC12608286`, PMID `41228765`, 29 passages, licence https://creativecommons.org/licenses/by/4.0/\n- Concurrent Validity and Between-Session Reproducibility of Agreement of GPath for Mean Propulsive Velocity Assessment During the Bench Press Exercise. — DOI `10.3390/sports14070263`, `PMC13416992`, PMID `42506808`, 22 passages, licence https://creativecommons.org/licenses/by/4.0/\n- Qdrant collection `qdrant-passages-v1-444fe4cf90e2679dd09d465e2d92ef8371315712dffadea2e2091302d09abb90` (111 passages, alias `dynamisrag-research-workspace`)\n\n*All study findings, comparisons, and synthesized claims are MODEL_PROPOSED / PROPOSED. Exact quotation and canonical source-span checks verify text provenance only and do not establish scientific entailment, study validity, clinical applicability, or expert review.*",
+ "abstention_reason": "evidence_gate:insufficient_query_coverage",
+ "verified_citations": [],
+ "rejected_citations": [],
+ "proposed_findings": [],
+ "study_comparison": null,
+ "evidence_set_key": null,
+ "evidence_graph_key": null,
+ "telemetry": {
+  "calls": [
+   {
+    "role": "fast",
+    "stage": "model_tool_execution:0",
+    "call_id": "llm-2cdb053e6c4b",
+    "outcome": "refused_provider_authorization_unverified",
+    "endpoint": "responses",
+    "provider": "opencode_go",
+    "escalated": false,
+    "latency_ms": 0,
+    "model_name": "gpt-6-luna",
+    "error_class": null,
+    "total_tokens": 0,
+    "prompt_tokens": 0,
+    "model_revision": null,
+    "selection_reason": "stage:model_tool_execution",
+    "completion_tokens": 0,
+    "estimated_cost_usd": 0,
+    "tool_calls_requested": 0
+   },
+   {
+    "role": "fast",
+    "stage": "model_tool_execution:0",
+    "call_id": "llm-2628054011ea",
+    "outcome": "refused_provider_authorization_unverified",
+    "endpoint": "responses",
+    "provider": "opencode_go",
+    "escalated": false,
+    "latency_ms": 0,
+    "model_name": "gpt-6-luna",
+    "error_class": null,
+    "total_tokens": 0,
+    "prompt_tokens": 0,
+    "model_revision": null,
+    "selection_reason": "stage:model_tool_execution",
+    "completion_tokens": 0,
+    "estimated_cost_usd": 0,
+    "tool_calls_requested": 0
+   }
+  ],
+  "models": [
+   {
+    "role": "sole",
+    "endpoint": "responses",
+    "requests": 0,
+    "latency_ms": 0,
+    "model_name": "gpt-6-luna",
+    "prompt_tokens": 0,
+    "failed_requests": 2,
+    "completion_tokens": 0,
+    "estimated_cost_usd": 0
+   }
+  ],
+  "provider": "opencode_go",
+  "model_name": "gpt-6-luna",
+  "tool_calls": 2,
+  "model_calls": 0,
+  "tool_origins": {
+   "graph_enforced": 1,
+   "graph_fallback": 2,
+   "model_directed": 0
+  },
+  "total_tokens": 0,
+  "prompt_tokens": 0,
+  "model_revision": null,
+  "routing_events": [
+   "provider_authorization_unverified:no_request_sent"
+  ],
+  "pro_escalations": 0,
+  "synthesis_source": null,
+  "total_latency_ms": 0,
+  "completion_tokens": 0,
+  "estimated_cost_usd": 0,
+  "retrieved_evidence": [],
+  "retrieval_candidates": [
+   {
+    "doi": "10.3390/s25216542",
+    "pmid": "41228765",
+    "rank": 1,
+    "pmcid": "PMC12608286",
+    "title": "The Validity and Reliability of the Force Plates and the Linear Position Transducer in Measuring Countermovement Depth and Velocity During Countermovement Jump",
+    "excerpt": "This study aimed to establish the concurrent validity and reliability of force plates (FP) and linear position transducer (LPT) systems for measuring countermovement depth and velocity during the countermovement jump (CMJ), using motion capture (MC) as the reference standard.",
+    "admitted": false,
+    "passage_key": "1717bcc0e2358bfb8628b7188159987d4f77e6fe645d48abafbe568f42a05bec",
+    "gate_reasons": [],
+    "section_title": "4. Discussion",
+    "retrieval_mode": "qdrant_hybrid_rrf",
+    "query_relevance": 0.6491,
+    "canonical_verified": true,
+    "document_version_key": "86d7c3d57c7a744f8cc79f4c6dbfd5dd198be11fdfd873a4801d73e460c2368b"
+   },
+   {
+    "doi": "10.3390/s25216542",
+    "pmid": "41228765",
+    "rank": 2,
+    "pmcid": "PMC12608286",
+    "title": "The Validity and Reliability of the Force Plates and the Linear Position Transducer in Measuring Countermovement Depth and Velocity During Countermovement Jump",
+    "excerpt": "Therefore, this study aimed to determine the concurrent validity of depth and velocity of countermovement measured by the force plates (FP) and the linear position transducer (LPT) by comparing with motion capture (MC). Meanwhile, the reliability of depth and velocity of",
+    "admitted": false,
+    "passage_key": "e1da4408859798817cfa018a768044af64e053c3c38681b450f9fd0d34c6d5b4",
+    "gate_reasons": [],
+    "section_title": "1. Introduction",
+    "retrieval_mode": "qdrant_hybrid_rrf",
+    "query_relevance": 0.5088,
+    "canonical_verified": true,
+    "document_version_key": "86d7c3d57c7a744f8cc79f4c6dbfd5dd198be11fdfd873a4801d73e460c2368b"
+   },
+   {
+    "doi": "10.3390/s25216542",
+    "pmid": "41228765",
+    "rank": 3,
+    "pmcid": "PMC12608286",
+    "title": "The Validity and Reliability of the Force Plates and the Linear Position Transducer in Measuring Countermovement Depth and Velocity During Countermovement Jump",
+    "excerpt": "The LPT underestimates the countermovement depth compared to the MC and FP, and larger absolute and relative errors (mean difference = −7.94 cm, NRMSE = 17.24%). We believe there are two reasons: (1) lower/adaptive sampling with smoothing can blunt the displacement trough and",
+    "admitted": false,
+    "passage_key": "772c19e7eafaac9d6b18f59639f78daad910c0218e49d1b91ffa9f2570fb825f",
+    "gate_reasons": [],
+    "section_title": "4. Discussion",
+    "retrieval_mode": "qdrant_hybrid_rrf",
+    "query_relevance": 0.6491,
+    "canonical_verified": true,
+    "document_version_key": "86d7c3d57c7a744f8cc79f4c6dbfd5dd198be11fdfd873a4801d73e460c2368b"
+   },
+   {
+    "doi": "10.3390/s25216542",
+    "pmid": "41228765",
+    "rank": 4,
+    "pmcid": "PMC12608286",
+    "title": "The Validity and Reliability of the Force Plates and the Linear Position Transducer in Measuring Countermovement Depth and Velocity During Countermovement Jump",
+    "excerpt": "Various instruments can acquire the raw signals required to compute CMJ outcome variables during the CMJ test, including motion capture systems, force plates, linear position transducers, jump mats, and simplified optical measurement systems [11,12,13,14,15,16,17]. However, some",
+    "admitted": false,
+    "passage_key": "d14e026823ddb084534f666370f8ad2913c3d9f3c74f4a0a6c24c3321a778e9e",
+    "gate_reasons": [],
+    "section_title": "1. Introduction",
+    "retrieval_mode": "qdrant_hybrid_rrf",
+    "query_relevance": 0.5614,
+    "canonical_verified": true,
+    "document_version_key": "86d7c3d57c7a744f8cc79f4c6dbfd5dd198be11fdfd873a4801d73e460c2368b"
+   },
+   {
+    "doi": "10.3390/s25216542",
+    "pmid": "41228765",
+    "rank": 5,
+    "pmcid": "PMC12608286",
+    "title": "The Validity and Reliability of the Force Plates and the Linear Position Transducer in Measuring Countermovement Depth and Velocity During Countermovement Jump",
+    "excerpt": "Relative to MC, FP showed errors of MAE = 2.97 cm and RMSE = 3.28 cm for CMD (NRMSE = 6.69%), and MAE = 0.07 m·s−1 and RMSE = 0.09 m·s−1 for CMV (NRMSE = 8.17%). Relative to MC, the LPT exhibited larger error in CMD (MAE = 7.94 cm; RMSE = 8.46 cm; NRMSE = 17.24%) but smaller",
+    "admitted": false,
+    "passage_key": "4d027fdb946508780d0f74d5dea6324a8b17aadd8583c978a895bc5b4ce740c3",
+    "gate_reasons": [],
+    "section_title": "3.1. Validity",
+    "retrieval_mode": "qdrant_hybrid_rrf",
+    "query_relevance": 0.5614,
+    "canonical_verified": true,
+    "document_version_key": "86d7c3d57c7a744f8cc79f4c6dbfd5dd198be11fdfd873a4801d73e460c2368b"
+   },
+   {
+    "doi": "10.3390/s25216542",
+    "pmid": "41228765",
+    "rank": 6,
+    "pmcid": "PMC12608286",
+    "title": "The Validity and Reliability of the Force Plates and the Linear Position Transducer in Measuring Countermovement Depth and Velocity During Countermovement Jump",
+    "excerpt": "Determining the optimal countermovement depth and velocity is crucial for maximising jump height, with research demonstrating a second-order polynomial relationship between these parameters and JH [7,22,44]. The double integration method applied to the force plate data has been",
+    "admitted": false,
+    "passage_key": "150ce495934b2482e5bf5ad3c5f4f2b81aaa8f9eda39b7f609500d67b42de904",
+    "gate_reasons": [],
+    "section_title": "4. Discussion",
+    "retrieval_mode": "qdrant_hybrid_rrf",
+    "query_relevance": 0.5088,
+    "canonical_verified": true,
+    "document_version_key": "86d7c3d57c7a744f8cc79f4c6dbfd5dd198be11fdfd873a4801d73e460c2368b"
+   }
+  ],
+  "literature_acquisition": {
+   "works": [
+    {
+     "doi": "10.3390/jfmk11010047",
+     "pmid": "41718175",
+     "year": 2026,
+     "pmcid": "PMC12921881",
+     "title": "Effects of Knee Sleeve Density on Theoretical Neuromuscular Capacities Derived from the Force-Velocity-Power Profile in the Back Squat.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "europe_pmc_license": "cc by"
+    },
+    {
+     "doi": "10.1371/journal.pone.0298291",
+     "pmid": "38319955",
+     "year": 2024,
+     "pmcid": "PMC10846725",
+     "title": "The reliability of a linear position transducer for measuring countermovement jump performance in national-level road cyclists.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "europe_pmc_license": "cc by"
+    },
+    {
+     "doi": "10.70252/ijes2026103",
+     "pmid": "42003891",
+     "year": 2026,
+     "pmcid": "PMC13075562",
+     "title": "Acute Effects of Thoracic-Spinal Elevation via a Novel Bench Press Pad on sEMG and Barbell Kinetics in Resistance-Trained Males.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "europe_pmc_license": "cc by-nd"
+    },
+    {
+     "doi": "10.3389/fpubh.2025.1579291",
+     "pmid": "40520287",
+     "year": 2025,
+     "pmcid": "PMC12162595",
+     "title": "An investigation of the load-velocity relationship between flywheel eccentric and barbell training methods.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "europe_pmc_license": "cc by"
+    },
+    {
+     "doi": "10.3390/jfmk6020032",
+     "pmid": "33808291",
+     "year": 2021,
+     "pmcid": "PMC8103256",
+     "title": "Eccentric Force-Velocity Characteristics during a Novel Squat Protocol in Trained Rugby Union Athletes-Pilot Study.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "europe_pmc_license": "cc by"
+    },
+    {
+     "doi": "10.1515/hukin-2017-0109",
+     "pmid": "29339982",
+     "year": 2017,
+     "pmcid": "PMC5765782",
+     "title": "Relationships between Mechanical Variables in the Traditional and Close-Grip Bench Press.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "europe_pmc_license": "cc by-nc-nd"
+    },
+    {
+     "doi": "10.7717/peerj.21357",
+     "pmid": "42472305",
+     "year": 2026,
+     "pmcid": "PMC13380235",
+     "title": "Validity and reliability of the Valkyria Trainer Free® linear position transducer in the propulsive phase of bench press in men.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "europe_pmc_license": "cc by"
+    },
+    {
+     "doi": "10.3390/s25216542",
+     "pmid": "41228765",
+     "year": 2025,
+     "pmcid": "PMC12608286",
+     "title": "The Validity and Reliability of the Force Plates and the Linear Position Transducer in Measuring Countermovement Depth and Velocity During Countermovement Jump.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "europe_pmc_license": "cc by"
+    },
+    {
+     "doi": "10.3390/sports14070263",
+     "pmid": "42506808",
+     "year": 2026,
+     "pmcid": "PMC13416992",
+     "title": "Concurrent Validity and Between-Session Reproducibility of Agreement of GPath for Mean Propulsive Velocity Assessment During the Bench Press Exercise.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "europe_pmc_license": "cc by"
+    },
+    {
+     "doi": "10.3390/healthcare13080905",
+     "pmid": "40281854",
+     "year": 2025,
+     "pmcid": "PMC12026825",
+     "title": "Evaluating the Agreement and Associations with Physical Function Between Equation- and Linear Position Transducer-Estimated Sit-to-Stand Muscle Power in Aging Adults.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "europe_pmc_license": "cc by"
+    },
+    {
+     "doi": "10.1039/d6ra07834f",
+     "pmid": "42891395",
+     "year": 2026,
+     "pmcid": "PMC13674565",
+     "title": "Coordination-guided design of triazole-based Cu(ii) and Pt(iv) complexes: synthesis, characterization, theoretical studies, molecular docking and anticancer activity.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "europe_pmc_license": "cc by-nc"
+    },
+    {
+     "doi": "10.3390/foods15162832",
+     "pmid": "42650529",
+     "year": 2026,
+     "pmcid": "PMC13512484",
+     "title": "Chemical Diversity and Microbial Complexity of Liupao Tea Aroma: A Comprehensive Review.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "europe_pmc_license": "cc by"
+    },
+    {
+     "doi": "10.1186/s40798-026-01102-0",
+     "pmid": "42690493",
+     "year": 2026,
+     "pmcid": "PMC13542044",
+     "title": "Reliability, Device Agreement and Validity of Load-Velocity Profiles: A Systematic Review with Meta-analysis.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "europe_pmc_license": "cc by"
+    },
+    {
+     "doi": "10.3389/ebm.2026.10850",
+     "pmid": "41982211",
+     "year": 2026,
+     "pmcid": "PMC13071501",
+     "title": "Lymphatic pumping technique in mice alters blood parameters and metastatic melanoma in an age-dependent manner.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "europe_pmc_license": "cc by"
+    },
+    {
+     "doi": "10.1371/journal.pone.0357791",
+     "pmid": "42709746",
+     "year": 2026,
+     "pmcid": "PMC13552749",
+     "title": "Effect of adherence to nutrition guidelines and use of fortification of feeds on the growth of late preterm neonates.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "europe_pmc_license": "cc by"
+    },
+    {
+     "doi": "10.1177/23259671261468156",
+     "pmid": "42688677",
+     "year": 2026,
+     "pmcid": "PMC13535068",
+     "title": "Dynamic Ultrasound Assessment of Axial Extensor Mechanism Alignment in Adolescents With and Without Patellofemoral Instability.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "europe_pmc_license": "cc by-nc-nd"
+    },
+    {
+     "doi": "10.3390/jfmk10020109",
+     "pmid": "40566406",
+     "year": 2025,
+     "pmcid": "PMC12015919",
+     "title": "Reliability and Accuracy of Linear Position Transducers During the Bench Press and Back Squat: Implications for Velocity-Based Training.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "europe_pmc_license": "cc by"
+    },
+    {
+     "doi": "10.1007/s10103-026-04811-w",
+     "pmid": "41639513",
+     "year": 2026,
+     "pmcid": "PMC12872728",
+     "title": "Laser photobiomodulation enhances cell viability and regenerative gene expression in oxidative-stressed muscle cells.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "europe_pmc_license": "cc by"
+    },
+    {
+     "doi": "10.1002/advs.76198",
+     "pmid": "42318744",
+     "year": 2026,
+     "pmcid": "PMC13336379",
+     "title": "Targeting Lipopolysaccharide Transport Induces Membrane Lipid Remodeling and Sensitizes Acinetobacter baumannii to Colistin Treatment.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "europe_pmc_license": "cc by"
+    },
+    {
+     "doi": "10.70252/mfjk8861",
+     "pmid": "39807279",
+     "year": 2024,
+     "pmcid": "PMC11728576",
+     "title": "Validity and Reliability of a Linear Position Transducer to Measure Barbell Velocity, Duration, and Displacement During the Bench Press.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "europe_pmc_license": "cc by-nd"
+    }
+   ],
+   "status": "completed",
+   "ingested": [
+    {
+     "doi": "10.3390/jfmk6020032",
+     "pmid": "33808291",
+     "year": 2021,
+     "pmcid": "PMC8103256",
+     "title": "Eccentric Force-Velocity Characteristics during a Novel Squat Protocol in Trained Rugby Union Athletes-Pilot Study.",
+     "passages": 24,
+     "providers": [
+      "europe_pmc"
+     ],
+     "article_url": "https://europepmc.org/article/PMC/PMC8103256",
+     "license_uri": "https://creativecommons.org/licenses/by/4.0/",
+     "article_type": "research-article",
+     "source_sha256": "35c0ad20c12fd1e635f0309ecad3c5f027ff5138d08fcf7a622519bf76bf4f66",
+     "import_created": false,
+     "license_family": "cc by",
+     "canonical_title": "Eccentric Force-Velocity Characteristics during a Novel Squat Protocol in Trained Rugby Union Athletes—Pilot Study",
+     "europe_pmc_license": "cc by",
+     "document_version_key": "833c6811dd1417456408b7e9b5c863c5e7c8db84d251a575b29a95a51f44bbae",
+     "passage_manifest_sha256": "b2984d8cb2e66b719f4276987e1f98a7aca6a3e8609d04cf0c4470594caff306"
+    },
+    {
+     "doi": "10.7717/peerj.21357",
+     "pmid": "42472305",
+     "year": 2026,
+     "pmcid": "PMC13380235",
+     "title": "Validity and reliability of the Valkyria Trainer Free® linear position transducer in the propulsive phase of bench press in men.",
+     "passages": 36,
+     "providers": [
+      "europe_pmc"
+     ],
+     "article_url": "https://europepmc.org/article/PMC/PMC13380235",
+     "license_uri": "https://creativecommons.org/licenses/by/4.0/",
+     "article_type": "research-article",
+     "source_sha256": "6fad8d4e095db6367635c8ce48ecd529269115afa7cb85be4f9e07d2e01d9947",
+     "import_created": false,
+     "license_family": "cc by",
+     "canonical_title": "Validity and reliability of the Valkyria Trainer Free® linear position transducer in the propulsive phase of bench press in men",
+     "europe_pmc_license": "cc by",
+     "document_version_key": "7c740245173507f4045acc373d20581e5f58011812400d114079d4d2fbe23aca",
+     "passage_manifest_sha256": "a1d4e12e8dc611cd63883b12ed341b8517e6f985bb540e6bbb09742d8bf3b07b"
+    },
+    {
+     "doi": "10.3390/s25216542",
+     "pmid": "41228765",
+     "year": 2025,
+     "pmcid": "PMC12608286",
+     "title": "The Validity and Reliability of the Force Plates and the Linear Position Transducer in Measuring Countermovement Depth and Velocity During Countermovement Jump.",
+     "passages": 29,
+     "providers": [
+      "europe_pmc"
+     ],
+     "article_url": "https://europepmc.org/article/PMC/PMC12608286",
+     "license_uri": "https://creativecommons.org/licenses/by/4.0/",
+     "article_type": "research-article",
+     "source_sha256": "b15b583bbb4bcc92dbc022dc8ebd59cd5e4f7446a83e07c74441513dee690667",
+     "import_created": false,
+     "license_family": "cc by",
+     "canonical_title": "The Validity and Reliability of the Force Plates and the Linear Position Transducer in Measuring Countermovement Depth and Velocity During Countermovement Jump",
+     "europe_pmc_license": "cc by",
+     "document_version_key": "86d7c3d57c7a744f8cc79f4c6dbfd5dd198be11fdfd873a4801d73e460c2368b",
+     "passage_manifest_sha256": "bf3a2e6d6cca5888b280ec9468609ddfc7d6e0fa73d07e4f1475768811bc49aa"
+    },
+    {
+     "doi": "10.3390/sports14070263",
+     "pmid": "42506808",
+     "year": 2026,
+     "pmcid": "PMC13416992",
+     "title": "Concurrent Validity and Between-Session Reproducibility of Agreement of GPath for Mean Propulsive Velocity Assessment During the Bench Press Exercise.",
+     "passages": 22,
+     "providers": [
+      "europe_pmc"
+     ],
+     "article_url": "https://europepmc.org/article/PMC/PMC13416992",
+     "license_uri": "https://creativecommons.org/licenses/by/4.0/",
+     "article_type": "research-article",
+     "source_sha256": "f33c34b61cf109a0170cdff3e4fbb840a893061cd3ed00d56f1adb197bd3a74b",
+     "import_created": false,
+     "license_family": "cc by",
+     "canonical_title": "Concurrent Validity and Between-Session Reproducibility of Agreement of GPath for Mean Propulsive Velocity Assessment During the Bench Press Exercise",
+     "europe_pmc_license": "cc by",
+     "document_version_key": "44a630321ed1deb69b0e0a8653cfa21b46f1ac1a5b2bab83950c620a01889beb",
+     "passage_manifest_sha256": "ccef7093549da190bafa0303651b6e33acc8dfcdf3705f33861551022baada07"
+    }
+   ],
+   "rejected": [
+    {
+     "doi": "10.3390/jfmk11010047",
+     "pmid": "41718175",
+     "year": 2026,
+     "pmcid": "PMC12921881",
+     "stage": "original_article",
+     "title": "Effects of Knee Sleeve Density on Theoretical Neuromuscular Capacities Derived from the Force-Velocity-Power Profile in the Back Squat.",
+     "reason": "original human population evidence absent",
+     "providers": [
+      "europe_pmc"
+     ],
+     "europe_pmc_license": "cc by"
+    },
+    {
+     "doi": "10.1371/journal.pone.0298291",
+     "pmid": "38319955",
+     "year": 2024,
+     "pmcid": "PMC10846725",
+     "stage": "original_article",
+     "title": "The reliability of a linear position transducer for measuring countermovement jump performance in national-level road cyclists.",
+     "reason": "original human population evidence absent",
+     "providers": [
+      "europe_pmc"
+     ],
+     "europe_pmc_license": "cc by"
+    },
+    {
+     "doi": "10.70252/ijes2026103",
+     "pmid": "42003891",
+     "year": 2026,
+     "pmcid": "PMC13075562",
+     "stage": "repository_rights",
+     "title": "Acute Effects of Thoracic-Spinal Elevation via a Novel Bench Press Pad on sEMG and Barbell Kinetics in Resistance-Trained Males.",
+     "reason": "repository rights absent, restrictive or conflicting",
+     "providers": [
+      "europe_pmc"
+     ],
+     "europe_pmc_license": "cc by-nd"
+    },
+    {
+     "doi": "10.3389/fpubh.2025.1579291",
+     "pmid": "40520287",
+     "year": 2025,
+     "pmcid": "PMC12162595",
+     "stage": "original_article",
+     "title": "An investigation of the load-velocity relationship between flywheel eccentric and barbell training methods.",
+     "reason": "missing or ambiguous original license URI",
+     "providers": [
+      "europe_pmc"
+     ],
+     "europe_pmc_license": "cc by"
+    },
+    {
+     "doi": "10.1515/hukin-2017-0109",
+     "pmid": "29339982",
+     "year": 2017,
+     "pmcid": "PMC5765782",
+     "stage": "repository_rights",
+     "title": "Relationships between Mechanical Variables in the Traditional and Close-Grip Bench Press.",
+     "reason": "repository rights absent, restrictive or conflicting",
+     "providers": [
+      "europe_pmc"
+     ],
+     "europe_pmc_license": "cc by-nc-nd"
+    }
+   ],
+   "projection": {
+    "alias": "dynamisrag-research-workspace",
+    "model_id": "Qwen/Qwen3-Embedding-0.6B",
+    "dimension": 512,
+    "collection": "qdrant-passages-v1-444fe4cf90e2679dd09d465e2d92ef8371315712dffadea2e2091302d09abb90",
+    "embedded_now": 0,
+    "published_at": "2026-11-16T14:12:27.647128+00:00",
+    "passage_count": 111,
+    "document_count": 4,
+    "model_revision": "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
+    "reused_vectors": 111,
+    "elapsed_seconds": 98.703,
+    "embedding_seconds": 11.719,
+    "projection_sha256": "c0fe0032a56ddbecb8631d61f4e6c4cd324f7e9a888e0191c75524ca4bc743c9",
+    "collection_identity": {
+     "model_id": "Qwen/Qwen3-Embedding-0.6B",
+     "schema_sha256": "b83e0682ea5a90589e4411c2964703bcf3fd57203176729275818db13f0aaca1",
+     "expected_count": 111,
+     "model_revision": "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
+     "schema_revision": "qdrant-passages-v1",
+     "projection_sha256": "c0fe0032a56ddbecb8631d61f4e6c4cd324f7e9a888e0191c75524ca4bc743c9",
+     "embedding_config_sha256": "8438d37d8e8c8f975f62cbc6f6c644abc27304b18b7a330d9157a70f21c9c1f7",
+     "embedding_manifest_sha256": "f82fc26fa59f6911a22f64a4bb21405a5ab989fd96fbb468de57600ea01c3c14"
+    },
+    "previous_collection": "qdrant-passages-v1-444fe4cf90e2679dd09d465e2d92ef8371315712dffadea2e2091302d09abb90",
+    "embedding_config_sha256": "8438d37d8e8c8f975f62cbc6f6c644abc27304b18b7a330d9157a70f21c9c1f7",
+    "embedding_manifest_file": "qdrant-passages-v1-444fe4cf90e2679dd09d465e2d92ef8371315712dffadea2e2091302d09abb90.embeddings.json",
+    "embedding_manifest_sha256": "f82fc26fa59f6911a22f64a4bb21405a5ab989fd96fbb468de57600ea01c3c14"
+   },
+   "error_class": null,
+   "query_ladder": [
+    {
+     "level": 1,
+     "openalex": "linear position transducer force-velocity",
+     "europe_pmc": "(TITLE_ABS:\"linear position transducer\" OR TITLE_ABS:\"LPT\") AND (TITLE_ABS:\"force-velocity\") AND OPEN_ACCESS:Y"
+    },
+    {
+     "level": 2,
+     "openalex": "linear position transducer",
+     "europe_pmc": "(TITLE_ABS:\"linear position transducer\" OR TITLE_ABS:\"LPT\") AND OPEN_ACCESS:Y"
+    },
+    {
+     "level": 3,
+     "openalex": "linear position transducer force plates",
+     "europe_pmc": "(TITLE_ABS:\"linear position transducer\" OR TITLE_ABS:\"LPT\") AND (TITLE_ABS:\"force plates\") AND OPEN_ACCESS:Y"
+    }
+   ],
+   "unique_works": 26,
+   "model_requests": 0,
+   "search_requests": 3,
+   "provider_failures": [
+    {
+     "url": "https://api.openalex.org/works?search=linear+position+transducer&filter=open_access.is_oa%3Atrue&per_page=20",
+     "provider": "openalex"
+    }
+   ],
+   "discovered_records": 26
+  },
+  "autonomous_tool_decisions": 0,
+  "synthesis_fallback_reason": null
+ },
+ "error_message": null,
+ "created_at": "2026-11-16T14:10:50.835365+00:00",
+ "updated_at": "2026-11-16T14:12:32.348596+00:00"
+}

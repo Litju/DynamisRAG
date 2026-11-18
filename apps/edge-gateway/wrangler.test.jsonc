@@ -1,0 +1,13 @@
+{
+  "name": "res638-local-integration-only",
+  "main": "tests/local-entry.mjs",
+  "compatibility_date": "2026-11-13",
+  "workers_dev": false,
+  "preview_urls": false,
+  "vars": {
+    "IDENTITY_SECRET": "unit-test-identity-secret-0123456789abcdef",
+    "PYTHON_API_ORIGIN": "https://python-gateway-test.example",
+    "ACCESS_CLIENT_ID": "test-only",
+    "ACCESS_CLIENT_SECRET": "test-only"
+  }
+}

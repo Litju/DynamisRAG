@@ -1,0 +1,538 @@
+{
+ "schema": "res638-research-workflow-acceptance-v1",
+ "final_status": "REAL_RESEARCH_WORKFLOW_PARTIAL_PROVIDER_BLOCKED",
+ "full_acceptance": false,
+ "full_acceptance_failures": [
+  "provider: gpt-6-luna (OpenCode Go) is not authorized for research use; 0 model requests were sent, so no claim was synthesized",
+  "relevance gate: after real ingestion the structured-evidence-gate-v1 admitted no passage (best per-passage weighted coverage 0.43 initial, 0.65 follow-up; required 0.60 after corpus-specificity weighting)"
+ ],
+ "code_revision_under_test": "a0e147d",
+ "run_date": "2026-11-16",
+ "questions": {
+  "initial": "What does the evidence say about the validity, reliability, practical applications and limitations of force–velocity profiling using linear position transducers (LPT) in resistance training?",
+  "follow_up": "How do LPT-derived force–velocity measures compare with reference systems such as force plates or 3D motion capture?"
+ },
+ "initial_corpus": {
+  "canonical_document_versions": 0,
+  "qdrant_collections": [],
+  "browser_library_papers": 0
+ },
+ "final_corpus": {
+  "canonical_document_versions": 4,
+  "passages": 111,
+  "source_artifacts": 4,
+  "qdrant_alias": "dynamisrag-research-workspace",
+  "qdrant_collection": "qdrant-passages-v1-444fe4cf90e2679dd09d465e2d92ef8371315712dffadea2e2091302d09abb90",
+  "qdrant_points": 111,
+  "qdrant_status": "green",
+  "qdrant_version": "1.20.0"
+ },
+ "embedding": {
+  "tei_image": "ghcr.io/huggingface/text-embeddings-inference:cpu-1.9.4@sha256:2538ea1c9640d3763b15af668039d24172d063b42337b0c27796fc2be180c78d",
+  "model_id": "Qwen/Qwen3-Embedding-0.6B",
+  "model_revision": "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
+  "document_config_sha256": "8438d37d8e8c8f975f62cbc6f6c644abc27304b18b7a330d9157a70f21c9c1f7",
+  "dimension": 512,
+  "collection_identity": {
+   "model_id": "Qwen/Qwen3-Embedding-0.6B",
+   "schema_sha256": "b83e0682ea5a90589e4411c2964703bcf3fd57203176729275818db13f0aaca1",
+   "expected_count": 111,
+   "model_revision": "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
+   "schema_revision": "qdrant-passages-v1",
+   "projection_sha256": "c0fe0032a56ddbecb8631d61f4e6c4cd324f7e9a888e0191c75524ca4bc743c9",
+   "embedding_config_sha256": "8438d37d8e8c8f975f62cbc6f6c644abc27304b18b7a330d9157a70f21c9c1f7",
+   "embedding_manifest_sha256": "f82fc26fa59f6911a22f64a4bb21405a5ab989fd96fbb468de57600ea01c3c14"
+  }
+ },
+ "isolation": {
+  "compose_project": "dynamisrag-res638-research",
+  "fresh_volumes": [
+   "canonical",
+   "agent-state",
+   "vectors"
+  ],
+  "tei_model_cache": "existing weights-only volume dynamisrag-research-edition_tei-model-cache (no corpus data)",
+  "retained_stores_read": false,
+  "runtime_canonical_role": "workspace_reader (read-only)",
+  "writer_role": "workspace_owner (acquisition only)"
+ },
+ "tools": [
+  "discover_external_literature (graph-enforced, no model)",
+  "hybrid_search (graph fallback, qdrant_hybrid_rrf)",
+  "get_passage (browser source inspection)"
+ ],
+ "turns": {
+  "initial": {
+   "run_id": "run-6a69481582a240c7",
+   "status": "abstained",
+   "abstention_reason": "evidence_gate:insufficient_query_coverage",
+   "model_calls": 0,
+   "estimated_cost_usd": 0,
+   "refused_model_calls": [
+    "model_tool_execution:0",
+    "model_tool_execution:0"
+   ],
+   "acquisition": {
+    "status": "completed",
+    "discovered_records": 21,
+    "unique_works": 21,
+    "search_requests": 3,
+    "provider_failures": [
+     {
+      "url": "https://api.openalex.org/works?search=linear+position+transducer+validity&filter=open_access.is_oa%3Atrue&per_page=20",
+      "provider": "openalex"
+     }
+    ],
+    "query_ladder": [
+     {
+      "level": 1,
+      "openalex": "linear position transducer force-velocity validity",
+      "europe_pmc": "(TITLE_ABS:\"linear position transducer\" OR TITLE_ABS:\"LPT\") AND (TITLE_ABS:\"force-velocity\") AND (TITLE_ABS:\"validity\" OR TITLE_ABS:\"reliability\") AND OPEN_ACCESS:Y"
+     },
+     {
+      "level": 2,
+      "openalex": "linear position transducer validity",
+      "europe_pmc": "(TITLE_ABS:\"linear position transducer\" OR TITLE_ABS:\"LPT\") AND (TITLE_ABS:\"validity\" OR TITLE_ABS:\"reliability\") AND OPEN_ACCESS:Y"
+     },
+     {
+      "level": 3,
+      "openalex": "linear position transducer force-velocity",
+      "europe_pmc": "(TITLE_ABS:\"linear position transducer\" OR TITLE_ABS:\"LPT\") AND (TITLE_ABS:\"force-velocity\") AND OPEN_ACCESS:Y"
+     },
+     {
+      "level": 4,
+      "openalex": "linear position transducer resistance training",
+      "europe_pmc": "(TITLE_ABS:\"linear position transducer\" OR TITLE_ABS:\"LPT\") AND (TITLE_ABS:\"resistance training\") AND OPEN_ACCESS:Y"
+     },
+     {
+      "level": 5,
+      "openalex": "linear position transducer",
+      "europe_pmc": "(TITLE_ABS:\"linear position transducer\" OR TITLE_ABS:\"LPT\") AND OPEN_ACCESS:Y"
+     }
+    ]
+   },
+   "ingested": [
+    {
+     "doi": "10.3390/jfmk6020032",
+     "pmid": "33808291",
+     "pmcid": "PMC8103256",
+     "title": "Eccentric Force-Velocity Characteristics during a Novel Squat Protocol in Trained Rugby Union Athletes-Pilot Study.",
+     "passages": 24,
+     "license_uri": "https://creativecommons.org/licenses/by/4.0/",
+     "document_version_key": "833c6811dd1417456408b7e9b5c863c5e7c8db84d251a575b29a95a51f44bbae",
+     "source_sha256": "35c0ad20c12fd1e635f0309ecad3c5f027ff5138d08fcf7a622519bf76bf4f66",
+     "article_type": "research-article"
+    },
+    {
+     "doi": "10.7717/peerj.21357",
+     "pmid": "42472305",
+     "pmcid": "PMC13380235",
+     "title": "Validity and reliability of the Valkyria Trainer Free® linear position transducer in the propulsive phase of bench press in men.",
+     "passages": 36,
+     "license_uri": "https://creativecommons.org/licenses/by/4.0/",
+     "document_version_key": "7c740245173507f4045acc373d20581e5f58011812400d114079d4d2fbe23aca",
+     "source_sha256": "6fad8d4e095db6367635c8ce48ecd529269115afa7cb85be4f9e07d2e01d9947",
+     "article_type": "research-article"
+    },
+    {
+     "doi": "10.3390/s25216542",
+     "pmid": "41228765",
+     "pmcid": "PMC12608286",
+     "title": "The Validity and Reliability of the Force Plates and the Linear Position Transducer in Measuring Countermovement Depth and Velocity During Countermovement Jump.",
+     "passages": 29,
+     "license_uri": "https://creativecommons.org/licenses/by/4.0/",
+     "document_version_key": "86d7c3d57c7a744f8cc79f4c6dbfd5dd198be11fdfd873a4801d73e460c2368b",
+     "source_sha256": "b15b583bbb4bcc92dbc022dc8ebd59cd5e4f7446a83e07c74441513dee690667",
+     "article_type": "research-article"
+    },
+    {
+     "doi": "10.3390/sports14070263",
+     "pmid": "42506808",
+     "pmcid": "PMC13416992",
+     "title": "Concurrent Validity and Between-Session Reproducibility of Agreement of GPath for Mean Propulsive Velocity Assessment During the Bench Press Exercise.",
+     "passages": 22,
+     "license_uri": "https://creativecommons.org/licenses/by/4.0/",
+     "document_version_key": "44a630321ed1deb69b0e0a8653cfa21b46f1ac1a5b2bab83950c620a01889beb",
+     "source_sha256": "f33c34b61cf109a0170cdff3e4fbb840a893061cd3ed00d56f1adb197bd3a74b",
+     "article_type": "research-article"
+    }
+   ],
+   "rejected": [
+    {
+     "doi": "10.1371/journal.pone.0298291",
+     "pmid": "38319955",
+     "pmcid": "PMC10846725",
+     "title": "The reliability of a linear position transducer for measuring countermovement jump performance in national-level road cyclists.",
+     "stage": "original_article",
+     "reason": "original human population evidence absent"
+    },
+    {
+     "doi": "10.3389/fpubh.2025.1579291",
+     "pmid": "40520287",
+     "pmcid": "PMC12162595",
+     "title": "An investigation of the load-velocity relationship between flywheel eccentric and barbell training methods.",
+     "stage": "original_article",
+     "reason": "missing or ambiguous original license URI"
+    },
+    {
+     "doi": "10.1186/s40798-026-01102-0",
+     "pmid": "42690493",
+     "pmcid": "PMC13542044",
+     "title": "Reliability, Device Agreement and Validity of Load-Velocity Profiles: A Systematic Review with Meta-analysis.",
+     "stage": "original_article",
+     "reason": "original human population evidence absent"
+    }
+   ],
+   "projection": {
+    "alias": "dynamisrag-research-workspace",
+    "model_id": "Qwen/Qwen3-Embedding-0.6B",
+    "dimension": 512,
+    "collection": "qdrant-passages-v1-444fe4cf90e2679dd09d465e2d92ef8371315712dffadea2e2091302d09abb90",
+    "embedded_now": 111,
+    "published_at": "2026-11-16T14:10:33.308571+00:00",
+    "passage_count": 111,
+    "document_count": 4,
+    "model_revision": "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
+    "reused_vectors": 0,
+    "elapsed_seconds": 540.36,
+    "embedding_seconds": 444.922,
+    "projection_sha256": "c0fe0032a56ddbecb8631d61f4e6c4cd324f7e9a888e0191c75524ca4bc743c9",
+    "collection_identity": {
+     "model_id": "Qwen/Qwen3-Embedding-0.6B",
+     "schema_sha256": "b83e0682ea5a90589e4411c2964703bcf3fd57203176729275818db13f0aaca1",
+     "expected_count": 111,
+     "model_revision": "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
+     "schema_revision": "qdrant-passages-v1",
+     "projection_sha256": "c0fe0032a56ddbecb8631d61f4e6c4cd324f7e9a888e0191c75524ca4bc743c9",
+     "embedding_config_sha256": "8438d37d8e8c8f975f62cbc6f6c644abc27304b18b7a330d9157a70f21c9c1f7",
+     "embedding_manifest_sha256": "f82fc26fa59f6911a22f64a4bb21405a5ab989fd96fbb468de57600ea01c3c14"
+    },
+    "previous_collection": null,
+    "embedding_config_sha256": "8438d37d8e8c8f975f62cbc6f6c644abc27304b18b7a330d9157a70f21c9c1f7",
+    "embedding_manifest_file": "qdrant-passages-v1-444fe4cf90e2679dd09d465e2d92ef8371315712dffadea2e2091302d09abb90.embeddings.json",
+    "embedding_manifest_sha256": "f82fc26fa59f6911a22f64a4bb21405a5ab989fd96fbb468de57600ea01c3c14"
+   },
+   "retrieval_candidates": [
+    {
+     "pmcid": "PMC13380235",
+     "doi": "10.7717/peerj.21357",
+     "section_title": "Introduction",
+     "retrieval_mode": "qdrant_hybrid_rrf",
+     "admitted": false,
+     "query_relevance": 0.4286,
+     "gate_reasons": [
+      "insufficient_query_facet_coverage"
+     ]
+    },
+    {
+     "pmcid": "PMC13380235",
+     "doi": "10.7717/peerj.21357",
+     "section_title": null,
+     "retrieval_mode": "qdrant_hybrid_rrf",
+     "admitted": false,
+     "query_relevance": 0.381,
+     "gate_reasons": [
+      "insufficient_query_facet_coverage"
+     ]
+    },
+    {
+     "pmcid": "PMC13380235",
+     "doi": "10.7717/peerj.21357",
+     "section_title": "Mean linear velocity of movement",
+     "retrieval_mode": "qdrant_hybrid_rrf",
+     "admitted": false,
+     "query_relevance": 0.4286,
+     "gate_reasons": [
+      "insufficient_query_facet_coverage"
+     ]
+    },
+    {
+     "pmcid": "PMC13380235",
+     "doi": "10.7717/peerj.21357",
+     "section_title": "Mean power of the propulsive phase",
+     "retrieval_mode": "qdrant_hybrid_rrf",
+     "admitted": false,
+     "query_relevance": 0.381,
+     "gate_reasons": [
+      "insufficient_query_facet_coverage"
+     ]
+    },
+    {
+     "pmcid": "PMC12608286",
+     "doi": "10.3390/s25216542",
+     "section_title": "1. Introduction",
+     "retrieval_mode": "qdrant_hybrid_rrf",
+     "admitted": false,
+     "query_relevance": 0.381,
+     "gate_reasons": [
+      "insufficient_query_facet_coverage"
+     ]
+    },
+    {
+     "pmcid": "PMC13380235",
+     "doi": "10.7717/peerj.21357",
+     "section_title": "Mean linear velocity of movement",
+     "retrieval_mode": "qdrant_hybrid_rrf",
+     "admitted": false,
+     "query_relevance": 0.4286,
+     "gate_reasons": [
+      "insufficient_query_facet_coverage"
+     ]
+    }
+   ]
+  },
+  "follow_up": {
+   "run_id": "run-76c51a5e9c6948a7",
+   "status": "abstained",
+   "abstention_reason": "evidence_gate:insufficient_query_coverage",
+   "model_calls": 0,
+   "estimated_cost_usd": 0,
+   "refused_model_calls": [
+    "model_tool_execution:0",
+    "model_tool_execution:0"
+   ],
+   "acquisition": {
+    "status": "completed",
+    "discovered_records": 26,
+    "unique_works": 26,
+    "search_requests": 3,
+    "provider_failures": [
+     {
+      "url": "https://api.openalex.org/works?search=linear+position+transducer&filter=open_access.is_oa%3Atrue&per_page=20",
+      "provider": "openalex"
+     }
+    ],
+    "query_ladder": [
+     {
+      "level": 1,
+      "openalex": "linear position transducer force-velocity",
+      "europe_pmc": "(TITLE_ABS:\"linear position transducer\" OR TITLE_ABS:\"LPT\") AND (TITLE_ABS:\"force-velocity\") AND OPEN_ACCESS:Y"
+     },
+     {
+      "level": 2,
+      "openalex": "linear position transducer",
+      "europe_pmc": "(TITLE_ABS:\"linear position transducer\" OR TITLE_ABS:\"LPT\") AND OPEN_ACCESS:Y"
+     },
+     {
+      "level": 3,
+      "openalex": "linear position transducer force plates",
+      "europe_pmc": "(TITLE_ABS:\"linear position transducer\" OR TITLE_ABS:\"LPT\") AND (TITLE_ABS:\"force plates\") AND OPEN_ACCESS:Y"
+     }
+    ]
+   },
+   "ingested": [
+    {
+     "doi": "10.3390/jfmk6020032",
+     "pmid": "33808291",
+     "pmcid": "PMC8103256",
+     "title": "Eccentric Force-Velocity Characteristics during a Novel Squat Protocol in Trained Rugby Union Athletes-Pilot Study.",
+     "passages": 24,
+     "license_uri": "https://creativecommons.org/licenses/by/4.0/",
+     "document_version_key": "833c6811dd1417456408b7e9b5c863c5e7c8db84d251a575b29a95a51f44bbae",
+     "source_sha256": "35c0ad20c12fd1e635f0309ecad3c5f027ff5138d08fcf7a622519bf76bf4f66",
+     "article_type": "research-article"
+    },
+    {
+     "doi": "10.7717/peerj.21357",
+     "pmid": "42472305",
+     "pmcid": "PMC13380235",
+     "title": "Validity and reliability of the Valkyria Trainer Free® linear position transducer in the propulsive phase of bench press in men.",
+     "passages": 36,
+     "license_uri": "https://creativecommons.org/licenses/by/4.0/",
+     "document_version_key": "7c740245173507f4045acc373d20581e5f58011812400d114079d4d2fbe23aca",
+     "source_sha256": "6fad8d4e095db6367635c8ce48ecd529269115afa7cb85be4f9e07d2e01d9947",
+     "article_type": "research-article"
+    },
+    {
+     "doi": "10.3390/s25216542",
+     "pmid": "41228765",
+     "pmcid": "PMC12608286",
+     "title": "The Validity and Reliability of the Force Plates and the Linear Position Transducer in Measuring Countermovement Depth and Velocity During Countermovement Jump.",
+     "passages": 29,
+     "license_uri": "https://creativecommons.org/licenses/by/4.0/",
+     "document_version_key": "86d7c3d57c7a744f8cc79f4c6dbfd5dd198be11fdfd873a4801d73e460c2368b",
+     "source_sha256": "b15b583bbb4bcc92dbc022dc8ebd59cd5e4f7446a83e07c74441513dee690667",
+     "article_type": "research-article"
+    },
+    {
+     "doi": "10.3390/sports14070263",
+     "pmid": "42506808",
+     "pmcid": "PMC13416992",
+     "title": "Concurrent Validity and Between-Session Reproducibility of Agreement of GPath for Mean Propulsive Velocity Assessment During the Bench Press Exercise.",
+     "passages": 22,
+     "license_uri": "https://creativecommons.org/licenses/by/4.0/",
+     "document_version_key": "44a630321ed1deb69b0e0a8653cfa21b46f1ac1a5b2bab83950c620a01889beb",
+     "source_sha256": "f33c34b61cf109a0170cdff3e4fbb840a893061cd3ed00d56f1adb197bd3a74b",
+     "article_type": "research-article"
+    }
+   ],
+   "rejected": [
+    {
+     "doi": "10.3390/jfmk11010047",
+     "pmid": "41718175",
+     "pmcid": "PMC12921881",
+     "title": "Effects of Knee Sleeve Density on Theoretical Neuromuscular Capacities Derived from the Force-Velocity-Power Profile in the Back Squat.",
+     "stage": "original_article",
+     "reason": "original human population evidence absent"
+    },
+    {
+     "doi": "10.1371/journal.pone.0298291",
+     "pmid": "38319955",
+     "pmcid": "PMC10846725",
+     "title": "The reliability of a linear position transducer for measuring countermovement jump performance in national-level road cyclists.",
+     "stage": "original_article",
+     "reason": "original human population evidence absent"
+    },
+    {
+     "doi": "10.70252/ijes2026103",
+     "pmid": "42003891",
+     "pmcid": "PMC13075562",
+     "title": "Acute Effects of Thoracic-Spinal Elevation via a Novel Bench Press Pad on sEMG and Barbell Kinetics in Resistance-Trained Males.",
+     "stage": "repository_rights",
+     "reason": "repository rights absent, restrictive or conflicting"
+    },
+    {
+     "doi": "10.3389/fpubh.2025.1579291",
+     "pmid": "40520287",
+     "pmcid": "PMC12162595",
+     "title": "An investigation of the load-velocity relationship between flywheel eccentric and barbell training methods.",
+     "stage": "original_article",
+     "reason": "missing or ambiguous original license URI"
+    },
+    {
+     "doi": "10.1515/hukin-2017-0109",
+     "pmid": "29339982",
+     "pmcid": "PMC5765782",
+     "title": "Relationships between Mechanical Variables in the Traditional and Close-Grip Bench Press.",
+     "stage": "repository_rights",
+     "reason": "repository rights absent, restrictive or conflicting"
+    }
+   ],
+   "projection": {
+    "alias": "dynamisrag-research-workspace",
+    "model_id": "Qwen/Qwen3-Embedding-0.6B",
+    "dimension": 512,
+    "collection": "qdrant-passages-v1-444fe4cf90e2679dd09d465e2d92ef8371315712dffadea2e2091302d09abb90",
+    "embedded_now": 0,
+    "published_at": "2026-11-16T14:12:27.647128+00:00",
+    "passage_count": 111,
+    "document_count": 4,
+    "model_revision": "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
+    "reused_vectors": 111,
+    "elapsed_seconds": 98.703,
+    "embedding_seconds": 11.719,
+    "projection_sha256": "c0fe0032a56ddbecb8631d61f4e6c4cd324f7e9a888e0191c75524ca4bc743c9",
+    "collection_identity": {
+     "model_id": "Qwen/Qwen3-Embedding-0.6B",
+     "schema_sha256": "b83e0682ea5a90589e4411c2964703bcf3fd57203176729275818db13f0aaca1",
+     "expected_count": 111,
+     "model_revision": "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
+     "schema_revision": "qdrant-passages-v1",
+     "projection_sha256": "c0fe0032a56ddbecb8631d61f4e6c4cd324f7e9a888e0191c75524ca4bc743c9",
+     "embedding_config_sha256": "8438d37d8e8c8f975f62cbc6f6c644abc27304b18b7a330d9157a70f21c9c1f7",
+     "embedding_manifest_sha256": "f82fc26fa59f6911a22f64a4bb21405a5ab989fd96fbb468de57600ea01c3c14"
+    },
+    "previous_collection": "qdrant-passages-v1-444fe4cf90e2679dd09d465e2d92ef8371315712dffadea2e2091302d09abb90",
+    "embedding_config_sha256": "8438d37d8e8c8f975f62cbc6f6c644abc27304b18b7a330d9157a70f21c9c1f7",
+    "embedding_manifest_file": "qdrant-passages-v1-444fe4cf90e2679dd09d465e2d92ef8371315712dffadea2e2091302d09abb90.embeddings.json",
+    "embedding_manifest_sha256": "f82fc26fa59f6911a22f64a4bb21405a5ab989fd96fbb468de57600ea01c3c14"
+   },
+   "retrieval_candidates": [
+    {
+     "pmcid": "PMC12608286",
+     "doi": "10.3390/s25216542",
+     "section_title": "4. Discussion",
+     "retrieval_mode": "qdrant_hybrid_rrf",
+     "admitted": false,
+     "query_relevance": 0.6491,
+     "gate_reasons": []
+    },
+    {
+     "pmcid": "PMC12608286",
+     "doi": "10.3390/s25216542",
+     "section_title": "1. Introduction",
+     "retrieval_mode": "qdrant_hybrid_rrf",
+     "admitted": false,
+     "query_relevance": 0.5088,
+     "gate_reasons": []
+    },
+    {
+     "pmcid": "PMC12608286",
+     "doi": "10.3390/s25216542",
+     "section_title": "4. Discussion",
+     "retrieval_mode": "qdrant_hybrid_rrf",
+     "admitted": false,
+     "query_relevance": 0.6491,
+     "gate_reasons": []
+    },
+    {
+     "pmcid": "PMC12608286",
+     "doi": "10.3390/s25216542",
+     "section_title": "1. Introduction",
+     "retrieval_mode": "qdrant_hybrid_rrf",
+     "admitted": false,
+     "query_relevance": 0.5614,
+     "gate_reasons": []
+    },
+    {
+     "pmcid": "PMC12608286",
+     "doi": "10.3390/s25216542",
+     "section_title": "3.1. Validity",
+     "retrieval_mode": "qdrant_hybrid_rrf",
+     "admitted": false,
+     "query_relevance": 0.5614,
+     "gate_reasons": []
+    },
+    {
+     "pmcid": "PMC12608286",
+     "doi": "10.3390/s25216542",
+     "section_title": "4. Discussion",
+     "retrieval_mode": "qdrant_hybrid_rrf",
+     "admitted": false,
+     "query_relevance": 0.5088,
+     "gate_reasons": []
+    }
+   ]
+  }
+ },
+ "browser": {
+  "spec": "apps/workspace/e2e/research-workflow.spec.ts",
+  "result": "1 passed (11.1m)",
+  "stack": "Chromium -> Next.js 16.4.6 dev + Eve 0.67.2 -> Python API :8029 -> separate worker",
+  "artifacts": [
+   "0-empty-library.png",
+   "1-initial-answer.png",
+   "2-source-inspection.png",
+   "3-follow-up.png",
+   "acceptance.json",
+   "initial-library.json",
+   "turn1-events.sse",
+   "turn1-run.json",
+   "turn2-events.sse",
+   "turn2-run.json"
+  ]
+ },
+ "cost": {
+  "model_usd": 0.0,
+  "inference_requests": 0,
+  "paid_resources": "none"
+ },
+ "earlier_attempts": [
+  {
+   "attempt": 1,
+   "outcome": "stopped",
+   "detail": "5 papers / 136 passages; CPU TEI at 10-14 s per passage could not finish inside the 1,500 s run timeout. Run timeout raised to 3,600 s and max papers lowered to 4."
+  },
+  {
+   "attempt": 2,
+   "outcome": "spec failed",
+   "detail": "Discovery, ingestion (same 4 papers) and projection succeeded, but the gate admitted no passage, so the run exposed no retrieval. Fixed by recording retrieval candidates with gate verdicts (a0e147d); the gate was not changed."
+  }
+ ],
+ "limitations": [
+  "OpenAlex anonymous search answered HTTP 429 in both accepted turns (recorded provider failure; Europe PMC alone supplied candidates). It answered 200 in attempts 1-2.",
+  "The follow-up acquisition re-selected the same 4 papers (max_papers counts already-ingested works), so no reference-system paper beyond PMC12608286 was added.",
+  "The query ladder and relevance gate are lexical; no semantic entailment and no expert review.",
+  "Local CPU only; no hosting, deploy or spend."
+ ]
+}

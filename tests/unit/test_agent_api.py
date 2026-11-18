@@ -32,6 +32,21 @@ from tests.agent_stack import (
 QUESTION = "What happened to Achilles tendon stiffness during depth jumping?"
 
 
+def test_thread_listing_filters_by_verified_owner_and_exact_eve_session() -> None:
+    stack = build_stack()
+    with TestClient(stack.app) as client:
+        alice = auth_headers("alice")
+        bob = auth_headers("bob")
+        first = _new_thread(client, alice, external_ref="eve-first")
+        _new_thread(client, bob, external_ref="eve-first")
+        result = client.get("/api/v2/threads?external_ref=eve-first", headers=alice)
+        assert result.status_code == 200
+        assert [t["thread_id"] for t in result.json()] == [first]
+        assert client.get("/api/v2/threads?external_ref=missing", headers=alice).json() == []
+        assert client.get("/api/v2/threads?limit=101", headers=alice).status_code == 422
+        assert client.get("/api/v2/threads").status_code == 401
+
+
 def _parse_sse(text: str) -> list[dict[str, Any]]:
     frames: list[dict[str, Any]] = []
     for block in text.split("\n\n"):

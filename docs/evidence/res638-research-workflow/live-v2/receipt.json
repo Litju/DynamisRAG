@@ -1,0 +1,71 @@
+{
+ "schema": "res638-research-workflow-acceptance-v2",
+ "final_status": "REAL_RESEARCH_WORKFLOW_PARTIAL_PROVIDER_BLOCKED",
+ "full_acceptance": false,
+ "run_date": "2026-11-17",
+ "questions": {
+  "initial": "What does the scientific literature establish about force–velocity profiling using linear position transducers in resistance training? Evaluate measurement validity, reliability, applications and limitations.",
+  "follow_up": "How do LPT measurements compare with reference measurement systems?"
+ },
+ "full_acceptance_failures": [
+  "attempt 1 (code d02790d): the initial turn ran end to end with the real model but abstained with canonical_citation_verification_failed: both model claims added interpretation the verifier rejected (content_not_in_quote, negation_mismatch, hedge_dropped). The follow-up turn did not run.",
+  "attempt 1 ingested 2 of 4 off-topic works (sprint F-V with a linear encoder; a jump app), because discovered works were ingested in query order. Fixed in 031a592 (topical ranking); not re-verified live.",
+  "attempt 2 (fresh stores, code 031a592): the worker crashed at startup (agent-schema setup deadlock with the API starting at the same time); 0 model requests. Fixed in 97e91f8 and verified with 4x4 concurrent constructions on fresh schemas; not re-verified in the browser.",
+  "budget: the owner requires USD 0 new spending. Attempt 1 sent 5 billable Responses requests with a nominal catalogue price of USD 0.0024421. Whether this was inside the existing OpenCode Go allowance (no incremental charge) is NOT verified: the allowance and Extra Usage state are visible only in the OpenCode console, and responses' opencode.allowance field was not recorded. All further inference was stopped and the local approval flags were reset to false."
+ ],
+ "model": {
+  "sole_model": "gpt-6-luna",
+  "endpoint": "https://opencode.ai/inference/go/openai/v1/responses",
+  "authorization": "OWNER_APPROVED_LOCAL_OWNER_ONLY (see ../opencode-go-authorization.json); no rejection from OpenCode occurred at any time",
+  "store": false,
+  "session_header": "x-opencode-session per conversation thread",
+  "attempt1_calls": [
+   {"stage": "model_tool_execution:0", "prompt_tokens": 1235, "completion_tokens": 42, "tool_calls": 1, "nominal_usd": 0.0001445},
+   {"stage": "model_tool_execution:1", "prompt_tokens": 1314, "completion_tokens": 158, "tool_calls": 1, "nominal_usd": 0.0002104},
+   {"stage": "model_tool_execution:0 (after acquisition)", "prompt_tokens": 1009, "completion_tokens": 205, "tool_calls": 4, "nominal_usd": 0.0002034},
+   {"stage": "model_tool_execution:1", "prompt_tokens": 7609, "completion_tokens": 962, "tool_calls": 0, "nominal_usd": 0.0012419},
+   {"stage": "synthesize_provisional_answer", "prompt_tokens": 2654, "completion_tokens": 753, "nominal_usd": 0.0006419}
+  ],
+  "attempt1_requests_sent": 5,
+  "attempt1_nominal_usd": 0.0024421,
+  "attempt2_requests_sent": 0,
+  "incremental_charge": "UNVERIFIED"
+ },
+ "attempt1_model_tool_choices": [
+  "list_papers (model_directed)",
+  "discover_external_literature (model_directed): 3 searches, e.g. [force velocity profiling | force-velocity relationship] AND [linear position transducer | linear transducer] AND [resistance training | strength training] AND [validity | criterion validity]",
+  "hybrid_search x4 (model_directed), one per aspect: validity vs force plates/dynamometry; reliability (test-retest, typical error, CV); applications (load prescription, monitoring); limitations (protocol assumptions, load range, technique)"
+ ],
+ "attempt1_acquisition": {
+  "isolation": "compose project dynamisrag-res638-accept2, fresh canonical/agent-state/vectors volumes, 0 document versions and 0 Qdrant collections before the run; old stores untouched",
+  "search_requests": 6,
+  "provider_failures": 0,
+  "records": 41,
+  "unique_works": 38,
+  "ingested": [
+   {"doi": "10.3390/jfmk6020032", "pmcid": "PMC8103256", "pmid": "33808291", "license": "CC BY 4.0", "passages": 24, "title": "Eccentric Force-Velocity Characteristics during a Novel Squat Protocol in Trained Rugby Union Athletes-Pilot Study.", "on_topic": "partly (LPT-based squat F-V)"},
+   {"doi": "10.3390/sports14080339", "pmcid": "PMC13517742", "pmid": "42646877", "license": "CC BY 4.0", "passages": 22, "title": "Reliability of Sprint Time and Force-Velocity Profiles During Sprint Acceleration in Elite Rugby Union Players", "on_topic": "no (sprint, linear encoder)"},
+   {"doi": "10.1371/journal.pone.0356566", "pmcid": "PMC13505900", "pmid": "42640920", "license": "CC BY 4.0", "passages": 46, "title": "Optimal two-point loading strategy for accurate leg press force-velocity assessment.", "on_topic": "partly (resistance-exercise F-V method)"},
+   {"doi": "10.3390/s24247897", "pmcid": "PMC11679296", "pmid": "39771636", "license": "CC BY 4.0", "passages": 15, "title": "The Validity and Reliability of the My Jump Lab App for the Measurement of Vertical Jump Performance Using Artificial Intelligence.", "on_topic": "no (jump app)"}
+  ],
+  "rejected": [
+   {"doi": "10.3389/fpubh.2025.1579291", "reason": "missing or ambiguous original license URI"},
+   {"doi": "10.1371/journal.pone.0298291", "reason": "original human population evidence absent"}
+  ],
+  "qdrant": {
+   "collection": "qdrant-passages-v1-56c6358c6a1abca7e88c379f315fb0273717bd80836a45ebe67e5a3182ca7fd8",
+   "alias": "dynamisrag-research-workspace",
+   "points": 107,
+   "documents": 4,
+   "embedded_now": 107,
+   "embedding_seconds": 354.4,
+   "tei": "ghcr.io/huggingface/text-embeddings-inference:cpu-1.9.4, Qwen/Qwen3-Embedding-0.6B@97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3, 512-d"
+  },
+  "retrieval": {"mode": "qdrant_hybrid_rrf", "candidates": 8, "admitted": 2},
+  "outcome": "abstained: canonical_citation_verification_failed (2 model claims, both rejected by the unchanged verifier)"
+ },
+ "evidence_files": {
+  "attempt1": "attempt1/ (empty library and answer screenshots, run JSON, SSE events)",
+  "attempt2": "attempt2/ (empty library screenshot only; worker crashed before any request)"
+ }
+}

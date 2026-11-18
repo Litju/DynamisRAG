@@ -1,0 +1,69 @@
+{
+ "schema": "res638-opencode-go-authorization-v2",
+ "checked_at": "2026-11-17",
+ "decision": "OWNER_APPROVED_LOCAL_OWNER_ONLY",
+ "approval_flag": "was true only in the git-ignored local acceptance env for attempt 1; reset to false on 2026-11-17 because a zero incremental charge is unverified (owner budget USD 0). Every committed template and the hosted preview keep false.",
+ "approved_by": "account owner (the user), for their own local research coding agent",
+ "scope": [
+  "the owner's own internal use on this machine (OpenCode Terms: own internal use, not on behalf of or for the benefit of any third party)",
+  "a tool-calling agent on the native Responses API: own user agent, a stable x-opencode-session per conversation, store=false, SDK retries off, per-role and per-run budgets",
+  "not covered: a hosted or shared workspace that serves other people; that stays disabled"
+ ],
+ "correction_of_v1": "The 2026-11-16 record (v1) said research use was 'not authorized' and that written confirmation from OpenCode was required. OpenCode never rejected anything: the local approval flag was false, so no request was sent. The published Terms contain no written-permission requirement and no prohibition of research-specialised agents; that requirement was an over-reading and is withdrawn.",
+ "sources_fetched_2026_11_17": [
+  {
+   "url": "https://opencode.ai/legal/terms-of-service/",
+   "http_status": 200,
+   "html_sha256": "24565a208c725fecef0e8f94bd3ed3c15ee58acf9da251e1ad42417eee748520",
+   "relevant_text": [
+    "You will only use the Services for your own internal use, and not on behalf of or for the benefit of any third party, and only in a manner that complies with all laws that apply to you.",
+    "violates any law or regulation, including, without limitation, any applicable export control laws, privacy laws or any other purpose not reasonably intended by OpenCode;",
+    "automatically or programmatically extracts data or Output (defined below);"
+   ],
+   "reading": "No clause requires written permission for a use case or prohibits research. The 'programmatically extracts' item is read as scraping: the Go docs themselves publish API endpoints and AI SDK packages 'for applications calling Go directly'."
+  },
+  {
+   "url": "https://opencode.ai/docs/go/",
+   "http_status": 200,
+   "html_sha256": "19c5e71d4d349cd88f3648ba9dd7a4f07013c781a50bb15bae44851e1e5974c8",
+   "relevant_text": [
+    "OpenCode Go is designed for OpenCode and other coding agents that produce similar types of requests. Traffic is monitored for abuse that degrades the experience for other users.",
+    "Your client should: Send typical coding agent traffic; Identify itself with its own user agent, such as my-coding-agent/1.0, rather than a generic SDK or HTTP-library name; Send a stable session ID in x-opencode-session for each conversation so we can optimize routing and prompt caching.",
+    "These AI SDK packages are for applications calling Go directly.",
+    "GPT 6 Luna / GPT 5.6 Luna: Abuse monitoring logs are generated for all API feature usage and retained for up to 30 days."
+   ],
+   "reading": "Intended use is stated as guidance ('designed for', 'should'). A coding agent specialised in literature research that sends multi-round tool-calling requests is not excluded by that wording."
+  },
+  {
+   "url": "https://opencode.ai/inference/go/v1/models",
+   "http_status": 200,
+   "fetched_without_credentials": true,
+   "body_sha256": "318b4dbf149f707bfbfe64b60899d099e3f5576d02f388e7874a45da58a03d54",
+   "gpt-6-luna": {
+    "canonical_id": "openai/gpt-6-luna",
+    "type": "chat",
+    "tools_supported": true,
+    "structured_output": true,
+    "responses_base_url": "https://opencode.ai/inference/go/openai/v1",
+    "responses_tool_choice": ["auto", "none", "required", "tool"],
+    "price_usd_per_mtok": {"input": 0.1, "output": 0.5},
+    "go_training": false,
+    "go_zdr": false
+   }
+  }
+ ],
+ "client_conformance": {
+  "endpoint": "https://opencode.ai/inference/go/openai/v1/responses",
+  "user_agent": "dynamisrag-research-agent/0.2",
+  "session_header": "x-opencode-session = first 32 hex of SHA-256(conversation thread id); shared by every turn of a thread",
+  "store": false,
+  "sdk_retries": 0,
+  "rate_limit_retries": "429 only, same model, at most 3 attempts, each counted against the budget",
+  "budgets": "per role: 8 requests / 100,000 tokens / USD 0.03; per run: USD 0.20 / 250,000 tokens; one Pro escalation"
+ },
+ "residual_risk": [
+  "'Typical coding agent traffic' is OpenCode's own judgement; traffic is monitored and OpenCode may disagree. No confirmation from OpenCode exists or is claimed.",
+  "GPT-6 Luna is not zero-data-retention: abuse-monitoring logs up to 30 days. Only open-access scientific text and the owner's questions are sent.",
+  "The owner's statement that this is a coding agent specialised in research does not change OpenCode's terms; it is recorded as the owner's basis for approval."
+ ]
+}

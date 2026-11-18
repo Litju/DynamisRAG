@@ -1,0 +1,15 @@
+.git
+.tmp
+.venv*
+.env*
+.aws
+.codex
+.agents
+.dynamisrag
+apps
+notebooks
+reports
+docs/evidence
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache

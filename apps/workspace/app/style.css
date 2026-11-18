@@ -1,0 +1,390 @@
+@import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Libre+Caslon+Display&display=swap");
+:root {
+  font-family: "DM Sans", system-ui, sans-serif;
+  color: #263e37;
+  background: #fafbf8;
+  font-size: 14px;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+button,
+textarea {
+  font: inherit;
+}
+button {
+  cursor: pointer;
+  border: 1px solid #d2dcd4;
+  border-radius: 8px;
+  background: white;
+  padding: 10px 14px;
+  color: inherit;
+}
+button:hover {
+  background: #edf2e9;
+}
+button:focus-visible,
+a:focus-visible,
+textarea:focus-visible,
+input:focus-visible {
+  outline: 3px solid #b07f24;
+  outline-offset: 3px;
+}
+button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+.workspace {
+  display: grid;
+  grid-template-columns: 250px minmax(360px, 1fr) 300px;
+  min-height: 100dvh;
+}
+.sidebar {
+  background: #edf2e9;
+  padding: 32px 20px;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid #dbe2d9;
+}
+.brand {
+  text-decoration: none;
+  color: inherit;
+  font-weight: 700;
+  letter-spacing: 2px;
+  font-size: 20px;
+}
+.brand span {
+  color: #b78639;
+  margin-right: 8px;
+}
+.eyebrow {
+  font-size: 10px;
+  letter-spacing: 2px;
+  font-weight: 700;
+  color: #6c8074;
+  margin: 25px 0;
+}
+.primary {
+  background: #294d3e;
+  color: #fff;
+  border-color: #294d3e;
+}
+.primary:hover {
+  background: #1d392e;
+}
+.sidebar h2 {
+  font-size: 12px;
+  margin-top: 38px;
+}
+.thread {
+  display: block;
+  text-align: left;
+  width: 100%;
+  margin: 6px 0;
+  background: transparent;
+  border-color: transparent;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.thread.active {
+  background: #dfe9da;
+  border-color: #cfdbca;
+}
+.sidebar-footer {
+  margin-top: auto;
+  padding-top: 60px;
+  line-height: 2;
+  color: #607265;
+  font-size: 12px;
+}
+.center {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  padding: 25px 32px;
+  border-bottom: 1px solid #e2e6df;
+  font-size: 12px;
+}
+.badge {
+  font-size: 10px;
+  border: 1px solid #d3dfcf;
+  border-radius: 20px;
+  padding: 4px 10px;
+  color: #4b7055;
+}
+.welcome {
+  padding: 60px;
+  max-width: 850px;
+  margin: auto;
+}
+.welcome h1 {
+  font-family: "Libre Caslon Display", Georgia, serif;
+  font-size: 64px;
+  line-height: 1.03;
+  font-weight: 400;
+  letter-spacing: -1px;
+  margin: 20px 0;
+}
+.welcome > p {
+  line-height: 1.8;
+  max-width: 470px;
+}
+.suggestions {
+  display: grid;
+  gap: 10px;
+  margin: 35px 0;
+}
+.suggestions p {
+  padding: 18px;
+  border: 1px solid #dce3d7;
+  border-radius: 9px;
+  background: white;
+  margin: 0;
+  color: #556a59;
+  font-size: 12px;
+}
+.muted {
+  font-size: 12px;
+  color: #6a7b6e;
+  line-height: 1.8;
+}
+.library {
+  border-left: 1px solid #dbe2d9;
+  padding: 20px 24px;
+  background: #f5f7f1;
+}
+.library h2 {
+  font-size: 20px;
+}
+.paper {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  border-bottom: 1px solid #dfe5d9;
+  padding: 20px 0;
+  line-height: 1.5;
+  font-size: 12px;
+}
+.paper input {
+  accent-color: #294d3e;
+}
+.paper small {
+  display: block;
+  font-size: 10px;
+  color: #748272;
+  margin-top: 10px;
+}
+.notice {
+  border: 1px solid #d8ddc9;
+  border-radius: 8px;
+  margin-top: 35px;
+  padding: 18px;
+  font-size: 12px;
+  line-height: 1.6;
+  background: #eeefdf;
+}
+.notice p {
+  margin-bottom: 0;
+}
+.conversation {
+  padding: 30px 40px;
+  flex: 1;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.conversation h1 {
+  font-family: Georgia, serif;
+  font-weight: 400;
+  font-size: 30px;
+}
+.message {
+  margin: 25px 0;
+  white-space: pre-wrap;
+  line-height: 1.8;
+}
+.message h3 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+.message.user {
+  background: #edf2e9;
+  border-radius: 10px;
+  padding: 10px 20px;
+}
+.composer {
+  position: sticky;
+  bottom: 0;
+  margin: 0 30px 20px;
+  padding: 18px;
+  background: #fff;
+  border: 1px solid #cad7c6;
+  border-radius: 12px;
+  box-shadow: 0 10px 40px #28462f0b;
+}
+.composer label {
+  display: block;
+  font-size: 11px;
+  margin-bottom: 8px;
+}
+.composer textarea {
+  width: 100%;
+  border: 0;
+  resize: vertical;
+  min-height: 70px;
+  color: inherit;
+  background: transparent;
+}
+.composer > div {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.composer small {
+  margin-right: auto;
+  color: #748272;
+  font-size: 10px;
+}
+.error {
+  color: #8c332a;
+  padding: 15px;
+  background: #fff0e7;
+}
+.results {
+  border-top: 1px solid #dce3d7;
+  padding-top: 20px;
+}
+.results h2,
+.evidence h2 {
+  font-size: 16px;
+}
+.results button {
+  margin: 5px;
+}
+.evidence {
+  background: #eef3e9;
+  padding: 20px;
+  border-radius: 8px;
+}
+pre {
+  font-size: 11px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 500px;
+  overflow: auto;
+}
+details {
+  margin-top: 20px;
+}
+summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 12px;
+}
+@media (min-width: 1500px) {
+  .workspace {
+    grid-template-columns: 270px minmax(360px, 1fr) 350px;
+  }
+  .welcome {
+    padding: 80px;
+  }
+}
+@media (max-width: 1100px) {
+  .workspace {
+    grid-template-columns: 210px 1fr;
+  }
+  .library {
+    grid-column: 1/-1;
+    border-top: 1px solid #dbe2d9;
+  }
+  .welcome {
+    padding: 40px;
+  }
+}
+@media (max-width: 650px) {
+  .workspace {
+    display: flex;
+    flex-direction: column;
+  }
+  .sidebar {
+    padding: 20px;
+  }
+  .sidebar nav {
+    display: flex;
+    overflow: auto;
+  }
+  .thread {
+    min-width: 160px;
+  }
+  .sidebar h2 {
+    margin-top: 20px;
+  }
+  .sidebar-footer {
+    display: none;
+  }
+  .welcome {
+    padding: 30px;
+  }
+  .welcome h1 {
+    font-size: 48px;
+  }
+  .conversation {
+    padding: 20px;
+  }
+  .topbar {
+    padding: 20px;
+  }
+  .composer {
+    margin: 10px;
+  }
+  .library {
+    padding: 25px;
+  }
+}
+
+.table-scroll {
+  overflow-x: auto;
+}
+table {
+  border-collapse: collapse;
+  font-size: 12px;
+  line-height: 1.6;
+  min-width: 600px;
+}
+th,
+td {
+  border: 1px solid #d4dfcf;
+  padding: 12px;
+  text-align: left;
+  vertical-align: top;
+}
+blockquote {
+  margin: 20px 0;
+  line-height: 1.8;
+}
+mark {
+  background: #ede1a8;
+  color: #24382c;
+}
+
+.message.assistant {
+  white-space: normal;
+}
+.message code {
+  font-size: 0.85em;
+  background: #eef2e8;
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+.message li {
+  margin: 12px 0;
+}

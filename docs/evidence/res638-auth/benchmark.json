@@ -1,0 +1,59 @@
+{
+ "schema": "res638-synchronous-auth-benchmark-v1",
+ "captured_at": "2026-11-15T03:09:00.176Z",
+ "runtime": {
+  "node": "v24.14.0",
+  "platform": "win32",
+  "arch": "x64",
+  "scrypt": "N=16384,r=8,p=1 (Node default)"
+ },
+ "note": "Node executes scryptSync on the request thread. 'Concurrency' launches that many async tasks in one process; the synchronous work still serialises. Hosted Node may run several instances, so this is a per-instance bound, not a cluster benchmark.",
+ "results": [
+  {
+   "path": "scrypt_basic",
+   "concurrency": 1,
+   "elapsed_ms": 45.18,
+   "per_call_ms": 45.18,
+   "max_event_loop_lag_ms": 43.84
+  },
+  {
+   "path": "signed_session",
+   "concurrency": 1,
+   "elapsed_ms": 0.85,
+   "per_call_ms": 0.85,
+   "max_event_loop_lag_ms": 0.88
+  },
+  {
+   "path": "scrypt_basic",
+   "concurrency": 8,
+   "elapsed_ms": 376.26,
+   "per_call_ms": 47.03,
+   "max_event_loop_lag_ms": 386.25
+  },
+  {
+   "path": "signed_session",
+   "concurrency": 8,
+   "elapsed_ms": 0.9,
+   "per_call_ms": 0.11,
+   "max_event_loop_lag_ms": 9.25
+  },
+  {
+   "path": "scrypt_basic",
+   "concurrency": 32,
+   "elapsed_ms": 1512.49,
+   "per_call_ms": 47.27,
+   "max_event_loop_lag_ms": 1522.69
+  },
+  {
+   "path": "signed_session",
+   "concurrency": 32,
+   "elapsed_ms": 1.93,
+   "per_call_ms": 0.06,
+   "max_event_loop_lag_ms": 0.32
+  }
+ ],
+ "interpretation": {
+  "session_path": "A signed cookie replaced per-request scrypt with HMAC-SHA256 verification.",
+  "bound": "Failed Basic attempts are capped at 5 per user and 20 per client address per 60 s per instance."
+ }
+}

@@ -11,6 +11,34 @@ from dynamisrag.search.qdrant import QdrantClient, QdrantError, QdrantProjector,
 from tests.unit.test_qdrant import synthetic_projection
 
 
+def test_hosted_qdrant_requires_exact_allowlist_tls_and_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    factory = Mock(return_value=Mock(spec=httpx2.Client))
+    monkeypatch.setattr("dynamisrag.search.qdrant.httpx2.Client", factory)
+    client = QdrantClient(
+        "https://sample.cloud.qdrant.io:6333",
+        api_key="test-read-only-key",
+        allowed_remote_host="sample.cloud.qdrant.io",
+    )
+    assert factory.call_args.kwargs["headers"] == {"api-key": "test-read-only-key"}
+    assert factory.call_args.kwargs["follow_redirects"] is False
+    assert factory.call_args.kwargs["trust_env"] is False
+    client.close()
+    for url, host, key in (
+        ("https://sample.cloud.qdrant.io:6333", None, "secret"),
+        ("https://sample.cloud.qdrant.io:6333", "other.cloud.qdrant.io", "secret"),
+        ("http://sample.cloud.qdrant.io:6333", "sample.cloud.qdrant.io", "secret"),
+        ("https://sample.cloud.qdrant.io:6333", "sample.cloud.qdrant.io", None),
+        ("https://sample.cloud.qdrant.io:6333/path", "sample.cloud.qdrant.io", "secret"),
+        ("https://user:secret@sample.cloud.qdrant.io:6333", "sample.cloud.qdrant.io", "secret"),
+        ("https://sample.cloud.qdrant.io:6333?key=secret", "sample.cloud.qdrant.io", "secret"),
+    ):
+        with pytest.raises(ValueError, match="loopback"):
+            QdrantClient(url, allowed_remote_host=host, api_key=key)
+    assert factory.call_count == 1
+
+
 def query_service(
     monkeypatch: pytest.MonkeyPatch,
 ) -> tuple[QdrantRetrieval, Mock, dict[str, object]]:

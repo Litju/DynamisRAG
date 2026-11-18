@@ -230,7 +230,7 @@ def default_res637_evaluation_specs() -> tuple[EvaluationCaseSpec, ...]:
             category="abstention",
             question="What do the studies report about quantum chromodynamics quark confinement?",
             expect_abstain=True,
-            expected_abstention_substring="outside_authorized_corpus",
+            expected_abstention_substring="evidence_gate",
             follow_up_in_same_thread=False,
         ),
         EvaluationCaseSpec(

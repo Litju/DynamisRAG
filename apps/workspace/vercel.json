@@ -1,0 +1,4 @@
+{
+  "git": { "deploymentEnabled": false },
+  "buildCommand": "node scripts/require-preview.mjs && npm run build"
+}
