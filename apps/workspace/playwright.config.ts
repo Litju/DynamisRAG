@@ -5,6 +5,6 @@ export default defineConfig({
   workers: 1,
   use: {
     baseURL: process.env.WORKSPACE_TEST_URL || "http://127.0.0.1:3018",
-    trace: "retain-on-failure",
+    trace: process.env.WORKSPACE_TEST_PASSWORD ? "off" : "retain-on-failure",
   },
 });

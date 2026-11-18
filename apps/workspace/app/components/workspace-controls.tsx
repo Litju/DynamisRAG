@@ -49,17 +49,24 @@ export function Panel({ title, children, onClose, className = "" }: {
   className?: string;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const opener = useRef<HTMLElement | null>(null);
   useEffect(() => {
     const node = dialog.current;
+    opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     node?.showModal();
     return () => { node?.close(); };
   }, []);
+  function dismiss() {
+    dialog.current?.close();
+    opener.current?.focus();
+    onClose();
+  }
   return (
     <dialog ref={dialog} className={'drawer ' + className} aria-label={title}
-      onCancel={(event) => { event.preventDefault(); onClose(); }}>
+      onCancel={(event) => { event.preventDefault(); dismiss(); }}>
       <div className="drawer-header">
         <span>{title}</span>
-        <button type="button" onClick={onClose} aria-label={'Close ' + title.toLowerCase()}>Close</button>
+        <button type="button" onClick={dismiss} aria-label={'Close ' + title.toLowerCase()}>Close</button>
       </div>
       {children}
     </dialog>
