@@ -92,9 +92,9 @@ export function Conversation({ thread, initial, onInitialSent, onFinished }: {
     setPending(true);
     setSelected(undefined);
     setError("");
+    setDraft((value) => value === question ? "" : value);
     try {
       await agent.send(question);
-      setDraft((value) => value === question ? "" : value);
     } catch {
       setDraft((value) => value || question);
       setError("The Eve connection was interrupted. Reconnect to check whether research started.");
@@ -197,26 +197,45 @@ function TurnContent({ run, inspect, retry }: {
 }) {
   const [detail, setDetail] = useState<Run>();
   const [events, setEvents] = useState<ResearchEvent[]>([]);
+  const cursor = useRef(0);
   const [disconnected, setDisconnected] = useState(false);
   const [error, setError] = useState("");
   const [reload, setReload] = useState(0);
   const live = isActive(run.status);
   useEffect(() => {
     if (!live) return;
-    const feed = new EventSource("/api/research/runs/" + run.run_id + "/events");
-    feed.onopen = () => setDisconnected(false);
-    feed.onerror = () => setDisconnected(true);
-    feed.addEventListener("stream.end", () => feed.close());
+    let feed: EventSource;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    let failures = 0;
+    function connect() {
+      const source = new EventSource("/api/research/runs/" + run.run_id +
+        "/events?after_seq=" + cursor.current);
+      feed = source;
+      source.onopen = () => {
+        failures = 0;
+        setDisconnected(false);
+      };
+      source.onerror = () => {
+        // HTTP 503 can permanently close the native EventSource.
+        source.close();
+        setDisconnected(true);
+        retry = setTimeout(connect, Math.min(10_000, 1_500 * ++failures));
+      };
+      source.addEventListener("stream.end", () => source.close());
+      for (const name of eventNames) source.addEventListener(name, read);
+    }
     function read(event: MessageEvent<string>) {
       try {
         const next = parseResearchEvent(JSON.parse(event.data));
-        setEvents((previous) => next.seq <= (previous.at(-1)?.seq ?? 0) ? previous : [...previous, next]);
+        if (next.seq <= cursor.current) return;
+        cursor.current = next.seq;
+        setEvents((previous) => [...previous, next]);
       } catch {
         setDisconnected(true);
       }
     }
-    for (const name of eventNames) feed.addEventListener(name, read);
-    return () => feed.close();
+    connect();
+    return () => { clearTimeout(retry); feed.close(); };
   }, [run.run_id, run.status, live]);
 
   useEffect(() => {

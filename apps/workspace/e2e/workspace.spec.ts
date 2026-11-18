@@ -250,6 +250,11 @@ test("cancellation reaches the Python run and the conversation accepts a follow-
   test.skip(!!process.env.WORKSPACE_LICENSED_CORPUS,
     "The slow marker belongs to the synthetic backend; licensed cancellation requires a queued run.");
   await page.goto("/");
+  let feedRequests = 0;
+  await page.route("**/api/research/runs/*/events?*", async (route) => {
+    if (++feedRequests === 1) await route.fulfill({ status: 503 });
+    else await route.continue();
+  });
   await expect(page.getByLabel("Ask a research question")).toBeVisible({
     timeout: 30000,
   });
@@ -261,6 +266,9 @@ test("cancellation reaches the Python run and the conversation accepts a follow-
     );
   await page.getByRole("button", { name: "Research ↑" }).click();
   const runUrl = await latestRunUrl(page);
+  await expect.poll(() => feedRequests).toBeGreaterThan(1);
+  await expect(page.getByText(/Activity feed reconnecting/)).toBeHidden();
+
   await page.getByRole("button", { name: "Cancel research" }).click();
   await expect
     .poll(async () => (await (await page.request.get(runUrl)).json()).status, {

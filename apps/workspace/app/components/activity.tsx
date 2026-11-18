@@ -26,7 +26,7 @@ function stageFor(event: ResearchEvent): [Stage, "in progress" | "recorded"] | u
     case "tool.called": {
       const tool = event.payload?.tool_name;
       if (tool === "discover_external_literature") return ["Discovery", "in progress"];
-      if (tool === "retrieve_passages") return ["Retrieval", "in progress"];
+      if (tool === "hybrid_search" || tool === "search_index") return ["Retrieval", "in progress"];
     }
   }
 }

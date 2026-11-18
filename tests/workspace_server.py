@@ -25,7 +25,7 @@ class BrowserTestModel(DeterministicResearchChatModel):
             (str(m.content) for m in reversed(messages) if isinstance(m, HumanMessage)), ""
         )
         if "[browser-slow]" in question:
-            time.sleep(3)
+            time.sleep(9)
         if "[browser-failure]" in question:
             raise RuntimeError("test-only worker failure")
         return super()._generate(messages, stop, run_manager, **kwargs)
