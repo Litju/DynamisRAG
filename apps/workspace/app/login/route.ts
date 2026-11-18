@@ -5,10 +5,18 @@ function form(error = "", status = 200, retryAfter?: number) {
   return new Response(`<!doctype html><html lang="en"><head>
     <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Sign in · DynamisRAG</title><style>
-    body{font:16px system-ui;background:#fafbf8;color:#263e37;margin:0;padding:24px}
-    main{max-width:360px;margin:10vh auto}label,input,button{display:block;width:100%;box-sizing:border-box}
-    input,button{font:inherit;padding:12px;margin:8px 0 20px;border:1px solid #879b8e;border-radius:6px}
-    button{background:#263e37;color:white;cursor:pointer}:focus-visible{outline:3px solid #b07f24}
+    *{box-sizing:border-box}
+    body{font:16px/1.6 "Segoe UI",system-ui,sans-serif;margin:0;min-height:100vh;padding:24px;
+    display:grid;place-items:center;color:#eef0ff;background:radial-gradient(ellipse at 60% 10%,#2b325d,#0b101d 64%)}
+    main{width:min(100%,460px);padding:clamp(22px,6vw,46px);border:1px solid #414d78;border-radius:22px;
+    background:linear-gradient(145deg,#202a4a,#141a30);box-shadow:0 30px 100px #0306109e}
+    h1{font-size:clamp(1.85rem,5vw,2.6rem);line-height:1.08;letter-spacing:-.055em;margin:0 0 16px}
+    p{color:#b8c2df}label,input,button{display:block;width:100%}
+    input,button{font:inherit;padding:11px;margin:7px 0 16px;border:1px solid #5a6a92;border-radius:8px}
+    input{background:#131c34;color:#eef0ff}
+    button{background:#aaaafa;color:#101630;font-weight:700;cursor:pointer;margin-bottom:0}
+    :focus-visible{outline:3px solid #a4f7e9;outline-offset:3px}
+    [role=alert]{color:#ffd3cb}
     </style></head><body><main><h1>Sign in to DynamisRAG</h1>
     <p>Use your ${credentialLabel} to open the research workspace.</p>
     ${error ? `<p role="alert">${error}</p>` : ""}

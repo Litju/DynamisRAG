@@ -187,6 +187,19 @@ test("mobile workspace fits and rejects unauthenticated API requests", async ({
   await anonymous.dispose();
 });
 
+test("the 3D evidence orbit switches papers and updates the research scope", async ({ page }) => {
+  const orbit = page.getByRole("region", { name: "Explore document scope" });
+  const first = await orbit.locator(".orbit-paper p").innerText();
+  await orbit.getByRole("button", { name: "Next paper" }).click();
+  await expect(orbit.locator(".orbit-paper p")).not.toHaveText(first);
+  await orbit.getByRole("button", { name: "Add to scope" }).click();
+  await expect(page.locator(".paper input:checked")).toHaveCount(1);
+  await orbit.getByRole("button", { name: "In scope" }).click();
+  await expect(page.locator(".paper input:checked")).toHaveCount(0);
+  await orbit.getByRole("button", { name: "Pause motion" }).click();
+  await expect(orbit.getByRole("button", { name: "Resume motion" })).toHaveAttribute("aria-pressed", "true");
+});
+
 test("cross-paper comparison renders the verified study matrix", async ({
   page,
 }) => {

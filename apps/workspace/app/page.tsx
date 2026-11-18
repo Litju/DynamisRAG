@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Composer, History, Library, Panel, ResearchMode } from "./components/workspace-controls";
 import { Conversation, type ResearchEntry } from "./components/conversation";
+import { ResearchOrbit } from "./components/research-orbit";
 import {
   type Paper, type Thread, type WorkspaceSettings, research,
   titleFromQuestion, workspaceRequest,
@@ -150,13 +151,18 @@ export default function Workspace() {
           initial={initial?.threadId === active.thread_id ? initial : undefined}
           onInitialSent={() => setInitial(undefined)} onFinished={finished} /> : (
           <section className="home">
-            <div className="welcome">
-              <p className="eyebrow">Scientific literature research</p>
-              <h1>Start with a<br className="display-break" /> research question.</h1>
-              <p>Explore open-access literature, compare study methods and trace findings back to the original text.</p>
+            <div className="home-grid">
+              <div className="home-question">
+                <div className="welcome">
+                  <p className="eyebrow">Scientific literature research</p>
+                  <h1>Research,<br /> <em>grounded.</em></h1>
+                  <p>Explore open-access literature, compare study methods and trace findings back to the original text.</p>
+                </div>
+                <Composer draft={draft} setDraft={setDraft} submit={(question) => void start(question)}
+                  pending={creating} scope={selected.length ? selected.length + " papers selected" : "Open literature search"} />
+              </div>
+              <ResearchOrbit papers={papers} selected={selected} toggle={libraryProps.toggle} locked={creating} />
             </div>
-            <Composer draft={draft} setDraft={setDraft} submit={(question) => void start(question)}
-              pending={creating} scope={selected.length ? selected.length + " papers selected" : "Open literature search"} />
             <div className="suggestions" aria-label="Example questions">
               {entries.map(([label, question]) => <button type="button" key={label}
                 onClick={() => { setDraft(question); document.getElementById("question")?.focus(); }}>
