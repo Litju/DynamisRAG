@@ -185,6 +185,7 @@ type Failure = { key: string; at: number };
 const failures: Failure[] = [];
 
 function clientAddress(request: Request): string {
+  if (process.env.WORKSPACE_LOOPBACK_ORIGIN) return "loopback";
   const forwarded = request.headers.get("x-forwarded-for");
   if (forwarded) return forwarded.split(",")[0].trim().slice(0, 64);
   return request.headers.get("x-real-ip")?.slice(0, 64) || "unknown";
@@ -320,7 +321,9 @@ export const unauthorized = () =>
     {
       status: 401,
       headers: {
-        "WWW-Authenticate": 'Basic realm="DynamisRAG", charset="UTF-8"',
+        ...(!process.env.WORKSPACE_LOOPBACK_ORIGIN && {
+          "WWW-Authenticate": 'Basic realm="DynamisRAG", charset="UTF-8"',
+        }),
         "Cache-Control": "no-store",
       },
     },

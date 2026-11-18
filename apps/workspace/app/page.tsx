@@ -14,6 +14,8 @@ type Thread = {
   allowed_version_keys: string[];
 };
 type Paper = { document_version_key: string; title: string };
+type WorkspaceSettings = { inference_approved: boolean; run_cost_budget_usd: number };
+const ownerLocal = process.env.NEXT_PUBLIC_RESEARCH_MODE === "owner-local";
 type Citation = {
   passage_key?: string;
   span_key?: string;
@@ -125,6 +127,10 @@ async function api<T>(path: string, body?: unknown): Promise<T> {
           body: JSON.stringify(body),
         },
   );
+  if (response.status === 401) {
+    window.location.assign("/login");
+    throw new Error("Your session expired. Sign in to continue.");
+  }
   if (!response.ok)
     throw new Error(
       `Research service returned ${response.status}. Retry when it is available.`,
@@ -138,6 +144,18 @@ export default function Workspace() {
   const [selected, setSelected] = useState<string[]>([]);
   const [active, setActive] = useState<Thread | null>(null);
   const [error, setError] = useState("");
+  const [settings, setSettings] = useState<WorkspaceSettings>();
+  const [creating, setCreating] = useState(false);
+  const refreshPapers = useCallback(async () => {
+    const catalog = await api<Thread>("threads", {
+      title: "Corpus catalog",
+      external_ref: "workspace-catalog",
+    });
+    const result = await api<{ papers: Paper[] }>(
+      `papers?thread_id=${catalog.thread_id}&limit=50`,
+    );
+    setPapers(result.papers);
+  }, []);
   const refresh = useCallback(async () => {
     const items = await api<Thread[]>("threads");
     setThreads(items);
@@ -147,16 +165,10 @@ export default function Workspace() {
         (t) => t.thread_id === saved && t.external_ref?.startsWith("eve:"),
       ) || null,
     );
-    const catalog = await api<Thread>("threads", {
-      title: "Corpus catalog",
-      external_ref: "workspace-catalog",
-    });
-    const result = await api<{ papers: Paper[] }>(
-      `papers?thread_id=${catalog.thread_id}&limit=50`,
-    );
-    setPapers(result.papers);
+    await refreshPapers();
+    if (ownerLocal) setSettings(await api<WorkspaceSettings>("settings"));
     setError("");
-  }, []);
+  }, [refreshPapers]);
   function selectThread(thread: Thread | null) {
     setActive(thread);
     const url = new URL(window.location.href);
@@ -168,6 +180,7 @@ export default function Workspace() {
     void refresh().catch((e) => setError(String(e.message)));
   }, [refresh]);
   async function create() {
+    setCreating(true);
     try {
       setError("");
       const response = await fetch("/api/conversation/eve/v1/session", {
@@ -187,6 +200,8 @@ export default function Workspace() {
       );
     } catch (e) {
       setError((e as Error).message);
+    } finally {
+      setCreating(false);
     }
   }
   return (
@@ -196,7 +211,7 @@ export default function Workspace() {
           D<span>◆</span> DYNAMIS
         </a>
         <p className="eyebrow">RESEARCH WORKSPACE</p>
-        <button className="primary" onClick={() => void create()}>
+        <button className="primary" disabled={creating} onClick={() => void create()}>
           ＋ New research thread
         </button>
         <h2>Conversations</h2>
@@ -220,8 +235,7 @@ export default function Workspace() {
           <br />
           <small>
             MODEL_PROPOSED / PROPOSED
-            <br />
-            Live-model qualification pending
+            {!ownerLocal && <><br />Live-model qualification pending</>}
           </small>
           <button
             type="button"
@@ -239,7 +253,11 @@ export default function Workspace() {
         <header className="topbar">
           <span>Scientific research</span>
           <span className="badge">
-            {process.env.NEXT_PUBLIC_RESEARCH_MODE === "deterministic-verification"
+            {ownerLocal
+              ? settings?.inference_approved
+                ? `Paid DeepSeek V4.1 Flash · up to US$${settings.run_cost_budget_usd.toFixed(2)} estimated per run`
+                : settings ? "Paid inference disabled" : "Checking inference settings…"
+              : process.env.NEXT_PUBLIC_RESEARCH_MODE === "deterministic-verification"
               ? "Deterministic verification"
               : process.env.NEXT_PUBLIC_RESEARCH_MODE === "model-research"
                 ? "Model research (MODEL_PROPOSED)"
@@ -273,7 +291,7 @@ export default function Workspace() {
           </p>
         )}
         {active?.external_ref ? (
-          <Conversation key={active.external_ref} thread={active} />
+          <Conversation key={active.external_ref} thread={active} onResearchFinished={refreshPapers} />
         ) : (
           <div className="welcome">
             <p className="eyebrow">FOLLOW THE EVIDENCE</p>
@@ -290,7 +308,7 @@ export default function Workspace() {
               <p>“Compare the training protocols across these papers”</p>
               <p>“What evidence supports this finding?”</p>
             </div>
-            <button className="primary" onClick={() => void create()}>
+            <button className="primary" disabled={creating} onClick={() => void create()}>
               Start a research thread →
             </button>
             <p className="muted">
@@ -346,7 +364,10 @@ export default function Workspace() {
   );
 }
 
-function Conversation({ thread }: { thread: Thread }) {
+function Conversation({ thread, onResearchFinished }: {
+  thread: Thread;
+  onResearchFinished: () => Promise<void>;
+}) {
   const agent = useEveAgent({
     host: "/api/conversation",
     initialSession: {
@@ -362,6 +383,7 @@ function Conversation({ thread }: { thread: Thread }) {
   const [highlight, setHighlight] = useState<Highlight | null>(null);
   const [highlightQuote, setHighlightQuote] = useState("");
   const [error, setError] = useState("");
+  const [activityDisconnected, setActivityDisconnected] = useState(false);
   const busy = ["resuming", "submitted", "streaming"].includes(agent.status);
   const ids = [
     ...JSON.stringify(agent.events).matchAll(/"run_id":"([A-Za-z0-9_-]+)"/g),
@@ -375,8 +397,17 @@ function Conversation({ thread }: { thread: Thread }) {
     if (!id) return;
     void (async () => {
       const result = await api<Run>(`runs/${id}`);
-      if (!stopped) setRun(result);
+      if (stopped) return;
+      setRun(result);
+      setEvents([]);
+      setActivityDisconnected(false);
+      if (["completed", "abstained", "failed", "cancelled"].includes(result.status)) {
+        await onResearchFinished();
+        return;
+      }
       const source = new EventSource(`/api/research/runs/${id}/events`);
+      source.onopen = () => setActivityDisconnected(false);
+      source.onerror = () => setActivityDisconnected(true);
       for (const name of [
         "run.queued",
         "run.started",
@@ -398,6 +429,7 @@ function Conversation({ thread }: { thread: Thread }) {
             void api<Run>(`runs/${id}`)
               .then((result) => {
                 if (!stopped) setRun(result);
+                return onResearchFinished();
               })
               .catch((e) => setError(e.message));
             source.close();
@@ -407,12 +439,6 @@ function Conversation({ thread }: { thread: Thread }) {
       controller.signal.addEventListener("abort", () => source.close(), {
         once: true,
       });
-      if (
-        ["completed", "abstained", "failed", "cancelled"].includes(
-          result.status,
-        )
-      )
-        source.close();
     })().catch((e) => {
       if (!stopped) setError(e.message);
     });
@@ -420,7 +446,7 @@ function Conversation({ thread }: { thread: Thread }) {
       stopped = true;
       controller.abort();
     };
-  }, [runId]);
+  }, [runId, onResearchFinished]);
   async function inspect(key: string, citation?: Citation) {
     try {
       const params = new URLSearchParams({ thread_id: thread.thread_id });
@@ -463,6 +489,7 @@ function Conversation({ thread }: { thread: Thread }) {
         {busy && (
           <p role="status">Researching · {run?.status || agent.status}</p>
         )}
+        {activityDisconnected && <p role="status">Research activity connection interrupted. Reconnecting…</p>}
         {(error || agent.error) && (
           <p role="alert" className="error">
             {error || String(agent.error)}{" "}
@@ -719,7 +746,7 @@ function Conversation({ thread }: { thread: Thread }) {
         <div>
           <small>Answers are provisional. Verify the sources.</small>
           {busy ? (
-            <button type="button" onClick={() => void agent.cancel()}>
+            <button type="button" onClick={() => void agent.cancel().catch((e) => setError(e.message))}>
               Cancel research
             </button>
           ) : (

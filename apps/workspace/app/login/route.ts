@@ -1,6 +1,7 @@
 import { authorize, sameOrigin, withSession } from "../../lib/auth";
 
 function form(error = "", status = 200, retryAfter?: number) {
+  const credentialLabel = process.env.WORKSPACE_LOOPBACK_ORIGIN ? "owner credentials" : "preview credentials";
   return new Response(`<!doctype html><html lang="en"><head>
     <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Sign in · DynamisRAG</title><style>
@@ -9,7 +10,7 @@ function form(error = "", status = 200, retryAfter?: number) {
     input,button{font:inherit;padding:12px;margin:8px 0 20px;border:1px solid #879b8e;border-radius:6px}
     button{background:#263e37;color:white;cursor:pointer}:focus-visible{outline:3px solid #b07f24}
     </style></head><body><main><h1>Sign in to DynamisRAG</h1>
-    <p>Restricted research preview. Use your individual preview credentials.</p>
+    <p>Use your ${credentialLabel} to open the research workspace.</p>
     ${error ? `<p role="alert">${error}</p>` : ""}
     <form method="post" action="/login">
     <label for="username">Username</label><input id="username" name="username" autocomplete="username" maxlength="128" required>
@@ -44,7 +45,7 @@ export async function POST(request: Request) {
   const auth = authorize(new Request(request.url, { headers }));
   if (!auth.ok) return auth.status === 429
     ? form(`Too many attempts. Wait ${auth.retryAfter ?? 60} seconds before trying again.`, 429, auth.retryAfter ?? 60)
-    : form("Username or password is incorrect. Check your preview credentials.", 401);
+    : form("Username or password is incorrect.", 401);
   return withSession(new Response(null, {
     status: 303, headers: { location: "/", "cache-control": "no-store" },
   }), auth);

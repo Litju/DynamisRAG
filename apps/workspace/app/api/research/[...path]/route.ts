@@ -20,6 +20,12 @@ async function handle(
   const user = auth.user;
   const { path } = await context.params;
   const route = path.join("/");
+  if (route === "settings" && request.method === "GET" && process.env.WORKSPACE_LOOPBACK_ORIGIN) {
+    return withSession(Response.json({
+      inference_approved: process.env.WORKSPACE_INFERENCE_APPROVED === "true",
+      run_cost_budget_usd: Number(process.env.WORKSPACE_RUN_COST_BUDGET_USD),
+    }, { headers: { "cache-control": "no-store" } }), auth);
+  }
   if (
     !/^(threads(?:\/[A-Za-z0-9_-]+(?:\/runs)?)?|runs\/[A-Za-z0-9_-]+(?:\/(?:events|citations|cancel|resume))?|papers|evidence\/[a-f0-9]{64})$/.test(
       route,
