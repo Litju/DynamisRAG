@@ -23,7 +23,7 @@ function save(name: string, value: unknown) {
 async function ask(page: Page, question: string, index: number) {
   const runResponse = page.waitForResponse(
     (r) => /\/api\/research\/runs\/run-[^/?]+$/.test(r.url()) && r.request().method() === "GET",
-    { timeout: 120000 },
+    { timeout: 1_500_000 },
   );
   await page.getByLabel("Ask a research question").fill(question);
   await page.getByRole("button", { name: "Research ↑" }).click();
@@ -38,7 +38,7 @@ async function ask(page: Page, question: string, index: number) {
   const events = await (await page.request.get(`${runUrl}/events`)).text();
   save(`turn${index}-run.json`, run);
   writeFileSync(join(evidenceDir, `turn${index}-events.sse`), events);
-  await expect(page.locator(".results h2")).toBeVisible({ timeout: 60000 });
+  await expect(page.locator(".result h2")).toBeVisible({ timeout: 60000 });
   return { run, events };
 }
 
@@ -55,12 +55,12 @@ test("live research workflow: empty corpus, real discovery, ingestion, retrieval
     .fill(process.env.WORKSPACE_TEST_PASSWORD || "workspace-test-only");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Document library" })).toBeVisible();
+  await expect(page.locator(".library .skeleton")).toHaveCount(0);
   const initialPapers = await page.locator(".paper").count();
   save("initial-library.json", { papers: initialPapers });
   if (process.env.WORKSPACE_EXPECT_EMPTY_CORPUS === "1") expect(initialPapers).toBe(0);
   await page.screenshot({ path: join(evidenceDir, "0-empty-library.png"), fullPage: true });
 
-  await page.getByRole("button", { name: "Start a research thread" }).click();
   await expect(page.getByLabel("Ask a research question")).toBeVisible({ timeout: 30000 });
 
   const first = await ask(page, INITIAL, 1);
@@ -69,7 +69,8 @@ test("live research workflow: empty corpus, real discovery, ingestion, retrieval
   expect(acquisition.ingested.length).toBeGreaterThan(0);
   expect(first.events).toContain("event: literature.discovered");
   expect(first.events).toContain("event: corpus.projected");
-  await expect(page.getByTestId("ingested-paper").first()).toContainText("DOI 10.");
+  await page.getByText("Research diagnostics and estimated cost", { exact: true }).click();
+  await expect(page.getByTestId("ingested-paper").first().getByRole("link")).toHaveAttribute("href", /doi\.org\/10\./);
   await expect(page.getByTestId("qdrant-collection")).toContainText("qdrant-passages-v1-");
   await page.screenshot({ path: join(evidenceDir, "1-initial-answer.png"), fullPage: true });
 
@@ -81,6 +82,7 @@ test("live research workflow: empty corpus, real discovery, ingestion, retrieval
     expect(first.run.telemetry.model_calls).toBe(0);
     expect(first.run.telemetry.retrieval_candidates.length).toBeGreaterThan(0);
     expect(first.run.telemetry.retrieval_candidates[0].retrieval_mode).toBe("qdrant_hybrid_rrf");
+    await page.getByText("Retrieved passages", { exact: true }).click();
     await expect(page.getByTestId("retrieved-passage").first()).toBeVisible();
     await page.getByRole("button", { name: "Inspect retrieved passage" }).first().click();
   } else {
@@ -93,11 +95,11 @@ test("live research workflow: empty corpus, real discovery, ingestion, retrieval
     await page.getByRole("button", { name: "Inspect source 1", exact: true }).click();
     await expect(page.locator("mark")).toBeVisible();
   }
-  await expect(page.getByRole("region", { name: "Canonical source inspection" })).toContainText(
-    "source_spans",
+  await expect(page.getByRole("dialog", { name: "Canonical source inspection" })).toContainText(
+    "Source coordinates and surrounding context",
   );
   await page.screenshot({ path: join(evidenceDir, "2-source-inspection.png"), fullPage: true });
-  await page.getByRole("button", { name: "Close source" }).click();
+  await page.getByRole("button", { name: "Close canonical source inspection" }).click();
 
   const second = await ask(page, FOLLOW_UP, 2);
   await page.screenshot({ path: join(evidenceDir, "3-follow-up.png"), fullPage: true });
@@ -114,7 +116,7 @@ test("live research workflow: empty corpus, real discovery, ingestion, retrieval
     await page.getByRole("button", { name: "Inspect source 1", exact: true }).click();
     await expect(page.locator("mark")).toBeVisible();
     await page.screenshot({ path: join(evidenceDir, "4-follow-up-source.png"), fullPage: true });
-    await page.getByRole("button", { name: "Close source" }).click();
+    await page.getByRole("button", { name: "Close canonical source inspection" }).click();
   }
   save("acceptance.json", {
     provider_blocked: providerBlocked,

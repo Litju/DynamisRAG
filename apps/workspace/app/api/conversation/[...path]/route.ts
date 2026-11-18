@@ -53,21 +53,29 @@ async function handle(
       body = JSON.stringify({ message: input.message });
     }
     let scope: string[] = [];
-    if (!sessionId && body) {
-      const input = JSON.parse(body);
-      // Create first, bind ownership and document scope, then send the first turn.
-      if (input.message)
-        return Response.json(
-          { error: "Prewarm the session before sending" },
-          { status: 400 },
-        );
-      scope = input.allowed_version_keys || [];
-      if (
-        !Array.isArray(scope) ||
-        scope.length > 25 ||
-        scope.some((k) => typeof k !== "string" || !/^[a-f0-9]{64}$/.test(k))
-      )
+    let title: string | undefined;
+    if (!sessionId && request.method === "POST") {
+      let input: unknown;
+      try {
+        input = JSON.parse(body || "{}");
+      } catch {
         return new Response(null, { status: 400 });
+      }
+      if (!input || typeof input !== "object" || Array.isArray(input))
+        return new Response(null, { status: 400 });
+      if (Object.keys(input).some((key) => !["title", "allowed_version_keys"].includes(key)))
+        return Response.json({ error: "Prewarm the session before sending" }, { status: 400 });
+      if ("title" in input) {
+        if (typeof input.title !== "string" || !input.title.trim() ||
+            input.title.length > 100 || /[\x00-\x1f\x7f]/.test(input.title))
+          return new Response(null, { status: 400 });
+        title = input.title;
+      }
+      const keys = "allowed_version_keys" in input ? input.allowed_version_keys : [];
+      if (!Array.isArray(keys) || keys.length > 25 ||
+          keys.some((key) => typeof key !== "string" || !/^[a-f0-9]{64}$/.test(key)))
+        return new Response(null, { status: 400 });
+      scope = keys;
       body = "{}";
     }
     const origin =
@@ -99,21 +107,22 @@ async function handle(
         { error: "Preview authentication is required" },
         { status: 401 },
       );
-    if (!sessionId && response.ok) {
+    if (!sessionId && request.method === "POST" && response.ok) {
       const created = await response.json();
       if (typeof created.sessionId !== "string")
         throw new Error("Missing Eve session id");
-      await json(
+      const thread = await json(
         await python(user, "threads", {
           method: "POST",
           body: JSON.stringify({
             external_ref: `eve:${created.sessionId}`,
+            ...(title === undefined ? {} : { title }),
             allowed_version_keys: scope,
           }),
         }),
       );
       return withSession(
-        Response.json(created, { status: response.status }),
+        Response.json({ ...created, thread }, { status: response.status }),
         auth,
       );
     }
