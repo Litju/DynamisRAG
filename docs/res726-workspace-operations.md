@@ -41,17 +41,19 @@ volumes and host data directory.
 
 ## Protected Vercel preview
 
-The Vercel connector could read the Hobby team. It returned an empty project
-list for DynamisRAG, and the earlier create request returned 403. The CLI and
-dashboard sessions available to this checkout required Vercel sign-in.
-A local container build qualifies the self-hosted output. A linked project with
-Standard Protection and a real HTTPS deployment is needed to qualify the
-Vercel build, callbacks, quota use and access checks.
+The owner created the **dynamisrag** project on the Hobby team. Project
+settings were verified through the authenticated CLI: root **apps/workspace**,
+framework **Next.js**, Node.js **24.x**, and Vercel Authentication set to
+**All Deployments**. The project build command enforces the preview-only
+guard. Automatic Git deployments remain disabled in the workspace source.
 
-The project target is **dynamisrag**, Git repository **Litju/DynamisRAG**, root
-**apps/workspace**, and **Next.js**. Keep the existing preview-only build guard
-and disabled Git deployments. Hobby Standard Protection covers preview URLs
-and omits production domains, so keep production publication disabled.
+On this empty project, Vercel CLI 66.2.0 rejected the explicit Preview
+deployment with `first_deployment_production`. The project has zero
+deployments. Vercel documents the first deployment as Production. Keep the
+workspace build guard in place. A local container build qualifies the
+self-hosted output. A real HTTPS preview is still needed to qualify the
+Vercel build, callbacks, quota use and access checks.
+[Vercel first-deployment behavior](https://vercel.com/docs/domains/working-with-domains/deploying-and-redirecting).
 
 Vercel documents a 300-second Hobby Fluid Compute limit and a 120-second
 proxied-request limit. Pricing lists 50,000 workflow events per month and 1 GB
