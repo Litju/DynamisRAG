@@ -7,12 +7,18 @@ export async function python(
 ): Promise<Response> {
   const origin = process.env.DYNAMISRAG_API_ORIGIN;
   if (!origin) throw new Error("DYNAMISRAG_API_ORIGIN is required");
+  const endpoint = new URL(`/api/v2/${path}`, origin);
+  if (process.env.VERCEL && endpoint.protocol !== "https:")
+    throw new Error("Hosted research requires an HTTPS backend");
   const headers = new Headers(init.headers);
   headers.set("authorization", `Bearer ${identity(user)}`);
   if (init.method?.toUpperCase() === "POST" || init.body)
     headers.set("content-type", "application/json");
-  return fetch(new URL(`/api/v2/${path}`, origin), {
+  const streaming = endpoint.pathname.endsWith("/events");
+  const timeout = AbortSignal.timeout(streaming ? 260_000 : 15_000);
+  return fetch(endpoint, {
     ...init,
+    signal: init.signal ? AbortSignal.any([init.signal, timeout]) : timeout,
     headers,
     cache: "no-store",
     redirect: "error",

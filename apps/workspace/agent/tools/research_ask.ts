@@ -88,7 +88,8 @@ export default defineTool({
         }
       }
     } finally {
-      if (!terminal)
+      // The durable Python run can outlive a failed Eve delivery or browser stream.
+      if (!terminal && ctx.abortSignal.aborted)
         await json(
           await python(user, `runs/${run.run_id}/cancel`, { method: "POST" }),
         );
