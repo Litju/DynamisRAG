@@ -69,10 +69,16 @@ export type Run = RunState & {
       unique_works: number;
       ingested: { doi?: string | null; pmcid?: string | null; title: string }[];
       rejected: unknown[];
+      provider_failures?: { provider: string }[];
       already_in_corpus?: unknown[];
       origin?: string;
       query_ladder?: { level: number; origin?: string; europe_pmc: string }[];
-      projection?: { collection: string; passage_count: number } | null;
+      projection?: {
+        collection: string;
+        passage_count: number;
+        embedded_now?: number;
+        reused_vectors?: number;
+      } | null;
     } | null;
     retrieval_candidates?: {
       passage_key: string;

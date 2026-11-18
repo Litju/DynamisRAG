@@ -17,9 +17,12 @@ export function RunResult({ run, inspect, retry }: {
 }) {
   const telemetry = run.telemetry;
   const acquisition = telemetry?.literature_acquisition;
+  const providers = [...new Set(acquisition?.provider_failures?.map(({ provider }) =>
+    provider === "europe_pmc" ? "Europe PMC" : provider === "openalex" ? "OpenAlex" : provider))];
   const citations = run.verified_citations;
   const uncertainty = storedSection(run.answer_markdown ?? "", "Gaps and tensions");
-  const coverage = storedSection(run.answer_markdown ?? "", "Asked aspects");
+  const unsupported = storedSection(run.answer_markdown ?? "", "Asked aspects")
+    ?.split("\n").filter((line) => line.endsWith("**no admitted evidence**")).join("\n");
   const missing = [...new Set(run.proposed_findings.flatMap((item) => item.missing_information ?? []))];
   const caveats = [...new Set(run.proposed_findings.flatMap((item) => item.uncertainty_notes ?? []))];
   const rejected = run.rejected_citations?.length ?? 0;
@@ -54,6 +57,10 @@ export function RunResult({ run, inspect, retry }: {
           </section>
         </>
       )}
+      {providers.length > 0 && <p className="verification-note" role="note">
+        Some literature requests to {providers.join(", ")} failed. Search coverage may be incomplete.{" "}
+        <button type="button" onClick={retry}>Reuse question</button>
+      </p>}
       {run.status === "abstained" && <p>
         {run.abstention_reason?.startsWith("provider_authorization_blocked")
           ? "Model inference is disabled for this workspace. You can still review the retrieved passages."
@@ -62,23 +69,31 @@ export function RunResult({ run, inspect, retry }: {
       {(run.status === "failed" || run.status === "cancelled") && (
         <p><button type="button" onClick={retry}>Reuse question</button></p>
       )}
-      {(run.status === "completed" || uncertainty || missing.length > 0 || caveats.length > 0) && (
+      {(run.status === "completed" || missing.length > 0) && (
         <section className="limits" aria-labelledby="limitations-heading">
-          <h3 id="limitations-heading">Limitations and uncertainty</h3>
-          {uncertainty && <Markdown skipHtml>{uncertainty}</Markdown>}
-          {[...missing, ...caveats].length > 0 && <ul>
-            {[...missing, ...caveats].map((note, index) => <li key={index}>{note}</li>)}
-          </ul>}
+          <h3 id="limitations-heading">Study limitations</h3>
+          {missing.length > 0 && <ul>{missing.map((note) => <li key={note}>{note}</li>)}</ul>}
           <p>{run.study_comparison?.limitation_notice ||
-            "Exact quotations establish provenance. Lexical wording checks do not establish entailment, study validity, or clinical applicability."}</p>
+            "Lexical wording checks do not establish entailment, study validity, or clinical applicability."}</p>
         </section>
       )}
-      {(coverage || rejected > 0 || run.status === "abstained") && (
+      {(uncertainty || caveats.length > 0) && (
+        <section className="limits" aria-labelledby="uncertainty-heading">
+          <h3 id="uncertainty-heading">Uncertainty</h3>
+          {uncertainty && <Markdown skipHtml>{uncertainty}</Markdown>}
+          {caveats.length > 0 && <ul>{caveats.map((note) => <li key={note}>{note}</li>)}</ul>}
+        </section>
+      )}
+      {(unsupported || rejected > 0 || run.status === "abstained") && (
         <section className="unsupported" aria-labelledby="unsupported-heading">
           <h3 id="unsupported-heading">Unsupported aspects</h3>
-          {coverage && <Markdown skipHtml>{coverage}</Markdown>}
+          {unsupported && <Markdown skipHtml>{unsupported}</Markdown>}
           {rejected > 0 && <p>{rejected} proposed claims were rejected by the recorded checks.</p>}
-          {run.status === "abstained" && <p>Try a narrower question or adjust the document scope in a new conversation.</p>}
+          {providers.length > 0 && <p className="verification-note" role="note">
+        Some literature requests to {providers.join(", ")} failed. Search coverage may be incomplete.{" "}
+        <button type="button" onClick={retry}>Reuse question</button>
+      </p>}
+      {run.status === "abstained" && <p>Try a narrower question or adjust the document scope in a new conversation.</p>}
         </section>
       )}
       {run.study_comparison && <section className="study-comparison">
