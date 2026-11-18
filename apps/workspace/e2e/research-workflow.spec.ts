@@ -26,7 +26,7 @@ async function ask(page: Page, question: string, index: number) {
     { timeout: 1_500_000 },
   );
   await page.getByLabel("Ask a research question").fill(question);
-  await page.getByRole("button", { name: "Research ↑" }).click();
+  await page.getByRole("button", { name: "Start research", exact: true }).click();
   const runUrl = (await runResponse).url();
   await expect
     .poll(async () => (await (await page.request.get(runUrl)).json()).status, {
