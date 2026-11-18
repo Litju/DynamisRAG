@@ -738,12 +738,19 @@ class LiteratureAcquisition:
                     "already_in_corpus": len(present),
                 },
             )
-            if not ingested:
-                # Discovered works that are already canonical are still evidence to retrieve.
-                receipt["status"] = "already_in_corpus" if present else "nothing_ingested"
+            if not ingested and not present:
+                receipt["status"] = "nothing_ingested"
                 return receipt
-            receipt["projection"] = self._project(started)
-            progress("corpus.projected", receipt["projection"])
+            if should_stop():
+                receipt["status"] = "stopped"
+                return receipt
+            # A previous run may have committed a canonical paper before publishing its vectors.
+            projection = self._project(started, if_changed=not ingested)
+            if projection is None:
+                receipt["status"] = "already_in_corpus"
+                return receipt
+            receipt["projection"] = projection
+            progress("corpus.projected", projection)
         receipt["status"] = "completed"
         receipt["duration_seconds"] = round(time.monotonic() - started, 3)
         return receipt
@@ -942,7 +949,7 @@ class LiteratureAcquisition:
 
     # -- projection -----------------------------------------------------------------------
 
-    def _project(self, started: float) -> dict[str, Any]:
+    def _project(self, started: float, *, if_changed: bool = False) -> dict[str, Any] | None:
         with Session(self.ingest_engine) as session:
             records = tuple(
                 list_passage_projection_records(session, chunker_revision=self.chunker_revision)
@@ -960,6 +967,8 @@ class LiteratureAcquisition:
                     previous_name,
                     chunker_revision=self.chunker_revision,
                 )
+                if if_changed and previous.passages.projection_sha256 == passages.projection_sha256:
+                    return None
                 reusable = {
                     (e.passage_key, e.content_sha256): e.values for e in previous.embeddings.entries
                 }

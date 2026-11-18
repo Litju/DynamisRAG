@@ -7,7 +7,9 @@ RUN uv sync --locked --no-default-groups --no-install-project
 COPY src ./src
 COPY alembic ./alembic
 COPY alembic.ini ./
-RUN uv sync --locked --no-default-groups && useradd --uid 10001 --create-home workspace
+RUN uv sync --locked --no-default-groups \
+    && useradd --uid 10001 --create-home workspace \
+    && install -d -o workspace -g workspace /app/.dynamisrag
 USER workspace
 ENV PATH="/app/.venv/bin:$PATH"
 EXPOSE 8000
