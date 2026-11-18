@@ -72,6 +72,7 @@ __all__ = [
     "ThreadMessageRecord",
     "ThreadNotFoundError",
     "ThreadRecord",
+    "ThreadRunState",
     "ThreadScopeConflictError",
     "assert_agent_database_isolated",
 ]
@@ -200,17 +201,23 @@ class AgentRunEventRecord(AgentContract):
     created_at: str
 
 
-class AgentRunRecord(AgentContract):
-    """Durable execution record for one conversational turn."""
+class ThreadRunState(AgentContract):
+    """Public timeline state available independently of the Eve stream."""
 
     run_id: SafeShortText
+    question: SafeLongText
+    status: RunStatus
+    cancel_requested: bool = False
+    created_at: str
+
+
+class AgentRunRecord(ThreadRunState):
+    """Durable execution record for one conversational turn."""
+
     thread_id: SafeShortText
     owner_id: UserId
     idempotency_key: SafeShortText
-    question: SafeLongText
-    status: RunStatus
     require_confirmation: bool = False
-    cancel_requested: bool = False
     attempt: int = Field(default=0, ge=0)
     max_attempts: int = Field(default=3, ge=1)
     worker_id: str | None = None
@@ -227,7 +234,6 @@ class AgentRunRecord(AgentContract):
     evidence_graph_key: Sha256Hex | None = None
     telemetry: dict[str, Any] = Field(default_factory=dict)
     error_message: str | None = None
-    created_at: str
     updated_at: str
 
 
@@ -312,6 +318,10 @@ class AgentConversationStore(Protocol):
         require_confirmation: bool = False,
         max_attempts: int = 3,
     ) -> tuple[AgentRunRecord, bool]: ...
+
+    def list_thread_runs(
+        self, thread_id: str, *, user_id: str, limit: int, offset: int
+    ) -> tuple[ThreadRunState, ...]: ...
 
     def get_run(self, run_id: str, *, user_id: str) -> AgentRunRecord: ...
 
@@ -577,6 +587,23 @@ class InMemoryAgentConversationStore:
             self._events[run_id] = []
             self._append(run_id, thread_id, RunEventType.RUN_QUEUED, "queued", {})
             return rec, True
+
+    def list_thread_runs(
+        self, thread_id: str, *, user_id: str, limit: int, offset: int
+    ) -> tuple[ThreadRunState, ...]:
+        self.get_thread(thread_id, user_id=user_id)
+        with self._lock:
+            records = sorted(
+                (run for run in self._runs.values() if run.thread_id == thread_id),
+                key=lambda run: (run.created_at, run.run_id),
+                reverse=True,
+            )
+            return tuple(
+                ThreadRunState.model_validate(
+                    run.model_dump(include=set(ThreadRunState.model_fields))
+                )
+                for run in records[offset : offset + limit]
+            )
 
     def get_run(self, run_id: str, *, user_id: str) -> AgentRunRecord:
         with self._lock:
@@ -1335,6 +1362,21 @@ class PostgresAgentConversationStore:
                 f"Idempotency key {idempotency_key!r} was used for a different request"
             )
         return self._row_to_run(existing), False
+
+    def list_thread_runs(
+        self, thread_id: str, *, user_id: str, limit: int, offset: int
+    ) -> tuple[ThreadRunState, ...]:
+        self.get_thread(thread_id, user_id=user_id)
+        with self._pool.connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT run_id, question, status, cancel_requested, created_at
+                FROM agent_runs WHERE thread_id = %s AND owner_id = %s
+                ORDER BY created_at DESC, run_id DESC LIMIT %s OFFSET %s
+                """,
+                (thread_id, user_id, limit, offset),
+            )
+            return tuple(ThreadRunState.model_validate(row) for row in rows)
 
     def get_run(self, run_id: str, *, user_id: str) -> AgentRunRecord:
         row = self._fetch_run_row(run_id)
