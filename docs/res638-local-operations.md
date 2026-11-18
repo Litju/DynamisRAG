@@ -14,7 +14,8 @@ existing threads stay associated with the same account. Open a thread from
 **Conversations** or start a new one. With no papers selected, the agent may
 search Europe PMC and OpenAlex and save permitted open-access papers to your
 library. Select papers before starting a thread to restrict it to those sources.
-Use **Inspect source** to read the canonical passage behind a quotation.
+Use **Inspect source** to read the canonical passage behind a quotation. In a
+multi-turn thread, **Evidence for turn** opens the sources for an earlier answer.
 
 The status command reports each container and the paid inference setting. The
 workspace shows the configured per-run estimated budget before you submit and

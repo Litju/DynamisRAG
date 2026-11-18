@@ -378,6 +378,7 @@ function Conversation({ thread, onResearchFinished }: {
   });
   const [question, setQuestion] = useState("");
   const [run, setRun] = useState<Run | null>(null);
+  const [earlierTurn, setEarlierTurn] = useState<{ runId: string; latestId: string }>();
   const [events, setEvents] = useState<string[]>([]);
   const [evidence, setEvidence] = useState<Evidence | null>(null);
   const [highlight, setHighlight] = useState<Highlight | null>(null);
@@ -385,11 +386,15 @@ function Conversation({ thread, onResearchFinished }: {
   const [error, setError] = useState("");
   const [activityDisconnected, setActivityDisconnected] = useState(false);
   const busy = ["resuming", "submitted", "streaming"].includes(agent.status);
-  const ids = [
-    ...JSON.stringify(agent.events).matchAll(/"run_id":"([A-Za-z0-9_-]+)"/g),
-  ];
-  const runId = ids.at(-1)?.[1];
-  // Tool snapshots carry the authoritative Python run id; the browser never chooses an owner.
+  // Eve tool snapshots supply the Python run IDs, including replays of prior turns.
+  const runIds = [...new Set(Array.from(
+    JSON.stringify(agent.events).matchAll(/"run_id":"([A-Za-z0-9_-]+)"/g),
+    (match) => match[1],
+  ))];
+  const latestId = runIds.at(-1);
+  const runId = !busy && earlierTurn && earlierTurn.latestId === latestId
+    ? earlierTurn.runId
+    : latestId;
   useEffect(() => {
     let stopped = false;
     const controller = new AbortController();
@@ -402,7 +407,7 @@ function Conversation({ thread, onResearchFinished }: {
       setEvents([]);
       setActivityDisconnected(false);
       if (["completed", "abstained", "failed", "cancelled"].includes(result.status)) {
-        await onResearchFinished();
+        if (id === latestId) await onResearchFinished();
         return;
       }
       const source = new EventSource(`/api/research/runs/${id}/events`);
@@ -446,7 +451,7 @@ function Conversation({ thread, onResearchFinished }: {
       stopped = true;
       controller.abort();
     };
-  }, [runId, onResearchFinished]);
+  }, [runId, latestId, onResearchFinished]);
   async function inspect(key: string, citation?: Citation) {
     try {
       const params = new URLSearchParams({ thread_id: thread.thread_id });
@@ -496,7 +501,26 @@ function Conversation({ thread, onResearchFinished }: {
             <button onClick={() => void agent.resume()}>Reconnect</button>
           </p>
         )}
-        {run && (
+        {runIds.length > 1 && latestId && (
+          <label>
+            Evidence for turn{" "}
+            <select
+              value={runId}
+              disabled={busy}
+              onChange={(e) => {
+                setEvidence(null);
+                setEarlierTurn({ runId: e.target.value, latestId });
+              }}
+            >
+              {runIds.map((id, index) => (
+                <option value={id} key={id}>
+                  Turn {index + 1}{id === latestId ? " (latest)" : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {run && run.run_id === runId && (
           <section className="results">
             <h2>
               {run.status === "abstained"

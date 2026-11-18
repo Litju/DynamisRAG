@@ -145,6 +145,10 @@ test("authenticated Eve conversation executes the Python graph and denies a seco
   await expect(page.locator(".message.user")).toHaveCount(2, {
     timeout: 30000,
   });
+  await page.getByLabel("Evidence for turn").selectOption({ label: "Turn 1" });
+  await page.getByRole("button", { name: "Inspect source 1", exact: true }).click();
+  await expect(page.getByRole("region", { name: "Canonical source inspection" })).toBeVisible();
+  await expect(page.locator("mark")).toContainText(/stiffness/i);
 });
 
 test("mobile workspace fits and rejects unauthenticated API requests", async ({
