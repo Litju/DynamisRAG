@@ -36,6 +36,7 @@ from dynamisrag.embedding.scientific_cpu import (
 from dynamisrag.logging_config import APP_LOGGER_NAME
 from dynamisrag.search.qdrant import QdrantClient, QdrantError, QdrantRetrieval
 from dynamisrag.search.scientific import (
+    ScientificReadiness,
     ScientificResponse,
     ScientificRetrievalService,
     ScientificUnavailable,
@@ -130,6 +131,10 @@ class ResearchCorpusRetrieval(ScientificRetrievalService):
         """Follow the alias after an acquisition (or another worker's) publication."""
         with self._lock:
             self._load()
+
+    def readiness(self) -> ScientificReadiness:
+        self.refresh()
+        return super().readiness()
 
     def retrieve(self, question: str, limit: int, filters: Mapping[str, str]) -> ScientificResponse:
         self.refresh()

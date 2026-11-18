@@ -1,0 +1,143 @@
+# Use with compose.research-workflow.yaml through scripts.res638_local.
+x-backend: &backend
+  image: dynamisrag-res638-local-backend
+  restart: unless-stopped
+  # Share Qdrant's network namespace so the existing loopback-only client policy applies.
+  network_mode: service:qdrant
+  stop_grace_period: 30s
+  volumes:
+    - ${RES638_OWNER_DATA_DIR:?use scripts.res638_local}/corpus:/research
+  environment: &backend-env
+    DYNAMISRAG_ENVIRONMENT: staging
+    DYNAMISRAG_DATABASE_URL: postgresql://workspace_reader:${RESEARCH_READER_PASSWORD}@canonical:5432/workspace
+    DYNAMISRAG_AGENT_DATABASE_URL: postgresql://workspace_owner:${RESEARCH_AGENT_PASSWORD}@agent-state:5432/workspace
+    DYNAMISRAG_AGENT_IDENTITY_SECRET: ${DYNAMISRAG_AGENT_IDENTITY_SECRET:?set the local identity secret}
+    DYNAMISRAG_AGENT_ENABLED: "true"
+    DYNAMISRAG_AGENT_INLINE_WORKERS: "0"
+    DYNAMISRAG_RESEARCH_ACQUISITION_ENABLED: "true"
+    DYNAMISRAG_RESEARCH_QDRANT_URL: http://127.0.0.1:6333
+    DYNAMISRAG_RESEARCH_QDRANT_API_KEY: ${RESEARCH_QDRANT_KEY}
+    DYNAMISRAG_RESEARCH_TEI_URL: http://tei:80
+    DYNAMISRAG_RESEARCH_STORE_DIRECTORY: /research
+    DYNAMISRAG_RESEARCH_INGEST_DATABASE_URL: postgresql://workspace_owner:${RESEARCH_OWNER_PASSWORD}@canonical:5432/workspace
+    DYNAMISRAG_OPENSEARCH_URL: https://127.0.0.1:1
+    DYNAMISRAG_OPENSEARCH_PASSWORD: unused-by-local-research
+    DYNAMISRAG_AGENT_PROVIDER: opencode_go
+    DYNAMISRAG_AGENT_MODEL_FAST: deepseek-v4.1-flash
+    DYNAMISRAG_AGENT_MODEL_COORDINATOR: deepseek-v4.1-flash
+    DYNAMISRAG_AGENT_MODEL_PRO: deepseek-v4.1-flash
+    DYNAMISRAG_AGENT_RUN_TIMEOUT_SECONDS: ${DYNAMISRAG_AGENT_RUN_TIMEOUT_SECONDS:-1200}
+    DYNAMISRAG_AGENT_LEASE_SECONDS: ${DYNAMISRAG_AGENT_LEASE_SECONDS:-90}
+  depends_on:
+    canonical: { condition: service_healthy }
+    agent-state: { condition: service_healthy }
+    qdrant: { condition: service_started }
+    tei: { condition: service_healthy }
+x-web: &web
+  image: dynamisrag-res638-local-web
+  restart: unless-stopped
+  init: true
+  environment: &web-env
+    DYNAMISRAG_AGENT_IDENTITY_SECRET: ${DYNAMISRAG_AGENT_IDENTITY_SECRET}
+    DYNAMISRAG_API_ORIGIN: http://qdrant:8000
+    EVE_TELEMETRY_DISABLED: "1"
+    NEXT_TELEMETRY_DISABLED: "1"
+services:
+  canonical:
+    ports: !reset []
+  agent-state:
+    ports: !reset []
+  qdrant:
+    ports: !reset []
+    networks: [default, embedding]
+  tei:
+    ports: !reset []
+    networks: [embedding]
+    healthcheck:
+      start_period: 4m
+      retries: 80
+    environment:
+      HF_HUB_OFFLINE: "1"
+    volumes:
+      - tei-model-cache:/data:ro
+  api:
+    <<: *backend
+    build: { context: ., dockerfile: infra/workspace/Dockerfile }
+    # The API only queues runs. A blocked runtime keeps its provider client off.
+    healthcheck:
+      test: [CMD, python, -c, "from urllib.request import urlopen; urlopen('http://127.0.0.1:8000/readyz/qdrant', timeout=5).close()"]
+      interval: 30s
+      start_interval: 3s
+      timeout: 6s
+      start_period: 45s
+      retries: 12
+  worker:
+    <<: *backend
+    depends_on:
+      api: { condition: service_healthy }
+      qdrant: { condition: service_started }
+    command: [python, -m, dynamisrag.agent.worker]
+    environment:
+      <<: *backend-env
+      DYNAMISRAG_AGENT_OPENCODE_GO_USAGE_APPROVED: ${DYNAMISRAG_AGENT_OPENCODE_GO_USAGE_APPROVED:-false}
+      DYNAMISRAG_AGENT_MODEL_API_KEY: ${DYNAMISRAG_AGENT_MODEL_API_KEY:-}
+      DYNAMISRAG_AGENT_RUN_COST_BUDGET_USD: ${DYNAMISRAG_AGENT_RUN_COST_BUDGET_USD:-0.20}
+      DYNAMISRAG_AGENT_RUN_TOKEN_BUDGET: ${DYNAMISRAG_AGENT_RUN_TOKEN_BUDGET:-250000}
+      DYNAMISRAG_RESEARCH_MAX_PAPERS: ${DYNAMISRAG_RESEARCH_MAX_PAPERS:-2}
+      DYNAMISRAG_RESEARCH_ACQUISITION_DEADLINE_SECONDS: ${DYNAMISRAG_RESEARCH_ACQUISITION_DEADLINE_SECONDS:-900}
+      DYNAMISRAG_LOCAL_WORKER_READY_FILE: /tmp/dynamisrag-worker-ready
+    healthcheck:
+      test: [CMD-SHELL, 'test -f /tmp/dynamisrag-worker-ready && kill -0 1']
+      interval: 5s
+      timeout: 3s
+      start_period: 20s
+      retries: 18
+  eve:
+    <<: *web
+    depends_on:
+      worker: { condition: service_healthy }
+    command: [node, .output/server/index.mjs]
+    volumes:
+      - ${RES638_OWNER_DATA_DIR:?use scripts.res638_local}/eve:/app/.eve/.workflow-data
+    environment:
+      <<: *web-env
+      HOST: 0.0.0.0
+      PORT: "4274"
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:4274/eve/v1/health').then(r => {if (!r.ok) process.exit(1)})"]
+      interval: 5s
+      timeout: 4s
+      retries: 12
+  workspace:
+    <<: *web
+    build: { context: apps/workspace, dockerfile: Dockerfile }
+    depends_on:
+      eve: { condition: service_healthy }
+    command: [node, node_modules/next/dist/bin/next, start, --hostname, 0.0.0.0, --port, "3000"]
+    ports: ["127.0.0.1:${LOCAL_WORKSPACE_PORT:-3040}:3000"]
+    environment:
+      <<: *web-env
+      EVE_INTERNAL_ORIGIN: http://eve:4274
+      WORKSPACE_LOOPBACK_ORIGIN: http://127.0.0.1:${LOCAL_WORKSPACE_PORT:-3040}
+      WORKSPACE_SESSION_SECRET: ${WORKSPACE_SESSION_SECRET:?set a separate local session secret}
+      WORKSPACE_ACCOUNTS: ${WORKSPACE_ACCOUNTS:?set the local owner account hash}
+      WORKSPACE_INFERENCE_APPROVED: ${DYNAMISRAG_AGENT_OPENCODE_GO_USAGE_APPROVED:-false}
+      WORKSPACE_RUN_COST_BUDGET_USD: ${DYNAMISRAG_AGENT_RUN_COST_BUDGET_USD:-0.20}
+    healthcheck:
+      test: [CMD, node, -e, "const u=new URL(process.env.WORKSPACE_LOOPBACK_ORIGIN); require('node:http').get('http://127.0.0.1:3000/login',{headers:{host:u.host}},r=>process.exit(r.statusCode===200?0:1))"]
+      interval: 5s
+      timeout: 4s
+      retries: 12
+networks:
+  embedding:
+    internal: true
+volumes:
+  canonical:
+    name: dynamisrag-res638-local-canonical
+    external: true
+  agent-state:
+    name: dynamisrag-res638-local-agent-state
+    external: true
+  vectors:
+    name: dynamisrag-res638-local-vectors
+    external: true
