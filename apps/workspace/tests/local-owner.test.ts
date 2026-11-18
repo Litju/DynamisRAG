@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { NextRequest } from "next/server";
-import { unauthorized } from "../lib/auth";
+import { sessionCookie, unauthorized } from "../lib/auth";
 import { proxy } from "../proxy";
 
 test("local owner entry points reject other hosts and hide the Eve service", () => {
@@ -23,4 +23,23 @@ test("local owner entry points reject other hosts and hide the Eve service", () 
   } finally {
     delete process.env.WORKSPACE_LOOPBACK_ORIGIN;
   }
+});
+
+test("the explicit HTTP loopback accepts sessions while hosted cookies stay Secure", (t) => {
+  t.mock.property(process, "env", {
+    ...process.env,
+    WORKSPACE_LOOPBACK_ORIGIN: "http://127.0.0.1:3040",
+    NODE_ENV: "production",
+    VERCEL: undefined,
+  });
+  const headers = { host: "127.0.0.1:3040" };
+  const local = sessionCookie("token", new Request("http://localhost:3000/", { headers }));
+  assert.match(local, /HttpOnly; Path=\/; SameSite=Lax/);
+  assert.doesNotMatch(local, /; Secure/);
+  const https = sessionCookie("token", new Request("https://127.0.0.1:3040/", { headers }));
+  assert.match(https, /; Secure/);
+  const external = sessionCookie("token", new Request("http://untrusted.invalid/"));
+  assert.match(external, /; Secure/);
+  process.env.VERCEL = "1";
+  assert.match(sessionCookie("token", new Request("http://localhost:3000/", { headers })), /; Secure/);
 });

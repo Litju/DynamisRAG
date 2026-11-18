@@ -146,10 +146,17 @@ function cookieValue(header: string | null, name: string): string | null {
 }
 
 function secureCookie(request: Request): boolean {
-  return (
-    process.env.NODE_ENV === "production" ||
-    new URL(request.url).protocol === "https:"
-  );
+  if (process.env.VERCEL || new URL(request.url).protocol === "https:") return true;
+  const configuredOrigin = process.env.WORKSPACE_LOOPBACK_ORIGIN;
+  if (configuredOrigin) {
+    const origin = new URL(configuredOrigin);
+    if (
+      origin.protocol === "http:" &&
+      origin.hostname === "127.0.0.1" &&
+      request.headers.get("host") === origin.host
+    ) return false;
+  }
+  return process.env.NODE_ENV === "production";
 }
 
 export function sessionCookie(
