@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
+import { createFunnelServer } from "../funnel.mjs";
 import worker, { verifyIdentity } from "../worker.mjs";
 
 const secret = "edge-test-identity-secret-0123456789abcdef";
@@ -183,4 +184,25 @@ test("oversized writes and upstream redirects fail closed", async (t) => {
     (await worker.fetch(request("/api/v2/threads"), env())).status,
     502,
   );
+});
+test("Funnel forwards only signed library routes and preserves event replay", async (t) => {
+  const upstream = t.mock.fn(async (url, init) => {
+    assert.equal(url.pathname, "/api/v2/runs/run-1/events");
+    assert.equal(url.search, "?after_seq=41");
+    assert.equal(init.headers.get("last-event-id"), "41");
+    assert.equal(init.headers.get("cookie"), null);
+    return new Response("id: 42\ndata: {}\n\n", { headers: { "content-type": "text/event-stream" } });
+  });
+  const server = createFunnelServer({ origin: "http://backend.example", secret, fetchOrigin: upstream });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => { server.closeAllConnections(); server.close(); });
+  const origin = "http://127.0.0.1:" + server.address().port;
+  assert.equal((await fetch(origin + "/docs", { headers: { authorization: token() } })).status, 404);
+  assert.equal((await fetch(origin + "/api/v2/papers")).status, 401);
+  const events = await fetch(origin + "/api/v2/runs/run-1/events?after_seq=41", {
+    headers: { authorization: token(), "last-event-id": "41", cookie: "test=fixture" },
+  });
+  assert.equal(events.headers.get("content-type"), "text/event-stream");
+  assert.equal(await events.text(), "id: 42\ndata: {}\n\n");
+  assert.equal(upstream.mock.callCount(), 1);
 });

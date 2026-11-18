@@ -1,0 +1,46 @@
+# Use after compose.research-workflow.yaml and compose.research-local.yaml.
+services:
+  qdrant:
+    networks: [default, embedding, warm-embedding, preview-inference]
+  api:
+    depends_on: !override
+      canonical: { condition: service_healthy }
+      agent-state: { condition: service_healthy }
+      qdrant: { condition: service_started }
+    environment: &preview-model
+      DYNAMISRAG_RESEARCH_TEI_URL: http://dynamisrag-res638-local-tei-1:80
+      DYNAMISRAG_AGENT_MODEL_BASE_URL: http://preview-ollama:11434
+      DYNAMISRAG_AGENT_PROVIDER: ollama
+      DYNAMISRAG_AGENT_MODEL_NAME: qwen3:4b
+      DYNAMISRAG_AGENT_OPENCODE_GO_USAGE_APPROVED: "false"
+      DYNAMISRAG_AGENT_MODEL_API_KEY: ""
+  worker:
+    environment: *preview-model
+  gateway:
+    image: node:24-bookworm-slim
+    user: node
+    restart: unless-stopped
+    init: true
+    command: [node, /gateway/funnel.mjs]
+    volumes:
+      - ./apps/edge-gateway:/gateway:ro
+    ports: ["127.0.0.1:18444:8080"]
+    environment:
+      PYTHON_API_ORIGIN: http://qdrant:8000
+      IDENTITY_SECRET: ${DYNAMISRAG_AGENT_IDENTITY_SECRET}
+    depends_on:
+      api: { condition: service_healthy }
+networks:
+  warm-embedding:
+    name: dynamisrag-res638-local_embedding
+    external: true
+  preview-inference:
+    name: res726-vercel-inference
+    external: true
+volumes:
+  canonical:
+    name: res726-vercel-canonical
+  agent-state:
+    name: res726-vercel-agent-state
+  vectors:
+    name: res726-vercel-vectors
