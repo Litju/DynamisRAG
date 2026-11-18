@@ -3,8 +3,24 @@ import { authorize, sameOrigin } from "./lib/auth";
 
 export function proxy(request: NextRequest) {
   const loopback = process.env.WORKSPACE_LOOPBACK_ORIGIN;
-  if (loopback && request.headers.get("host") !== new URL(loopback).host)
-    return new Response(null, { status: 421 });
+  if (loopback) {
+    const canonical = new URL(loopback);
+    const host = request.headers.get("host");
+    if (host !== canonical.host) {
+      const alias = new URL(loopback);
+      alias.hostname = "localhost";
+      if (
+        host === alias.host &&
+        ["GET", "HEAD"].includes(request.method) &&
+        ["/", "/login"].includes(request.nextUrl.pathname)
+      ) {
+        canonical.pathname = request.nextUrl.pathname;
+        canonical.search = request.nextUrl.search;
+        return NextResponse.redirect(canonical);
+      }
+      return new Response("Open the workspace at " + canonical.origin, { status: 421 });
+    }
+  }
   if (request.nextUrl.pathname !== "/") {
     if (loopback && /^\/(?:eve|_eve_internal|\.well-known)(?:\/|$)/.test(request.nextUrl.pathname))
       return new Response(null, { status: 404 });

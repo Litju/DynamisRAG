@@ -7,8 +7,14 @@ import { proxy } from "../proxy";
 test("local owner entry points reject other hosts and hide the Eve service", () => {
   process.env.WORKSPACE_LOOPBACK_ORIGIN = "http://127.0.0.1:3040";
   try {
-    const request = (path: string, host = "127.0.0.1:3040") =>
-      new NextRequest(`http://localhost:3000${path}`, { headers: { host } });
+    const request = (path: string, host = "127.0.0.1:3040", method = "GET") =>
+      new NextRequest(`http://localhost:3000${path}`, { headers: { host }, method });
+    const alias = proxy(request("/login", "localhost:3040"));
+    assert.equal(alias.status, 307);
+    assert.equal(alias.headers.get("location"), "http://127.0.0.1:3040/login");
+    assert.equal(proxy(request("/login", "localhost:3040", "POST")).status, 421);
+    assert.equal(proxy(request("/login", "localhost:3100")).status, 421);
+    assert.equal(proxy(request("/eve/v1/session", "localhost:3040")).status, 421);
     assert.equal(proxy(request("/api/research/threads", "external.example")).status, 421);
     assert.equal(proxy(request("/eve/v1/session")).status, 404);
     assert.equal(proxy(request("/.well-known/workflow/v1/flow")).status, 404);
