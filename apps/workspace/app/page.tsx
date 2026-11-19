@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Composer, History, Library, Panel, ResearchMode } from "./components/workspace-controls";
 import { Conversation, type ResearchEntry } from "./components/conversation";
-import { ResearchOrbit } from "./components/research-orbit";
+import { SourceStack } from "./components/source-stack";
 import {
   type Paper, type Thread, type WorkspaceSettings, research,
   titleFromQuestion, workspaceRequest,
@@ -154,14 +154,13 @@ export default function Workspace() {
             <div className="home-grid">
               <div className="home-question">
                 <div className="welcome">
-                  <p className="eyebrow">Scientific literature research</p>
-                  <h1>Research,<br /> <em>grounded.</em></h1>
-                  <p>Explore open-access literature, compare study methods and trace findings back to the original text.</p>
+                  <h1>Explore the literature.</h1>
+                  <p>Ask a question across open-access studies, or limit your search to papers you select.</p>
                 </div>
                 <Composer draft={draft} setDraft={setDraft} submit={(question) => void start(question)}
                   pending={creating} scope={selected.length ? selected.length + " papers selected" : "Open literature search"} />
               </div>
-              <ResearchOrbit papers={papers} selected={selected} toggle={libraryProps.toggle} locked={creating} />
+              <SourceStack papers={papers} selected={selected} toggle={libraryProps.toggle} locked={creating} />
             </div>
             <div className="suggestions" aria-label="Example questions">
               {entries.map(([label, question]) => <button type="button" key={label}
@@ -169,7 +168,7 @@ export default function Workspace() {
                 {label} <span aria-hidden>↗</span>
               </button>)}
             </div>
-            <p className="research-note">Findings are provisional. Open a citation to check its source.</p>
+            <p className="research-note">Findings are provisional. Citations open the original passages.</p>
           </section>
         )}
       </main>

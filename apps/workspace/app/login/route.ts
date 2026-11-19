@@ -7,16 +7,16 @@ function form(error = "", status = 200, retryAfter?: number) {
     <title>Sign in · DynamisRAG</title><style>
     *{box-sizing:border-box}
     body{font:16px/1.6 "Segoe UI",system-ui,sans-serif;margin:0;min-height:100vh;padding:24px;
-    display:grid;place-items:center;color:#eef0ff;background:radial-gradient(ellipse at 60% 10%,#2b325d,#0b101d 64%)}
-    main{width:min(100%,460px);padding:clamp(22px,6vw,46px);border:1px solid #414d78;border-radius:22px;
-    background:linear-gradient(145deg,#202a4a,#141a30);box-shadow:0 30px 100px #0306109e}
-    h1{font-size:clamp(1.85rem,5vw,2.6rem);line-height:1.08;letter-spacing:-.055em;margin:0 0 16px}
-    p{color:#b8c2df}label,input,button{display:block;width:100%}
-    input,button{font:inherit;padding:11px;margin:7px 0 16px;border:1px solid #5a6a92;border-radius:8px}
-    input{background:#131c34;color:#eef0ff}
-    button{background:#aaaafa;color:#101630;font-weight:700;cursor:pointer;margin-bottom:0}
-    :focus-visible{outline:3px solid #a4f7e9;outline-offset:3px}
-    [role=alert]{color:#ffd3cb}
+    display:grid;place-items:center;color:#232826;background:#f3f2ed}
+    main{width:min(100%,460px);padding:clamp(22px,6vw,46px);border:1px solid #d2d8cf;border-radius:12px;
+    background:#fff;box-shadow:0 12px 40px #252f2310}
+    h1{font:500 clamp(1.85rem,5vw,2.6rem)/1.12 Georgia,serif;letter-spacing:-.045em;margin:0 0 16px}
+    p{color:#535b54}label,input,button{display:block;width:100%}
+    input,button{font:inherit;padding:11px;margin:7px 0 16px;border:1px solid #92998f;border-radius:8px}
+    input{background:#faf9f6;color:#232826}
+    button{background:#245144;color:#fff;font-weight:700;cursor:pointer;margin-bottom:0}
+    :focus-visible{outline:3px solid #326450;outline-offset:3px}
+    [role=alert]{color:#8a3330}
     </style></head><body><main><h1>Sign in to DynamisRAG</h1>
     <p>Use your ${credentialLabel} to open the research workspace.</p>
     ${error ? `<p role="alert">${error}</p>` : ""}
