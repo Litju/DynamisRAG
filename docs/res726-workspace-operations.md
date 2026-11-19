@@ -47,13 +47,17 @@ framework **Next.js**, Node.js **24.x**, and Vercel Authentication set to
 **All Deployments**. The project build command enforces the preview-only
 guard. Automatic Git deployments remain disabled in the workspace source.
 
-On this empty project, Vercel CLI 66.2.0 rejected the explicit Preview
-deployment with `first_deployment_production`. The project has zero
-deployments. Vercel documents the first deployment as Production. Keep the
-workspace build guard in place. A local container build qualifies the
-self-hosted output. A real HTTPS preview is still needed to qualify the
-Vercel build, callbacks, quota use and access checks.
-[Vercel first-deployment behavior](https://vercel.com/docs/domains/working-with-domains/deploying-and-redirecting).
+Vercel required the first deployment to target Production. With owner approval,
+the initial deployment used a **static-only prebuilt placeholder**, Vercel
+Authentication, and skipped domain assignment. It contained no workspace code,
+credentials, or backend. Deploy workspace source only to Preview. The regular
+build command still rejects other environments.
+
+The workspace Preview is hosted on Vercel and talks through HTTPS to an isolated
+Docker Compose project named `res726-vercel`. Its PostgreSQL state starts
+empty. The preview corpus and Qdrant projection were restored from the verified
+licensed source backup. Preview and owner runs use different signing keys
+and separate agent-state databases.
 
 Vercel documents a 300-second Hobby Fluid Compute limit and a 120-second
 proxied-request limit. Pricing lists 50,000 workflow events per month and 1 GB
@@ -75,11 +79,29 @@ established independently. OpenCode documents the Go plan as single-member.
 The owner's approval covers their existing local use.
 [OpenCode Go](https://opencode.ai/docs/console/go/).
 
-Tailscale Funnel was tested on this Windows host with a temporary alternate-port
-HTTPS endpoint. The test verified public TLS, anonymous denial, ordered SSE
-delivery, Last-Event-ID reconnection and rejection of unrelated paths. The
-endpoint served synthetic event data and was removed. The original listener
-was preserved. Funnel exposes an Internet endpoint and its relay limits apply.
-An actual Vercel-to-owner route remains unqualified. Service availability
-depends on the owner's PC, Docker Desktop and network.
+The Preview gateway is bound to host loopback port 18444. Tailscale Funnel maps
+HTTPS port 8443 to that one gateway. The gateway admits only signed research
+API requests and preserves event-stream replay. Keep the Python API, databases,
+Qdrant, TEI, and Ollama without public port bindings. The preview uses the
+existing local Ollama service with a bounded context; OpenCode Go is disabled
+in this stack. Service availability depends on the owner workstation, Docker
+Desktop, and the network.
+
+Start or reapply the isolated preview stack from the repository checkout:
+
+```powershell
+$settings = Join-Path $env:USERPROFILE '.dynamisrag/res726-vercel/settings.env'
+docker compose --env-file $settings -p res726-vercel -f compose.research-workflow.yaml -f compose.research-local.yaml -f compose.res726-preview.yaml up -d --wait api worker gateway
+tailscale funnel --bg --yes --https=8443 http://127.0.0.1:18444
+```
+
+Close exposure before stopping or rotating the stack:
+
+```powershell
+tailscale funnel --https=8443 off
+```
+
+Refresh Preview environment secrets through Vercel before deploying a new revision
+when rotating the session or gateway key. The preview account password is available
+through the current Windows user's private local handoff script.
 [Tailscale Funnel](https://tailscale.com/docs/features/tailscale-funnel).
