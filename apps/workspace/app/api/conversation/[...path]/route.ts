@@ -78,8 +78,12 @@ async function handle(
       scope = keys;
       body = "{}";
     }
+    const deploymentOrigin = process.env.VERCEL && process.env.VERCEL_URL
+      ? "https://" + process.env.VERCEL_URL
+      : undefined;
     const origin =
       process.env.EVE_INTERNAL_ORIGIN ||
+      deploymentOrigin ||
       (process.env.NODE_ENV === "production" && !process.env.VERCEL
         ? `http://127.0.0.1:${process.env.EVE_NEXT_PRODUCTION_PORT || "4274"}`
         : new URL(request.url).origin);
@@ -88,9 +92,15 @@ async function handle(
       "content-type": "application/json",
     });
     // Vercel preview protection also applies to the same-origin Eve service.
+    const target = new URL(origin).origin;
     const cookie = request.headers.get("cookie");
-    if (cookie && new URL(origin).origin === new URL(request.url).origin)
+    if (cookie && target === new URL(request.url).origin)
       upstreamHeaders.set("cookie", cookie);
+    // The platform-issued identity authorizes the server-side hop to this deployment.
+    if (target === deploymentOrigin) {
+      const token = request.headers.get("x-vercel-oidc-token");
+      if (token) upstreamHeaders.set("x-vercel-trusted-oidc-idp-token", token);
+    }
     const response = await fetch(
       new URL(`/${route}${new URL(request.url).search}`, origin),
       {
