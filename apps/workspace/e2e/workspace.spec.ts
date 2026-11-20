@@ -47,6 +47,12 @@ test("a visitor signs in with the form and asks a cited question", async ({ page
   await expect(finding.locator(".finding-checks")).toContainText("Wording check:");
   const paraphrase = finding.locator(".finding-paraphrase");
   if (await paraphrase.count()) await expect(paraphrase).toContainText("not independently verified");
+  // A finished conversation stops polling, so an idle tab cannot renew the session.
+  await page.waitForTimeout(1_500);
+  let polls = 0;
+  page.on("request", (request) => { if (/\/api\/research\/threads\/[^/]+\/runs$/.test(new URL(request.url()).pathname)) polls += 1; });
+  await page.waitForTimeout(9_000);
+  expect(polls).toBe(0);
 });
 
 test("authenticated Eve conversation executes the Python graph and denies a second user", async ({

@@ -43,11 +43,24 @@ export function Conversation({ thread, initial, onInitialSent, onFinished }: {
   const readRuns = useCallback((signal?: AbortSignal) =>
     research<RunState[]>(path, undefined, signal), [path]);
 
+  // Poll only while research is being submitted or is still running. Idle and hidden
+  // tabs stop, so automatic traffic never extends the 15-minute idle session.
   useEffect(() => {
     const controller = new AbortController();
-    let timer: ReturnType<typeof setTimeout>;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let keepPolling = true;
+    let inflight = false;
+
+    function schedule() {
+      clearTimeout(timer);
+      timer = undefined;
+      if (controller.signal.aborted || !keepPolling || document.hidden) return;
+      timer = setTimeout(update, 4_000);
+    }
 
     async function update() {
+      if (inflight) return;
+      inflight = true;
       try {
         const result = await readRuns(controller.signal);
         if (controller.signal.aborted) return;
@@ -55,19 +68,31 @@ export function Conversation({ thread, initial, onInitialSent, onFinished }: {
         setRuns((items) => [...result, ...(items ?? []).filter((run) => !freshIds.has(run.run_id))]);
         setTimelineError("");
         const next = result[0];
-        if (next && !isActive(next.status) &&
-            (previous.current?.run_id !== next.run_id || isActive(previous.current.status)))
+        if (next && !isActive(next.status) && previous.current &&
+            (previous.current.run_id !== next.run_id || isActive(previous.current.status)))
           onFinished();
         previous.current = next;
+        keepPolling = busy || (!!next && isActive(next.status));
       } catch (cause) {
         if (!controller.signal.aborted) setTimelineError((cause as Error).message);
+        keepPolling = false;
       } finally {
-        if (!controller.signal.aborted) timer = setTimeout(update, 4_000);
+        inflight = false;
+        schedule();
       }
     }
+
+    function visible() {
+      if (!document.hidden && keepPolling && timer === undefined) void update();
+    }
+    document.addEventListener("visibilitychange", visible);
     void update();
-    return () => { clearTimeout(timer); controller.abort(); };
-  }, [readRuns, onFinished, retryKey]);
+    return () => {
+      document.removeEventListener("visibilitychange", visible);
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [readRuns, onFinished, retryKey, busy]);
 
   async function loadEarlier() {
     setChecking(true);
