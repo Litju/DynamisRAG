@@ -6,6 +6,7 @@ import {
   withSession,
 } from "../../../../lib/auth";
 import { json, ownedSession, python } from "../../../../lib/python";
+import { parseResearchScope } from "../../../../lib/research-scope";
 
 async function handle(
   request: Request,
@@ -63,7 +64,7 @@ async function handle(
       }
       if (!input || typeof input !== "object" || Array.isArray(input))
         return new Response(null, { status: 400 });
-      if (Object.keys(input).some((key) => !["title", "allowed_version_keys"].includes(key)))
+      if (Object.keys(input).some((key) => !["title", "allowed_version_keys", "research_mode"].includes(key)))
         return Response.json({ error: "Prewarm the session before sending" }, { status: 400 });
       if ("title" in input) {
         if (typeof input.title !== "string" || !input.title.trim() ||
@@ -71,11 +72,16 @@ async function handle(
           return new Response(null, { status: 400 });
         title = input.title;
       }
-      const keys = "allowed_version_keys" in input ? input.allowed_version_keys : [];
-      if (!Array.isArray(keys) || keys.length > 25 ||
-          keys.some((key) => typeof key !== "string" || !/^[a-f0-9]{64}$/.test(key)))
-        return new Response(null, { status: 400 });
-      scope = keys;
+      try {
+        // The browser must explicitly opt into a hard paper restriction. A
+        // missing mode remains compatible only with legacy automatic sessions.
+        scope = parseResearchScope(input).allowed_version_keys;
+      } catch {
+        return Response.json(
+          { error: "Choose automatic research or explicitly restrict to selected papers" },
+          { status: 400 },
+        );
+      }
       body = "{}";
     }
     const deploymentOrigin = process.env.VERCEL && process.env.VERCEL_URL
