@@ -276,3 +276,20 @@ button, input { transition: background-color .14s, border-color .14s, box-shadow
   .stack-motion { display: none; }
 }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+/* Hard paper restrictions are an explicit advanced choice; browsing never sets scope. */
+.research-scope-controls {
+  border: 1px solid var(--line);
+  border-radius: .65rem;
+  padding: .85rem 1rem;
+  margin-top: .85rem;
+  display: flex;
+  gap: .8rem 1.25rem;
+  flex-wrap: wrap;
+}
+.research-scope-controls legend { padding: 0 .35rem; font-weight: 650; font-size: .85rem; }
+.research-scope-controls label { display: flex; gap: .55rem; align-items: flex-start; cursor: pointer; flex: 1 1 190px; }
+.research-scope-controls input { accent-color: var(--forest); margin-top: .35rem; }
+.research-scope-controls small { display: block; color: var(--muted); font-size: .83rem; }
+.research-scope-controls p { flex-basis: 100%; color: var(--muted); font-size: .86rem; }
+.stack-hint { color: var(--muted); font-size: .83rem; }

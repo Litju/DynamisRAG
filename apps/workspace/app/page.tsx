@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Composer, History, Library, Panel, ResearchMode } from "./components/workspace-controls";
 import { Conversation, type ResearchEntry } from "./components/conversation";
 import { SourceStack } from "./components/source-stack";
+import { ResearchScopeControls } from "./components/workspace-controls";
+import { modeFromAllowedKeys, sessionScope, type ResearchMode } from "../lib/research-scope";
 import {
   type Paper, type Thread, type WorkspaceSettings, research,
   titleFromQuestion, workspaceRequest,
@@ -19,6 +21,7 @@ export default function Workspace() {
   const [threads, setThreads] = useState<Thread[]>([]);
   const [active, setActive] = useState<Thread | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
+  const [researchMode, setResearchMode] = useState<ResearchMode>("automatic");
   const [draft, setDraft] = useState("");
   const [initial, setInitial] = useState<ResearchEntry>();
   const [creating, setCreating] = useState(false);
@@ -90,6 +93,11 @@ export default function Workspace() {
   }, [query, paperRevision]);
 
   function select(thread: Thread | null) {
+    if (!thread) {
+      // A new conversation starts in automatic mode, never with a prior hidden hard scope.
+      setSelected([]);
+      setResearchMode("automatic");
+    }
     setActive(thread);
     setPanel(undefined);
     const url = new URL(window.location.href);
@@ -110,12 +118,16 @@ export default function Workspace() {
     setCreating(true);
     setError("");
     try {
+      const scope = sessionScope(researchMode, selected);
       const { thread } = await workspaceRequest<{ thread: Thread }>("/api/conversation/eve/v1/session", {
-        allowed_version_keys: selected, title: titleFromQuestion(question),
+        ...scope, title: titleFromQuestion(question),
       });
       setThreads((items) => [thread, ...items.filter((item) => item.thread_id !== thread.thread_id)]);
       setInitial({ threadId: thread.thread_id, question });
       setDraft("");
+      // The created thread preserves its scope; the next new thread does not inherit it.
+      setSelected([]);
+      setResearchMode("automatic");
       select(thread);
     } catch (cause) {
       setError((cause as Error).message);
@@ -127,6 +139,7 @@ export default function Workspace() {
   const historyProps = { threads, select, active: active?.thread_id, loading };
   const libraryProps = {
     papers, query, setQuery, loading: papersLoading, error: paperError, locked: !!active || creating,
+    mode: active ? modeFromAllowedKeys(active.allowed_version_keys) : researchMode,
     keys: active?.allowed_version_keys ?? selected,
     retry: () => setPaperRevision((value) => value + 1),
     toggle: (key: string) => setSelected((keys) =>
@@ -156,12 +169,21 @@ export default function Workspace() {
               <div className="home-question">
                 <div className="welcome">
                   <h1>Explore the literature.</h1>
-                  <p>Ask a question across open-access studies, or limit your search to papers you select.</p>
+                  <p>Ask a question. DynamisRAG finds, evaluates and ingests relevant permitted literature automatically.</p>
                 </div>
                 <Composer draft={draft} setDraft={setDraft} submit={(question) => void start(question)}
-                  pending={creating} scope={selected.length ? selected.length + " papers selected" : "Open literature search"} />
+                  pending={creating}
+                  blocked={researchMode === "restricted" && selected.length === 0
+                    ? "Select at least one paper in the library to restrict research."
+                    : undefined}
+                  scope={researchMode === "automatic" ? "Automatic literature discovery"
+                    : "Restricted to " + selected.length + " selected papers"} />
+                <ResearchScopeControls mode={researchMode}
+                  change={(mode) => { setResearchMode(mode); setSelected([]); }}
+                  selectedCount={selected.length} />
               </div>
-              <SourceStack papers={papers} selected={selected} toggle={libraryProps.toggle} locked={creating} />
+              <SourceStack papers={papers} mode={researchMode}
+                selected={selected} toggle={libraryProps.toggle} locked={creating} />
             </div>
             <div className="suggestions" aria-label="Example questions">
               {entries.map(([label, question]) => <button type="button" key={label}

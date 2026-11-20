@@ -1,9 +1,11 @@
 import { useState } from "react";
 import type { Paper } from "../../lib/workspace";
+import type { ResearchMode } from "../../lib/research-scope";
 
-export function SourceStack({ papers, selected, toggle, locked }: {
+export function SourceStack({ papers, selected, toggle, locked, mode }: {
   papers: Paper[];
   selected: string[];
+  mode: ResearchMode;
   toggle: (key: string) => void;
   locked: boolean;
 }) {
@@ -19,9 +21,9 @@ export function SourceStack({ papers, selected, toggle, locked }: {
   }
 
   return (
-    <section className="source-stack" aria-label="Explore document scope" data-paused={paused}>
+    <section className="source-stack" aria-label="Browse saved papers" data-paused={paused}>
       <div className="stack-heading">
-        <h2>Source scope</h2>
+        <h2>Saved literature</h2>
         <button type="button" className="stack-motion" aria-pressed={paused}
           onClick={() => setPaused(!paused)}>
           {paused ? "Resume motion" : "Pause motion"}
@@ -40,11 +42,13 @@ export function SourceStack({ papers, selected, toggle, locked }: {
         <div className="stack-actions">
             <button type="button" aria-label="Previous paper" onClick={() => turn(-1)} disabled={papers.length < 2}>←</button>
             <button type="button" aria-label="Next paper" onClick={() => turn(1)} disabled={papers.length < 2}>→</button>
-            <button type="button" className="stack-select" aria-pressed={included}
-              disabled={locked || (!included && selected.length >= 25)}
-              onClick={() => toggle(paper.document_version_key)}>
-              {included ? "In scope" : "Add to scope"}
-            </button>
+            {mode === "restricted" ? (
+              <button type="button" className="stack-select" aria-pressed={included}
+                disabled={locked || (!included && selected.length >= 25)}
+                onClick={() => toggle(paper.document_version_key)}>
+                {included ? "In scope" : "Add to scope"}
+              </button>
+            ) : <span className="stack-hint">The agent selects sources automatically.</span>}
         </div>
       ) : null}
     </section>

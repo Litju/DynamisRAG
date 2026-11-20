@@ -199,8 +199,12 @@ test("mobile workspace fits and rejects unauthenticated API requests", async ({
   await anonymous.dispose();
 });
 
-test("the source stack switches papers and updates the research scope", async ({ page }) => {
-  const stack = page.getByRole("region", { name: "Explore document scope" });
+test("paper browsing cannot silently restrict automatic research", async ({ page }) => {
+  await expect(page.getByRole("radio", { name: /Automatic research/ })).toBeChecked();
+  const stack = page.getByRole("region", { name: "Browse saved papers" });
+  await expect(stack.getByRole("button", { name: "Add to scope" })).toHaveCount(0);
+  await expect(page.locator(".paper input:checked")).toHaveCount(0);
+  await page.getByRole("radio", { name: /Restrict to selected papers/ }).check();
   const first = await stack.locator(".stack-paper p").innerText();
   await stack.getByRole("button", { name: "Next paper" }).click();
   await expect(stack.locator(".stack-paper p")).not.toHaveText(first);
@@ -238,6 +242,7 @@ test("document selection is immutable and unsupported questions abstain", async 
   await expect(page.locator(".paper")).toHaveCount(
     process.env.WORKSPACE_LICENSED_CORPUS ? 3 : 2,
   );
+  await page.getByRole("radio", { name: /Restrict to selected papers/ }).check();
   await page.locator(".paper input").first().check();
   await expect(page.getByLabel("Ask a research question")).toBeVisible({
     timeout: 30000,

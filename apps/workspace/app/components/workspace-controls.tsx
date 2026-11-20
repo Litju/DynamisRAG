@@ -1,8 +1,9 @@
 import { useEffect, useRef, type FormEvent, type ReactNode } from "react";
 import type { Paper, Thread, WorkspaceSettings } from "../../lib/workspace";
+import type { ResearchMode } from "../../lib/research-scope";
 import { threadTitle } from "../../lib/workspace";
 
-export function Composer({ draft, setDraft, submit, pending, cancel, cancelling, scope }: {
+export function Composer({ draft, setDraft, submit, pending, cancel, cancelling, scope, blocked }: {
   draft: string;
   setDraft: (text: string) => void;
   submit: (question: string) => void;
@@ -10,6 +11,7 @@ export function Composer({ draft, setDraft, submit, pending, cancel, cancelling,
   cancel?: () => void;
   cancelling?: boolean;
   scope?: string;
+  blocked?: string;
 }) {
   function send(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -27,18 +29,45 @@ export function Composer({ draft, setDraft, submit, pending, cancel, cancelling,
         }}
       />
       <div className="composer-actions">
-        <span>{scope ?? "Use Ctrl or ⌘ + Enter to send"}</span>
+        <span role={blocked ? "status" : undefined}>{blocked ?? scope ?? "Use Ctrl or ⌘ + Enter to send"}</span>
         {cancel ? (
           <button type="button" onClick={cancel} disabled={cancelling}>
             {cancelling ? "Cancellation requested" : "Cancel research"}
           </button>
         ) : (
-          <button className="primary" type="submit" disabled={!draft.trim() || pending}>
+          <button className="primary" type="submit" disabled={!draft.trim() || pending || !!blocked}>
             {pending ? "Connecting…" : "Start research"} <span aria-hidden>↑</span>
           </button>
         )}
       </div>
     </form>
+  );
+}
+
+export function ResearchScopeControls({ mode, change, selectedCount }: {
+  mode: ResearchMode;
+  change: (mode: ResearchMode) => void;
+  selectedCount: number;
+}) {
+  return (
+    <fieldset className="research-scope-controls" aria-label="Research evidence selection">
+      <legend>Evidence selection</legend>
+      <label>
+        <input type="radio" name="research-mode" checked={mode === "automatic"}
+          onChange={() => change("automatic")} />
+        <span><strong>Automatic research</strong><small>The agent chooses and discovers relevant papers.</small></span>
+      </label>
+      <label>
+        <input type="radio" name="research-mode" checked={mode === "restricted"}
+          onChange={() => change("restricted")} />
+        <span><strong>Restrict to selected papers</strong><small>Advanced: only the papers you explicitly select.</small></span>
+      </label>
+      {mode === "restricted" && (
+        <p role="status">{selectedCount
+          ? selectedCount + " papers selected. Discovery outside this set is disabled."
+          : "Choose papers from the library before starting restricted research."}</p>
+      )}
+    </fieldset>
   );
 }
 
@@ -111,10 +140,11 @@ export function History({ threads, active, select, loading, mobile = false }: {
   );
 }
 
-export function Library({ papers, query, setQuery, keys, toggle, loading, locked, error, retry }: {
+export function Library({ papers, query, setQuery, mode, keys, toggle, loading, locked, error, retry }: {
   papers: Paper[];
   query: string;
   setQuery: (query: string) => void;
+  mode: ResearchMode;
   keys: string[];
   toggle: (key: string) => void;
   loading: boolean;
@@ -126,8 +156,10 @@ export function Library({ papers, query, setQuery, keys, toggle, loading, locked
     <div className="library-content">
       <h2>Document library</h2>
       <p className="muted">
-        {locked ? (keys.length ? 'Scope fixed to ' + keys.length + ' selected papers.' : "This conversation can search the library and discover open-access papers.")
-          : "Select up to 25 papers to restrict the next conversation."}
+        {locked ? (mode === "restricted" ? "Restricted to " + keys.length + " papers. This thread cannot search outside them."
+          : "Automatic research can use the library and discover permitted new studies.")
+          : mode === "restricted" ? "Select up to 25 papers for this explicitly restricted conversation."
+          : "Browse saved papers. Automatic research chooses evidence; selection is optional."}
       </p>
       <label className="search-label">
         <span>Search papers</span>
@@ -135,7 +167,7 @@ export function Library({ papers, query, setQuery, keys, toggle, loading, locked
           placeholder="Title or DOI" />
       </label>
       {!locked && <p className="scope-count" aria-live="polite">
-        {keys.length ? keys.length + " selected" : "Open literature search"}
+        {mode === "automatic" ? "Automatic literature discovery" : keys.length + " selected for restricted research"}
       </p>}
       {error && <p role="alert" className="error">{error} <button onClick={retry}>Retry</button></p>}
       {loading ? <Skeleton /> : papers.length === 0 && !error ? (
@@ -146,7 +178,7 @@ export function Library({ papers, query, setQuery, keys, toggle, loading, locked
           <li key={paper.document_version_key}>
             <label className="paper">
               <input type="checkbox" checked={keys.includes(paper.document_version_key)}
-                disabled={locked || (keys.length >= 25 && !keys.includes(paper.document_version_key))}
+                disabled={locked || mode !== "restricted" || (keys.length >= 25 && !keys.includes(paper.document_version_key))}
                 onChange={() => toggle(paper.document_version_key)} />
               <span>{paper.title}</span>
             </label>
