@@ -96,7 +96,8 @@ export default function Workspace() {
     if (thread) url.searchParams.set("thread", thread.thread_id);
     else url.searchParams.delete("thread");
     window.history.replaceState(null, "", url);
-    if (thread) main.current?.focus();
+    // Closing the mobile panel unmounts its opener; keep focus inside the workspace.
+    main.current?.focus();
   }
 
   const finished = useCallback(() => {

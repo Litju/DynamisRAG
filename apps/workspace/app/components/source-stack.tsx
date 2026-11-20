@@ -29,7 +29,8 @@ export function SourceStack({ papers, selected, toggle, locked }: {
       </div>
       <div className="stack-view">
         <div className="stack-deck" aria-hidden="true"><i /><i /></div>
-        <div className="stack-paper" key={paper?.document_version_key} aria-live="polite">
+        <p className="sr-only" aria-live="polite">{paper ? "Paper " + (current + 1) + " of " + papers.length + ": " + paper.title : ""}</p>
+        <div className="stack-paper" key={paper?.document_version_key}>
           <span>{paper ? "Paper " + (current + 1) + " of " + papers.length : "Document library"}</span>
           <p>{paper?.title ?? "Papers from your library appear here."}</p>
           {paper?.doi && <small>{paper.doi}</small>}
