@@ -299,7 +299,7 @@ class ScientificToolRegistry:
         stmt = select(DocumentVersionRecord.version_key).order_by(DocumentVersionRecord.version_key)
         if scope.allowed_version_keys:
             stmt = stmt.where(DocumentVersionRecord.version_key.in_(scope.allowed_version_keys))
-        keys = tuple(session.scalars(stmt).all())
+        keys = tuple(key for key in session.scalars(stmt) if scope.allows_version(key))
         return digest("canonical-corpus-v2", *keys)
 
     def _execute_bounded(
@@ -465,6 +465,8 @@ class ScientificToolRegistry:
                 summaries: list[PaperSummary] = []
                 query_lower = params.query_filter.casefold() if params.query_filter else None
                 for version, document in rows:
+                    if not scope.allows_version(version.version_key):
+                        continue
                     identifiers = {
                         ident.namespace: ident.normalized_value
                         for ident in session.scalars(

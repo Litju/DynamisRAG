@@ -1,6 +1,6 @@
 const encoder = new TextEncoder();
 const noStore = { "cache-control": "no-store" };
-const routes =
+export const routes =
   /^\/api\/v2\/(threads(?:\/[A-Za-z0-9_-]+(?:\/runs)?)?|runs\/[A-Za-z0-9_-]+(?:\/(events|citations|cancel|resume))?|papers|evidence\/[a-f0-9]{64})$/;
 
 function decode(segment) {
@@ -59,7 +59,7 @@ export async function verifyIdentity(header, secret, now = Date.now() / 1000) {
   }
 }
 
-async function boundedBody(request) {
+export async function boundedBody(request) {
   if (!request.body) return undefined;
   const reader = request.body.getReader();
   const chunks = [];

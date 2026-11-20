@@ -58,6 +58,7 @@ from dynamisrag.agent.persistence import (
     ThreadAuthorizationError,
     ThreadNotFoundError,
     ThreadRecord,
+    ThreadRunState,
     ThreadScopeConflictError,
 )
 from dynamisrag.agent.tools import ScientificToolRegistry
@@ -255,6 +256,23 @@ def _register_thread_and_run_routes(
         _, active_store, _ = deps.require()
         try:
             return active_store.get_thread(thread_id, user_id=user_id)
+        except ThreadNotFoundError as err:
+            raise _not_found("thread_not_found", err) from err
+        except ThreadAuthorizationError as err:
+            raise _forbidden("forbidden_thread_access", err) from err
+
+    @router.get("/threads/{thread_id}/runs", response_model=tuple[ThreadRunState, ...])
+    def list_thread_runs(
+        thread_id: SafeShortText,
+        user_id: Annotated[UserId, Depends(auth_dep)],
+        limit: Annotated[int, Query(ge=1, le=100)] = 30,
+        offset: Annotated[int, Query(ge=0)] = 0,
+    ) -> tuple[ThreadRunState, ...]:
+        _, active_store, _ = deps.require()
+        try:
+            return active_store.list_thread_runs(
+                thread_id, user_id=user_id, limit=limit, offset=offset
+            )
         except ThreadNotFoundError as err:
             raise _not_found("thread_not_found", err) from err
         except ThreadAuthorizationError as err:

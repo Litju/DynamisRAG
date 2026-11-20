@@ -6,6 +6,7 @@ import {
   withSession,
 } from "../../../../lib/auth";
 import { json, ownedSession, python } from "../../../../lib/python";
+import { parseResearchScope } from "../../../../lib/research-scope";
 
 async function handle(
   request: Request,
@@ -53,25 +54,42 @@ async function handle(
       body = JSON.stringify({ message: input.message });
     }
     let scope: string[] = [];
-    if (!sessionId && body) {
-      const input = JSON.parse(body);
-      // Create first, bind ownership and document scope, then send the first turn.
-      if (input.message)
+    let title: string | undefined;
+    if (!sessionId && request.method === "POST") {
+      let input: unknown;
+      try {
+        input = JSON.parse(body || "{}");
+      } catch {
+        return new Response(null, { status: 400 });
+      }
+      if (!input || typeof input !== "object" || Array.isArray(input))
+        return new Response(null, { status: 400 });
+      if (Object.keys(input).some((key) => !["title", "allowed_version_keys", "research_mode"].includes(key)))
+        return Response.json({ error: "Prewarm the session before sending" }, { status: 400 });
+      if ("title" in input) {
+        if (typeof input.title !== "string" || !input.title.trim() ||
+            input.title.length > 100 || /[\x00-\x1f\x7f]/.test(input.title))
+          return new Response(null, { status: 400 });
+        title = input.title;
+      }
+      try {
+        // The browser must explicitly opt into a hard paper restriction. A
+        // missing mode remains compatible only with legacy automatic sessions.
+        scope = parseResearchScope(input as Record<string, unknown>).allowed_version_keys;
+      } catch {
         return Response.json(
-          { error: "Prewarm the session before sending" },
+          { error: "Choose automatic research or explicitly restrict to selected papers" },
           { status: 400 },
         );
-      scope = input.allowed_version_keys || [];
-      if (
-        !Array.isArray(scope) ||
-        scope.length > 25 ||
-        scope.some((k) => typeof k !== "string" || !/^[a-f0-9]{64}$/.test(k))
-      )
-        return new Response(null, { status: 400 });
+      }
       body = "{}";
     }
+    const deploymentOrigin = process.env.VERCEL && process.env.VERCEL_URL
+      ? "https://" + process.env.VERCEL_URL
+      : undefined;
     const origin =
       process.env.EVE_INTERNAL_ORIGIN ||
+      deploymentOrigin ||
       (process.env.NODE_ENV === "production" && !process.env.VERCEL
         ? `http://127.0.0.1:${process.env.EVE_NEXT_PRODUCTION_PORT || "4274"}`
         : new URL(request.url).origin);
@@ -80,9 +98,15 @@ async function handle(
       "content-type": "application/json",
     });
     // Vercel preview protection also applies to the same-origin Eve service.
+    const target = new URL(origin).origin;
     const cookie = request.headers.get("cookie");
-    if (cookie && new URL(origin).origin === new URL(request.url).origin)
+    if (cookie && target === new URL(request.url).origin)
       upstreamHeaders.set("cookie", cookie);
+    // The platform-issued identity authorizes the server-side hop to this deployment.
+    if (target === deploymentOrigin) {
+      const token = request.headers.get("x-vercel-oidc-token");
+      if (token) upstreamHeaders.set("x-vercel-trusted-oidc-idp-token", token);
+    }
     const response = await fetch(
       new URL(`/${route}${new URL(request.url).search}`, origin),
       {
@@ -99,21 +123,22 @@ async function handle(
         { error: "Preview authentication is required" },
         { status: 401 },
       );
-    if (!sessionId && response.ok) {
+    if (!sessionId && request.method === "POST" && response.ok) {
       const created = await response.json();
       if (typeof created.sessionId !== "string")
         throw new Error("Missing Eve session id");
-      await json(
+      const thread = await json(
         await python(user, "threads", {
           method: "POST",
           body: JSON.stringify({
             external_ref: `eve:${created.sessionId}`,
+            ...(title === undefined ? {} : { title }),
             allowed_version_keys: scope,
           }),
         }),
       );
       return withSession(
-        Response.json(created, { status: response.status }),
+        Response.json({ ...created, thread }, { status: response.status }),
         auth,
       );
     }

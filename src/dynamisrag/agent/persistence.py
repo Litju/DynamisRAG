@@ -72,6 +72,7 @@ __all__ = [
     "ThreadMessageRecord",
     "ThreadNotFoundError",
     "ThreadRecord",
+    "ThreadRunState",
     "ThreadScopeConflictError",
     "assert_agent_database_isolated",
 ]
@@ -182,6 +183,12 @@ class ThreadRecord(AgentContract):
     allowed_version_keys: tuple[Sha256Hex, ...] = ()
     active_version_keys: tuple[Sha256Hex, ...] = ()
     active_passage_keys: tuple[Sha256Hex, ...] = ()
+    excluded_version_keys: tuple[Sha256Hex, ...] = ()
+    """User-directed run-local scope corrections ("Exclude that paper ...").
+
+    Research-evidence memory only: the immutable authorization allowlist
+    (``allowed_version_keys``) and canonical evidence are never touched by it.
+    """
     conversation_summary: str = ""
     messages: tuple[ThreadMessageRecord, ...] = ()
     created_at: str
@@ -200,17 +207,23 @@ class AgentRunEventRecord(AgentContract):
     created_at: str
 
 
-class AgentRunRecord(AgentContract):
-    """Durable execution record for one conversational turn."""
+class ThreadRunState(AgentContract):
+    """Public timeline state available independently of the Eve stream."""
 
     run_id: SafeShortText
+    question: SafeLongText
+    status: RunStatus
+    cancel_requested: bool = False
+    created_at: str
+
+
+class AgentRunRecord(ThreadRunState):
+    """Durable execution record for one conversational turn."""
+
     thread_id: SafeShortText
     owner_id: UserId
     idempotency_key: SafeShortText
-    question: SafeLongText
-    status: RunStatus
     require_confirmation: bool = False
-    cancel_requested: bool = False
     attempt: int = Field(default=0, ge=0)
     max_attempts: int = Field(default=3, ge=1)
     worker_id: str | None = None
@@ -227,7 +240,6 @@ class AgentRunRecord(AgentContract):
     evidence_graph_key: Sha256Hex | None = None
     telemetry: dict[str, Any] = Field(default_factory=dict)
     error_message: str | None = None
-    created_at: str
     updated_at: str
 
 
@@ -244,6 +256,8 @@ class ThreadContextUpdate(AgentContract):
 
     active_version_keys: tuple[Sha256Hex, ...] = ()
     active_passage_keys: tuple[Sha256Hex, ...] = ()
+    excluded_version_keys: tuple[Sha256Hex, ...] = ()
+    """Full thread exclusion list after this run (prior plus this run's directive)."""
     conversation_summary: str = ""
     append_messages: tuple[ThreadMessageRecord, ...] = ()
 
@@ -300,6 +314,7 @@ class AgentConversationStore(Protocol):
         active_passage_keys: tuple[str, ...],
         conversation_summary: str,
         append_messages: tuple[ThreadMessageRecord, ...] = (),
+        excluded_version_keys: tuple[str, ...] = (),
     ) -> ThreadRecord: ...
 
     def create_or_get_run(
@@ -312,6 +327,10 @@ class AgentConversationStore(Protocol):
         require_confirmation: bool = False,
         max_attempts: int = 3,
     ) -> tuple[AgentRunRecord, bool]: ...
+
+    def list_thread_runs(
+        self, thread_id: str, *, user_id: str, limit: int, offset: int
+    ) -> tuple[ThreadRunState, ...]: ...
 
     def get_run(self, run_id: str, *, user_id: str) -> AgentRunRecord: ...
 
@@ -514,6 +533,7 @@ class InMemoryAgentConversationStore:
         active_passage_keys: tuple[str, ...],
         conversation_summary: str,
         append_messages: tuple[ThreadMessageRecord, ...] = (),
+        excluded_version_keys: tuple[str, ...] = (),
     ) -> ThreadRecord:
         with self._lock:
             existing = self.get_thread(thread_id, user_id=user_id)
@@ -523,6 +543,9 @@ class InMemoryAgentConversationStore:
                 update={
                     "active_version_keys": active_version_keys[:12],
                     "active_passage_keys": active_passage_keys[:24],
+                    # Matches the maximum restricted allowlist: a user's scope
+                    # correction is never silently discarded.
+                    "excluded_version_keys": excluded_version_keys[:25],
                     "conversation_summary": conversation_summary[:2000],
                     "messages": (*existing.messages, *fresh)[-40:],
                     "updated_at": _now_iso(),
@@ -577,6 +600,23 @@ class InMemoryAgentConversationStore:
             self._events[run_id] = []
             self._append(run_id, thread_id, RunEventType.RUN_QUEUED, "queued", {})
             return rec, True
+
+    def list_thread_runs(
+        self, thread_id: str, *, user_id: str, limit: int, offset: int
+    ) -> tuple[ThreadRunState, ...]:
+        self.get_thread(thread_id, user_id=user_id)
+        with self._lock:
+            records = sorted(
+                (run for run in self._runs.values() if run.thread_id == thread_id),
+                key=lambda run: (run.created_at, run.run_id),
+                reverse=True,
+            )
+            return tuple(
+                ThreadRunState.model_validate(
+                    run.model_dump(include=set(ThreadRunState.model_fields))
+                )
+                for run in records[offset : offset + limit]
+            )
 
     def get_run(self, run_id: str, *, user_id: str) -> AgentRunRecord:
         with self._lock:
@@ -775,6 +815,7 @@ class InMemoryAgentConversationStore:
                     active_passage_keys=ctx.active_passage_keys,
                     conversation_summary=ctx.conversation_summary,
                     append_messages=ctx.append_messages,
+                    excluded_version_keys=ctx.excluded_version_keys,
                 )
             return self._finish_locked(
                 run_id,
@@ -1055,6 +1096,7 @@ class PostgresAgentConversationStore:
                     allowed_version_keys_json JSONB NOT NULL DEFAULT '[]'::jsonb,
                     active_version_keys_json JSONB NOT NULL DEFAULT '[]'::jsonb,
                     active_passage_keys_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+                    excluded_version_keys_json JSONB NOT NULL DEFAULT '[]'::jsonb,
                     conversation_summary TEXT NOT NULL DEFAULT '',
                     messages_json JSONB NOT NULL DEFAULT '[]'::jsonb,
                     created_at TEXT NOT NULL,
@@ -1063,6 +1105,10 @@ class PostgresAgentConversationStore:
                 """
             )
             conn.execute("ALTER TABLE agent_threads ADD COLUMN IF NOT EXISTS external_ref TEXT")
+            conn.execute(
+                "ALTER TABLE agent_threads ADD COLUMN IF NOT EXISTS "
+                "excluded_version_keys_json JSONB NOT NULL DEFAULT '[]'::jsonb"
+            )
             conn.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS agent_threads_owner_external_ref "
                 "ON agent_threads (owner_id, external_ref) WHERE external_ref IS NOT NULL"
@@ -1203,6 +1249,7 @@ class PostgresAgentConversationStore:
             allowed_version_keys=tuple(row.get("allowed_version_keys_json") or ()),
             active_version_keys=tuple(row.get("active_version_keys_json") or ()),
             active_passage_keys=tuple(row.get("active_passage_keys_json") or ()),
+            excluded_version_keys=tuple(row.get("excluded_version_keys_json") or ()),
             conversation_summary=str(row.get("conversation_summary") or ""),
             messages=tuple(ThreadMessageRecord.model_validate(m) for m in raw_msgs),
             created_at=str(row["created_at"]),
@@ -1218,6 +1265,7 @@ class PostgresAgentConversationStore:
         active_passage_keys: tuple[str, ...],
         conversation_summary: str,
         append_messages: tuple[ThreadMessageRecord, ...] = (),
+        excluded_version_keys: tuple[str, ...] = (),
     ) -> ThreadRecord:
         with self._pool.connection() as conn, conn.transaction():
             return self._update_thread_context_tx(
@@ -1227,6 +1275,7 @@ class PostgresAgentConversationStore:
                 update=ThreadContextUpdate(
                     active_version_keys=active_version_keys,
                     active_passage_keys=active_passage_keys,
+                    excluded_version_keys=excluded_version_keys,
                     conversation_summary=conversation_summary,
                     append_messages=append_messages,
                 ),
@@ -1251,6 +1300,9 @@ class PostgresAgentConversationStore:
             update={
                 "active_version_keys": update.active_version_keys[:12],
                 "active_passage_keys": update.active_passage_keys[:24],
+                # Matches the maximum restricted allowlist: a user's scope
+                # correction is never silently discarded.
+                "excluded_version_keys": update.excluded_version_keys[:25],
                 "conversation_summary": update.conversation_summary[:2000],
                 "messages": (*existing.messages, *fresh)[-40:],
                 "updated_at": _now_iso(),
@@ -1260,12 +1312,14 @@ class PostgresAgentConversationStore:
             """
             UPDATE agent_threads
             SET active_version_keys_json = %s::jsonb, active_passage_keys_json = %s::jsonb,
+                excluded_version_keys_json = %s::jsonb,
                 conversation_summary = %s, messages_json = %s::jsonb, updated_at = %s
             WHERE thread_id = %s
             """,
             (
                 json.dumps(list(updated.active_version_keys)),
                 json.dumps(list(updated.active_passage_keys)),
+                json.dumps(list(updated.excluded_version_keys)),
                 updated.conversation_summary,
                 json.dumps([m.model_dump(mode="json") for m in updated.messages]),
                 updated.updated_at,
@@ -1335,6 +1389,21 @@ class PostgresAgentConversationStore:
                 f"Idempotency key {idempotency_key!r} was used for a different request"
             )
         return self._row_to_run(existing), False
+
+    def list_thread_runs(
+        self, thread_id: str, *, user_id: str, limit: int, offset: int
+    ) -> tuple[ThreadRunState, ...]:
+        self.get_thread(thread_id, user_id=user_id)
+        with self._pool.connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT run_id, question, status, cancel_requested, created_at
+                FROM agent_runs WHERE thread_id = %s AND owner_id = %s
+                ORDER BY created_at DESC, run_id DESC LIMIT %s OFFSET %s
+                """,
+                (thread_id, user_id, limit, offset),
+            )
+            return tuple(ThreadRunState.model_validate(row) for row in rows)
 
     def get_run(self, run_id: str, *, user_id: str) -> AgentRunRecord:
         row = self._fetch_run_row(run_id)

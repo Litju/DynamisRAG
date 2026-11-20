@@ -1,0 +1,2452 @@
+[
+  {
+    "run_id": "run-cf436bcbfb62459c",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 1,
+    "event_type": "run.queued",
+    "stage": "queued",
+    "payload": {},
+    "created_at": "2026-11-20T12:33:14.382110+00:00"
+  },
+  {
+    "run_id": "run-cf436bcbfb62459c",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 2,
+    "event_type": "run.started",
+    "stage": "resolve_conversation_context",
+    "payload": {
+      "require_confirmation": false
+    },
+    "created_at": "2026-11-20T12:33:14.591543+00:00"
+  },
+  {
+    "run_id": "run-cf436bcbfb62459c",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 3,
+    "event_type": "plan.created",
+    "stage": "interpret_and_plan",
+    "payload": {
+      "intent": "evidence_synthesis",
+      "needs_comparison": false,
+      "context_resolution": "none_needed",
+      "scoped_version_count": 0,
+      "confirmation_required": false,
+      "excluded_version_count": 0,
+      "needs_context_expansion": false
+    },
+    "created_at": "2026-11-20T12:33:14.603904+00:00"
+  },
+  {
+    "run_id": "run-cf436bcbfb62459c",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 4,
+    "event_type": "tool.called",
+    "stage": "model_tool_execution",
+    "payload": {
+      "args": {
+        "limit": 50,
+        "query_filter": "velocity based training weightlifting"
+      },
+      "round": 0,
+      "origin": "model_directed",
+      "tool_name": "list_papers",
+      "scope_defaulted": false
+    },
+    "created_at": "2026-11-20T12:33:18.860473+00:00"
+  },
+  {
+    "run_id": "run-cf436bcbfb62459c",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 5,
+    "event_type": "tool.completed",
+    "stage": "model_tool_execution",
+    "payload": {
+      "ok": true,
+      "origin": "model_directed",
+      "trace_id": "trace-62f1de46e38140ae",
+      "tool_name": "list_papers",
+      "duration_ms": 16.061
+    },
+    "created_at": "2026-11-20T12:33:18.880295+00:00"
+  },
+  {
+    "run_id": "run-cf436bcbfb62459c",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 6,
+    "event_type": "tool.called",
+    "stage": "model_tool_execution",
+    "payload": {
+      "args": {
+        "limit": 10,
+        "query": "velocity-based training competitive weightlifting snatch clean and jerk snatch velocity"
+      },
+      "round": 0,
+      "origin": "model_directed",
+      "tool_name": "hybrid_search",
+      "scope_defaulted": false
+    },
+    "created_at": "2026-11-20T12:33:18.883220+00:00"
+  },
+  {
+    "run_id": "run-cf436bcbfb62459c",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 7,
+    "event_type": "tool.completed",
+    "stage": "model_tool_execution",
+    "payload": {
+      "ok": true,
+      "origin": "model_directed",
+      "trace_id": "trace-64dd40ea14994b06",
+      "tool_name": "hybrid_search",
+      "duration_ms": 772.06
+    },
+    "created_at": "2026-11-20T12:33:19.658441+00:00"
+  },
+  {
+    "run_id": "run-cf436bcbfb62459c",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 8,
+    "event_type": "tool.called",
+    "stage": "model_tool_execution",
+    "payload": {
+      "args": {
+        "limit": 10,
+        "query": "load-velocity relationship back squat bench press mean propulsive velocity prediction"
+      },
+      "round": 0,
+      "origin": "model_directed",
+      "tool_name": "hybrid_search",
+      "scope_defaulted": false
+    },
+    "created_at": "2026-11-20T12:33:19.663082+00:00"
+  },
+  {
+    "run_id": "run-cf436bcbfb62459c",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 9,
+    "event_type": "tool.completed",
+    "stage": "model_tool_execution",
+    "payload": {
+      "ok": true,
+      "origin": "model_directed",
+      "trace_id": "trace-f5c7a6c198b34342",
+      "tool_name": "hybrid_search",
+      "duration_ms": 858.407
+    },
+    "created_at": "2026-11-20T12:33:20.524506+00:00"
+  },
+  {
+    "run_id": "run-cf436bcbfb62459c",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 10,
+    "event_type": "tool.called",
+    "stage": "model_tool_execution",
+    "payload": {
+      "args": {
+        "searches": [
+          {
+            "all_of": [
+              [
+                "velocity based training",
+                "velocity-based training",
+                "barbell velocity",
+                "movement velocity"
+              ],
+              [
+                "weightlifting",
+                "weightlifter",
+                "olympic weightlifting",
+                "snatch",
+                "clean and jerk"
+              ]
+            ]
+          },
+          {
+            "all_of": [
+              [
+                "load velocity profile",
+                "load-velocity relationship",
+                "force velocity profile",
+                "velocity monitoring"
+              ],
+              [
+                "weightlifters",
+                "competitive weightlifters",
+                "elite weightlifters",
+                "snatch",
+                "clean and jerk"
+              ]
+            ]
+          },
+          {
+            "all_of": [
+              [
+                "velocity based training",
+                "barbell velocity",
+                "mean propulsive velocity"
+              ],
+              [
+                "training performance",
+                "competition performance",
+                "strength gains",
+                "one repetition maximum"
+              ]
+            ]
+          },
+          {
+            "all_of": [
+              [
+                "snatch",
+                "clean and jerk"
+              ],
+              [
+                "velocity",
+                "kinematics",
+                "bar velocity",
+                "validity",
+                "reliability"
+              ]
+            ]
+          }
+        ],
+        "rationale": "The authorized corpus contains no study in competitive (Olympic) weightlifting; existing papers address recreational lifters performing squats and jumps. Targeted open-access discovery is needed for primary research on velocity-based training in competitive weightlifting (snatch, clean and jerk, barbell velocity monitoring, load-velocity profiles in weightlifters)."
+      },
+      "round": 1,
+      "origin": "model_directed",
+      "tool_name": "discover_external_literature"
+    },
+    "created_at": "2026-11-20T12:33:27.615525+00:00"
+  },
+  {
+    "run_id": "run-cf436bcbfb62459c",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 11,
+    "event_type": "evidence.relevance_assessed",
+    "stage": "model_tool_execution",
+    "payload": {
+      "code": "evidence_relevant_and_answerable",
+      "detail": "Admissible evidence covers the question's entities and facets; this is a lexical/structural gate, not semantic entailment.",
+      "verdict": "ANSWERABLE",
+      "ambiguous": false,
+      "candidates": [
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage"
+          ],
+          "admissible": false,
+          "passage_key": "8fd59cbc9dce8677031f609f280febe45a436723974fa4795a3cd8c8107b340a",
+          "matched_terms": [
+            "bas",
+            "train",
+            "veloci"
+          ],
+          "missing_terms": [
+            "compet",
+            "primar",
+            "weight",
+            "litera",
+            "report",
+            "resear"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.4444,
+          "missing_entities": [],
+          "lexical_similarity": 0.4444
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage"
+          ],
+          "admissible": false,
+          "passage_key": "013d4c6a155cedbf97579c8b255a9d6bb8822f53b95ac7d48f31e5d2e292643a",
+          "matched_terms": [
+            "bas",
+            "train",
+            "veloci"
+          ],
+          "missing_terms": [
+            "compet",
+            "primar",
+            "weight",
+            "litera",
+            "report",
+            "resear"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.4444,
+          "missing_entities": [],
+          "lexical_similarity": 0.4444
+        },
+        {
+          "reasons": [],
+          "admissible": true,
+          "passage_key": "f65799b0cd6521e359a52f33b8faf26a13876926b36321346a79cbfa279ba3cc",
+          "matched_terms": [
+            "bas",
+            "compet",
+            "train",
+            "veloci",
+            "report"
+          ],
+          "missing_terms": [
+            "primar",
+            "weight",
+            "litera",
+            "resear"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.6296,
+          "missing_entities": [],
+          "lexical_similarity": 0.6296
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage"
+          ],
+          "admissible": false,
+          "passage_key": "013d60ac4bc7ae8870fbb9e9cc7354b419ee39e1da5f2691532c0dc242251c14",
+          "matched_terms": [
+            "veloci",
+            "weight"
+          ],
+          "missing_terms": [
+            "bas",
+            "compet",
+            "primar",
+            "train",
+            "litera",
+            "report",
+            "resear"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.2963,
+          "missing_entities": [],
+          "lexical_similarity": 0.2963
+        },
+        {
+          "reasons": [],
+          "admissible": true,
+          "passage_key": "eb7e26587b7eba69bc7eceb2af3c5cc43b0cb0a847c3b706349751fe215f87f0",
+          "matched_terms": [
+            "bas",
+            "primar",
+            "train",
+            "veloci",
+            "resear"
+          ],
+          "missing_terms": [
+            "compet",
+            "weight",
+            "litera",
+            "report"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.6296,
+          "missing_entities": [],
+          "lexical_similarity": 0.6296
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage"
+          ],
+          "admissible": false,
+          "passage_key": "3d34947ece3b51ff7955affa7361c18ce8844b08b429df64e75ffe5955198b35",
+          "matched_terms": [
+            "bas",
+            "train",
+            "veloci",
+            "report",
+            "resear"
+          ],
+          "missing_terms": [
+            "compet",
+            "primar",
+            "weight",
+            "litera"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.5185,
+          "missing_entities": [],
+          "lexical_similarity": 0.5185
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage"
+          ],
+          "admissible": false,
+          "passage_key": "09ff82b766e2d072aa5a2970c28ed5b6fa566074d9820c13ca56bc18d48faff1",
+          "matched_terms": [
+            "train",
+            "veloci"
+          ],
+          "missing_terms": [
+            "bas",
+            "compet",
+            "primar",
+            "weight",
+            "litera",
+            "report",
+            "resear"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.2963,
+          "missing_entities": [],
+          "lexical_similarity": 0.2963
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage"
+          ],
+          "admissible": false,
+          "passage_key": "ea8d3cc053e1d7d7456161f9e73e719b82432314582681c865d34f3a84be97a5",
+          "matched_terms": [
+            "bas",
+            "train",
+            "veloci"
+          ],
+          "missing_terms": [
+            "compet",
+            "primar",
+            "weight",
+            "litera",
+            "report",
+            "resear"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.4444,
+          "missing_entities": [],
+          "lexical_similarity": 0.4444
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage"
+          ],
+          "admissible": false,
+          "passage_key": "4e6fe52b2323c9206a52fc2e2e91a8890ffd4e3f41868c1db86255dcb55119f5",
+          "matched_terms": [
+            "train",
+            "veloci",
+            "resear"
+          ],
+          "missing_terms": [
+            "bas",
+            "compet",
+            "primar",
+            "weight",
+            "litera",
+            "report"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.3333,
+          "missing_entities": [],
+          "lexical_similarity": 0.3333
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage"
+          ],
+          "admissible": false,
+          "passage_key": "fe9825406d9483a7f2e2d3c1a923b2044080d7df654b734980c5f3c9d0c20037",
+          "matched_terms": [
+            "bas",
+            "primar",
+            "veloci",
+            "litera",
+            "report",
+            "resear"
+          ],
+          "missing_terms": [
+            "compet",
+            "train",
+            "weight"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.5556,
+          "missing_entities": [],
+          "lexical_similarity": 0.5556
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage"
+          ],
+          "admissible": false,
+          "passage_key": "f96f6f16eea8bff4cc1776fed5e8f00dd16ba2d0732ca0d4ac9d7b48f33f0670",
+          "matched_terms": [
+            "veloci",
+            "weight",
+            "resear"
+          ],
+          "missing_terms": [
+            "bas",
+            "compet",
+            "primar",
+            "train",
+            "litera",
+            "report"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.3333,
+          "missing_entities": [],
+          "lexical_similarity": 0.3333
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage"
+          ],
+          "admissible": false,
+          "passage_key": "94190aa9cc291b5e6b33a63851bf682611db3380a76ed29d905ca961ffb6fecb",
+          "matched_terms": [
+            "veloci"
+          ],
+          "missing_terms": [
+            "bas",
+            "compet",
+            "primar",
+            "train",
+            "weight",
+            "litera",
+            "report",
+            "resear"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.1481,
+          "missing_entities": [],
+          "lexical_similarity": 0.1481
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage"
+          ],
+          "admissible": false,
+          "passage_key": "bc3e37f82b7d01d98fe4aaef63981eb32dc4e96b807921dac319685c54346f33",
+          "matched_terms": [
+            "veloci",
+            "report"
+          ],
+          "missing_terms": [
+            "bas",
+            "compet",
+            "primar",
+            "train",
+            "weight",
+            "litera",
+            "resear"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.1852,
+          "missing_entities": [],
+          "lexical_similarity": 0.1852
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage"
+          ],
+          "admissible": false,
+          "passage_key": "2bb418810045115c0f9b24854b032c40f8a98d4f8ed84d736ccb3ada6049cf50",
+          "matched_terms": [
+            "train",
+            "veloci"
+          ],
+          "missing_terms": [
+            "bas",
+            "compet",
+            "primar",
+            "weight",
+            "litera",
+            "report",
+            "resear"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.2963,
+          "missing_entities": [],
+          "lexical_similarity": 0.2963
+        }
+      ],
+      "gate_version": "structured-evidence-gate-v1",
+      "claim_support": "NOT_ASSESSED",
+      "contradictory": false,
+      "question_kind": "factual",
+      "aspect_coverage": {},
+      "required_coverage": 0.6,
+      "uncovered_aspects": [],
+      "accepted_passage_keys": [
+        "f65799b0cd6521e359a52f33b8faf26a13876926b36321346a79cbfa279ba3cc",
+        "eb7e26587b7eba69bc7eceb2af3c5cc43b0cb0a847c3b706349751fe215f87f0"
+      ],
+      "rejected_passage_keys": [
+        "8fd59cbc9dce8677031f609f280febe45a436723974fa4795a3cd8c8107b340a",
+        "013d4c6a155cedbf97579c8b255a9d6bb8822f53b95ac7d48f31e5d2e292643a",
+        "013d60ac4bc7ae8870fbb9e9cc7354b419ee39e1da5f2691532c0dc242251c14",
+        "3d34947ece3b51ff7955affa7361c18ce8844b08b429df64e75ffe5955198b35",
+        "09ff82b766e2d072aa5a2970c28ed5b6fa566074d9820c13ca56bc18d48faff1",
+        "ea8d3cc053e1d7d7456161f9e73e719b82432314582681c865d34f3a84be97a5",
+        "4e6fe52b2323c9206a52fc2e2e91a8890ffd4e3f41868c1db86255dcb55119f5",
+        "fe9825406d9483a7f2e2d3c1a923b2044080d7df654b734980c5f3c9d0c20037",
+        "f96f6f16eea8bff4cc1776fed5e8f00dd16ba2d0732ca0d4ac9d7b48f33f0670",
+        "94190aa9cc291b5e6b33a63851bf682611db3380a76ed29d905ca961ffb6fecb",
+        "bc3e37f82b7d01d98fe4aaef63981eb32dc4e96b807921dac319685c54346f33",
+        "2bb418810045115c0f9b24854b032c40f8a98d4f8ed84d736ccb3ada6049cf50"
+      ],
+      "accepted_claim_indexes": [],
+      "comparison_document_count": 3
+    },
+    "created_at": "2026-11-20T12:33:27.663443+00:00"
+  },
+  {
+    "run_id": "run-cf436bcbfb62459c",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 12,
+    "event_type": "tool.called",
+    "stage": "acquire_external_literature",
+    "payload": {
+      "origin": "model_directed",
+      "reason": "The authorized corpus contains no study in competitive (Olympic) weightlifting; existing papers address recreational lifters performing squats and jumps. Targeted open-access discovery is needed for primary research on velocity-based training in competitive weightlifting (snatch, clean and jerk, barbell velocity monitoring, load-velocity profiles in weightlifters).",
+      "tool_name": "discover_external_literature",
+      "model_searches": [
+        [
+          [
+            "velocity based training",
+            "velocity-based training",
+            "barbell velocity",
+            "movement velocity"
+          ],
+          [
+            "weightlifting",
+            "weightlifter",
+            "olympic weightlifting",
+            "snatch",
+            "clean and jerk"
+          ]
+        ],
+        [
+          [
+            "load velocity profile",
+            "load-velocity relationship",
+            "force velocity profile",
+            "velocity monitoring"
+          ],
+          [
+            "weightlifters",
+            "competitive weightlifters",
+            "elite weightlifters",
+            "snatch",
+            "clean and jerk"
+          ]
+        ],
+        [
+          [
+            "velocity based training",
+            "barbell velocity",
+            "mean propulsive velocity"
+          ],
+          [
+            "training performance",
+            "competition performance",
+            "strength gains",
+            "one repetition maximum"
+          ]
+        ],
+        [
+          [
+            "snatch",
+            "clean and jerk"
+          ],
+          [
+            "velocity",
+            "kinematics",
+            "bar velocity",
+            "validity",
+            "reliability"
+          ]
+        ]
+      ]
+    },
+    "created_at": "2026-11-20T12:33:27.671378+00:00"
+  },
+  {
+    "run_id": "run-cf436bcbfb62459c",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 13,
+    "event_type": "literature.discovered",
+    "stage": "acquire_external_literature",
+    "payload": {
+      "works": [
+        {
+          "doi": "10.3390/sports8050059",
+          "pmid": "32397110",
+          "pmcid": "PMC7281229",
+          "title": "Effects of the Barbell Load on the Acceleration Phase during the Snatch in Elite Olympic Weightlifting."
+        },
+        {
+          "doi": "10.70252/mfjk8861",
+          "pmid": "39807279",
+          "pmcid": "PMC11728576",
+          "title": "Validity and Reliability of a Linear Position Transducer to Measure Barbell Velocity, Duration, and Displacement During the Bench Press."
+        },
+        {
+          "doi": "10.3390/jfmk11020147",
+          "pmid": "42029515",
+          "pmcid": "PMC13108039",
+          "title": "Velocity- and Power-Oriented Force-Velocity Characteristics Differentiate Competitive Olympic-Style Weightlifting Performance."
+        },
+        {
+          "doi": "10.3390/jfmk6020035",
+          "pmid": "33923506",
+          "pmcid": "PMC8167790",
+          "title": "Predictive Validity of the Snatch Pull Force-Velocity Profile to Determine the Snatch One Repetition-Maximum in Male and Female Elite Weightlifters."
+        },
+        {
+          "doi": "10.1371/journal.pone.0212085",
+          "pmid": "30811432",
+          "pmcid": "PMC6392250",
+          "title": "Assessment of the load-velocity profile in the free-weight prone bench pull exercise through different velocity variables and regression models."
+        },
+        {
+          "doi": "10.3390/sports14090413",
+          "pmid": "42784409",
+          "pmcid": "PMC13611260",
+          "title": "Supramaximal Isometric Holds Enhance Squat Performance: An Integrated Analysis of Barbell Kinematics, Force Production, and Postural Stability."
+        },
+        {
+          "doi": "10.3390/sports14070298",
+          "pmid": "42506841",
+          "pmcid": "PMC13417152",
+          "title": "Technique-Specific Load-Velocity Profiling and Prediction Equation for the Back Squat in Elite Portuguese Rugby Players."
+        },
+        {
+          "doi": "10.3390/sports14070263",
+          "pmid": "42506808",
+          "pmcid": "PMC13416992",
+          "title": "Concurrent Validity and Between-Session Reproducibility of Agreement of GPath for Mean Propulsive Velocity Assessment During the Bench Press Exercise."
+        },
+        {
+          "doi": "10.3390/jfmk10030284",
+          "pmid": "40843815",
+          "pmcid": "PMC12372150",
+          "title": "Sex Differences in Bench Press Strength and Power: A Velocity-Based Analysis Adjusted for Body Composition."
+        },
+        {
+          "doi": "10.1002/ejsc.70160",
+          "pmid": "41832049",
+          "pmcid": "PMC13140343",
+          "title": "Acute Responses and Chronic Adaptations to Cluster Versus Traditional Set Resistance Training in Males and Females."
+        },
+        {
+          "doi": "10.3389/fphys.2026.1828882",
+          "pmid": "42755828",
+          "pmcid": "PMC13581863",
+          "title": "Delayed lead straight punch performance following resistance priming with different velocity-loss thresholds in highly trained boxers."
+        },
+        {
+          "doi": "10.1186/s40798-026-01031-y",
+          "pmid": "42315811",
+          "pmcid": "PMC13280289",
+          "title": "Acute Effects of Accentuated Eccentric Loading on Mean Concentric Velocity During Resistance Training: A Systematic Review and Meta-analysis."
+        }
+      ],
+      "records": 44,
+      "unique_works": 40,
+      "provider_failures": 1,
+      "identity_conflicts": 0
+    },
+    "created_at": "2026-11-20T12:34:00.284971+00:00"
+  },
+  {
+    "run_id": "run-cf436bcbfb62459c",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 14,
+    "event_type": "literature.ingested",
+    "stage": "acquire_external_literature",
+    "payload": {
+      "ingested": [
+        {
+          "doi": "10.3390/sports8050059",
+          "pmid": "32397110",
+          "pmcid": "PMC7281229",
+          "title": "Effects of the Barbell Load on the Acceleration Phase during the Snatch in Elite Olympic Weightlifting.",
+          "passages": 19,
+          "license_uri": "http://creativecommons.org/licenses/by/4.0/"
+        },
+        {
+          "doi": "10.3390/jfmk11020147",
+          "pmid": "42029515",
+          "pmcid": "PMC13108039",
+          "title": "Velocity- and Power-Oriented Force-Velocity Characteristics Differentiate Competitive Olympic-Style Weightlifting Performance.",
+          "passages": 31,
+          "license_uri": "https://creativecommons.org/licenses/by/4.0/"
+        }
+      ],
+      "rejected": 1,
+      "already_in_corpus": 0
+    },
+    "created_at": "2026-11-20T12:34:53.155197+00:00"
+  },
+  {
+    "run_id": "run-cf436bcbfb62459c",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 15,
+    "event_type": "corpus.projected",
+    "stage": "acquire_external_literature",
+    "payload": {
+      "alias": "dynamisrag-research-workspace",
+      "model_id": "Qwen/Qwen3-Embedding-0.6B",
+      "dimension": 512,
+      "collection": "qdrant-passages-v1-1c3cdc21ac7cbfe37011cc561737375a1a401e3c9f260a2b2105e16fc89ff525",
+      "embedded_now": 50,
+      "published_at": "2026-11-20T12:38:13.581644+00:00",
+      "passage_count": 175,
+      "document_count": 6,
+      "model_revision": "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
+      "reused_vectors": 125,
+      "elapsed_seconds": 313.258,
+      "embedding_seconds": 221.969,
+      "projection_sha256": "aa531bf197f7e5d1cdf5245bceee82c9aad1d770cd913ab4a4dfcbb5a43e20ea",
+      "collection_identity": {
+        "model_id": "Qwen/Qwen3-Embedding-0.6B",
+        "schema_sha256": "b83e0682ea5a90589e4411c2964703bcf3fd57203176729275818db13f0aaca1",
+        "expected_count": 175,
+        "model_revision": "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
+        "schema_revision": "qdrant-passages-v1",
+        "projection_sha256": "aa531bf197f7e5d1cdf5245bceee82c9aad1d770cd913ab4a4dfcbb5a43e20ea",
+        "embedding_config_sha256": "8438d37d8e8c8f975f62cbc6f6c644abc27304b18b7a330d9157a70f21c9c1f7",
+        "embedding_manifest_sha256": "95ee5964f29f8ea46b7aae6b17e7929697e185d26612e8a453c3e6de51496493"
+      },
+      "previous_collection": "qdrant-passages-v1-76a2a8ee2a2a7943c00b9fb698d8e4e5f4c68756fc32bee3942c93827da45f5c",
+      "embedding_config_sha256": "8438d37d8e8c8f975f62cbc6f6c644abc27304b18b7a330d9157a70f21c9c1f7",
+      "embedding_manifest_file": "qdrant-passages-v1-1c3cdc21ac7cbfe37011cc561737375a1a401e3c9f260a2b2105e16fc89ff525.embeddings.json",
+      "embedding_manifest_sha256": "95ee5964f29f8ea46b7aae6b17e7929697e185d26612e8a453c3e6de51496493"
+    },
+    "created_at": "2026-11-20T12:38:20.815758+00:00"
+  },
+  {
+    "run_id": "run-cf436bcbfb62459c",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 16,
+    "event_type": "tool.completed",
+    "stage": "acquire_external_literature",
+    "payload": {
+      "ok": true,
+      "origin": "model_directed",
+      "status": "completed",
+      "ingested": 2,
+      "tool_name": "discover_external_literature",
+      "already_in_corpus": 0
+    },
+    "created_at": "2026-11-20T12:38:20.822577+00:00"
+  },
+  {
+    "run_id": "run-cf436bcbfb62459c",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 17,
+    "event_type": "tool.called",
+    "stage": "model_tool_execution",
+    "payload": {
+      "args": {
+        "limit": 20,
+        "query_filter": "weightlifting"
+      },
+      "round": 0,
+      "origin": "model_directed",
+      "tool_name": "list_papers",
+      "scope_defaulted": false
+    },
+    "created_at": "2026-11-20T12:38:39.866376+00:00"
+  },
+  {
+    "run_id": "run-cf436bcbfb62459c",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 18,
+    "event_type": "tool.completed",
+    "stage": "model_tool_execution",
+    "payload": {
+      "ok": true,
+      "origin": "model_directed",
+      "trace_id": "trace-b92e604b9b304199",
+      "tool_name": "list_papers",
+      "duration_ms": 21.796
+    },
+    "created_at": "2026-11-20T12:38:39.892188+00:00"
+  },
+  {
+    "run_id": "run-cf436bcbfb62459c",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 19,
+    "event_type": "tool.called",
+    "stage": "model_tool_execution",
+    "payload": {
+      "args": {
+        "limit": 10,
+        "query": "velocity-based training Olympic weightlifting snatch clean and jerk"
+      },
+      "round": 0,
+      "origin": "model_directed",
+      "tool_name": "hybrid_search",
+      "scope_defaulted": false
+    },
+    "created_at": "2026-11-20T12:38:39.895149+00:00"
+  },
+  {
+    "run_id": "run-cf436bcbfb62459c",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 20,
+    "event_type": "tool.completed",
+    "stage": "model_tool_execution",
+    "payload": {
+      "ok": true,
+      "origin": "model_directed",
+      "trace_id": "trace-c1c5384455674731",
+      "tool_name": "hybrid_search",
+      "duration_ms": 1183.571
+    },
+    "created_at": "2026-11-20T12:38:41.081721+00:00"
+  },
+  {
+    "run_id": "run-cf436bcbfb62459c",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 21,
+    "event_type": "tool.called",
+    "stage": "model_tool_execution",
+    "payload": {
+      "args": {
+        "limit": 10,
+        "query": "mean barbell velocity load-velocity relationship snatch"
+      },
+      "round": 0,
+      "origin": "model_directed",
+      "tool_name": "hybrid_search",
+      "scope_defaulted": false
+    },
+    "created_at": "2026-11-20T12:38:41.084474+00:00"
+  },
+  {
+    "run_id": "run-cf436bcbfb62459c",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 22,
+    "event_type": "tool.completed",
+    "stage": "model_tool_execution",
+    "payload": {
+      "ok": true,
+      "origin": "model_directed",
+      "trace_id": "trace-dc77a5ba115e4c57",
+      "tool_name": "hybrid_search",
+      "duration_ms": 762.757
+    },
+    "created_at": "2026-11-20T12:38:41.850502+00:00"
+  },
+  {
+    "run_id": "run-cf436bcbfb62459c",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 23,
+    "event_type": "tool.called",
+    "stage": "model_tool_execution",
+    "payload": {
+      "args": {
+        "limit": 10,
+        "query": "velocity feedback autoregulation training load prescription weightlifting"
+      },
+      "round": 0,
+      "origin": "model_directed",
+      "tool_name": "hybrid_search",
+      "scope_defaulted": false
+    },
+    "created_at": "2026-11-20T12:38:41.860880+00:00"
+  },
+  {
+    "run_id": "run-cf436bcbfb62459c",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 24,
+    "event_type": "tool.completed",
+    "stage": "model_tool_execution",
+    "payload": {
+      "ok": true,
+      "origin": "model_directed",
+      "trace_id": "trace-98f5c8cfb1a14288",
+      "tool_name": "hybrid_search",
+      "duration_ms": 800.376
+    },
+    "created_at": "2026-11-20T12:38:42.664693+00:00"
+  },
+  {
+    "run_id": "run-cf436bcbfb62459c",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 25,
+    "event_type": "tool.called",
+    "stage": "model_tool_execution",
+    "payload": {
+      "args": {
+        "limit": 50
+      },
+      "round": 1,
+      "origin": "model_directed",
+      "tool_name": "list_papers",
+      "scope_defaulted": false
+    },
+    "created_at": "2026-11-20T12:38:52.392637+00:00"
+  },
+  {
+    "run_id": "run-cf436bcbfb62459c",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 26,
+    "event_type": "tool.completed",
+    "stage": "model_tool_execution",
+    "payload": {
+      "ok": true,
+      "origin": "model_directed",
+      "trace_id": "trace-b81a65ea89ae4bb9",
+      "tool_name": "list_papers",
+      "duration_ms": 26.564
+    },
+    "created_at": "2026-11-20T12:38:52.422918+00:00"
+  },
+  {
+    "run_id": "run-cf436bcbfb62459c",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 27,
+    "event_type": "tool.called",
+    "stage": "model_tool_execution",
+    "payload": {
+      "args": {
+        "limit": 10,
+        "query": "velocity-based training recommendations competitive weightlifters training prescription"
+      },
+      "round": 1,
+      "origin": "model_directed",
+      "tool_name": "hybrid_search",
+      "scope_defaulted": false
+    },
+    "created_at": "2026-11-20T12:38:52.425403+00:00"
+  },
+  {
+    "run_id": "run-cf436bcbfb62459c",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 28,
+    "event_type": "tool.completed",
+    "stage": "model_tool_execution",
+    "payload": {
+      "ok": true,
+      "origin": "model_directed",
+      "trace_id": "trace-f07fcb38be5b416d",
+      "tool_name": "hybrid_search",
+      "duration_ms": 986.174
+    },
+    "created_at": "2026-11-20T12:38:53.415135+00:00"
+  },
+  {
+    "run_id": "run-cf436bcbfb62459c",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 29,
+    "event_type": "tool.called",
+    "stage": "model_tool_execution",
+    "payload": {
+      "args": {
+        "limit": 10,
+        "query": "individual load-velocity relationship variability between athletes correlations"
+      },
+      "round": 1,
+      "origin": "model_directed",
+      "tool_name": "hybrid_search",
+      "scope_defaulted": false
+    },
+    "created_at": "2026-11-20T12:38:53.418546+00:00"
+  },
+  {
+    "run_id": "run-cf436bcbfb62459c",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 30,
+    "event_type": "tool.completed",
+    "stage": "model_tool_execution",
+    "payload": {
+      "ok": false,
+      "origin": "model_directed",
+      "trace_id": "trace-9b7288087248495e",
+      "tool_name": "hybrid_search",
+      "duration_ms": 772.816
+    },
+    "created_at": "2026-11-20T12:38:54.194134+00:00"
+  },
+  {
+    "run_id": "run-cf436bcbfb62459c",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 31,
+    "event_type": "tool.called",
+    "stage": "model_tool_execution",
+    "payload": {
+      "args": {
+        "limit": 10,
+        "query": "validity of linear position transducer barbell velocity measurement limitations"
+      },
+      "round": 1,
+      "origin": "model_directed",
+      "tool_name": "hybrid_search",
+      "scope_defaulted": false
+    },
+    "created_at": "2026-11-20T12:38:54.197300+00:00"
+  },
+  {
+    "run_id": "run-cf436bcbfb62459c",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 32,
+    "event_type": "tool.completed",
+    "stage": "model_tool_execution",
+    "payload": {
+      "ok": true,
+      "origin": "model_directed",
+      "trace_id": "trace-34cca96ebfe94494",
+      "tool_name": "hybrid_search",
+      "duration_ms": 817.478
+    },
+    "created_at": "2026-11-20T12:38:55.018178+00:00"
+  },
+  {
+    "run_id": "run-cf436bcbfb62459c",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 33,
+    "event_type": "tool.called",
+    "stage": "model_tool_execution",
+    "payload": {
+      "args": {
+        "limit": 5,
+        "query": "conclusions threshold velocity individual minimal velocity successful lift snatch training"
+      },
+      "round": 2,
+      "origin": "model_directed",
+      "tool_name": "hybrid_search",
+      "scope_defaulted": false
+    },
+    "created_at": "2026-11-20T12:39:03.106149+00:00"
+  },
+  {
+    "run_id": "run-cf436bcbfb62459c",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 34,
+    "event_type": "tool.completed",
+    "stage": "model_tool_execution",
+    "payload": {
+      "ok": true,
+      "origin": "model_directed",
+      "trace_id": "trace-86db52e9e71649f8",
+      "tool_name": "hybrid_search",
+      "duration_ms": 777.625
+    },
+    "created_at": "2026-11-20T12:39:03.886817+00:00"
+  },
+  {
+    "run_id": "run-cf436bcbfb62459c",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 35,
+    "event_type": "tool.called",
+    "stage": "model_tool_execution",
+    "payload": {
+      "args": {
+        "limit": 5,
+        "query": "limitations of force-velocity profiling methodological considerations practitioners"
+      },
+      "round": 2,
+      "origin": "model_directed",
+      "tool_name": "hybrid_search",
+      "scope_defaulted": false
+    },
+    "created_at": "2026-11-20T12:39:03.889242+00:00"
+  },
+  {
+    "run_id": "run-cf436bcbfb62459c",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 36,
+    "event_type": "tool.completed",
+    "stage": "model_tool_execution",
+    "payload": {
+      "ok": true,
+      "origin": "model_directed",
+      "trace_id": "trace-404160f7b51a47cb",
+      "tool_name": "hybrid_search",
+      "duration_ms": 756.081
+    },
+    "created_at": "2026-11-20T12:39:04.648325+00:00"
+  },
+  {
+    "run_id": "run-cf436bcbfb62459c",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 37,
+    "event_type": "evidence.relevance_assessed",
+    "stage": "model_tool_execution",
+    "payload": {
+      "code": "evidence_relevant_and_answerable",
+      "detail": "Admissible evidence covers the question's entities and facets; this is a lexical/structural gate, not semantic entailment.",
+      "verdict": "ANSWERABLE",
+      "ambiguous": false,
+      "candidates": [
+        {
+          "reasons": [],
+          "admissible": true,
+          "passage_key": "66995b750f2f4e3464452539afb8d2b91f3e94cc2d207640b3641828bb57cad0",
+          "matched_terms": [
+            "compet",
+            "train",
+            "veloci",
+            "weight",
+            "report",
+            "resear"
+          ],
+          "missing_terms": [
+            "bas",
+            "primar",
+            "litera"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.6667,
+          "missing_entities": [],
+          "lexical_similarity": 0.6667
+        },
+        {
+          "reasons": [],
+          "admissible": true,
+          "passage_key": "e5d91677c7a5207beacc485f8e76942378e995b030031d0cad9176f7eb232cd6",
+          "matched_terms": [
+            "compet",
+            "train",
+            "veloci",
+            "weight",
+            "report",
+            "resear"
+          ],
+          "missing_terms": [
+            "bas",
+            "primar",
+            "litera"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.6667,
+          "missing_entities": [],
+          "lexical_similarity": 0.6667
+        },
+        {
+          "reasons": [],
+          "admissible": true,
+          "passage_key": "ecd4826202d9961a31ff0d6754eb68045bdfaeaf5d41c6a4b589e5d72a34663f",
+          "matched_terms": [
+            "bas",
+            "compet",
+            "primar",
+            "veloci",
+            "weight",
+            "report"
+          ],
+          "missing_terms": [
+            "train",
+            "litera",
+            "resear"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.7778,
+          "missing_entities": [],
+          "lexical_similarity": 0.7778
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage"
+          ],
+          "admissible": false,
+          "passage_key": "04ebb0111630cd1662b9b899ebdf3de4d44770b6311edbaa55843f9bf82f82f9",
+          "matched_terms": [
+            "primar",
+            "train",
+            "veloci",
+            "weight"
+          ],
+          "missing_terms": [
+            "bas",
+            "compet",
+            "litera",
+            "report",
+            "resear"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.5926,
+          "missing_entities": [],
+          "lexical_similarity": 0.5926
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage"
+          ],
+          "admissible": false,
+          "passage_key": "6238dbc62b7f1284c2ac335996796a5435f410af0d8a39e44fd652326ff42204",
+          "matched_terms": [
+            "compet",
+            "train",
+            "weight",
+            "resear"
+          ],
+          "missing_terms": [
+            "bas",
+            "primar",
+            "veloci",
+            "litera",
+            "report"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.4815,
+          "missing_entities": [],
+          "lexical_similarity": 0.4815
+        },
+        {
+          "reasons": [],
+          "admissible": true,
+          "passage_key": "5ec27267c0e26af2bd527019bf8eb1c219ec36d67c6b745fccd430c9ed822a56",
+          "matched_terms": [
+            "bas",
+            "train",
+            "veloci",
+            "weight",
+            "report"
+          ],
+          "missing_terms": [
+            "compet",
+            "primar",
+            "litera",
+            "resear"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.6296,
+          "missing_entities": [],
+          "lexical_similarity": 0.6296
+        },
+        {
+          "reasons": [],
+          "admissible": true,
+          "passage_key": "7bbbf424bd519fea1b92fae228d1fffa887c3b733646995af56b413f8399dcb5",
+          "matched_terms": [
+            "compet",
+            "train",
+            "veloci",
+            "weight",
+            "resear"
+          ],
+          "missing_terms": [
+            "bas",
+            "primar",
+            "litera",
+            "report"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.6296,
+          "missing_entities": [],
+          "lexical_similarity": 0.6296
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage"
+          ],
+          "admissible": false,
+          "passage_key": "459e57f442f25e7070c9dfa25dc892588a34bfde0799aa6b13f6613a772af185",
+          "matched_terms": [
+            "compet",
+            "veloci",
+            "weight",
+            "resear"
+          ],
+          "missing_terms": [
+            "bas",
+            "primar",
+            "train",
+            "litera",
+            "report"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.4815,
+          "missing_entities": [],
+          "lexical_similarity": 0.4815
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage"
+          ],
+          "admissible": false,
+          "passage_key": "716e712e1b3c34b682cd8e03b6cda3faf5de120a017e18d7c9000087dae69224",
+          "matched_terms": [
+            "bas",
+            "compet",
+            "veloci",
+            "weight"
+          ],
+          "missing_terms": [
+            "primar",
+            "train",
+            "litera",
+            "report",
+            "resear"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.5926,
+          "missing_entities": [],
+          "lexical_similarity": 0.5926
+        },
+        {
+          "reasons": [],
+          "admissible": true,
+          "passage_key": "5ef449155d92868c667fcf0c2947dcf09aaeeac6c580d0141dccd428605117d3",
+          "matched_terms": [
+            "bas",
+            "compet",
+            "train",
+            "veloci",
+            "weight"
+          ],
+          "missing_terms": [
+            "primar",
+            "litera",
+            "report",
+            "resear"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.7407,
+          "missing_entities": [],
+          "lexical_similarity": 0.7407
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage"
+          ],
+          "admissible": false,
+          "passage_key": "f77e5ada2e4040ca072381274462da7fe06cc836cf3f93cfb01c8443bd112eb0",
+          "matched_terms": [
+            "compet",
+            "veloci",
+            "weight"
+          ],
+          "missing_terms": [
+            "bas",
+            "primar",
+            "train",
+            "litera",
+            "report",
+            "resear"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.4444,
+          "missing_entities": [],
+          "lexical_similarity": 0.4444
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage"
+          ],
+          "admissible": false,
+          "passage_key": "36be4b38c5cb9f2eda906b4710523845055a7776c4384e9071000958a02668a9",
+          "matched_terms": [
+            "train",
+            "veloci",
+            "weight"
+          ],
+          "missing_terms": [
+            "bas",
+            "compet",
+            "primar",
+            "litera",
+            "report",
+            "resear"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.4444,
+          "missing_entities": [],
+          "lexical_similarity": 0.4444
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage"
+          ],
+          "admissible": false,
+          "passage_key": "0fdf568e5bf237c86158cb16932c28eb9df366582b86532f5485447a17ca2884",
+          "matched_terms": [
+            "veloci",
+            "weight",
+            "report"
+          ],
+          "missing_terms": [
+            "bas",
+            "compet",
+            "primar",
+            "train",
+            "litera",
+            "resear"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.3333,
+          "missing_entities": [],
+          "lexical_similarity": 0.3333
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage"
+          ],
+          "admissible": false,
+          "passage_key": "8fd59cbc9dce8677031f609f280febe45a436723974fa4795a3cd8c8107b340a",
+          "matched_terms": [
+            "bas",
+            "train",
+            "veloci"
+          ],
+          "missing_terms": [
+            "compet",
+            "primar",
+            "weight",
+            "litera",
+            "report",
+            "resear"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.4444,
+          "missing_entities": [],
+          "lexical_similarity": 0.4444
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage"
+          ],
+          "admissible": false,
+          "passage_key": "e6dd8e393547dd7a7a54ea1149f34168280d3eee5e6ee2b0f5675295f7842910",
+          "matched_terms": [
+            "train",
+            "veloci",
+            "weight"
+          ],
+          "missing_terms": [
+            "bas",
+            "compet",
+            "primar",
+            "litera",
+            "report",
+            "resear"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.4444,
+          "missing_entities": [],
+          "lexical_similarity": 0.4444
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage"
+          ],
+          "admissible": false,
+          "passage_key": "982dcd0a53db74b6ac2cc7cc10d8d5f461ce5b4620b3de66f91a1d42649c198d",
+          "matched_terms": [
+            "veloci",
+            "weight"
+          ],
+          "missing_terms": [
+            "bas",
+            "compet",
+            "primar",
+            "train",
+            "litera",
+            "report",
+            "resear"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.2963,
+          "missing_entities": [],
+          "lexical_similarity": 0.2963
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage"
+          ],
+          "admissible": false,
+          "passage_key": "013d4c6a155cedbf97579c8b255a9d6bb8822f53b95ac7d48f31e5d2e292643a",
+          "matched_terms": [
+            "bas",
+            "train",
+            "veloci"
+          ],
+          "missing_terms": [
+            "compet",
+            "primar",
+            "weight",
+            "litera",
+            "report",
+            "resear"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.4444,
+          "missing_entities": [],
+          "lexical_similarity": 0.4444
+        },
+        {
+          "reasons": [],
+          "admissible": true,
+          "passage_key": "0339c40c21713aeeaed106f059ed3f428feebb6e0f2361ca0e6186ac02045a29",
+          "matched_terms": [
+            "bas",
+            "train",
+            "veloci",
+            "weight",
+            "resear"
+          ],
+          "missing_terms": [
+            "compet",
+            "primar",
+            "litera",
+            "report"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.6296,
+          "missing_entities": [],
+          "lexical_similarity": 0.6296
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage"
+          ],
+          "admissible": false,
+          "passage_key": "fe9825406d9483a7f2e2d3c1a923b2044080d7df654b734980c5f3c9d0c20037",
+          "matched_terms": [
+            "bas",
+            "primar",
+            "veloci",
+            "litera",
+            "report",
+            "resear"
+          ],
+          "missing_terms": [
+            "compet",
+            "train",
+            "weight"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.5556,
+          "missing_entities": [],
+          "lexical_similarity": 0.5556
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage"
+          ],
+          "admissible": false,
+          "passage_key": "73591a4d63d5f33e1f5988d6729ad317e63d657e63f4da68b816a9e7b36c0290",
+          "matched_terms": [
+            "veloci"
+          ],
+          "missing_terms": [
+            "bas",
+            "compet",
+            "primar",
+            "train",
+            "weight",
+            "litera",
+            "report",
+            "resear"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.1481,
+          "missing_entities": [],
+          "lexical_similarity": 0.1481
+        },
+        {
+          "reasons": [],
+          "admissible": true,
+          "passage_key": "2f6328acf26de0df6dfb9c52c99532b3f2d5b487aa1e52d79af38d401e8b03fb",
+          "matched_terms": [
+            "compet",
+            "primar",
+            "train",
+            "veloci",
+            "weight"
+          ],
+          "missing_terms": [
+            "bas",
+            "litera",
+            "report",
+            "resear"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.7407,
+          "missing_entities": [],
+          "lexical_similarity": 0.7407
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage"
+          ],
+          "admissible": false,
+          "passage_key": "726f8e17c3e1d5bc1290f586aa283d3d69b13bb82694049faddd250d7030eb68",
+          "matched_terms": [
+            "compet",
+            "train",
+            "veloci",
+            "weight"
+          ],
+          "missing_terms": [
+            "bas",
+            "primar",
+            "litera",
+            "report",
+            "resear"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.5926,
+          "missing_entities": [],
+          "lexical_similarity": 0.5926
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage"
+          ],
+          "admissible": false,
+          "passage_key": "281b9c8b4ad73d39f45239aa938d321e840bf1ea1a8742ab10837fcfcec8f7b8",
+          "matched_terms": [
+            "compet",
+            "train",
+            "veloci",
+            "weight"
+          ],
+          "missing_terms": [
+            "bas",
+            "primar",
+            "litera",
+            "report",
+            "resear"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.5926,
+          "missing_entities": [],
+          "lexical_similarity": 0.5926
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage"
+          ],
+          "admissible": false,
+          "passage_key": "013d60ac4bc7ae8870fbb9e9cc7354b419ee39e1da5f2691532c0dc242251c14",
+          "matched_terms": [
+            "veloci",
+            "weight"
+          ],
+          "missing_terms": [
+            "bas",
+            "compet",
+            "primar",
+            "train",
+            "litera",
+            "report",
+            "resear"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.2963,
+          "missing_entities": [],
+          "lexical_similarity": 0.2963
+        },
+        {
+          "reasons": [],
+          "admissible": true,
+          "passage_key": "f65799b0cd6521e359a52f33b8faf26a13876926b36321346a79cbfa279ba3cc",
+          "matched_terms": [
+            "bas",
+            "compet",
+            "train",
+            "veloci",
+            "report"
+          ],
+          "missing_terms": [
+            "primar",
+            "weight",
+            "litera",
+            "resear"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.6296,
+          "missing_entities": [],
+          "lexical_similarity": 0.6296
+        },
+        {
+          "reasons": [],
+          "admissible": true,
+          "passage_key": "eb7e26587b7eba69bc7eceb2af3c5cc43b0cb0a847c3b706349751fe215f87f0",
+          "matched_terms": [
+            "bas",
+            "primar",
+            "train",
+            "veloci",
+            "resear"
+          ],
+          "missing_terms": [
+            "compet",
+            "weight",
+            "litera",
+            "report"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.6296,
+          "missing_entities": [],
+          "lexical_similarity": 0.6296
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage"
+          ],
+          "admissible": false,
+          "passage_key": "e1da4408859798817cfa018a768044af64e053c3c38681b450f9fd0d34c6d5b4",
+          "matched_terms": [
+            "bas",
+            "veloci"
+          ],
+          "missing_terms": [
+            "compet",
+            "primar",
+            "train",
+            "weight",
+            "litera",
+            "report",
+            "resear"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.2963,
+          "missing_entities": [],
+          "lexical_similarity": 0.2963
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage"
+          ],
+          "admissible": false,
+          "passage_key": "0b19ca4b0107ae4246011ddff1b5616969c832ba35a5e1ea3c3b17a86d0302ea",
+          "matched_terms": [
+            "veloci"
+          ],
+          "missing_terms": [
+            "bas",
+            "compet",
+            "primar",
+            "train",
+            "weight",
+            "litera",
+            "report",
+            "resear"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.1481,
+          "missing_entities": [],
+          "lexical_similarity": 0.1481
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage"
+          ],
+          "admissible": false,
+          "passage_key": "8ea5d3a3df48e18e2e0fa0d9c92122baaf9287609c9b8dbf84b4032d30a274ec",
+          "matched_terms": [
+            "veloci"
+          ],
+          "missing_terms": [
+            "bas",
+            "compet",
+            "primar",
+            "train",
+            "weight",
+            "litera",
+            "report",
+            "resear"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.1481,
+          "missing_entities": [],
+          "lexical_similarity": 0.1481
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage"
+          ],
+          "admissible": false,
+          "passage_key": "f347e0ec19481826cdf6d6f53ea1d3d22618a4f37b95ca022b0f20e04b0ec8e7",
+          "matched_terms": [
+            "bas",
+            "train",
+            "veloci"
+          ],
+          "missing_terms": [
+            "compet",
+            "primar",
+            "weight",
+            "litera",
+            "report",
+            "resear"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.4444,
+          "missing_entities": [],
+          "lexical_similarity": 0.4444
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage"
+          ],
+          "admissible": false,
+          "passage_key": "f00d629efc564c77482b832caeaba186b75ecf4d983b8722e445c67b3238f96e",
+          "matched_terms": [
+            "bas",
+            "train",
+            "veloci",
+            "report",
+            "resear"
+          ],
+          "missing_terms": [
+            "compet",
+            "primar",
+            "weight",
+            "litera"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.5185,
+          "missing_entities": [],
+          "lexical_similarity": 0.5185
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage"
+          ],
+          "admissible": false,
+          "passage_key": "ccedbc09c6e37d7382124cdb0b50124647d9b29bccc6ae9d5d5e200990a9bea5",
+          "matched_terms": [
+            "bas",
+            "veloci",
+            "report"
+          ],
+          "missing_terms": [
+            "compet",
+            "primar",
+            "train",
+            "weight",
+            "litera",
+            "resear"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.3333,
+          "missing_entities": [],
+          "lexical_similarity": 0.3333
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage"
+          ],
+          "admissible": false,
+          "passage_key": "3bf341d1ef82454920e8da535b1eca3a4413205fcb3208ebe2b8665e5c1518b4",
+          "matched_terms": [
+            "bas",
+            "compet",
+            "veloci",
+            "weight"
+          ],
+          "missing_terms": [
+            "primar",
+            "train",
+            "litera",
+            "report",
+            "resear"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.5926,
+          "missing_entities": [],
+          "lexical_similarity": 0.5926
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage"
+          ],
+          "admissible": false,
+          "passage_key": "4dc751046eb348d34558a7df8c551206dd1b80fe4f8aa59f62aab59fadd7e328",
+          "matched_terms": [
+            "compet",
+            "veloci",
+            "weight"
+          ],
+          "missing_terms": [
+            "bas",
+            "primar",
+            "train",
+            "litera",
+            "report",
+            "resear"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.4444,
+          "missing_entities": [],
+          "lexical_similarity": 0.4444
+        }
+      ],
+      "gate_version": "structured-evidence-gate-v1",
+      "claim_support": "NOT_ASSESSED",
+      "contradictory": false,
+      "question_kind": "factual",
+      "aspect_coverage": {},
+      "required_coverage": 0.6,
+      "uncovered_aspects": [],
+      "accepted_passage_keys": [
+        "66995b750f2f4e3464452539afb8d2b91f3e94cc2d207640b3641828bb57cad0",
+        "e5d91677c7a5207beacc485f8e76942378e995b030031d0cad9176f7eb232cd6",
+        "ecd4826202d9961a31ff0d6754eb68045bdfaeaf5d41c6a4b589e5d72a34663f",
+        "5ec27267c0e26af2bd527019bf8eb1c219ec36d67c6b745fccd430c9ed822a56",
+        "7bbbf424bd519fea1b92fae228d1fffa887c3b733646995af56b413f8399dcb5",
+        "5ef449155d92868c667fcf0c2947dcf09aaeeac6c580d0141dccd428605117d3",
+        "0339c40c21713aeeaed106f059ed3f428feebb6e0f2361ca0e6186ac02045a29",
+        "2f6328acf26de0df6dfb9c52c99532b3f2d5b487aa1e52d79af38d401e8b03fb",
+        "f65799b0cd6521e359a52f33b8faf26a13876926b36321346a79cbfa279ba3cc",
+        "eb7e26587b7eba69bc7eceb2af3c5cc43b0cb0a847c3b706349751fe215f87f0"
+      ],
+      "rejected_passage_keys": [
+        "04ebb0111630cd1662b9b899ebdf3de4d44770b6311edbaa55843f9bf82f82f9",
+        "6238dbc62b7f1284c2ac335996796a5435f410af0d8a39e44fd652326ff42204",
+        "459e57f442f25e7070c9dfa25dc892588a34bfde0799aa6b13f6613a772af185",
+        "716e712e1b3c34b682cd8e03b6cda3faf5de120a017e18d7c9000087dae69224",
+        "f77e5ada2e4040ca072381274462da7fe06cc836cf3f93cfb01c8443bd112eb0",
+        "36be4b38c5cb9f2eda906b4710523845055a7776c4384e9071000958a02668a9",
+        "0fdf568e5bf237c86158cb16932c28eb9df366582b86532f5485447a17ca2884",
+        "8fd59cbc9dce8677031f609f280febe45a436723974fa4795a3cd8c8107b340a",
+        "e6dd8e393547dd7a7a54ea1149f34168280d3eee5e6ee2b0f5675295f7842910",
+        "982dcd0a53db74b6ac2cc7cc10d8d5f461ce5b4620b3de66f91a1d42649c198d",
+        "013d4c6a155cedbf97579c8b255a9d6bb8822f53b95ac7d48f31e5d2e292643a",
+        "fe9825406d9483a7f2e2d3c1a923b2044080d7df654b734980c5f3c9d0c20037",
+        "73591a4d63d5f33e1f5988d6729ad317e63d657e63f4da68b816a9e7b36c0290",
+        "726f8e17c3e1d5bc1290f586aa283d3d69b13bb82694049faddd250d7030eb68",
+        "281b9c8b4ad73d39f45239aa938d321e840bf1ea1a8742ab10837fcfcec8f7b8",
+        "013d60ac4bc7ae8870fbb9e9cc7354b419ee39e1da5f2691532c0dc242251c14",
+        "e1da4408859798817cfa018a768044af64e053c3c38681b450f9fd0d34c6d5b4",
+        "0b19ca4b0107ae4246011ddff1b5616969c832ba35a5e1ea3c3b17a86d0302ea",
+        "8ea5d3a3df48e18e2e0fa0d9c92122baaf9287609c9b8dbf84b4032d30a274ec",
+        "f347e0ec19481826cdf6d6f53ea1d3d22618a4f37b95ca022b0f20e04b0ec8e7",
+        "f00d629efc564c77482b832caeaba186b75ecf4d983b8722e445c67b3238f96e",
+        "ccedbc09c6e37d7382124cdb0b50124647d9b29bccc6ae9d5d5e200990a9bea5",
+        "3bf341d1ef82454920e8da535b1eca3a4413205fcb3208ebe2b8665e5c1518b4",
+        "4dc751046eb348d34558a7df8c551206dd1b80fe4f8aa59f62aab59fadd7e328"
+      ],
+      "accepted_claim_indexes": [],
+      "comparison_document_count": 6
+    },
+    "created_at": "2026-11-20T12:39:04.773443+00:00"
+  },
+  {
+    "run_id": "run-cf436bcbfb62459c",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 38,
+    "event_type": "findings.extracted",
+    "stage": "extract_study_findings",
+    "payload": {
+      "origin": "graph_enforced",
+      "findings_count": 10
+    },
+    "created_at": "2026-11-20T12:39:04.807640+00:00"
+  },
+  {
+    "run_id": "run-cf436bcbfb62459c",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 39,
+    "event_type": "synthesis.completed",
+    "stage": "synthesize_provisional_answer",
+    "payload": {
+      "source": "model",
+      "abstain_reason": null,
+      "claims_proposed": 6,
+      "fallback_reason": null
+    },
+    "created_at": "2026-11-20T12:39:57.929718+00:00"
+  },
+  {
+    "run_id": "run-cf436bcbfb62459c",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 40,
+    "event_type": "evidence.relevance_assessed",
+    "stage": "verify_canonical_citations",
+    "payload": {
+      "code": "claim_not_answerable",
+      "detail": "Verified quotations cover too little of the question's facets.",
+      "verdict": "ABSTAIN",
+      "ambiguous": false,
+      "candidates": [
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage",
+            "title_only_relevance"
+          ],
+          "admissible": false,
+          "passage_key": "e5d91677c7a5207beacc485f8e76942378e995b030031d0cad9176f7eb232cd6",
+          "matched_terms": [
+            "compet",
+            "veloci",
+            "weight",
+            "resear"
+          ],
+          "missing_terms": [
+            "bas",
+            "primar",
+            "train",
+            "litera",
+            "report"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.4062,
+          "missing_entities": [],
+          "lexical_similarity": 0.4062
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage",
+            "title_only_relevance"
+          ],
+          "admissible": false,
+          "passage_key": "e5d91677c7a5207beacc485f8e76942378e995b030031d0cad9176f7eb232cd6",
+          "matched_terms": [
+            "compet",
+            "veloci",
+            "weight"
+          ],
+          "missing_terms": [
+            "bas",
+            "primar",
+            "train",
+            "litera",
+            "report",
+            "resear"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.375,
+          "missing_entities": [],
+          "lexical_similarity": 0.375
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage",
+            "title_only_relevance"
+          ],
+          "admissible": false,
+          "passage_key": "f65799b0cd6521e359a52f33b8faf26a13876926b36321346a79cbfa279ba3cc",
+          "matched_terms": [
+            "bas",
+            "compet",
+            "train",
+            "veloci"
+          ],
+          "missing_terms": [
+            "primar",
+            "weight",
+            "litera",
+            "report",
+            "resear"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.5,
+          "missing_entities": [],
+          "lexical_similarity": 0.5
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage",
+            "title_only_relevance"
+          ],
+          "admissible": false,
+          "passage_key": "f65799b0cd6521e359a52f33b8faf26a13876926b36321346a79cbfa279ba3cc",
+          "matched_terms": [
+            "veloci",
+            "report"
+          ],
+          "missing_terms": [
+            "bas",
+            "compet",
+            "primar",
+            "train",
+            "weight",
+            "litera",
+            "resear"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.1562,
+          "missing_entities": [],
+          "lexical_similarity": 0.1562
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage",
+            "title_only_relevance"
+          ],
+          "admissible": false,
+          "passage_key": "5ec27267c0e26af2bd527019bf8eb1c219ec36d67c6b745fccd430c9ed822a56",
+          "matched_terms": [
+            "train",
+            "veloci",
+            "weight"
+          ],
+          "missing_terms": [
+            "bas",
+            "compet",
+            "primar",
+            "litera",
+            "report",
+            "resear"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.375,
+          "missing_entities": [],
+          "lexical_similarity": 0.375
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage",
+            "title_only_relevance"
+          ],
+          "admissible": false,
+          "passage_key": "5ec27267c0e26af2bd527019bf8eb1c219ec36d67c6b745fccd430c9ed822a56",
+          "matched_terms": [
+            "bas",
+            "train",
+            "weight"
+          ],
+          "missing_terms": [
+            "compet",
+            "primar",
+            "veloci",
+            "litera",
+            "report",
+            "resear"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.375,
+          "missing_entities": [],
+          "lexical_similarity": 0.375
+        }
+      ],
+      "gate_version": "structured-evidence-gate-v1",
+      "claim_support": "NOT_ASSESSED",
+      "contradictory": false,
+      "question_kind": "factual",
+      "aspect_coverage": {},
+      "required_coverage": 0.6,
+      "uncovered_aspects": [],
+      "accepted_passage_keys": [],
+      "rejected_passage_keys": [
+        "e5d91677c7a5207beacc485f8e76942378e995b030031d0cad9176f7eb232cd6",
+        "e5d91677c7a5207beacc485f8e76942378e995b030031d0cad9176f7eb232cd6",
+        "f65799b0cd6521e359a52f33b8faf26a13876926b36321346a79cbfa279ba3cc",
+        "f65799b0cd6521e359a52f33b8faf26a13876926b36321346a79cbfa279ba3cc",
+        "5ec27267c0e26af2bd527019bf8eb1c219ec36d67c6b745fccd430c9ed822a56",
+        "5ec27267c0e26af2bd527019bf8eb1c219ec36d67c6b745fccd430c9ed822a56"
+      ],
+      "accepted_claim_indexes": [],
+      "comparison_document_count": 3
+    },
+    "created_at": "2026-11-20T12:39:57.972007+00:00"
+  },
+  {
+    "run_id": "run-cf436bcbfb62459c",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 41,
+    "event_type": "verification.completed",
+    "stage": "verify_canonical_citations",
+    "payload": {
+      "origin": "graph_enforced",
+      "answerability": {
+        "code": "claim_not_answerable",
+        "detail": "Verified quotations cover too little of the question's facets.",
+        "verdict": "ABSTAIN",
+        "ambiguous": false,
+        "candidates": [
+          {
+            "reasons": [
+              "insufficient_query_facet_coverage",
+              "title_only_relevance"
+            ],
+            "admissible": false,
+            "passage_key": "e5d91677c7a5207beacc485f8e76942378e995b030031d0cad9176f7eb232cd6",
+            "matched_terms": [
+              "compet",
+              "veloci",
+              "weight",
+              "resear"
+            ],
+            "missing_terms": [
+              "bas",
+              "primar",
+              "train",
+              "litera",
+              "report"
+            ],
+            "entity_support": 1,
+            "query_relevance": 0.4062,
+            "missing_entities": [],
+            "lexical_similarity": 0.4062
+          },
+          {
+            "reasons": [
+              "insufficient_query_facet_coverage",
+              "title_only_relevance"
+            ],
+            "admissible": false,
+            "passage_key": "e5d91677c7a5207beacc485f8e76942378e995b030031d0cad9176f7eb232cd6",
+            "matched_terms": [
+              "compet",
+              "veloci",
+              "weight"
+            ],
+            "missing_terms": [
+              "bas",
+              "primar",
+              "train",
+              "litera",
+              "report",
+              "resear"
+            ],
+            "entity_support": 1,
+            "query_relevance": 0.375,
+            "missing_entities": [],
+            "lexical_similarity": 0.375
+          },
+          {
+            "reasons": [
+              "insufficient_query_facet_coverage",
+              "title_only_relevance"
+            ],
+            "admissible": false,
+            "passage_key": "f65799b0cd6521e359a52f33b8faf26a13876926b36321346a79cbfa279ba3cc",
+            "matched_terms": [
+              "bas",
+              "compet",
+              "train",
+              "veloci"
+            ],
+            "missing_terms": [
+              "primar",
+              "weight",
+              "litera",
+              "report",
+              "resear"
+            ],
+            "entity_support": 1,
+            "query_relevance": 0.5,
+            "missing_entities": [],
+            "lexical_similarity": 0.5
+          },
+          {
+            "reasons": [
+              "insufficient_query_facet_coverage",
+              "title_only_relevance"
+            ],
+            "admissible": false,
+            "passage_key": "f65799b0cd6521e359a52f33b8faf26a13876926b36321346a79cbfa279ba3cc",
+            "matched_terms": [
+              "veloci",
+              "report"
+            ],
+            "missing_terms": [
+              "bas",
+              "compet",
+              "primar",
+              "train",
+              "weight",
+              "litera",
+              "resear"
+            ],
+            "entity_support": 1,
+            "query_relevance": 0.1562,
+            "missing_entities": [],
+            "lexical_similarity": 0.1562
+          },
+          {
+            "reasons": [
+              "insufficient_query_facet_coverage",
+              "title_only_relevance"
+            ],
+            "admissible": false,
+            "passage_key": "5ec27267c0e26af2bd527019bf8eb1c219ec36d67c6b745fccd430c9ed822a56",
+            "matched_terms": [
+              "train",
+              "veloci",
+              "weight"
+            ],
+            "missing_terms": [
+              "bas",
+              "compet",
+              "primar",
+              "litera",
+              "report",
+              "resear"
+            ],
+            "entity_support": 1,
+            "query_relevance": 0.375,
+            "missing_entities": [],
+            "lexical_similarity": 0.375
+          },
+          {
+            "reasons": [
+              "insufficient_query_facet_coverage",
+              "title_only_relevance"
+            ],
+            "admissible": false,
+            "passage_key": "5ec27267c0e26af2bd527019bf8eb1c219ec36d67c6b745fccd430c9ed822a56",
+            "matched_terms": [
+              "bas",
+              "train",
+              "weight"
+            ],
+            "missing_terms": [
+              "compet",
+              "primar",
+              "veloci",
+              "litera",
+              "report",
+              "resear"
+            ],
+            "entity_support": 1,
+            "query_relevance": 0.375,
+            "missing_entities": [],
+            "lexical_similarity": 0.375
+          }
+        ],
+        "gate_version": "structured-evidence-gate-v1",
+        "claim_support": "NOT_ASSESSED",
+        "contradictory": false,
+        "question_kind": "factual",
+        "aspect_coverage": {},
+        "required_coverage": 0.6,
+        "uncovered_aspects": [],
+        "accepted_passage_keys": [],
+        "rejected_passage_keys": [
+          "e5d91677c7a5207beacc485f8e76942378e995b030031d0cad9176f7eb232cd6",
+          "e5d91677c7a5207beacc485f8e76942378e995b030031d0cad9176f7eb232cd6",
+          "f65799b0cd6521e359a52f33b8faf26a13876926b36321346a79cbfa279ba3cc",
+          "f65799b0cd6521e359a52f33b8faf26a13876926b36321346a79cbfa279ba3cc",
+          "5ec27267c0e26af2bd527019bf8eb1c219ec36d67c6b745fccd430c9ed822a56",
+          "5ec27267c0e26af2bd527019bf8eb1c219ec36d67c6b745fccd430c9ed822a56"
+        ],
+        "accepted_claim_indexes": [],
+        "comparison_document_count": 3
+      },
+      "rejected_count": 6,
+      "verified_count": 0,
+      "evidence_set_key": null,
+      "rejection_reasons": [
+        "answerability_gate:claim_not_answerable",
+        "answerability_gate:claim_not_answerable",
+        "answerability_gate:claim_not_answerable",
+        "answerability_gate:claim_not_answerable",
+        "answerability_gate:claim_not_answerable",
+        "answerability_gate:claim_not_answerable"
+      ],
+      "evidence_graph_key": null
+    },
+    "created_at": "2026-11-20T12:39:57.974268+00:00"
+  },
+  {
+    "run_id": "run-cf436bcbfb62459c",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 42,
+    "event_type": "run.completed",
+    "stage": "finalize",
+    "payload": {
+      "status": "abstained",
+      "abstained": true,
+      "abstention_reason": "answerability_gate:claim_not_answerable",
+      "verified_citations_count": 0
+    },
+    "created_at": "2026-11-20T12:39:58.031375+00:00"
+  },
+  {
+    "status": "abstained",
+    "last_seq": 42
+  }
+]
