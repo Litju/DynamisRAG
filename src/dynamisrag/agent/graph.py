@@ -198,9 +198,10 @@ def _thread_research_scopes(
     has_reference = _has_coreference(question)
     # In a comparative follow-up, "it" and "they" can refer to earlier evidence;
     # elsewhere these words are too ambiguous to scope research safely.
-    comparative_pronoun = is_comparison and re.search(
-        r"\b(?:it|they|them|its|their|theirs)\b", question, re.IGNORECASE
-    ) is not None
+    comparative_pronoun = (
+        is_comparison
+        and re.search(r"\b(?:it|they|them|its|their|theirs)\b", question, re.IGNORECASE) is not None
+    )
     if is_comparison:
         return list(allowed_version_keys), (
             list(active_version_keys) if has_reference or comparative_pronoun else []
@@ -210,9 +211,7 @@ def _thread_research_scopes(
     return list(allowed_version_keys), []
 
 
-def _comparison_anchor_present(
-    anchors: Sequence[str], hits: Sequence[dict[str, Any]]
-) -> bool:
+def _comparison_anchor_present(anchors: Sequence[str], hits: Sequence[dict[str, Any]]) -> bool:
     """Do not substitute an unrelated study for a referenced comparison subject."""
     if not anchors:
         return True
