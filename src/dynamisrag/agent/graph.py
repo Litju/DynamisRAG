@@ -201,19 +201,14 @@ def _thread_research_scopes(
     "Compare those studies" with A and B referenced must not silently
     substitute an unrelated C for B).
     """
-    is_comparison = any(keyword in question.lower() for keyword in _COMPARISON_KEYWORDS)
     has_reference = _has_coreference(question)
-    # In a comparative follow-up, "it" and "they" can refer to earlier evidence;
-    # elsewhere these words are too ambiguous to scope research safely.
-    comparative_pronoun = (
-        is_comparison
-        and re.search(r"\b(?:it|they|them|its|their|theirs)\b", question, re.IGNORECASE) is not None
-    )
-    if is_comparison:
+    if build_query_profile(question).kind == "comparison":
+        plural = _PLURAL_REFERENCE.search(question) is not None
+        singular = _SINGULAR_COMPARISON_REFERENCE.search(question) is not None
         return (
             list(allowed_version_keys),
-            list(active_version_keys) if has_reference or comparative_pronoun else [],
-            _PLURAL_REFERENCE.search(question) is not None,
+            list(active_version_keys) if has_reference or plural or singular else [],
+            plural,
         )
     if has_reference and active_version_keys:
         return list(active_version_keys), [], False
@@ -385,23 +380,13 @@ _COREFERENCE_TOKENS = (
     "discussed papers",
 )
 
-_COMPARISON_KEYWORDS = (
-    "compare",
-    "comparison",
-    "versus",
-    "vs.",
-    "differ",
-    "differences",
-    "methodologies and outcomes",
-    "across these papers",
-    "across the studies",
-)
-
-# A plural demonstrative names the SET of referenced studies: the answer must
-# keep every one of them, never substitute an unrelated side.
 _PLURAL_REFERENCE: Final[re.Pattern[str]] = re.compile(
-    r"\b(?:those|these)\s+(?:papers|studies|articles|sources|documents)\b"
-    r"|\bboth\s+studies\b|\bthe\s+(?:two|three)\s+studies\b",
+    r"\b(?:(?:those|these)\s+(?:papers|studies|articles|sources|documents)|"
+    r"(?:both|the\s+(?:two|three))\s+(?:papers|studies)|they|them|their|theirs)\b",
+    re.IGNORECASE,
+)
+_SINGULAR_COMPARISON_REFERENCE: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:it|its|(?:this|that|the\s+same)\s+(?:paper|study|article|source|document))\b",
     re.IGNORECASE,
 )
 
@@ -1015,8 +1000,22 @@ class ConversationalResearchOrchestrator:
                 "final_status": RunStatus.ABSTAINED.value,
             }
 
-        has_coref = _has_coreference(question)
-        if has_coref and not thread.active_version_keys and thread.messages:
+        scoped_versions, comparison_anchors, anchors_all_required = _thread_research_scopes(
+            question, thread.allowed_version_keys, thread.active_version_keys
+        )
+        is_comparison = build_query_profile(question).kind == "comparison"
+        has_coref = _has_coreference(question) or (
+            is_comparison
+            and (
+                anchors_all_required or _SINGULAR_COMPARISON_REFERENCE.search(question) is not None
+            )
+        )
+        ambiguous_anchor = (
+            len(comparison_anchors) > 1
+            and not anchors_all_required
+            and _SINGULAR_COMPARISON_REFERENCE.search(question) is not None
+        )
+        if (has_coref and not thread.active_version_keys and thread.messages) or ambiguous_anchor:
             # A pronoun/demonstrative after a prior turn has no antecedent in the
             # thread's verified evidence. Answering from another authorized study
             # would silently change the subject; fail closed instead.
@@ -1027,19 +1026,20 @@ class ConversationalResearchOrchestrator:
                 "allowed_version_keys": list(thread.allowed_version_keys),
                 "excluded_version_keys": durable_excluded,
                 "active_passage_keys": list(thread.active_passage_keys),
-                "prior_active_version_keys": [],
+                "prior_active_version_keys": list(thread.active_version_keys),
                 "conversation_summary": thread.conversation_summary,
                 "recent_turns": [
                     {"role": m.role, "content": m.content} for m in thread.messages[-4:]
                 ],
                 "abstained": True,
-                "abstention_reason": "unresolved_coreference_reference",
+                "abstention_reason": (
+                    "ambiguous_comparison_reference"
+                    if ambiguous_anchor
+                    else "unresolved_coreference_reference"
+                ),
                 "final_status": RunStatus.ABSTAINED.value,
             }
 
-        scoped_versions, comparison_anchors, anchors_all_required = _thread_research_scopes(
-            question, thread.allowed_version_keys, thread.active_version_keys
-        )
         # Durable thread exclusion list ("Exclude that paper from the next
         # analysis") plus any exclusion directive in this question. Run-local
         # research scope only: the immutable allowlist and canonical evidence
@@ -1052,7 +1052,16 @@ class ConversationalResearchOrchestrator:
                     *_thread_excluded_versions(question, thread.active_version_keys),
                 )
             )
-        )[:25]
+        )
+        if len(excluded_versions) > 25:
+            return {
+                "excluded_version_keys": durable_excluded,
+                "prior_active_version_keys": list(thread.active_version_keys),
+                "active_passage_keys": list(thread.active_passage_keys),
+                "abstained": True,
+                "abstention_reason": "thread_exclusion_limit",
+                "final_status": RunStatus.ABSTAINED.value,
+            }
         if any(key not in thread.excluded_version_keys for key in excluded_versions):
             # This turn's directive adds a new exclusion: the referenced study
             # is barred from this run's evidence, not pinned as its scope and
@@ -1176,7 +1185,7 @@ class ConversationalResearchOrchestrator:
         if (aborted := self._control_abort(state, config)) is not None:
             return aborted
 
-        needs_comp = any(kw in lower_q for kw in _COMPARISON_KEYWORDS)
+        needs_comp = build_query_profile(state.get("question") or question).kind == "comparison"
         needs_expand = any(
             kw in lower_q for kw in ("methodology", "methodologies", "protocol", "depth jumping")
         )
@@ -1389,10 +1398,16 @@ class ConversationalResearchOrchestrator:
             if len(str(key)) == 64
         ]
         anchors_all_required = bool(state.get("comparison_anchors_all_required", False))
-        missing_anchors = [key for key in anchors if key not in excluded_versions]
+        canonical_hits = [
+            hit for hit in dedup_hits.values() if hit.get("canonical_verified") is True
+        ]
+        seen_versions = {str(hit.get("document_version_key")) for hit in canonical_hits}
+        missing_anchors = [
+            key for key in anchors if key not in seen_versions and scope.allows_version(key)
+        ]
         backstop_envelopes: list[dict[str, Any]] = []
         if missing_anchors and not _comparison_anchor_present(
-            missing_anchors, list(dedup_hits.values()), all_required=anchors_all_required
+            anchors, canonical_hits, all_required=anchors_all_required
         ):
             # The model did not surface the conversationally referenced study
             # (or, for a plural reference, every referenced study). Retrieve the
@@ -1466,6 +1481,17 @@ class ConversationalResearchOrchestrator:
                 for item in retrieved_evidence(list(dedup_hits.values()))
             ]
             dedup_hits = {key: hit for key, hit in dedup_hits.items() if key in accepted}
+            # Reserve one leading hit per reference before bounded, round-robin extraction.
+            first_anchor_hits: dict[str, str] = {}
+            for key, hit in dedup_hits.items():
+                version = str(hit.get("document_version_key"))
+                if version in anchors:
+                    first_anchor_hits.setdefault(version, key)
+            if first_anchor_hits:
+                dedup_hits = {
+                    **{key: dedup_hits[key] for key in first_anchor_hits.values()},
+                    **dedup_hits,
+                }
             self._store.append_event(
                 run_id,
                 worker_id=worker_id,
@@ -1874,35 +1900,37 @@ class ConversationalResearchOrchestrator:
             return aborted
         run_id = state.get("run_id", "")
         thread_id = state.get("thread_id", "")
-        if state.get("study_comparison") is not None:
-            return {}
-
         scope = self._build_scope(state)
         hits = state.get("retrieved_hits", [])
-        ver_keys: list[str] = []
-        for h in hits:
-            vk = str(h.get("document_version_key", ""))
-            if len(vk) == 64 and vk not in ver_keys and scope.allows_version(vk):
-                ver_keys.append(vk)
-        for vk in state.get("scoped_version_keys", []):
-            if len(vk) == 64 and vk not in ver_keys and scope.allows_version(vk):
-                ver_keys.append(vk)
-
-        if len(ver_keys) < 2:
-            papers_env = self._registry.list_papers(ListPapersInput(limit=6), scope)
-            if papers_env.ok and papers_env.payload is not None:
-                for p in cast("list[dict[str, Any]]", papers_env.payload.get("papers", [])):
-                    vk = str(p.get("document_version_key", ""))
-                    if len(vk) == 64 and vk not in ver_keys and scope.allows_version(vk):
-                        ver_keys.append(vk)
-
-        if len(ver_keys) < 2:
-            return {}
+        ver_keys = list(
+            dict.fromkeys(
+                key
+                for hit in hits
+                if len(key := str(hit.get("document_version_key", ""))) == 64
+                and scope.allows_version(key)
+            )
+        )[:6]
+        anchors = state.get("comparison_anchor_version_keys", [])
+        all_required = bool(state.get("comparison_anchors_all_required", False))
+        comparison = state.get("study_comparison")
+        if comparison is not None:
+            studies = cast("list[dict[str, Any]]", comparison.get("studies") or [])
+            compared = {str(study.get("document_version_key")) for study in studies}
+            if (
+                len(compared) >= 2
+                and compared.issubset(ver_keys)
+                and _comparison_anchor_present(anchors, studies, all_required=all_required)
+            ):
+                return {}
+        if len(ver_keys) < 2 or not _comparison_anchor_present(
+            anchors, [{"document_version_key": key} for key in ver_keys], all_required=all_required
+        ):
+            return {"study_comparison": None}
 
         p_keys = tuple(str(h["passage_key"]) for h in hits[:10])
         comp_env = self._registry.compare_studies(
             CompareStudiesInput(
-                document_version_keys=tuple(ver_keys[:6]),
+                document_version_keys=tuple(ver_keys),
                 passage_keys=p_keys,
                 comparison_aspect=state.get("question", "")[:300],
             ),
@@ -1922,7 +1950,7 @@ class ConversationalResearchOrchestrator:
             stage="compare_studies",
             payload={
                 "origin": ToolOrigin.GRAPH_ENFORCED.value,
-                "studies_compared": len(ver_keys[:6]),
+                "studies_compared": len(ver_keys),
                 "compatibility": (comparison.get("evidence_compatibility") if comparison else None),
             },
         )
@@ -2229,6 +2257,7 @@ class ConversationalResearchOrchestrator:
         )
         if claim_decision is not None and not claim_decision.answerable:
             verified = []
+        if not verified:
             ev_set_key = None
             ev_graph_key = None
 
@@ -2437,6 +2466,7 @@ class ConversationalResearchOrchestrator:
             "final_status": final_status.value,
             "abstained": abstained,
             "abstention_reason": abstention_reason,
+            "study_comparison": None if abstained else state.get("study_comparison"),
             "thread_context": context.model_dump(mode="json"),
         }
 

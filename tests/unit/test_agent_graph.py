@@ -592,6 +592,116 @@ def test_exclusion_directive_persists_and_bars_the_study_from_later_analysis(
     assert compared == cited
 
 
+def test_automatic_thread_refuses_an_exclusion_beyond_the_durable_limit(
+    graph_engine_and_studies: tuple[
+        Engine, dict[str, tuple[str, tuple[str, ...], tuple[str, ...]]]
+    ],
+) -> None:
+    engine, studies = graph_engine_and_studies
+    study = studies["PMC10680285"][0]
+    exclusions = tuple(f"{index:064x}" for index in range(1, 26))
+    store = InMemoryAgentConversationStore()
+    thread = store.create_thread(owner_id="exclusion-limit-user", title="Exclusion limit")
+    store.update_thread_context(
+        thread.thread_id,
+        user_id="exclusion-limit-user",
+        active_version_keys=(study,),
+        active_passage_keys=(),
+        conversation_summary="",
+        excluded_version_keys=exclusions,
+    )
+    orchestrator = ConversationalResearchOrchestrator(
+        tool_registry=ScientificToolRegistry(engine),
+        store=store,
+        model_runtime=build_agent_model_runtime(
+            AgentModelConfig(provider=AgentProviderKind.DETERMINISTIC)
+        ),
+    )
+    run = orchestrator.execute_run(
+        thread_id=thread.thread_id,
+        user_id="exclusion-limit-user",
+        question="Exclude that paper.",
+        idempotency_key="exclusion-limit",
+    )
+    assert run.status == RunStatus.ABSTAINED
+    assert run.abstention_reason == "thread_exclusion_limit"
+    memory = store.get_thread(thread.thread_id, user_id="exclusion-limit-user")
+    assert memory.excluded_version_keys == exclusions
+    assert memory.active_version_keys == (study,)
+
+
+def test_comparison_rebuilds_a_model_matrix_that_omits_the_referenced_study(
+    graph_engine_and_studies: tuple[
+        Engine, dict[str, tuple[str, tuple[str, ...], tuple[str, ...]]]
+    ],
+) -> None:
+    engine, studies = graph_engine_and_studies
+    anchor = studies["PMC10780924"][0]
+    other_versions = [studies[pmcid][0] for pmcid in ("PMC10680285", "PMC5263151")]
+    question = "Compare that paper with the other plyometric training studies."
+    runtime = build_agent_model_runtime(
+        AgentModelConfig(provider=AgentProviderKind.DETERMINISTIC),
+        directives=(
+            ScriptedToolDirective(
+                match_substring=question,
+                tool_calls=(
+                    {
+                        "name": "compare_studies",
+                        "args": {"document_version_keys": other_versions},
+                        "id": "comparison-without-anchor",
+                    },
+                    {
+                        "name": "hybrid_search",
+                        "args": {"query": "plyometric training"},
+                        "id": "search-for-all-sides",
+                    },
+                ),
+            ),
+        ),
+    )
+    store = InMemoryAgentConversationStore()
+    thread = store.create_thread(owner_id="comparison-user", title="Comparison")
+    store.update_thread_context(
+        thread.thread_id,
+        user_id="comparison-user",
+        active_version_keys=(anchor,),
+        active_passage_keys=(),
+        conversation_summary="",
+    )
+    orchestrator = ConversationalResearchOrchestrator(
+        tool_registry=ScientificToolRegistry(engine), store=store, model_runtime=runtime
+    )
+    result = orchestrator.execute_run(
+        thread_id=thread.thread_id,
+        user_id="comparison-user",
+        question=question,
+        idempotency_key="anchored-matrix",
+    )
+    assert result.status == RunStatus.COMPLETED, result.abstention_reason
+    assert result.study_comparison is not None
+    assert {study["document_version_key"] for study in result.study_comparison["studies"]} == {
+        anchor,
+        studies["PMC5263151"][0],
+    }
+    assert any(
+        event.event_type == RunEventType.TOOL_COMPLETED
+        and event.payload.get("tool_name") == "compare_studies"
+        and event.payload.get("origin") == "model_directed"
+        and event.payload.get("ok") is True
+        for event in store.list_events(result.run_id, user_id="comparison-user")
+    )
+
+    ambiguous = orchestrator.execute_run(
+        thread_id=thread.thread_id,
+        user_id="comparison-user",
+        question=question,
+        idempotency_key="ambiguous-comparison",
+    )
+    assert ambiguous.status == RunStatus.ABSTAINED
+    assert ambiguous.abstention_reason == "ambiguous_comparison_reference"
+    assert ambiguous.study_comparison is None
+
+
 def test_abstention_on_out_of_corpus_and_prompt_injection(
     graph_engine_and_studies: tuple[
         Engine, dict[str, tuple[str, tuple[str, ...], tuple[str, ...]]]

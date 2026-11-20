@@ -86,16 +86,17 @@
           "document_version_key": "2000000000000000000000000000000000000000000000000000000000000006",
           "title": "Plyometric Conditioning in Adolescent Basketball Players",
           "section_title": "Methods",
-          "text": "Forty-two adolescent basketball athletes completed six weeks of plyometric conditioning in a randomized intervention.",
+          "text": "Forty-two adolescent basketball athletes completed six weeks of plyometric training in a randomized intervention.",
           "canonical_verified": true,
           "rank": 2
         }
       ]
     },
     {
-      "id": "cal-pos-comparison-mixed-relevance",
+      "id": "cal-neg-comparison-mixed-relevance",
       "question": "Compare jump height outcomes of the plyometric studies.",
-      "expected_verdict": "ANSWERABLE",
+      "expected_verdict": "ABSTAIN",
+      "expected_code": "insufficient_cross_study_evidence",
       "candidates": [
         {
           "passage_key": "1000000000000000000000000000000000000000000000000000000000000012",

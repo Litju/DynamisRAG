@@ -278,14 +278,12 @@ def test_claim_gate_excludes_an_irrelevant_quotation_within_the_same_study() -> 
 def test_comparison_does_not_accept_an_irrelevant_document_for_two_doc_count() -> None:
     fixture = _load("calibration.json")
     case = next(
-        item for item in fixture.retrieval_cases if item.id == "cal-pos-comparison-mixed-relevance"
+        item for item in fixture.retrieval_cases if item.id == "cal-neg-comparison-mixed-relevance"
     )
     decision = assess_retrieval(case.question, _candidates(case))
-    assert decision.answerable
-    assert len(decision.accepted_passage_keys) == 1
-    assert "1000000000000000000000000000000000000000000000000000000000000013" not in (
-        decision.accepted_passage_keys
-    )
+    assert not decision.answerable
+    assert decision.code == "insufficient_cross_study_evidence"
+    assert not decision.accepted_passage_keys
 
 
 def test_bare_followup_uses_prior_context_only_when_the_current_turn_is_empty() -> None:
