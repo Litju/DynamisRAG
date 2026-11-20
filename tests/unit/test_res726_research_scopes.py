@@ -63,10 +63,15 @@ def test_plural_references_require_every_referenced_study() -> None:
         "How do those studies compare with force plates?",
         "How do they compare with force plates?",
         "Compare the two studies with force plates.",
+        "Compare both trials with force plates.",
+        "Compare these two trials with force plates.",
+        "How do those measurements compare with force plates?",
+        "Compare the previous studies with force plates.",
     ):
         _, anchors, all_required = _thread_research_scopes(question, (), (A, B))
         assert anchors == [A, B]
         assert all_required
+    assert "previo" not in salient_terms(build_query_profile("Compare the previous studies."))
     seen_a_only = [{"document_version_key": A}, {"document_version_key": "c" * 64}]
     assert not _comparison_anchor_present((A, B), seen_a_only, all_required=True)
     assert _comparison_anchor_present(
@@ -271,6 +276,8 @@ def test_exclusion_directive_requires_both_a_directive_verb_and_a_study_referenc
         "Did the review exclude that study?",
         "Why exclude that paper?",
         "Exclude that study\u2019s control group.",
+        "Exclude that paper, or keep it for sensitivity analysis?",
+        "Please exclude that paper from Fig. 2 but retain it in the review.",
     ):
         assert exclude(question, (A,)) == []
     assert exclude("Could you please drop that paper?", (A,)) == [A]
@@ -424,16 +431,31 @@ def test_comparator_named_only_in_the_title_cannot_support_a_comparison() -> Non
     assert decision.code == "unsupported_entity"
 
 
-def test_numeric_cutoff_abstains_when_quoted_words_contradict_the_bound() -> None:
-    question = "Compare the effect of more than 10 weeks of plyometric training."
-    quote = (
-        "Participants did no more than 10 weeks of plyometric training and increased jump height."
-    )
-    first = _candidate("e", "a", "Plyometric training", quote)
-    second = _candidate("f", "b", "Jump height", quote)
-    assert assess_retrieval(question, (first, second)).code == "unsupported_numeric_cutoff"
+def test_title_only_relevance_does_not_qualify_the_second_comparison_side() -> None:
+    question = "How does XZ-77 compare to the other reference systems?"
+    title = "XZ-77 and reference systems"
+    first = _candidate("e", "a", title, "The XZ-77 reference system was available.")
+    second = _candidate("f", "b", title, "Subjects were recruited from local clubs.")
+    assert not assess_retrieval(question, (first, second)).answerable
     claims = (
-        ClaimEvidence(first.passage_key, A, first.title, quote, quote),
-        ClaimEvidence(second.passage_key, B, second.title, quote, quote),
+        ClaimEvidence(first.passage_key, A, title, first.text, first.text),
+        ClaimEvidence(second.passage_key, B, title, second.text, second.text),
     )
-    assert assess_claims(question, claims).code == "unsupported_numeric_cutoff"
+    assert not assess_claims(question, claims).answerable
+
+
+def test_numeric_cutoff_abstains_when_quoted_words_contradict_the_bound() -> None:
+    for cutoff in ("more than 10", "less than 10", "more than ten", "at least ten", ">=10"):
+        question = f"Compare the effect of {cutoff} weeks of plyometric training."
+        quote = (
+            f"Participants could not demonstrate the effect of {cutoff} weeks of "
+            "plyometric training on jump height."
+        )
+        first = _candidate("e", "a", "Plyometric training", quote)
+        second = _candidate("f", "b", "Jump height", quote)
+        assert assess_retrieval(question, (first, second)).code == "unsupported_numeric_cutoff"
+        claims = (
+            ClaimEvidence(first.passage_key, A, first.title, quote, quote),
+            ClaimEvidence(second.passage_key, B, second.title, quote, quote),
+        )
+        assert assess_claims(question, claims).code == "unsupported_numeric_cutoff"

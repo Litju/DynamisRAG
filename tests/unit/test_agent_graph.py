@@ -691,15 +691,18 @@ def test_comparison_rebuilds_a_model_matrix_that_omits_the_referenced_study(
         for event in store.list_events(result.run_id, user_id="comparison-user")
     )
 
-    ambiguous = orchestrator.execute_run(
-        thread_id=thread.thread_id,
-        user_id="comparison-user",
-        question=question,
-        idempotency_key="ambiguous-comparison",
-    )
-    assert ambiguous.status == RunStatus.ABSTAINED
-    assert ambiguous.abstention_reason == "ambiguous_comparison_reference"
-    assert ambiguous.study_comparison is None
+    for index, ambiguous_question in enumerate(
+        (question, "Compare the four studies with the available training studies.")
+    ):
+        ambiguous = orchestrator.execute_run(
+            thread_id=thread.thread_id,
+            user_id="comparison-user",
+            question=ambiguous_question,
+            idempotency_key=f"ambiguous-comparison-{index}",
+        )
+        assert ambiguous.status == RunStatus.ABSTAINED
+        assert ambiguous.abstention_reason == "ambiguous_comparison_reference"
+        assert ambiguous.study_comparison is None
 
 
 def test_abstention_on_out_of_corpus_and_prompt_injection(

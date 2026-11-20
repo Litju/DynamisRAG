@@ -47,12 +47,14 @@ from langgraph.types import Command, interrupt
 from pydantic import ValidationError
 
 from dynamisrag.agent.answerability import (
+    COMPARISON_PLURAL_REFERENCE,
     AnswerabilityDecision,
     ClaimEvidence,
     EvidenceCandidate,
     assess_claims,
     assess_retrieval,
     build_query_profile,
+    has_numeric_cutoff,
     salient_terms,
 )
 from dynamisrag.agent.contracts import (
@@ -203,7 +205,7 @@ def _thread_research_scopes(
     """
     has_reference = _has_coreference(question)
     if build_query_profile(question).kind == "comparison":
-        plural = _PLURAL_REFERENCE.search(question) is not None
+        plural = COMPARISON_PLURAL_REFERENCE.search(question) is not None
         singular = _SINGULAR_COMPARISON_REFERENCE.search(question) is not None
         return (
             list(allowed_version_keys),
@@ -235,9 +237,10 @@ def _comparison_anchor_present(
 _EXCLUSION_DIRECTIVE: Final[re.Pattern[str]] = re.compile(
     r"^\s*(?:please\s+|(?:can|could|would)\s+you\s+(?:please\s+)?)?"
     r"(?:exclude|remove|drop|ignore|disregard|leave\s+out|rule\s+out)\s+"
-    r"(?P<kind>(?:that|this|the|those|these)\s+"
-    r"(?:paper|papers|study|studies|article|articles|source|sources|document|documents))"
-    r"(?=\s*(?:[.,;!?]|$)|\s+(?:from|in|for|when|and|but)\b)",
+    r"(?:that|this|the|those|these)\s+"
+    r"(?P<kind>paper|papers|study|studies|article|articles|source|sources|document|documents)"
+    r"(?:\s+from\s+(?:the|this|our)\s+(?:(?:next|current|future|remaining)\s+)?"
+    r"(?:analysis|research|comparison|synthesis|review))?\s*[.!?]?\s*$",
     re.IGNORECASE,
 )
 
@@ -380,11 +383,6 @@ _COREFERENCE_TOKENS = (
     "discussed papers",
 )
 
-_PLURAL_REFERENCE: Final[re.Pattern[str]] = re.compile(
-    r"\b(?:(?:those|these)\s+(?:papers|studies|articles|sources|documents)|"
-    r"(?:both|the\s+(?:two|three))\s+(?:papers|studies)|they|them|their|theirs)\b",
-    re.IGNORECASE,
-)
 _SINGULAR_COMPARISON_REFERENCE: Final[re.Pattern[str]] = re.compile(
     r"\b(?:it|its|(?:this|that|the\s+same)\s+(?:paper|study|article|source|document))\b",
     re.IGNORECASE,
@@ -1010,11 +1008,36 @@ class ConversationalResearchOrchestrator:
                 anchors_all_required or _SINGULAR_COMPARISON_REFERENCE.search(question) is not None
             )
         )
-        ambiguous_anchor = (
-            len(comparison_anchors) > 1
-            and not anchors_all_required
-            and _SINGULAR_COMPARISON_REFERENCE.search(question) is not None
-        )
+        ambiguous_anchor = False
+        if comparison_anchors:
+            plural_reference = COMPARISON_PLURAL_REFERENCE.search(question)
+            if plural_reference is None:
+                ambiguous_anchor = (
+                    len(comparison_anchors) > 1
+                    and _SINGULAR_COMPARISON_REFERENCE.search(question) is not None
+                )
+            elif plural_reference.group("both") is not None:
+                ambiguous_anchor = len(comparison_anchors) != 2
+            elif count := (
+                plural_reference.group("count") or plural_reference.group("demonstrative_count")
+            ):
+                named_counts = (
+                    "zero",
+                    "one",
+                    "two",
+                    "three",
+                    "four",
+                    "five",
+                    "six",
+                    "seven",
+                    "eight",
+                )
+                ambiguous_anchor = count.lower() not in {
+                    str(len(comparison_anchors)),
+                    named_counts[len(comparison_anchors)]
+                    if len(comparison_anchors) < len(named_counts)
+                    else "",
+                }
         if (has_coref and not thread.active_version_keys and thread.messages) or ambiguous_anchor:
             # A pronoun/demonstrative after a prior turn has no antecedent in the
             # thread's verified evidence. Answering from another authorized study
@@ -1185,7 +1208,14 @@ class ConversationalResearchOrchestrator:
         if (aborted := self._control_abort(state, config)) is not None:
             return aborted
 
-        needs_comp = build_query_profile(state.get("question") or question).kind == "comparison"
+        current_question = state.get("question") or question
+        if has_numeric_cutoff(current_question):
+            return {
+                "abstained": True,
+                "abstention_reason": "unsupported_numeric_cutoff",
+                "final_status": RunStatus.ABSTAINED.value,
+            }
+        needs_comp = build_query_profile(current_question).kind == "comparison"
         needs_expand = any(
             kw in lower_q for kw in ("methodology", "methodologies", "protocol", "depth jumping")
         )

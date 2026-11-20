@@ -45,6 +45,7 @@ from dynamisrag.generation.scientific import scientific_terms
 __all__ = [
     "CALIBRATED_MIN_COMPARISON_COVERAGE",
     "CALIBRATED_MIN_RELEVANCE",
+    "COMPARISON_PLURAL_REFERENCE",
     "CONVERSATIONAL_REFERENCE_REASON",
     "GATE_VERSION",
     "AnswerabilityDecision",
@@ -56,6 +57,7 @@ __all__ = [
     "assess_claims",
     "assess_retrieval",
     "build_query_profile",
+    "has_numeric_cutoff",
     "salient_terms",
     "stem_terms",
     "surface_terms",
@@ -364,6 +366,15 @@ _COMPARISON: Final = re.compile(
     r"across\s+(?:(?:the|these|those)\s+)?(?:papers|studies)|between\s+(?:the\s+)?(?:papers|studies))\b",
     re.IGNORECASE,
 )
+_STUDY_REFERENCE_COUNT: Final = r"two|three|four|five|six|seven|eight|\d+"
+COMPARISON_PLURAL_REFERENCE: Final = re.compile(
+    r"\b(?:(?:(?:those|these)(?:\s+(?P<demonstrative_count>" + _STUDY_REFERENCE_COUNT + r"))?"
+    r"|(?P<both>both)|(?:the\s+)?(?:earlier|prior|previous|discussed)"
+    r"|the\s+(?P<count>" + _STUDY_REFERENCE_COUNT + r"))\s+"
+    r"(?:papers|studies|articles|sources|documents|trials|measurements|results|findings)"
+    r"|they|them|their|theirs)\b",
+    re.IGNORECASE,
+)
 _INVENTORY: Final = re.compile(
     r"\b(?:which|what)\s+(?:papers|studies|articles)\s+(?:are|exist|available)\b|"
     r"\blist\s+(?:the\s+)?(?:available\s+)?(?:papers|studies)\b|"
@@ -623,7 +634,19 @@ def surface_terms(text: str) -> set[str]:
     return _surface_terms(text)
 
 
-_MORE_THAN: Final = re.compile(r"\bmore\s+than\s+[+-]?\d", re.IGNORECASE)
+_NUMERIC_CUTOFF: Final = re.compile(
+    r"(?:\b(?:(?:more|less|fewer|greater|higher|lower)\s+than|"
+    r"at\s+(?:least|most)|above|below)\s+|[<>\u2264\u2265]=?\s*)"
+    r"(?:[+-]?\d|(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|"
+    r"eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|"
+    r"twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million)\b)",
+    re.IGNORECASE,
+)
+
+
+def has_numeric_cutoff(question: str) -> bool:
+    """Identify numeric thresholds that need unit-aware evidence verification."""
+    return _NUMERIC_CUTOFF.search(question) is not None
 
 
 def _weighted_facets(  # noqa: PLR0912 - explicit facet weighting branches
@@ -636,7 +659,7 @@ def _weighted_facets(  # noqa: PLR0912 - explicit facet weighting branches
     entity_stems = frozenset(
         part for entity in entities for part in (entity + tuple(_stem(part) for part in entity))
     )
-    more_is_cutoff = _MORE_THAN.search(question) is not None
+    more_is_cutoff = has_numeric_cutoff(question)
     terms: dict[str, float] = {}
     for raw in stems:
         term = _stem(_fold(raw).replace(",", "."))
@@ -829,8 +852,13 @@ def build_query_profile(question: str, context: str = "") -> QueryProfile:
         kind = "metadata"
     else:
         kind = "factual"
-    entities = _entities(cleaned)
-    facets, weights = _weighted_facets(cleaned, comparison=kind == "comparison", entities=entities)
+    facet_question = (
+        COMPARISON_PLURAL_REFERENCE.sub(" ", cleaned) if kind == "comparison" else cleaned
+    )
+    entities = _entities(facet_question)
+    facets, weights = _weighted_facets(
+        facet_question, comparison=kind == "comparison", entities=entities
+    )
     if not facets and not entities and context.strip():
         return build_query_profile(context)
     meta = tuple(term for term in facets if term in _META_STEMS)
@@ -1269,9 +1297,17 @@ def _entities_in_candidates(profile: QueryProfile, candidates: Sequence[Evidence
     return False
 
 
+def _comparison_quote_support(profile: QueryProfile, candidate: EvidenceCandidate) -> bool:
+    terms = _surface_terms(candidate.text)
+    joined = {term.replace("_", "") for term in terms}
+    return any(
+        _facet_present(profile, term, terms, joined) for term in _salient_terms(profile)
+    ) or any(_entity_present(entity, terms, joined) for entity in profile.entities)
+
+
 def _unsupported_numeric_cutoff(profile: QueryProfile) -> AnswerabilityDecision | None:
     # shortcut: quantitative inequalities require unit-aware evidence checking before admission.
-    if _MORE_THAN.search(profile.question) is None:
+    if not has_numeric_cutoff(profile.question):
         return None
     return _decision(
         profile=profile,
@@ -1383,28 +1419,30 @@ def assess_retrieval(  # noqa: PLR0911, PLR0912 - explicit fail-closed branches
                 accepted=admissible,
                 comparison_document_count=authorized_document_count,
             )
+        structural = not (_salient_terms(profile) or profile.entities)
+        topical = tuple(
+            a for a in canonical if a.admissible and _comparison_quote_support(profile, a.candidate)
+        )
+        accepted = (
+            canonical
+            if structural
+            else tuple(
+                a
+                for a in canonical
+                if a.candidate.document_version_key in referenced or a in topical
+            )
+        )
         if profile.entities and not _entities_in_candidates(
-            profile, [a.candidate for a in canonical]
+            profile, [a.candidate for a in accepted]
         ):
-            # The referenced studies are the subject, but a named comparator
-            # must still have evidence: admission is not a vouching mechanism
-            # for new entities (RES-726 review).
             return _decision(
                 profile=profile,
                 verdict="ABSTAIN",
                 code="unsupported_entity",
-                detail=(
-                    "The conversationally referenced studies are admitted as the comparison "
-                    "subject, but the question's named comparator is absent from every "
-                    "canonical candidate."
-                ),
+                detail="The named comparator is absent from admitted canonical passage text.",
                 assessments=assessments,
             )
-        structural = not (_salient_terms(profile) or profile.entities)
-        accepted = canonical if structural else tuple(a for a in canonical if a.admissible)
-        if _documents(accepted) >= 2 and (
-            structural or any(CONVERSATIONAL_REFERENCE_REASON not in a.reasons for a in accepted)
-        ):
+        if _documents(accepted) >= 2 and (structural or topical):
             return _decision(
                 profile=profile,
                 verdict="ANSWERABLE",
@@ -1721,44 +1759,35 @@ def assess_claims(  # noqa: PLR0911, PLR0912, PLR0915 - explicit fail-closed bra
                 assessments=assessments,
             )
     if profile.kind == "comparison":
-        if profile.entities and not _entities_in_candidates(profile, claim_candidates):
+        structural = not (_salient_terms(profile) or profile.entities)
+        topical_indexes = {
+            index
+            for index, a in enumerate(assessments)
+            if a.admissible and _comparison_quote_support(profile, a.candidate)
+        }
+        comparable_indexes = tuple(
+            index
+            for index, a in enumerate(assessments)
+            if a.candidate.canonical_verified
+            and (
+                structural
+                or a.candidate.document_version_key in referenced
+                or index in topical_indexes
+            )
+        )
+        comparable = tuple(assessments[index] for index in comparable_indexes)
+        if profile.entities and not _entities_in_candidates(
+            profile, [a.candidate for a in comparable]
+        ):
             return _decision(
                 profile=profile,
                 verdict="ABSTAIN",
                 code="unsupported_entity",
-                detail=(
-                    "The conversationally referenced studies are admitted as the comparison "
-                    "subject, but the question's named comparator is absent from every "
-                    "verified quotation."
-                ),
+                detail="The named comparator is absent from admitted verified quotations.",
                 assessments=assessments,
             )
-        structural = not (_salient_terms(profile) or profile.entities)
-        if structural:
-            comparable_indexes = tuple(
-                index
-                for index, assessment in enumerate(assessments)
-                if assessment.candidate.canonical_verified
-            )
-        else:
-            # Claims of the conversationally referenced study are accepted by
-            # reference; at least one other admissible study must still answer
-            # the asked-about facets. Indexes are per-claim: two quotations of
-            # the same passage never transfer admission (RES-726 review).
-            comparable_indexes = tuple(
-                index
-                for index, assessment in enumerate(assessments)
-                if assessment.candidate.document_version_key in referenced
-                or (
-                    assessment.admissible
-                    and CONVERSATIONAL_REFERENCE_REASON not in assessment.reasons
-                )
-            )
-        comparable = tuple(assessments[index] for index in comparable_indexes)
         admissible_documents = _documents(comparable)
-        if admissible_documents < 2 or (
-            not structural and all(CONVERSATIONAL_REFERENCE_REASON in a.reasons for a in comparable)
-        ):
+        if admissible_documents < 2 or (not structural and not topical_indexes):
             return _decision(
                 profile=profile,
                 verdict="ABSTAIN",
