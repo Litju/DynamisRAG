@@ -41,6 +41,12 @@ test("a visitor signs in with the form and asks a cited question", async ({ page
   await page.getByLabel("Ask a research question").fill("What happened to Achilles tendon stiffness during depth jumping?");
   await page.getByRole("button", { name: "Start research", exact: true }).click();
   await expect(page.getByRole("button", { name: "Inspect source 1", exact: true })).toBeVisible({ timeout: 90000 });
+  const finding = page.locator(".findings li").first();
+  // The verified quotation leads; any model wording is labelled and its recorded check shown.
+  await expect(finding.locator(".finding-quote")).toContainText("“");
+  await expect(finding.locator(".finding-checks")).toContainText("Wording check:");
+  const paraphrase = finding.locator(".finding-paraphrase");
+  if (await paraphrase.count()) await expect(paraphrase).toContainText("not independently verified");
 });
 
 test("authenticated Eve conversation executes the Python graph and denies a second user", async ({

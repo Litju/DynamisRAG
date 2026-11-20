@@ -137,6 +137,10 @@ h1 {
 .findings { list-style: none; padding: 0; display: grid; margin: 0 0 1.05rem; gap: .62rem; }
 .findings li { background: var(--white); border: 1px solid var(--line); border-radius: .65rem; padding: .9rem 1rem; }
 .findings small { display: block; margin-top: .32rem; color: var(--muted); }
+.finding-quote { margin: 0; font-family: var(--serif, Georgia, serif); line-height: 1.55; }
+.finding-paraphrase { margin: .5rem 0 0; font-size: .92rem; }
+.finding-label { display: block; font-size: .72rem; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.finding-checks { margin: .4rem 0 0; font-size: .8rem; color: var(--muted); }
 .citation {
   border-radius: .35rem; min-height: 28px; min-width: 32px; color: #245144; font-size: .8rem; font-weight: 750;
   padding: .05rem .28rem; margin-left: .3rem; background: #e5ede6; vertical-align: baseline;

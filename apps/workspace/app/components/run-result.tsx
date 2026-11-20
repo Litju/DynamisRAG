@@ -10,6 +10,20 @@ function storedSection(markdown: string, heading: string) {
     ?.split("\n").slice(1).join("\n").split("\n---\n")[0].trim();
 }
 
+// Labels mirror the engine's recorded checks; lexical overlap is never presented as entailment.
+function wordingCheck(status?: string) {
+  switch (status) {
+    case "IDENTICAL_TO_QUOTE": return "paraphrase matches the quotation";
+    case "SUPPORTED_BY_LEXICAL_HEURISTIC": return "lexical overlap only, not entailment";
+    case "UNSUPPORTED": return "paraphrase not supported by the quotation";
+    default: return "not assessed";
+  }
+}
+
+function numberCheck(status: string) {
+  return status === "VERIFIED" ? "match the quotation" : status === "FAILED" ? "do not match the quotation" : status;
+}
+
 export function RunResult({ run, inspect, retry }: {
   run: Run;
   inspect: (source: SourceSelection) => void;
@@ -44,15 +58,29 @@ export function RunResult({ run, inspect, retry }: {
           <section aria-labelledby="findings-heading">
             <h3 id="findings-heading">Findings</h3>
             <ol className="findings">
-              {citations.map((cite, index) => <li key={cite.passage_key + ":" + index}>
-                <p>{cite.claim_text || "“" + cite.verbatim_quote + "”"}{" "}
-                  <button className="citation" aria-label={"Inspect source " + (index + 1)}
-                    onClick={() => inspect({ key: cite.passage_key, citation: cite })}>
-                    {index + 1}
-                  </button>
-                </p>
-                <small>{cite.document_title}</small>
-              </li>)}
+              {citations.map((cite, index) => {
+                const paraphrase = cite.claim_text?.trim();
+                const restated = !!paraphrase && paraphrase !== cite.verbatim_quote.trim();
+                return <li key={cite.passage_key + ":" + index}>
+                  <blockquote className="finding-quote">
+                    “{cite.verbatim_quote}”{" "}
+                    <button className="citation" aria-label={"Inspect source " + (index + 1)}
+                      onClick={() => inspect({ key: cite.passage_key, citation: cite })}>
+                      {index + 1}
+                    </button>
+                  </blockquote>
+                  {restated && <p className="finding-paraphrase">
+                    <span className="finding-label">Model paraphrase, not independently verified</span>
+                    {paraphrase}
+                  </p>}
+                  <p className="finding-checks">
+                    {"Wording check: "}{wordingCheck(cite.semantic_support)}
+                    {cite.numeric_provenance && cite.numeric_provenance !== "NOT_APPLICABLE" &&
+                      <>{" · Numbers: "}{numberCheck(cite.numeric_provenance)}</>}
+                  </p>
+                  <small>{cite.document_title}</small>
+                </li>;
+              })}
             </ol>
           </section>
         </>
@@ -65,6 +93,9 @@ export function RunResult({ run, inspect, retry }: {
         {run.abstention_reason?.startsWith("provider_authorization_blocked")
           ? "Model inference is disabled for this workspace. You can still review the retrieved passages."
           : "The sources retrieved for this question did not support a synthesis within the selected scope."}
+      </p>}
+      {run.status === "failed" && <p role="alert">
+        {run.error_message || "The research run stopped before producing a result."}
       </p>}
       {(run.status === "failed" || run.status === "cancelled") && (
         <p><button type="button" onClick={retry}>Reuse question</button></p>
@@ -89,11 +120,7 @@ export function RunResult({ run, inspect, retry }: {
           <h3 id="unsupported-heading">Unsupported aspects</h3>
           {unsupported && <Markdown skipHtml>{unsupported}</Markdown>}
           {rejected > 0 && <p>{rejected} proposed claims were rejected by the recorded checks.</p>}
-          {providers.length > 0 && <p className="verification-note" role="note">
-        Some literature requests to {providers.join(", ")} failed. Search coverage may be incomplete.{" "}
-        <button type="button" onClick={retry}>Reuse question</button>
-      </p>}
-      {run.status === "abstained" && <p>Try a narrower question or adjust the document scope in a new conversation.</p>}
+          {run.status === "abstained" && <p>Try a narrower question or adjust the document scope in a new conversation.</p>}
         </section>
       )}
       {run.study_comparison && <section className="study-comparison">
@@ -148,7 +175,6 @@ export function RunResult({ run, inspect, retry }: {
             </li>)}</ul>
           </details>}
         </section>}
-        {run.error_message && <p>{run.error_message}</p>}
         {run.abstention_reason && <p>Abstention reason <code>{run.abstention_reason}</code></p>}
         <Trajectory runId={run.run_id} />
         {run.answer_markdown && <details className="detail">
