@@ -20,6 +20,7 @@ from dynamisrag.agent.graph import (
     _thread_excluded_versions,  # pyright: ignore[reportPrivateUsage]
     _thread_research_scopes,  # pyright: ignore[reportPrivateUsage]
 )
+from dynamisrag.agent.persistence import InMemoryAgentConversationStore
 
 A, B = "a" * 64, "b" * 64
 
@@ -30,13 +31,16 @@ def test_automatic_comparison_followup_keeps_reference_without_blocking_discover
         "How does it compare with a criterion system?",
         "Compare those studies with a new force plate validation.",
     ):
-        hard_query_scope, references = _thread_research_scopes(question, (), (A,))
+        hard_query_scope, references, all_required = _thread_research_scopes(question, (), (A,))
         assert hard_query_scope == []  # new papers are still discoverable
         assert references == [A]  # original study cannot silently change
+        # A singular reference ("its", "that study") requires its one anchor;
+        # "Compare those studies" below names the set and requires all of them.
+        assert all_required == (question.startswith("Compare those studies"))
 
 
 def test_restricted_comparison_only_uses_the_explicit_user_allowlist() -> None:
-    scope, references = _thread_research_scopes(
+    scope, references, _ = _thread_research_scopes(
         "How does its reliability compare with the other selected study?", (A, B), (A,)
     )
     assert scope == [A, B]
@@ -44,9 +48,29 @@ def test_restricted_comparison_only_uses_the_explicit_user_allowlist() -> None:
 
 
 def test_ordinary_pronoun_followups_remain_anchored_to_prior_study() -> None:
-    assert _thread_research_scopes("What was its sample size?", (), (A,)) == ([A], [])
-    assert _thread_research_scopes("What were its results?", (A, B), (A,)) == ([A], [])
-    assert _thread_research_scopes("Compare the methods of these papers.", (), ()) == ([], [])
+    assert _thread_research_scopes("What was its sample size?", (), (A,)) == ([A], [], False)
+    assert _thread_research_scopes("What were its results?", (A, B), (A,)) == ([A], [], False)
+    assert _thread_research_scopes("Compare the methods of these papers.", (), ()) == (
+        [],
+        [],
+        True,
+    )
+
+
+def test_plural_references_require_every_referenced_study() -> None:
+    # "those studies" names the SET: the answer may not silently drop one side.
+    _, anchors, all_required = _thread_research_scopes(
+        "How do those studies compare with force plates?", (), (A, B)
+    )
+    assert anchors == [A, B]
+    assert all_required
+    seen_a_only = [{"document_version_key": A}, {"document_version_key": "c" * 64}]
+    assert not _comparison_anchor_present((A, B), seen_a_only, all_required=True)
+    assert _comparison_anchor_present(
+        (A, B), [*seen_a_only, {"document_version_key": B}], all_required=True
+    )
+    # A singular reference keeps its any-one-of semantics.
+    assert _comparison_anchor_present((A,), seen_a_only)
 
 
 def test_comparison_evidence_must_include_the_referenced_study() -> None:
@@ -233,12 +257,38 @@ def test_exclusion_directive_requires_both_a_directive_verb_and_a_study_referenc
     exclude = _thread_excluded_versions
     assert exclude("Exclude that paper from the next analysis.", (A,)) == [A]
     assert exclude("Please remove those papers from the analysis.", (A, B)) == [A, B]
+    # An ordinary methods question is not a scope correction, no matter that it
+    # contains "exclude" and a study reference (RES-726 review).
+    assert exclude("Did that study exclude injured participants?", (A,)) == []
+    # A negated directive must not exclude anything.
+    assert exclude("Do not exclude that paper from the next analysis.", (A,)) == []
     # A bare negation is a question, not a scope correction.
     assert exclude("What did the study NOT report about force plates?", (A,)) == []
-    # A directive without a study reference does not exclude anything.
+    # A directive without a study target does not exclude anything.
     assert exclude("Remove outliers from the dataset first.", (A,)) == []
+    # A singular directive with several active studies is ambiguous: guessing
+    # would silently drop the wrong study's evidence, so nothing is excluded.
+    assert exclude("Exclude that paper from the next analysis.", (A, B)) == []
     # Without a conversational referent there is nothing to exclude.
     assert exclude("Exclude that paper from the next analysis.", ()) == []
+
+
+def test_the_exclusion_list_never_silently_discards_a_correction() -> None:
+    # The cap matches the maximum restricted allowlist (25): a correction
+    # beyond the twelfth study must still be honoured (RES-726 review).
+    store = InMemoryAgentConversationStore()
+    thread = store.create_thread(owner_id="cap-owner", title="Exclusion cap")
+    keys = tuple(f"{index:064x}" for index in range(1, 27))
+    store.update_thread_context(
+        thread.thread_id,
+        user_id="cap-owner",
+        active_version_keys=(),
+        active_passage_keys=(),
+        conversation_summary="",
+        excluded_version_keys=keys[:25],
+    )
+    persisted = store.get_thread(thread.thread_id, user_id="cap-owner")
+    assert len(persisted.excluded_version_keys) == 25
 
 
 # ---------------------------------------------------------------------------

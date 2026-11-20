@@ -187,13 +187,19 @@ def _thread_research_scopes(
     question: str,
     allowed_version_keys: Sequence[str],
     active_version_keys: Sequence[str],
-) -> tuple[list[str], list[str]]:
+) -> tuple[list[str], list[str], bool]:
     """Separate the user's HARD source allowlist from SOFT conversational referents.
 
     An automatic conversation has no hard allowlist. A comparison may require the
     prior cited study as an anchor but must still be able to find additional papers.
     A restricted comparison may look across the allowed set, never outside it.
     Non-comparison anaphora remains pinned to its referenced study.
+
+    The third value is ``anchors_required_all``: a plural reference ("those
+    studies") names the SET as the comparison subject, so the answer must keep
+    every referenced study, not any single one of them (RES-726 review:
+    "Compare those studies" with A and B referenced must not silently
+    substitute an unrelated C for B).
     """
     is_comparison = any(keyword in question.lower() for keyword in _COMPARISON_KEYWORDS)
     has_reference = _has_coreference(question)
@@ -204,46 +210,80 @@ def _thread_research_scopes(
         and re.search(r"\b(?:it|they|them|its|their|theirs)\b", question, re.IGNORECASE) is not None
     )
     if is_comparison:
-        return list(allowed_version_keys), (
-            list(active_version_keys) if has_reference or comparative_pronoun else []
+        return (
+            list(allowed_version_keys),
+            list(active_version_keys) if has_reference or comparative_pronoun else [],
+            _PLURAL_REFERENCE.search(question) is not None,
         )
     if has_reference and active_version_keys:
-        return list(active_version_keys), []
-    return list(allowed_version_keys), []
+        return list(active_version_keys), [], False
+    return list(allowed_version_keys), [], False
 
 
-def _comparison_anchor_present(anchors: Sequence[str], hits: Sequence[dict[str, Any]]) -> bool:
-    """Do not substitute an unrelated study for a referenced comparison subject."""
+def _comparison_anchor_present(
+    anchors: Sequence[str], hits: Sequence[dict[str, Any]], *, all_required: bool = False
+) -> bool:
+    """Do not substitute an unrelated study for a referenced comparison subject.
+
+    A singular reference requires its one anchor. A plural reference ("those
+    studies") requires every referenced study: answering with A and C when B
+    was also referenced silently substitutes a side of the comparison.
+    """
     if not anchors:
         return True
     seen = {str(hit.get("document_version_key", "")) for hit in hits}
+    if all_required:
+        return set(anchors).issubset(seen)
     return bool(set(anchors).intersection(seen))
 
 
 _EXCLUSION_DIRECTIVE: Final[re.Pattern[str]] = re.compile(
-    r"\b(?:exclud(?:e|ed|ing)|remove|removing|drop|dropping|ignore|ignoring|"
-    r"disregard|leave\s+out|leaving\s+out|rule\s+out)\b",
+    r"\b(?:exclud(?:e|ing)|remove|removing|drop|dropping|ignore|ignoring|"
+    r"disregard(?:ing)?|leave\s+out|leaving\s+out|rule\s+out)\s+"
+    r"(?P<target>that|this|the|those|these)\s+"
+    r"(?P<kind>paper|papers|study|studies|article|articles|source|sources|document|documents)\b",
+    re.IGNORECASE,
+)
+_NEGATED_EXCLUSION: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:do(?:n'?t| not)|never|stop|no\s+longer)\s+"
+    r"(?:exclud(?:e|ing)|remov(?:e|ing)|drop(?:ping)?|ignor(?:e|ing)|disregard(?:ing)?|"
+    r"leav(?:e|ing)\s+out|rul(?:e|ing)\s+out)",
     re.IGNORECASE,
 )
 
 
 def _thread_excluded_versions(question: str, active_version_keys: Sequence[str]) -> list[str]:
-    """An explicit exclusion directive ("Exclude that paper from the next analysis").
+    """An affirmative exclusion directive ("Exclude that paper from the next analysis").
 
     The user may correct the analysis scope conversationally: the referenced
     study must NOT be used in this run's evidence. The caller merges this into
     the thread's durable exclusion list, so the correction holds for the next
     analysis too. It is research-evidence memory only — it never edits the
     immutable thread allowlist, never deletes canonical evidence, and never
-    changes what OTHER threads or users may cite. A bare negation ("what did
-    the study not report") is not an exclusion: the directive verb AND a study
-    reference must both be present.
+    changes what OTHER threads or users may cite.
+
+    Tight fail-closed recognition (RES-726 review): the directive verb must act
+    on the study itself ("exclude that paper"), so an ordinary methods question
+    ("Did that study exclude injured participants?") and a negated directive
+    ("do not exclude that paper") are never exclusions. A singular target with
+    an ambiguous referent (several active studies) abstains from guessing which
+    one is meant: nothing is excluded.
     """
     if not active_version_keys:
         return []
-    if _EXCLUSION_DIRECTIVE.search(question) is None:
+    if _NEGATED_EXCLUSION.search(question) is not None:
         return []
-    if not _has_coreference(question):
+    match = _EXCLUSION_DIRECTIVE.search(question)
+    if match is None:
+        return []
+    if match.group("target").lower() in ("those", "these") or match.group("kind").lower().endswith(
+        "s"
+    ):
+        # A plural directive ("remove those papers") unambiguously bars the set.
+        return list(active_version_keys)
+    if len(active_version_keys) != 1:
+        # "exclude that study" with several active studies: the referent is
+        # ambiguous. Guessing would silently drop the wrong study's evidence.
         return []
     return list(active_version_keys)
 
@@ -252,9 +292,11 @@ def _reject_unanchored_comparison_claims(
     verified: list[dict[str, Any]],
     rejected: list[dict[str, Any]],
     anchors: Sequence[str],
+    *,
+    all_required: bool = False,
 ) -> None:
     """A referenced study must survive final claim verification, not just retrieval."""
-    if not verified or _comparison_anchor_present(anchors, verified):
+    if not verified or _comparison_anchor_present(anchors, verified, all_required=all_required):
         return
     rejected.extend(
         {
@@ -312,6 +354,7 @@ class ResearchAgentState(TypedDict, total=False):
     rejected_history: list[dict[str, Any]]
     prior_active_version_keys: list[str]
     comparison_anchor_version_keys: list[str]
+    comparison_anchors_all_required: bool
     thread_context: dict[str, Any] | None
     tool_origin_counts: dict[str, int]
     context_resolution_source: str
@@ -361,6 +404,14 @@ _COMPARISON_KEYWORDS = (
     "methodologies and outcomes",
     "across these papers",
     "across the studies",
+)
+
+# A plural demonstrative names the SET of referenced studies: the answer must
+# keep every one of them, never substitute an unrelated side.
+_PLURAL_REFERENCE: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:those|these)\s+(?:papers|studies|articles|sources|documents)\b"
+    r"|\bboth\s+studies\b|\bthe\s+(?:two|three)\s+studies\b",
+    re.IGNORECASE,
 )
 
 # Possessives and demonstratives are references too. Bare "it" and "they" are
@@ -961,7 +1012,7 @@ class ConversationalResearchOrchestrator:
         # Durable thread exclusion list: every run carries it forward so a
         # persisted working-memory update can never silently drop a user's
         # scope correction ("Exclude that paper from the next analysis.").
-        durable_excluded = list(dict.fromkeys(thread.excluded_version_keys))[:12]
+        durable_excluded = list(dict.fromkeys(thread.excluded_version_keys))[:25]
 
         if contains_prompt_injection(question):
             return {
@@ -995,13 +1046,14 @@ class ConversationalResearchOrchestrator:
                 "final_status": RunStatus.ABSTAINED.value,
             }
 
-        scoped_versions, comparison_anchors = _thread_research_scopes(
+        scoped_versions, comparison_anchors, anchors_all_required = _thread_research_scopes(
             question, thread.allowed_version_keys, thread.active_version_keys
         )
         # Durable thread exclusion list ("Exclude that paper from the next
         # analysis") plus any exclusion directive in this question. Run-local
         # research scope only: the immutable allowlist and canonical evidence
-        # are never modified.
+        # are never modified. The cap matches the maximum restricted allowlist
+        # (25): a correction must never be silently discarded.
         excluded_versions = list(
             dict.fromkeys(
                 (
@@ -1009,7 +1061,7 @@ class ConversationalResearchOrchestrator:
                     *_thread_excluded_versions(question, thread.active_version_keys),
                 )
             )
-        )[:12]
+        )[:25]
         if any(key not in thread.excluded_version_keys for key in excluded_versions):
             # This turn's directive adds a new exclusion: the referenced study
             # is barred from this run's evidence, not pinned as its scope and
@@ -1068,6 +1120,7 @@ class ConversationalResearchOrchestrator:
             "active_passage_keys": list(thread.active_passage_keys),
             "prior_active_version_keys": list(thread.active_version_keys),
             "comparison_anchor_version_keys": comparison_anchors,
+            "comparison_anchors_all_required": anchors_all_required,
             "conversation_summary": thread.conversation_summary,
             "recent_turns": [{"role": m.role, "content": m.content} for m in thread.messages[-4:]],
             "messages": [HumanMessage(content=question)],
@@ -1188,7 +1241,7 @@ class ConversationalResearchOrchestrator:
     # Node 3: model_tool_execution
     # ------------------------------------------------------------------
 
-    def _node_model_tool_execution(  # noqa: PLR0915 - tool loop, run-local scopes and the gate
+    def _node_model_tool_execution(  # noqa: PLR0912, PLR0915 - tool loop, run-local scopes and the gate
         self, state: ResearchAgentState, config: RunnableConfig
     ) -> ResearchAgentState:
         """Let the MODEL choose scientific tools; validate, execute, and record every decision."""
@@ -1342,25 +1395,35 @@ class ConversationalResearchOrchestrator:
             for key in state.get("comparison_anchor_version_keys", [])
             if len(str(key)) == 64
         ]
+        anchors_all_required = bool(state.get("comparison_anchors_all_required", False))
+        missing_anchors = [key for key in anchors if key not in excluded_versions]
         backstop_envelopes: list[dict[str, Any]] = []
-        if (
-            anchors
-            and not excluded_versions
-            and not any(
-                str(hit.get("document_version_key", "")) in set(anchors)
-                for hit in dedup_hits.values()
-            )
+        if missing_anchors and not _comparison_anchor_present(
+            missing_anchors, list(dedup_hits.values()), all_required=anchors_all_required
         ):
-            # The model did not surface the conversationally referenced study.
-            # Retrieve it deterministically (graph-enforced, recorded as such in
+            # The model did not surface the conversationally referenced study
+            # (or, for a plural reference, every referenced study). Retrieve the
+            # missing ones deterministically (graph-enforced, recorded as such in
             # telemetry) so a comparative answer cannot silently substitute
             # another subject: the anchor must be among the candidates, not
-            # merely requested in the prompt.
+            # merely requested in the prompt. An exclusion of an unrelated
+            # study never disables this backstop (RES-726 review).
             backstop_hits, backstop_envelopes = self._retrieve_referenced_studies(
-                anchors, scope, _emit
+                missing_anchors, scope, _emit
             )
             for hit in backstop_hits:
                 dedup_hits.setdefault(str(hit.get("passage_key", "")), hit)
+        if excluded_versions and outcome.comparison is not None:
+            compared = {
+                str(study.get("document_version_key", ""))
+                for study in cast("list[dict[str, Any]]", outcome.comparison.get("studies") or [])
+            }
+            if compared & excluded_versions:
+                # The model built its matrix from a barred study. The evidence
+                # scope must hold for the published comparison as well: discard
+                # the tainted payload and rebuild from in-scope evidence in the
+                # comparison node (RES-726 review).
+                outcome.comparison = None
         if dedup_hits:
             authorized_keys = (
                 state.get("allowed_version_keys") or state.get("scoped_version_keys") or []
@@ -1438,7 +1501,7 @@ class ConversationalResearchOrchestrator:
         if (aborted := self._control_abort(state, config)) is not None:
             return {**update, **aborted}
         if dedup_hits and not _comparison_anchor_present(
-            state.get("comparison_anchor_version_keys", []), list(dedup_hits.values())
+            anchors, list(dedup_hits.values()), all_required=anchors_all_required
         ):
             return {
                 **update,
@@ -1468,7 +1531,7 @@ class ConversationalResearchOrchestrator:
     ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         """Graph-enforced retrieval of the conversationally referenced studies.
 
-        For each anchor (bounded to two): read the study's title via
+        For each missing anchor (bounded to three): read the study's title via
         ``list_papers``, then search inside that document using its own title as
         the query, so the passages that define the conversation's subject are
         found regardless of the new question's vocabulary. Every call becomes an
@@ -1478,7 +1541,7 @@ class ConversationalResearchOrchestrator:
         """
         hits: list[dict[str, Any]] = []
         envelopes: list[dict[str, Any]] = []
-        bounded = list(anchors[:2])
+        bounded = list(anchors[:3])
         for anchor in bounded:
             papers_env = self._registry.list_papers(
                 ListPapersInput(document_version_key=anchor, limit=1), scope
@@ -2084,7 +2147,10 @@ class ConversationalResearchOrchestrator:
                 )
         if decision.answerable:
             _reject_unanchored_comparison_claims(
-                verified, rejected, state.get("comparison_anchor_version_keys", [])
+                verified,
+                rejected,
+                state.get("comparison_anchor_version_keys", []),
+                all_required=bool(state.get("comparison_anchors_all_required", False)),
             )
         return decision
 

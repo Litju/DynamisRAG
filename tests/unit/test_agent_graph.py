@@ -566,6 +566,23 @@ def test_exclusion_directive_persists_and_bars_the_study_from_later_analysis(
     # The immutable authorization allowlist is untouched by the correction.
     assert store.get_thread(thread.thread_id, user_id="exclusion-user").allowed_version_keys == ()
 
+    # A later comparison must also respect the exclusion: the model may ask
+    # for a matrix over all papers, but the published matrix may not report
+    # the excluded study (RES-726 review).
+    fourth = orchestrator.execute_run(
+        thread_id=thread.thread_id,
+        user_id="exclusion-user",
+        question="Compare the methodology and results of the plyometric training studies.",
+        idempotency_key="ex-fourth",
+    )
+    compared = {
+        str(study.get("document_version_key"))
+        for study in (fourth.study_comparison or {}).get("studies", [])
+    }
+    assert basketball.isdisjoint(compared)
+    assert fourth.status == RunStatus.COMPLETED, fourth.abstention_reason
+    assert compared == cited
+
 
 def test_abstention_on_out_of_corpus_and_prompt_injection(
     graph_engine_and_studies: tuple[

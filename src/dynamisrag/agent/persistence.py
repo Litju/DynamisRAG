@@ -543,7 +543,9 @@ class InMemoryAgentConversationStore:
                 update={
                     "active_version_keys": active_version_keys[:12],
                     "active_passage_keys": active_passage_keys[:24],
-                    "excluded_version_keys": excluded_version_keys[:12],
+                    # Matches the maximum restricted allowlist: a user's scope
+                    # correction is never silently discarded.
+                    "excluded_version_keys": excluded_version_keys[:25],
                     "conversation_summary": conversation_summary[:2000],
                     "messages": (*existing.messages, *fresh)[-40:],
                     "updated_at": _now_iso(),
@@ -1298,7 +1300,9 @@ class PostgresAgentConversationStore:
             update={
                 "active_version_keys": update.active_version_keys[:12],
                 "active_passage_keys": update.active_passage_keys[:24],
-                "excluded_version_keys": update.excluded_version_keys[:12],
+                # Matches the maximum restricted allowlist: a user's scope
+                # correction is never silently discarded.
+                "excluded_version_keys": update.excluded_version_keys[:25],
                 "conversation_summary": update.conversation_summary[:2000],
                 "messages": (*existing.messages, *fresh)[-40:],
                 "updated_at": _now_iso(),
