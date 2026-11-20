@@ -74,17 +74,19 @@ Store preview accounts and signing keys in Vercel's secure preview environment
 settings. Keep the PostgreSQL, Qdrant, TEI and OpenCode Go settings with the
 owner-operated backend. Preview backend access requires an HTTPS endpoint
 restricted to the authenticated research API and a deployment-specific signing
-key. Keep provider inference disabled for preview until its permitted use is
-established independently. OpenCode documents the Go plan as single-member.
-The owner's approval covers their existing local use.
+key. OpenCode documents the Go plan as single-member. The owner approved
+DeepSeek V4.1 Flash for this preview because only the owner can reach it,
+through Vercel Authentication and the preview account. The approval does not
+cover shared or public access. Disable it before adding any other user.
 [OpenCode Go](https://opencode.ai/docs/console/go/).
 
 The Preview gateway is bound to host loopback port 18444. Tailscale Funnel maps
 HTTPS port 8443 to that one gateway. The gateway admits only signed research
 API requests and preserves event-stream replay. Keep the Python API, databases,
-Qdrant, TEI, and Ollama without public port bindings. The preview uses the
-existing local Ollama service with a bounded context; OpenCode Go is disabled
-in this stack. Service availability depends on the owner workstation, Docker
+Qdrant and TEI without public port bindings. The preview worker uses DeepSeek
+V4.1 Flash through OpenCode Go with the same US$0.20 per-run estimated cap as
+the owner stack. Only the worker receives the provider key, from the private
+preview settings file. Service availability depends on the owner workstation, Docker
 Desktop, and the network.
 
 The gateway fails closed on an expiry. Set `DYNAMISRAG_PREVIEW_EXPIRES_AT` to an

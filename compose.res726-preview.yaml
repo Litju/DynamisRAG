@@ -1,20 +1,16 @@
 # Use after compose.research-workflow.yaml and compose.research-local.yaml.
 services:
   qdrant:
-    networks: [default, embedding, warm-embedding, preview-inference]
+    networks: [default, embedding, warm-embedding]
   api:
     depends_on: !override
       canonical: { condition: service_healthy }
       agent-state: { condition: service_healthy }
       qdrant: { condition: service_started }
+    # DeepSeek V4.1 Flash through OpenCode Go, as in the owner stack. The preview is
+    # reachable only by the owner (Vercel Authentication plus the preview account).
     environment: &preview-model
       DYNAMISRAG_RESEARCH_TEI_URL: http://dynamisrag-res638-local-tei-1:80
-      DYNAMISRAG_AGENT_MODEL_BASE_URL: http://preview-ollama:11434
-      DYNAMISRAG_AGENT_PROVIDER: ollama
-      DYNAMISRAG_AGENT_MODEL_NAME: llama3.2:3b
-      DYNAMISRAG_AGENT_MODEL_NUM_CTX: "3072"
-      DYNAMISRAG_AGENT_OPENCODE_GO_USAGE_APPROVED: "false"
-      DYNAMISRAG_AGENT_MODEL_API_KEY: ""
   worker:
     environment: *preview-model
   gateway:
@@ -35,9 +31,6 @@ services:
 networks:
   warm-embedding:
     name: dynamisrag-res638-local_embedding
-    external: true
-  preview-inference:
-    name: res726-vercel-inference
     external: true
 volumes:
   canonical:
