@@ -29,6 +29,7 @@ services:
     environment:
       PYTHON_API_ORIGIN: http://qdrant:8000
       IDENTITY_SECRET: ${DYNAMISRAG_AGENT_IDENTITY_SECRET}
+      PREVIEW_EXPIRES_AT: ${DYNAMISRAG_PREVIEW_EXPIRES_AT:?Set an ISO expiry at most seven days ahead}
     depends_on:
       api: { condition: service_healthy }
 networks:

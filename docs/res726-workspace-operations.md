@@ -87,10 +87,17 @@ existing local Ollama service with a bounded context; OpenCode Go is disabled
 in this stack. Service availability depends on the owner workstation, Docker
 Desktop, and the network.
 
+The gateway fails closed on an expiry. Set `DYNAMISRAG_PREVIEW_EXPIRES_AT` to an
+ISO-8601 UTC time no more than seven days ahead. The gateway refuses to start
+without it and returns 503 to every request after it. Reapply the stack with a
+new expiry to extend access, and still turn Funnel off when the preview is not
+in use.
+
 Start or reapply the isolated preview stack from the repository checkout:
 
 ```powershell
 $settings = Join-Path $env:USERPROFILE '.dynamisrag/res726-vercel/settings.env'
+$env:DYNAMISRAG_PREVIEW_EXPIRES_AT = (Get-Date).ToUniversalTime().AddDays(6).ToString('yyyy-MM-ddTHH:mm:ssZ')
 docker compose --env-file $settings -p res726-vercel -f compose.research-workflow.yaml -f compose.research-local.yaml -f compose.res726-preview.yaml up -d --wait api worker gateway
 tailscale funnel --bg --yes --https=8443 http://127.0.0.1:18444
 ```

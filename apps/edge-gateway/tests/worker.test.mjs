@@ -193,7 +193,8 @@ test("Funnel forwards only signed library routes and preserves event replay", as
     assert.equal(init.headers.get("cookie"), null);
     return new Response("id: 42\ndata: {}\n\n", { headers: { "content-type": "text/event-stream" } });
   });
-  const server = createFunnelServer({ origin: "http://backend.example", secret, fetchOrigin: upstream });
+  const expiresAt = new Date(Date.now() + 3_600_000).toISOString();
+  const server = createFunnelServer({ origin: "http://backend.example", secret, expiresAt, fetchOrigin: upstream });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   t.after(() => { server.closeAllConnections(); server.close(); });
   const origin = "http://127.0.0.1:" + server.address().port;
@@ -204,5 +205,26 @@ test("Funnel forwards only signed library routes and preserves event replay", as
   });
   assert.equal(events.headers.get("content-type"), "text/event-stream");
   assert.equal(await events.text(), "id: 42\ndata: {}\n\n");
+  assert.equal(upstream.mock.callCount(), 1);
+});
+
+test("Funnel exposure requires a bounded expiry and closes after it", async (t) => {
+  const origin = "http://backend.example";
+  assert.throws(() => createFunnelServer({ origin, secret }), /expiry/);
+  assert.throws(() => createFunnelServer({
+    origin, secret, expiresAt: new Date(Date.now() + 8 * 86_400_000).toISOString(),
+  }), /expiry/);
+  let clock = Date.now();
+  const upstream = t.mock.fn(async () => Response.json({}));
+  const server = createFunnelServer({
+    origin, secret, fetchOrigin: upstream, now: () => clock,
+    expiresAt: new Date(clock + 60_000).toISOString(),
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => { server.closeAllConnections(); server.close(); });
+  const url = "http://127.0.0.1:" + server.address().port + "/api/v2/papers";
+  assert.equal((await fetch(url, { headers: { authorization: token() } })).status, 200);
+  clock += 61_000;
+  assert.equal((await fetch(url, { headers: { authorization: token() } })).status, 503);
   assert.equal(upstream.mock.callCount(), 1);
 });

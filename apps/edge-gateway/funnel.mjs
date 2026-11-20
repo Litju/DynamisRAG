@@ -5,12 +5,19 @@ import { boundedBody, routes, verifyIdentity } from "./worker.mjs";
 
 const json = { "content-type": "application/json", "cache-control": "no-store" };
 
-export function createFunnelServer({ origin, secret, fetchOrigin = fetch }) {
+const MAX_EXPOSURE_MS = 7 * 86_400_000;
+
+// Public exposure fails closed: the operator must set an expiry no more than seven days out.
+export function createFunnelServer({ origin, secret, expiresAt, fetchOrigin = fetch, now = Date.now }) {
   if (!secret || secret.length < 32) throw new Error("Preview identity key is required");
   if (new URL(origin).origin !== origin) throw new Error("Preview backend needs a bare origin");
+  const expires = Date.parse(expiresAt || "");
+  if (!Number.isFinite(expires) || expires <= now() || expires - now() > MAX_EXPOSURE_MS)
+    throw new Error("Preview expiry must be within the next seven days");
 
   return createServer({ requestTimeout: 15_000, headersTimeout: 10_000 }, async (request, response) => {
     const end = (status) => response.writeHead(status, json).end("{}");
+    if (now() >= expires) return end(503);
     if (!request.url?.startsWith("/") || request.url.startsWith("//")) return end(404);
     const url = new URL(request.url, origin);
     if (url.origin !== origin || !routes.test(url.pathname) ||
@@ -64,6 +71,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   createFunnelServer({
     origin: process.env.PYTHON_API_ORIGIN,
     secret: process.env.IDENTITY_SECRET,
+    expiresAt: process.env.PREVIEW_EXPIRES_AT,
   }).listen(8080, "0.0.0.0");
 }
 
