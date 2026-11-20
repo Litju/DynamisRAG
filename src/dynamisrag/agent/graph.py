@@ -219,6 +219,25 @@ def _comparison_anchor_present(anchors: Sequence[str], hits: Sequence[dict[str, 
     return bool(set(anchors).intersection(seen))
 
 
+def _reject_unanchored_comparison_claims(
+    verified: list[dict[str, Any]],
+    rejected: list[dict[str, Any]],
+    anchors: Sequence[str],
+) -> None:
+    """A referenced study must survive final claim verification, not just retrieval."""
+    if not verified or _comparison_anchor_present(anchors, verified):
+        return
+    rejected.extend(
+        {
+            **claim,
+            "verified": False,
+            "rejection_reason": "answerability_gate:referenced_study_not_cited",
+        }
+        for claim in verified
+    )
+    verified.clear()
+
+
 class ResearchAgentState(TypedDict, total=False):
     """Typed LangGraph state dictionary persisted across checkpoints."""
 
@@ -1879,6 +1898,10 @@ class ConversationalResearchOrchestrator:
                         "rejection_reason": f"answerability_gate:{decision.code}",
                     }
                 )
+        if decision.answerable:
+            _reject_unanchored_comparison_claims(
+                verified, rejected, state.get("comparison_anchor_version_keys", [])
+            )
         return decision
 
     def _node_verify_citations(

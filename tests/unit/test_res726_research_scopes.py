@@ -5,6 +5,7 @@ from dynamisrag.agent.graph import (
     ResearchAgentState,
     _comparison_anchor_present,  # pyright: ignore[reportPrivateUsage]
     _thread_research_scopes,  # pyright: ignore[reportPrivateUsage]
+    _reject_unanchored_comparison_claims,  # pyright: ignore[reportPrivateUsage]
 )
 
 A, B = "a" * 64, "b" * 64
@@ -58,3 +59,20 @@ def test_discovery_router_uses_hard_allowlist_not_automatic_comparison_reference
     # A deliberately restricted conversation must not browse the broader corpus.
     state["allowed_version_keys"] = [A]
     assert orchestrator._route_after_tools(state) == "finalize_durable_response"  # pyright: ignore[reportPrivateUsage]
+
+
+def test_final_scientific_claims_cannot_drop_the_original_comparison_study() -> None:
+    verified = [{"document_version_key": B, "verified": True, "claim_text": "new finding"}]
+    rejected: list[dict[str, object]] = []
+    _reject_unanchored_comparison_claims(verified, rejected, (A,))
+    assert verified == []
+    assert rejected[0]["rejection_reason"] == "answerability_gate:referenced_study_not_cited"
+    assert rejected[0]["verified"] is False
+
+    anchored = [
+        {"document_version_key": A, "verified": True},
+        {"document_version_key": B, "verified": True},
+    ]
+    rejected = []
+    _reject_unanchored_comparison_claims(anchored, rejected, (A,))
+    assert len(anchored) == 2 and rejected == []
