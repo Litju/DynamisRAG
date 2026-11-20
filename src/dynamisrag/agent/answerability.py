@@ -174,7 +174,6 @@ _GENERIC_QUERY_TERMS: Final[frozenset[str]] = frozenset(
         "any",
         "some",
         "such",
-        "more",
         "each",
     }
 )
@@ -624,6 +623,9 @@ def surface_terms(text: str) -> set[str]:
     return _surface_terms(text)
 
 
+_MORE_THAN: Final = re.compile(r"\bmore\s+than\b", re.IGNORECASE)
+
+
 def _weighted_facets(  # noqa: PLR0912 - explicit facet weighting branches
     question: str,
     *,
@@ -634,6 +636,7 @@ def _weighted_facets(  # noqa: PLR0912 - explicit facet weighting branches
     entity_stems = frozenset(
         part for entity in entities for part in (entity + tuple(_stem(part) for part in entity))
     )
+    more_is_cutoff = _MORE_THAN.search(question) is not None
     terms: dict[str, float] = {}
     for raw in stems:
         term = _stem(_fold(raw).replace(",", "."))
@@ -643,7 +646,12 @@ def _weighted_facets(  # noqa: PLR0912 - explicit facet weighting branches
             continue
         if term in entity_stems:
             continue
-        if term in _GENERIC_STEMS or term in _META_STEMS:
+        if term == "more":
+            # "more studies / more evidence" frames how much evidence is wanted;
+            # no passage needs the word. "more than <number>" is a quantitative
+            # cutoff and keeps a mandatory weight (RES-726 review).
+            weight = 1.5 if more_is_cutoff else 0.25
+        elif term in _GENERIC_STEMS or term in _META_STEMS:
             weight = 0.25
         elif term.isdigit():
             weight = 1.5
@@ -809,10 +817,14 @@ def build_query_profile(question: str, context: str = "") -> QueryProfile:
     asks about a different facet.
     """
     cleaned = " ".join(question.split())
-    if _INVENTORY.search(cleaned):
-        kind: QueryKind = "inventory"
-    elif _COMPARISON.search(cleaned):
-        kind = "comparison"
+    if _COMPARISON.search(cleaned):
+        # A comparison stays a comparison even when it mentions the inventory
+        # ("How does its jump height compare with the available studies?"):
+        # the inventory/metadata route would otherwise bypass the two-sided
+        # comparison contract entirely (RES-726 review).
+        kind: QueryKind = "comparison"
+    elif _INVENTORY.search(cleaned):
+        kind = "inventory"
     elif _METADATA.search(cleaned):
         kind = "metadata"
     else:
@@ -1246,6 +1258,26 @@ def _decision(
     )
 
 
+def _entities_in_candidates(profile: QueryProfile, candidates: Sequence[EvidenceCandidate]) -> bool:
+    """Every named entity must appear in at least one candidate's own text.
+
+    Referenced-study admission makes a study relevant as the conversation's
+    SUBJECT; it must not also vouch for a NEW named comparator the evidence
+    never mentions ("Compare those studies with XZ-77", RES-726 review). The
+    question's entities are checked against candidate text directly, so an
+    admission that cleared per-candidate ``missing_entities`` cannot hide a
+    missing comparator.
+    """
+    if not profile.entities:
+        return True
+    for candidate in candidates:
+        terms = _candidate_terms(candidate)
+        joined = {term.replace("_", "") for term in terms}
+        if all(_entity_present(entity, terms, joined) for entity in profile.entities):
+            return True
+    return False
+
+
 def assess_retrieval(  # noqa: PLR0911, PLR0912 - explicit fail-closed branches
     question: str,
     candidates: Sequence[EvidenceCandidate],
@@ -1345,29 +1377,40 @@ def assess_retrieval(  # noqa: PLR0911, PLR0912 - explicit fail-closed branches
                 accepted=admissible,
                 comparison_document_count=authorized_document_count,
             )
-        salient = _salient_terms(profile)
-        if canonical and not salient:
+        if profile.entities and not _entities_in_candidates(
+            profile, [a.candidate for a in canonical]
+        ):
+            # The referenced studies are the subject, but a named comparator
+            # must still have evidence: admission is not a vouching mechanism
+            # for new entities (RES-726 review).
             return _decision(
                 profile=profile,
-                verdict="ANSWERABLE",
-                code="comparison_structurally_answerable",
+                verdict="ABSTAIN",
+                code="unsupported_entity",
                 detail=(
-                    "Canonical evidence is available for structural comparison; design, "
-                    "population and outcome facets are extracted by the comparison tool."
+                    "The conversationally referenced studies are admitted as the comparison "
+                    "subject, but the question's named comparator is absent from every "
+                    "canonical candidate."
                 ),
                 assessments=assessments,
-                accepted=canonical,
             )
+        salient = _salient_terms(profile)
         anchored = tuple(a for a in canonical if a.candidate.document_version_key in referenced)
         others = tuple(a for a in canonical if a.candidate.document_version_key not in referenced)
         anchored_on_own_merits = tuple(
             a for a in anchored if a.admissible and CONVERSATIONAL_REFERENCE_REASON not in a.reasons
         )
-        if any(a.admissible for a in others) or anchored_on_own_merits:
+        accepted_side = (*anchored, *(a for a in others if a.admissible))
+        if (any(a.admissible for a in others) or anchored_on_own_merits) and _documents(
+            canonical
+        ) >= 2:
             # The new comparison subject is covered on its own merits, or the
             # referenced study itself covers it; the conversationally referenced
             # study joins the accepted set by reference, never by lexical
-            # coverage of the new subject.
+            # coverage of the new subject. A comparison still needs two
+            # canonical sides for the structural comparison tool (the calibrated
+            # contract: an irrelevant-but-canonical side is still a side the
+            # comparison tool reports structurally, it is never cited).
             return _decision(
                 profile=profile,
                 verdict="ANSWERABLE",
@@ -1378,20 +1421,11 @@ def assess_retrieval(  # noqa: PLR0911, PLR0912 - explicit fail-closed branches
                     "comparison tool extracts the structural design/population facets."
                 ),
                 assessments=assessments,
-                accepted=(*anchored, *(a for a in others if a.admissible)),
+                accepted=accepted_side,
             )
-        if others:
-            return _decision(
-                profile=profile,
-                verdict="ABSTAIN",
-                code="insufficient_query_coverage",
-                detail=(
-                    "Available studies do not cover the comparison's asked-about facets; "
-                    "the conversationally referenced study alone cannot answer it."
-                ),
-                assessments=assessments,
-            )
-        if len({a.candidate.document_version_key for a in anchored}) >= 2:
+        if len(
+            {a.candidate.document_version_key for a in anchored}
+        ) >= 2 and _entities_in_candidates(profile, [a.candidate for a in canonical]):
             # "How do those studies compare?" — every side is itself a prior referent.
             return _decision(
                 profile=profile,
@@ -1404,14 +1438,26 @@ def assess_retrieval(  # noqa: PLR0911, PLR0912 - explicit fail-closed branches
                 assessments=assessments,
                 accepted=anchored,
             )
+        if canonical and not salient and _documents(canonical) >= 2:
+            return _decision(
+                profile=profile,
+                verdict="ANSWERABLE",
+                code="comparison_structurally_answerable",
+                detail=(
+                    "Canonical evidence is available for structural comparison; design, "
+                    "population and outcome facets are extracted by the comparison tool."
+                ),
+                assessments=assessments,
+                accepted=canonical,
+            )
         if canonical:
             return _decision(
                 profile=profile,
                 verdict="ABSTAIN",
                 code="insufficient_cross_study_evidence",
                 detail=(
-                    "Only the conversationally referenced study is available for this "
-                    "comparison; no second side exists in the authorized corpus."
+                    "Fewer than two admissible sides are available for the requested "
+                    "comparison; the conversationally referenced study alone cannot answer it."
                 ),
                 assessments=assessments,
             )
@@ -1710,26 +1756,40 @@ def assess_claims(  # noqa: PLR0911, PLR0912, PLR0915 - explicit fail-closed bra
                 assessments=assessments,
             )
     if profile.kind == "comparison":
+        if profile.entities and not _entities_in_candidates(profile, claim_candidates):
+            return _decision(
+                profile=profile,
+                verdict="ABSTAIN",
+                code="unsupported_entity",
+                detail=(
+                    "The conversationally referenced studies are admitted as the comparison "
+                    "subject, but the question's named comparator is absent from every "
+                    "verified quotation."
+                ),
+                assessments=assessments,
+            )
         salient = _salient_terms(profile)
         if not salient:
-            comparable = tuple(a for a in assessments if a.candidate.canonical_verified)
+            comparable_indexes = tuple(
+                index
+                for index, assessment in enumerate(assessments)
+                if assessment.candidate.canonical_verified
+            )
         else:
             # Claims of the conversationally referenced study are accepted by
             # reference; at least one other admissible study must still answer
-            # the asked-about facets for the comparison to be answerable.
-            anchored = tuple(
-                a for a in assessments if a.candidate.document_version_key in referenced
+            # the asked-about facets. Indexes are per-claim: two quotations of
+            # the same passage never transfer admission (RES-726 review).
+            comparable_indexes = tuple(
+                index
+                for index, assessment in enumerate(assessments)
+                if assessment.candidate.document_version_key in referenced
+                or (
+                    assessment.admissible
+                    and CONVERSATIONAL_REFERENCE_REASON not in assessment.reasons
+                )
             )
-            comparable = (
-                *anchored,
-                *(a for a in admissible if a.candidate.document_version_key not in referenced),
-            )
-        comparable_keys = {a.candidate.passage_key for a in comparable}
-        comparable_indexes = tuple(
-            index
-            for index, assessment in enumerate(assessments)
-            if assessment.candidate.passage_key in comparable_keys
-        )
+        comparable = tuple(assessments[index] for index in comparable_indexes)
         admissible_documents = _documents(comparable)
         if admissible_documents < 2:
             return _decision(
