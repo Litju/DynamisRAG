@@ -238,16 +238,11 @@ def _comparison_anchor_present(
 
 
 _EXCLUSION_DIRECTIVE: Final[re.Pattern[str]] = re.compile(
-    r"\b(?:exclud(?:e|ing)|remove|removing|drop|dropping|ignore|ignoring|"
-    r"disregard(?:ing)?|leave\s+out|leaving\s+out|rule\s+out)\s+"
-    r"(?P<target>that|this|the|those|these)\s+"
-    r"(?P<kind>paper|papers|study|studies|article|articles|source|sources|document|documents)\b",
-    re.IGNORECASE,
-)
-_NEGATED_EXCLUSION: Final[re.Pattern[str]] = re.compile(
-    r"\b(?:do(?:n'?t| not)|never|stop|no\s+longer)\s+"
-    r"(?:exclud(?:e|ing)|remov(?:e|ing)|drop(?:ping)?|ignor(?:e|ing)|disregard(?:ing)?|"
-    r"leav(?:e|ing)\s+out|rul(?:e|ing)\s+out)",
+    r"^\s*(?:please\s+|(?:can|could|would)\s+you\s+(?:please\s+)?)?"
+    r"(?:exclude|remove|drop|ignore|disregard|leave\s+out|rule\s+out)\s+"
+    r"(?P<kind>(?:that|this|the|those|these)\s+"
+    r"(?:paper|papers|study|studies|article|articles|source|sources|document|documents))"
+    r"(?=\s*(?:[.,;!?]|$)|\s+(?:from|in|for|when|and|but)\b)",
     re.IGNORECASE,
 )
 
@@ -271,14 +266,10 @@ def _thread_excluded_versions(question: str, active_version_keys: Sequence[str])
     """
     if not active_version_keys:
         return []
-    if _NEGATED_EXCLUSION.search(question) is not None:
-        return []
-    match = _EXCLUSION_DIRECTIVE.search(question)
+    match = _EXCLUSION_DIRECTIVE.match(question)
     if match is None:
         return []
-    if match.group("target").lower() in ("those", "these") or match.group("kind").lower().endswith(
-        "s"
-    ):
+    if match.group("kind").lower().endswith("s"):
         # A plural directive ("remove those papers") unambiguously bars the set.
         return list(active_version_keys)
     if len(active_version_keys) != 1:
@@ -1263,7 +1254,9 @@ class ConversationalResearchOrchestrator:
         worker_id = self._worker_id(config)
 
         scope = self._build_scope(state)
-        scoped_keys = list(state.get("scoped_version_keys", []))
+        scoped_keys = [
+            key for key in state.get("scoped_version_keys", []) if scope.allows_version(key)
+        ]
 
         def _emit(event_type: RunEventType, payload: dict[str, Any]) -> None:
             self._store.append_event(
@@ -1428,6 +1421,7 @@ class ConversationalResearchOrchestrator:
             authorized_keys = (
                 state.get("allowed_version_keys") or state.get("scoped_version_keys") or []
             )
+            in_scope_keys = tuple(key for key in authorized_keys if scope.allows_version(key))
             prior_user_context = " ".join(
                 str(turn.get("content", ""))
                 for turn in state.get("recent_turns", [])
@@ -1452,7 +1446,7 @@ class ConversationalResearchOrchestrator:
                     for index, (key, hit) in enumerate(dedup_hits.items(), start=1)
                 ),
                 context=prior_user_context,
-                authorized_document_count=len(authorized_keys) or None,
+                authorized_document_count=len(in_scope_keys) if authorized_keys else None,
                 referenced_document_keys=anchors,
             )
             accepted = set(retrieval_decision.accepted_passage_keys)
@@ -1888,19 +1882,18 @@ class ConversationalResearchOrchestrator:
         ver_keys: list[str] = []
         for h in hits:
             vk = str(h.get("document_version_key", ""))
-            if len(vk) == 64 and vk not in ver_keys:
+            if len(vk) == 64 and vk not in ver_keys and scope.allows_version(vk):
                 ver_keys.append(vk)
         for vk in state.get("scoped_version_keys", []):
-            if len(vk) == 64 and vk not in ver_keys:
+            if len(vk) == 64 and vk not in ver_keys and scope.allows_version(vk):
                 ver_keys.append(vk)
 
         if len(ver_keys) < 2:
-            excluded_versions = set(state.get("excluded_version_keys", []))
             papers_env = self._registry.list_papers(ListPapersInput(limit=6), scope)
             if papers_env.ok and papers_env.payload is not None:
                 for p in cast("list[dict[str, Any]]", papers_env.payload.get("papers", [])):
                     vk = str(p.get("document_version_key", ""))
-                    if len(vk) == 64 and vk not in ver_keys and vk not in excluded_versions:
+                    if len(vk) == 64 and vk not in ver_keys and scope.allows_version(vk):
                         ver_keys.append(vk)
 
         if len(ver_keys) < 2:
@@ -2689,4 +2682,5 @@ class ConversationalResearchOrchestrator:
             thread_id=state.get("thread_id", "thread"),
             run_id=state.get("run_id", "run"),
             allowed_version_keys=allowed,
+            excluded_version_keys=tuple(state.get("excluded_version_keys", [])),
         )

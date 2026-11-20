@@ -261,7 +261,16 @@ def test_exclusion_directive_requires_both_a_directive_verb_and_a_study_referenc
     # contains "exclude" and a study reference (RES-726 review).
     assert exclude("Did that study exclude injured participants?", (A,)) == []
     # A negated directive must not exclude anything.
-    assert exclude("Do not exclude that paper from the next analysis.", (A,)) == []
+    for question in (
+        "Do not exclude that paper from the next analysis.",
+        "Don\u2019t exclude that paper.",
+        "Do not ever exclude that paper.",
+        "Did the review exclude that study?",
+        "Why exclude that paper?",
+        "Exclude that study\u2019s control group.",
+    ):
+        assert exclude(question, (A,)) == []
+    assert exclude("Could you please drop that paper?", (A,)) == [A]
     # A bare negation is a question, not a scope correction.
     assert exclude("What did the study NOT report about force plates?", (A,)) == []
     # A directive without a study target does not exclude anything.

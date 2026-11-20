@@ -509,10 +509,13 @@ def test_possessive_comparison_followup_is_scoped_to_the_latest_study(
     assert third.study_comparison is not None
 
 
+@pytest.mark.parametrize("restricted", [False, True])
 def test_exclusion_directive_persists_and_bars_the_study_from_later_analysis(
     graph_engine_and_studies: tuple[
         Engine, dict[str, tuple[str, tuple[str, ...], tuple[str, ...]]]
     ],
+    *,
+    restricted: bool,
 ) -> None:
     engine, studies = graph_engine_and_studies
     registry = ScientificToolRegistry(engine)
@@ -523,7 +526,10 @@ def test_exclusion_directive_persists_and_bars_the_study_from_later_analysis(
         store=store,
         model_runtime=runtime,
     )
-    thread = store.create_thread(owner_id="exclusion-user", title="Exclusion correction")
+    allowed = tuple(study[0] for study in studies.values()) if restricted else ()
+    thread = store.create_thread(
+        owner_id="exclusion-user", title="Exclusion correction", allowed_version_keys=allowed
+    )
     first = orchestrator.execute_run(
         thread_id=thread.thread_id,
         user_id="exclusion-user",
@@ -564,7 +570,9 @@ def test_exclusion_directive_persists_and_bars_the_study_from_later_analysis(
     joined = " ".join(str(c["verbatim_quote"]) for c in third.verified_citations)
     assert "Forty-two" not in joined
     # The immutable authorization allowlist is untouched by the correction.
-    assert store.get_thread(thread.thread_id, user_id="exclusion-user").allowed_version_keys == ()
+    assert store.get_thread(thread.thread_id, user_id="exclusion-user").allowed_version_keys == (
+        allowed
+    )
 
     # A later comparison must also respect the exclusion: the model may ask
     # for a matrix over all papers, but the published matrix may not report
