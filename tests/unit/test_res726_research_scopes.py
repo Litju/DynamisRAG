@@ -1,11 +1,14 @@
 """RES-726: browsing, hard source boundaries, and soft comparison referents are distinct."""
 
+from typing import cast
+
 from dynamisrag.agent.graph import (
     ConversationalResearchOrchestrator,
+    LiteratureAcquisitionPort,
     ResearchAgentState,
     _comparison_anchor_present,  # pyright: ignore[reportPrivateUsage]
-    _thread_research_scopes,  # pyright: ignore[reportPrivateUsage]
     _reject_unanchored_comparison_claims,  # pyright: ignore[reportPrivateUsage]
+    _thread_research_scopes,  # pyright: ignore[reportPrivateUsage]
 )
 
 A, B = "a" * 64, "b" * 64
@@ -46,7 +49,8 @@ def test_comparison_evidence_must_include_the_referenced_study() -> None:
 
 def test_discovery_router_uses_hard_allowlist_not_automatic_comparison_reference() -> None:
     orchestrator = object.__new__(ConversationalResearchOrchestrator)
-    setattr(orchestrator, "_acquisition", object())
+    # Routing only tests that an acquisition port is configured; none may run here.
+    orchestrator._acquisition = cast("LiteratureAcquisitionPort", object())  # pyright: ignore[reportPrivateUsage]
     state: ResearchAgentState = {
         "literature_request": {"searches": []},
         "acquisition_attempted": False,
