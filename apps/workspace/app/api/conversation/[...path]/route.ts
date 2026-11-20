@@ -75,7 +75,7 @@ async function handle(
       try {
         // The browser must explicitly opt into a hard paper restriction. A
         // missing mode remains compatible only with legacy automatic sessions.
-        scope = parseResearchScope(input).allowed_version_keys;
+        scope = parseResearchScope(input as Record<string, unknown>).allowed_version_keys;
       } catch {
         return Response.json(
           { error: "Choose automatic research or explicitly restrict to selected papers" },

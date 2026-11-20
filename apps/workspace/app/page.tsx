@@ -5,7 +5,7 @@ import { Composer, History, Library, Panel, ResearchMode } from "./components/wo
 import { Conversation, type ResearchEntry } from "./components/conversation";
 import { SourceStack } from "./components/source-stack";
 import { ResearchScopeControls } from "./components/workspace-controls";
-import { modeFromAllowedKeys, sessionScope, type ResearchMode } from "../lib/research-scope";
+import { modeFromAllowedKeys, sessionScope, type ResearchMode as ResearchScopeMode } from "../lib/research-scope";
 import {
   type Paper, type Thread, type WorkspaceSettings, research,
   titleFromQuestion, workspaceRequest,
@@ -21,7 +21,7 @@ export default function Workspace() {
   const [threads, setThreads] = useState<Thread[]>([]);
   const [active, setActive] = useState<Thread | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
-  const [researchMode, setResearchMode] = useState<ResearchMode>("automatic");
+  const [researchMode, setResearchMode] = useState<ResearchScopeMode>("automatic");
   const [draft, setDraft] = useState("");
   const [initial, setInitial] = useState<ResearchEntry>();
   const [creating, setCreating] = useState(false);
