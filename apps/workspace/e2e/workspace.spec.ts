@@ -199,6 +199,26 @@ test("mobile workspace fits and rejects unauthenticated API requests", async ({
   await anonymous.dispose();
 });
 
+test("a new research question starts in automatic mode without any paper clicks", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("radio", { name: /Automatic research/ })).toBeChecked();
+  await expect(page.locator(".paper input:checked")).toHaveCount(0);
+  const creating = page.waitForRequest(
+    (request) => /\/api\/conversation\/eve\/v1\/session$/.test(request.url()) &&
+      request.method() === "POST",
+  );
+  await page.getByLabel("Ask a research question").fill("What evidence concerns Achilles tendon stiffness?");
+  await page.getByRole("button", { name: "Start research", exact: true }).click();
+  const request = await creating;
+  expect(request.postDataJSON()).toMatchObject({
+    research_mode: "automatic",
+    allowed_version_keys: [],
+  });
+  await expect(page.locator(".conversation")).toBeVisible({ timeout: 30_000 });
+  await page.getByRole("button", { name: "New research", exact: true }).click();
+  await expect(page.getByRole("radio", { name: /Automatic research/ })).toBeChecked();
+});
+
 test("paper browsing cannot silently restrict automatic research", async ({ page }) => {
   await expect(page.getByRole("radio", { name: /Automatic research/ })).toBeChecked();
   const stack = page.getByRole("region", { name: "Browse saved papers" });

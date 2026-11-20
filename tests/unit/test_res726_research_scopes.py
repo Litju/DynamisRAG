@@ -1,6 +1,8 @@
 """RES-726: browsing, hard source boundaries, and soft comparison referents are distinct."""
 
 from dynamisrag.agent.graph import (
+    ConversationalResearchOrchestrator,
+    ResearchAgentState,
     _comparison_anchor_present,  # pyright: ignore[reportPrivateUsage]
     _thread_research_scopes,  # pyright: ignore[reportPrivateUsage]
 )
@@ -39,3 +41,20 @@ def test_comparison_evidence_must_include_the_referenced_study() -> None:
     assert not _comparison_anchor_present((A,), [unrelated])
     assert _comparison_anchor_present((A,), [original, unrelated])
     assert _comparison_anchor_present((), [unrelated])
+
+
+def test_discovery_router_uses_hard_allowlist_not_automatic_comparison_reference() -> None:
+    orchestrator = object.__new__(ConversationalResearchOrchestrator)
+    setattr(orchestrator, "_acquisition", object())
+    state: ResearchAgentState = {
+        "literature_request": {"searches": []},
+        "acquisition_attempted": False,
+        "scoped_version_keys": [],
+        "allowed_version_keys": [],
+        "comparison_anchor_version_keys": [A],
+    }
+    assert orchestrator._route_after_tools(state) == "acquire_external_literature"  # pyright: ignore[reportPrivateUsage]
+
+    # A deliberately restricted conversation must not browse the broader corpus.
+    state["allowed_version_keys"] = [A]
+    assert orchestrator._route_after_tools(state) == "finalize_durable_response"  # pyright: ignore[reportPrivateUsage]
