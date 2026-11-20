@@ -183,6 +183,12 @@ class ThreadRecord(AgentContract):
     allowed_version_keys: tuple[Sha256Hex, ...] = ()
     active_version_keys: tuple[Sha256Hex, ...] = ()
     active_passage_keys: tuple[Sha256Hex, ...] = ()
+    excluded_version_keys: tuple[Sha256Hex, ...] = ()
+    """User-directed run-local scope corrections ("Exclude that paper ...").
+
+    Research-evidence memory only: the immutable authorization allowlist
+    (``allowed_version_keys``) and canonical evidence are never touched by it.
+    """
     conversation_summary: str = ""
     messages: tuple[ThreadMessageRecord, ...] = ()
     created_at: str
@@ -250,6 +256,8 @@ class ThreadContextUpdate(AgentContract):
 
     active_version_keys: tuple[Sha256Hex, ...] = ()
     active_passage_keys: tuple[Sha256Hex, ...] = ()
+    excluded_version_keys: tuple[Sha256Hex, ...] = ()
+    """Full thread exclusion list after this run (prior plus this run's directive)."""
     conversation_summary: str = ""
     append_messages: tuple[ThreadMessageRecord, ...] = ()
 
@@ -306,6 +314,7 @@ class AgentConversationStore(Protocol):
         active_passage_keys: tuple[str, ...],
         conversation_summary: str,
         append_messages: tuple[ThreadMessageRecord, ...] = (),
+        excluded_version_keys: tuple[str, ...] = (),
     ) -> ThreadRecord: ...
 
     def create_or_get_run(
@@ -524,6 +533,7 @@ class InMemoryAgentConversationStore:
         active_passage_keys: tuple[str, ...],
         conversation_summary: str,
         append_messages: tuple[ThreadMessageRecord, ...] = (),
+        excluded_version_keys: tuple[str, ...] = (),
     ) -> ThreadRecord:
         with self._lock:
             existing = self.get_thread(thread_id, user_id=user_id)
@@ -533,6 +543,7 @@ class InMemoryAgentConversationStore:
                 update={
                     "active_version_keys": active_version_keys[:12],
                     "active_passage_keys": active_passage_keys[:24],
+                    "excluded_version_keys": excluded_version_keys[:12],
                     "conversation_summary": conversation_summary[:2000],
                     "messages": (*existing.messages, *fresh)[-40:],
                     "updated_at": _now_iso(),
@@ -802,6 +813,7 @@ class InMemoryAgentConversationStore:
                     active_passage_keys=ctx.active_passage_keys,
                     conversation_summary=ctx.conversation_summary,
                     append_messages=ctx.append_messages,
+                    excluded_version_keys=ctx.excluded_version_keys,
                 )
             return self._finish_locked(
                 run_id,
@@ -1082,6 +1094,7 @@ class PostgresAgentConversationStore:
                     allowed_version_keys_json JSONB NOT NULL DEFAULT '[]'::jsonb,
                     active_version_keys_json JSONB NOT NULL DEFAULT '[]'::jsonb,
                     active_passage_keys_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+                    excluded_version_keys_json JSONB NOT NULL DEFAULT '[]'::jsonb,
                     conversation_summary TEXT NOT NULL DEFAULT '',
                     messages_json JSONB NOT NULL DEFAULT '[]'::jsonb,
                     created_at TEXT NOT NULL,
@@ -1090,6 +1103,10 @@ class PostgresAgentConversationStore:
                 """
             )
             conn.execute("ALTER TABLE agent_threads ADD COLUMN IF NOT EXISTS external_ref TEXT")
+            conn.execute(
+                "ALTER TABLE agent_threads ADD COLUMN IF NOT EXISTS "
+                "excluded_version_keys_json JSONB NOT NULL DEFAULT '[]'::jsonb"
+            )
             conn.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS agent_threads_owner_external_ref "
                 "ON agent_threads (owner_id, external_ref) WHERE external_ref IS NOT NULL"
@@ -1230,6 +1247,7 @@ class PostgresAgentConversationStore:
             allowed_version_keys=tuple(row.get("allowed_version_keys_json") or ()),
             active_version_keys=tuple(row.get("active_version_keys_json") or ()),
             active_passage_keys=tuple(row.get("active_passage_keys_json") or ()),
+            excluded_version_keys=tuple(row.get("excluded_version_keys_json") or ()),
             conversation_summary=str(row.get("conversation_summary") or ""),
             messages=tuple(ThreadMessageRecord.model_validate(m) for m in raw_msgs),
             created_at=str(row["created_at"]),
@@ -1245,6 +1263,7 @@ class PostgresAgentConversationStore:
         active_passage_keys: tuple[str, ...],
         conversation_summary: str,
         append_messages: tuple[ThreadMessageRecord, ...] = (),
+        excluded_version_keys: tuple[str, ...] = (),
     ) -> ThreadRecord:
         with self._pool.connection() as conn, conn.transaction():
             return self._update_thread_context_tx(
@@ -1254,6 +1273,7 @@ class PostgresAgentConversationStore:
                 update=ThreadContextUpdate(
                     active_version_keys=active_version_keys,
                     active_passage_keys=active_passage_keys,
+                    excluded_version_keys=excluded_version_keys,
                     conversation_summary=conversation_summary,
                     append_messages=append_messages,
                 ),
@@ -1278,6 +1298,7 @@ class PostgresAgentConversationStore:
             update={
                 "active_version_keys": update.active_version_keys[:12],
                 "active_passage_keys": update.active_passage_keys[:24],
+                "excluded_version_keys": update.excluded_version_keys[:12],
                 "conversation_summary": update.conversation_summary[:2000],
                 "messages": (*existing.messages, *fresh)[-40:],
                 "updated_at": _now_iso(),
@@ -1287,12 +1308,14 @@ class PostgresAgentConversationStore:
             """
             UPDATE agent_threads
             SET active_version_keys_json = %s::jsonb, active_passage_keys_json = %s::jsonb,
+                excluded_version_keys_json = %s::jsonb,
                 conversation_summary = %s, messages_json = %s::jsonb, updated_at = %s
             WHERE thread_id = %s
             """,
             (
                 json.dumps(list(updated.active_version_keys)),
                 json.dumps(list(updated.active_passage_keys)),
+                json.dumps(list(updated.excluded_version_keys)),
                 updated.conversation_summary,
                 json.dumps([m.model_dump(mode="json") for m in updated.messages]),
                 updated.updated_at,

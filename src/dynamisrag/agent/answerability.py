@@ -45,6 +45,7 @@ from dynamisrag.generation.scientific import scientific_terms
 __all__ = [
     "CALIBRATED_MIN_COMPARISON_COVERAGE",
     "CALIBRATED_MIN_RELEVANCE",
+    "CONVERSATIONAL_REFERENCE_REASON",
     "GATE_VERSION",
     "AnswerabilityDecision",
     "CandidateAssessment",
@@ -159,6 +160,22 @@ _GENERIC_QUERY_TERMS: Final[frozenset[str]] = frozenset(
         "evaluate",
         "literature",
         "scientific",
+        # Follow-up determiners and quantifiers ("other reference systems", "find
+        # additional primary research", "any further evidence", "more studies").
+        # They frame how much evidence is wanted, never which study or which
+        # facet: no passage needs to contain them, so they must not trigger the
+        # salient-term- absent-everywhere abstention nor carry topical weight.
+        "other",
+        "another",
+        "additional",
+        "further",
+        "extra",
+        "similar",
+        "any",
+        "some",
+        "such",
+        "more",
+        "each",
     }
 )
 
@@ -1134,6 +1151,51 @@ def _documents(assessments: Iterable[CandidateAssessment]) -> int:
     )
 
 
+CONVERSATIONAL_REFERENCE_REASON: Final[str] = "conversational_reference_study"
+
+
+def _admit_conversational_references(
+    assessments: Sequence[CandidateAssessment],
+    referenced: frozenset[str],
+) -> tuple[CandidateAssessment, ...]:
+    """A conversationally referenced study is relevant by definition (RES-726).
+
+    The caller — never the question text — names the documents the conversation
+    is about. A lexical coverage threshold over the *new* subject of a
+    comparative follow-up ("force plates") must not drop the referenced study,
+    or the retrieval-level and final-citation-level reference checks would
+    reject every answer for missing a subject the gate itself removed. Admission
+    is recorded per candidate; a referenced study alone never makes a
+    comparison answerable — the comparison branches still require evidence for
+    the asked-about facets, or a second referenced study.
+    """
+    if not referenced:
+        return tuple(assessments)
+    admitted: list[CandidateAssessment] = []
+    for assessment in assessments:
+        if (
+            assessment.candidate.document_version_key in referenced
+            and assessment.candidate.canonical_verified
+            and not assessment.admissible
+        ):
+            reasons = tuple(
+                reason
+                for reason in assessment.reasons
+                if reason not in ("insufficient_query_facet_coverage", "missing_entity")
+            )
+            admitted.append(
+                replace(
+                    assessment,
+                    admissible=True,
+                    missing_entities=(),
+                    reasons=(*reasons, CONVERSATIONAL_REFERENCE_REASON),
+                )
+            )
+        else:
+            admitted.append(assessment)
+    return tuple(admitted)
+
+
 def _decision(
     *,
     profile: QueryProfile,
@@ -1156,6 +1218,7 @@ def _decision(
             if _facet_present(profile, aspect, terms, {t.replace("_", "") for t in terms}):
                 count += 1
         coverage.append((aspect, count))
+    accepted_keys = {a.candidate.passage_key for a in accepted}
     return AnswerabilityDecision(
         aspect_coverage=tuple(coverage),
         verdict=verdict,
@@ -1173,7 +1236,9 @@ def _decision(
         assessments=tuple(assessments),
         accepted_passage_keys=tuple(a.candidate.passage_key for a in accepted),
         rejected_passage_keys=tuple(
-            a.candidate.passage_key for a in assessments if not a.admissible
+            a.candidate.passage_key
+            for a in assessments
+            if not a.admissible and a.candidate.passage_key not in accepted_keys
         ),
         accepted_claim_indexes=accepted_claim_indexes,
         contradictory=contradictory,
@@ -1187,8 +1252,14 @@ def assess_retrieval(  # noqa: PLR0911, PLR0912 - explicit fail-closed branches
     *,
     context: str = "",
     authorized_document_count: int | None = None,
+    referenced_document_keys: Sequence[str] = (),
 ) -> AnswerabilityDecision:
-    """Reject irrelevant retrieval candidates and decide whether to attempt synthesis."""
+    """Reject irrelevant retrieval candidates and decide whether to attempt synthesis.
+
+    ``referenced_document_keys`` are the documents the conversation itself named
+    (a comparative follow-up's subject). They are admitted by reference, not by
+    lexical coverage of the new comparison subject.
+    """
     profile = build_query_profile(question, context)
     profile = _with_expansions(profile, [context, *(f"{c.title} {c.text}" for c in candidates)])
     canonical_terms = [
@@ -1196,6 +1267,8 @@ def assess_retrieval(  # noqa: PLR0911, PLR0912 - explicit fail-closed branches
     ]
     profile = _with_corpus_specificity(profile, canonical_terms)
     assessments = tuple(_assess_candidate(profile, candidate) for candidate in candidates)
+    referenced = frozenset(str(key) for key in referenced_document_keys if str(key))
+    assessments = _admit_conversational_references(assessments, referenced)
     admissible = tuple(a for a in assessments if a.admissible)
     if (
         profile.kind in {"factual", "comparison"}
@@ -1285,19 +1358,62 @@ def assess_retrieval(  # noqa: PLR0911, PLR0912 - explicit fail-closed branches
                 assessments=assessments,
                 accepted=canonical,
             )
-        if canonical and any(a.admissible for a in canonical):
-            # When the question names salient facets, an irrelevant document is
-            # not made comparable merely by existing in the authorized scope.
+        anchored = tuple(a for a in canonical if a.candidate.document_version_key in referenced)
+        others = tuple(a for a in canonical if a.candidate.document_version_key not in referenced)
+        anchored_on_own_merits = tuple(
+            a for a in anchored if a.admissible and CONVERSATIONAL_REFERENCE_REASON not in a.reasons
+        )
+        if any(a.admissible for a in others) or anchored_on_own_merits:
+            # The new comparison subject is covered on its own merits, or the
+            # referenced study itself covers it; the conversationally referenced
+            # study joins the accepted set by reference, never by lexical
+            # coverage of the new subject.
             return _decision(
                 profile=profile,
                 verdict="ANSWERABLE",
                 code="comparison_structurally_answerable",
                 detail=(
-                    "At least one canonical document covers the named comparison facets; "
-                    "the comparison tool extracts the structural design/population facets."
+                    "At least one canonical document covers the named comparison facets and "
+                    "the conversationally referenced study is admitted by reference; the "
+                    "comparison tool extracts the structural design/population facets."
                 ),
                 assessments=assessments,
-                accepted=tuple(a for a in canonical if a.admissible),
+                accepted=(*anchored, *(a for a in others if a.admissible)),
+            )
+        if others:
+            return _decision(
+                profile=profile,
+                verdict="ABSTAIN",
+                code="insufficient_query_coverage",
+                detail=(
+                    "Available studies do not cover the comparison's asked-about facets; "
+                    "the conversationally referenced study alone cannot answer it."
+                ),
+                assessments=assessments,
+            )
+        if len({a.candidate.document_version_key for a in anchored}) >= 2:
+            # "How do those studies compare?" — every side is itself a prior referent.
+            return _decision(
+                profile=profile,
+                verdict="ANSWERABLE",
+                code="comparison_structurally_answerable",
+                detail=(
+                    "The conversation referenced several studies; each side is admitted by "
+                    "reference and the comparison tool extracts their structural facets."
+                ),
+                assessments=assessments,
+                accepted=anchored,
+            )
+        if canonical:
+            return _decision(
+                profile=profile,
+                verdict="ABSTAIN",
+                code="insufficient_cross_study_evidence",
+                detail=(
+                    "Only the conversationally referenced study is available for this "
+                    "comparison; no second side exists in the authorized corpus."
+                ),
+                assessments=assessments,
             )
     if not admissible:
         missing_entity = all(a.missing_entities for a in assessments)
@@ -1464,16 +1580,21 @@ def _aspect_claim_assessment(
     return replace(assessment, admissible=admissible, reasons=reasons)
 
 
-def assess_claims(  # noqa: PLR0911, PLR0912 - explicit fail-closed branches
+def assess_claims(  # noqa: PLR0911, PLR0912, PLR0915 - explicit fail-closed branches
     question: str,
     claims: Sequence[ClaimEvidence],
     *,
     context: str = "",
+    referenced_document_keys: Sequence[str] = (),
 ) -> AnswerabilityDecision:
     """Final gate before synthesis/finalisation, after canonical claim verification.
 
     It answers only whether the *verified quotations* address the asked-about
     entities/facets. It cannot and does not establish entailment.
+
+    ``referenced_document_keys`` are the conversation's named studies; their
+    verified quotations are accepted by reference so a comparison answer can
+    cite its own subject (RES-726).
     """
     profile = build_query_profile(question, context)
     if not claims:
@@ -1510,6 +1631,8 @@ def assess_claims(  # noqa: PLR0911, PLR0912 - explicit fail-closed branches
         profile, [_candidate_terms(candidate) for candidate in claim_candidates]
     )
     assessments = tuple(_assess_candidate(profile, candidate) for candidate in claim_candidates)
+    referenced = frozenset(str(key) for key in referenced_document_keys if str(key))
+    assessments = _admit_conversational_references(assessments, referenced)
     if profile.aspects:
         # A broad multi-aspect question: the caller admits only quotations from passages that
         # passed the retrieval gate (core topic + an aspect). One quotation is one finding, so it
@@ -1588,19 +1711,24 @@ def assess_claims(  # noqa: PLR0911, PLR0912 - explicit fail-closed branches
             )
     if profile.kind == "comparison":
         salient = _salient_terms(profile)
-        comparable = (
-            admissible
-            if salient
-            else tuple(a for a in assessments if a.candidate.canonical_verified)
-        )
-        comparable_indexes = (
-            admissible_indexes
-            if salient
-            else tuple(
-                index
-                for index, assessment in enumerate(assessments)
-                if assessment.candidate.canonical_verified
+        if not salient:
+            comparable = tuple(a for a in assessments if a.candidate.canonical_verified)
+        else:
+            # Claims of the conversationally referenced study are accepted by
+            # reference; at least one other admissible study must still answer
+            # the asked-about facets for the comparison to be answerable.
+            anchored = tuple(
+                a for a in assessments if a.candidate.document_version_key in referenced
             )
+            comparable = (
+                *anchored,
+                *(a for a in admissible if a.candidate.document_version_key not in referenced),
+            )
+        comparable_keys = {a.candidate.passage_key for a in comparable}
+        comparable_indexes = tuple(
+            index
+            for index, assessment in enumerate(assessments)
+            if assessment.candidate.passage_key in comparable_keys
         )
         admissible_documents = _documents(comparable)
         if admissible_documents < 2:

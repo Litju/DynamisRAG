@@ -319,6 +319,7 @@ def check_stale_worker_cannot_append_events_or_touch_thread_memory(h: StoreHarne
 
     context = ThreadContextUpdate(
         active_version_keys=("a" * 64,),
+        excluded_version_keys=("b" * 64,),
         conversation_summary="from run",
         append_messages=(
             ThreadMessageRecord(
@@ -331,11 +332,13 @@ def check_stale_worker_cannot_append_events_or_touch_thread_memory(h: StoreHarne
         h.store.complete_run(run.run_id, worker_id="worker-a", completion=stale)
     untouched = h.store.get_thread(thread_id, user_id="owner")
     assert untouched.messages == () and untouched.conversation_summary == ""
+    assert untouched.excluded_version_keys == ()
 
     h.store.complete_run(run.run_id, worker_id="worker-b", completion=stale)
     updated = h.store.get_thread(thread_id, user_id="owner")
     assert [m.message_id for m in updated.messages] == ["msg-1"]
     assert updated.active_version_keys == ("a" * 64,) and updated.conversation_summary == "from run"
+    assert updated.excluded_version_keys == ("b" * 64,)
     stages = [e.stage for e in h.store.list_events(run.run_id, user_id="owner")]
     assert "worker-a" not in stages[2:] and "worker-b" in stages
 

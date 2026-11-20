@@ -62,6 +62,7 @@ from dynamisrag.agent.contracts import (
     DataScope,
     ExpandPassageContextInput,
     ExtractStudyFindingsInput,
+    HybridSearchInput,
     ListPapersInput,
     ToolName,
     VerifyClaimsInput,
@@ -219,6 +220,34 @@ def _comparison_anchor_present(anchors: Sequence[str], hits: Sequence[dict[str, 
     return bool(set(anchors).intersection(seen))
 
 
+_EXCLUSION_DIRECTIVE: Final[re.Pattern[str]] = re.compile(
+    r"\b(?:exclud(?:e|ed|ing)|remove|removing|drop|dropping|ignore|ignoring|"
+    r"disregard|leave\s+out|leaving\s+out|rule\s+out)\b",
+    re.IGNORECASE,
+)
+
+
+def _thread_excluded_versions(question: str, active_version_keys: Sequence[str]) -> list[str]:
+    """An explicit exclusion directive ("Exclude that paper from the next analysis").
+
+    The user may correct the analysis scope conversationally: the referenced
+    study must NOT be used in this run's evidence. The caller merges this into
+    the thread's durable exclusion list, so the correction holds for the next
+    analysis too. It is research-evidence memory only — it never edits the
+    immutable thread allowlist, never deletes canonical evidence, and never
+    changes what OTHER threads or users may cite. A bare negation ("what did
+    the study not report") is not an exclusion: the directive verb AND a study
+    reference must both be present.
+    """
+    if not active_version_keys:
+        return []
+    if _EXCLUSION_DIRECTIVE.search(question) is None:
+        return []
+    if not _has_coreference(question):
+        return []
+    return list(active_version_keys)
+
+
 def _reject_unanchored_comparison_claims(
     verified: list[dict[str, Any]],
     rejected: list[dict[str, Any]],
@@ -251,6 +280,7 @@ class ResearchAgentState(TypedDict, total=False):
     needs_context_expansion: bool
     scoped_version_keys: list[str]
     allowed_version_keys: list[str]
+    excluded_version_keys: list[str]
     active_passage_keys: list[str]
     conversation_summary: str
     messages: Annotated[list[BaseMessage], add_messages]
@@ -927,14 +957,22 @@ class ConversationalResearchOrchestrator:
         if (aborted := self._control_abort(state, config)) is not None:
             return aborted
 
+        thread = self._store.get_thread(thread_id, user_id=user_id)
+        # Durable thread exclusion list: every run carries it forward so a
+        # persisted working-memory update can never silently drop a user's
+        # scope correction ("Exclude that paper from the next analysis.").
+        durable_excluded = list(dict.fromkeys(thread.excluded_version_keys))[:12]
+
         if contains_prompt_injection(question):
             return {
+                "excluded_version_keys": durable_excluded,
+                "prior_active_version_keys": list(thread.active_version_keys),
+                "active_passage_keys": list(thread.active_passage_keys),
                 "abstained": True,
                 "abstention_reason": "prompt_injection_detected_in_user_query",
                 "final_status": RunStatus.ABSTAINED.value,
             }
 
-        thread = self._store.get_thread(thread_id, user_id=user_id)
         has_coref = _has_coreference(question)
         if has_coref and not thread.active_version_keys and thread.messages:
             # A pronoun/demonstrative after a prior turn has no antecedent in the
@@ -945,6 +983,7 @@ class ConversationalResearchOrchestrator:
                 "resolved_question": question[:500],
                 "scoped_version_keys": [],
                 "allowed_version_keys": list(thread.allowed_version_keys),
+                "excluded_version_keys": durable_excluded,
                 "active_passage_keys": list(thread.active_passage_keys),
                 "prior_active_version_keys": [],
                 "conversation_summary": thread.conversation_summary,
@@ -959,6 +998,48 @@ class ConversationalResearchOrchestrator:
         scoped_versions, comparison_anchors = _thread_research_scopes(
             question, thread.allowed_version_keys, thread.active_version_keys
         )
+        # Durable thread exclusion list ("Exclude that paper from the next
+        # analysis") plus any exclusion directive in this question. Run-local
+        # research scope only: the immutable allowlist and canonical evidence
+        # are never modified.
+        excluded_versions = list(
+            dict.fromkeys(
+                (
+                    *thread.excluded_version_keys,
+                    *_thread_excluded_versions(question, thread.active_version_keys),
+                )
+            )
+        )[:12]
+        if any(key not in thread.excluded_version_keys for key in excluded_versions):
+            # This turn's directive adds a new exclusion: the referenced study
+            # is barred from this run's evidence, not pinned as its scope and
+            # not cited as a comparison anchor.
+            scoped_versions = []
+            comparison_anchors = []
+        if (
+            excluded_versions
+            and thread.allowed_version_keys
+            and set(excluded_versions) >= set(thread.allowed_version_keys)
+        ):
+            # A restricted thread whose entire authorized corpus was excluded by
+            # the user's own correction has nothing left to cite. Say so instead
+            # of silently answering from the excluded paper or outside the scope.
+            return {
+                "context_resolution_source": "excluded_entire_authorized_scope",
+                "resolved_question": question[:500],
+                "scoped_version_keys": [],
+                "allowed_version_keys": list(thread.allowed_version_keys),
+                "excluded_version_keys": excluded_versions,
+                "active_passage_keys": list(thread.active_passage_keys),
+                "prior_active_version_keys": [],
+                "conversation_summary": thread.conversation_summary,
+                "recent_turns": [
+                    {"role": m.role, "content": m.content} for m in thread.messages[-4:]
+                ],
+                "abstained": True,
+                "abstention_reason": "authorized_scope_fully_excluded",
+                "final_status": RunStatus.ABSTAINED.value,
+            }
         resolved_q = question
         resolution_source = "none_needed"
         if has_coref and thread.conversation_summary:
@@ -983,6 +1064,7 @@ class ConversationalResearchOrchestrator:
             "resolved_question": resolved_q[:500],
             "scoped_version_keys": scoped_versions,
             "allowed_version_keys": list(thread.allowed_version_keys),
+            "excluded_version_keys": excluded_versions,
             "active_passage_keys": list(thread.active_passage_keys),
             "prior_active_version_keys": list(thread.active_version_keys),
             "comparison_anchor_version_keys": comparison_anchors,
@@ -1070,6 +1152,7 @@ class ConversationalResearchOrchestrator:
                 "needs_comparison": needs_comp,
                 "needs_context_expansion": needs_expand,
                 "scoped_version_count": len(state.get("scoped_version_keys", [])),
+                "excluded_version_count": len(state.get("excluded_version_keys", [])),
                 "confirmation_required": needs_confirmation,
                 "context_resolution": state.get("context_resolution_source", "none_needed"),
             },
@@ -1105,7 +1188,7 @@ class ConversationalResearchOrchestrator:
     # Node 3: model_tool_execution
     # ------------------------------------------------------------------
 
-    def _node_model_tool_execution(
+    def _node_model_tool_execution(  # noqa: PLR0915 - tool loop, run-local scopes and the gate
         self, state: ResearchAgentState, config: RunnableConfig
     ) -> ResearchAgentState:
         """Let the MODEL choose scientific tools; validate, execute, and record every decision."""
@@ -1245,6 +1328,39 @@ class ConversationalResearchOrchestrator:
                 for key, hit in dedup_hits.items()
                 if str(hit.get("document_version_key", "")) in scoped_versions
             }
+        excluded_versions = set(state.get("excluded_version_keys", []))
+        if excluded_versions:
+            # The user's run-local correction: the referenced study is barred
+            # from this analysis. Canonical evidence itself is never touched.
+            dedup_hits = {
+                key: hit
+                for key, hit in dedup_hits.items()
+                if str(hit.get("document_version_key", "")) not in excluded_versions
+            }
+        anchors = [
+            str(key)
+            for key in state.get("comparison_anchor_version_keys", [])
+            if len(str(key)) == 64
+        ]
+        backstop_envelopes: list[dict[str, Any]] = []
+        if (
+            anchors
+            and not excluded_versions
+            and not any(
+                str(hit.get("document_version_key", "")) in set(anchors)
+                for hit in dedup_hits.values()
+            )
+        ):
+            # The model did not surface the conversationally referenced study.
+            # Retrieve it deterministically (graph-enforced, recorded as such in
+            # telemetry) so a comparative answer cannot silently substitute
+            # another subject: the anchor must be among the candidates, not
+            # merely requested in the prompt.
+            backstop_hits, backstop_envelopes = self._retrieve_referenced_studies(
+                anchors, scope, _emit
+            )
+            for hit in backstop_hits:
+                dedup_hits.setdefault(str(hit.get("passage_key", "")), hit)
         if dedup_hits:
             authorized_keys = (
                 state.get("allowed_version_keys") or state.get("scoped_version_keys") or []
@@ -1274,6 +1390,7 @@ class ConversationalResearchOrchestrator:
                 ),
                 context=prior_user_context,
                 authorized_document_count=len(authorized_keys) or None,
+                referenced_document_keys=anchors,
             )
             accepted = set(retrieval_decision.accepted_passage_keys)
             verdicts = {
@@ -1300,9 +1417,13 @@ class ConversationalResearchOrchestrator:
                 stage="model_tool_execution",
                 payload=retrieval_decision.to_payload(),
             )
+        if backstop_envelopes:
+            origin_counts = self._merge_counts(
+                origin_counts, {ToolOrigin.GRAPH_ENFORCED.value: len(backstop_envelopes)}
+            )
         update: ResearchAgentState = {
-            "tool_calls_used": outcome.tool_calls_used,
-            "tool_envelopes": outcome.envelopes,
+            "tool_calls_used": outcome.tool_calls_used + len(backstop_envelopes),
+            "tool_envelopes": [*outcome.envelopes, *backstop_envelopes],
             "tool_origin_counts": origin_counts,
             "retrieved_hits": list(dedup_hits.values()),
             "study_comparison": outcome.comparison,
@@ -1338,6 +1459,66 @@ class ConversationalResearchOrchestrator:
                 "final_status": RunStatus.ABSTAINED.value,
             }
         return update
+
+    def _retrieve_referenced_studies(
+        self,
+        anchors: Sequence[str],
+        scope: DataScope,
+        emit: Callable[[RunEventType, dict[str, Any]], None],
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """Graph-enforced retrieval of the conversationally referenced studies.
+
+        For each anchor (bounded to two): read the study's title via
+        ``list_papers``, then search inside that document using its own title as
+        the query, so the passages that define the conversation's subject are
+        found regardless of the new question's vocabulary. Every call becomes an
+        envelope; a failed call yields no hits and the run keeps its fail-closed
+        reference check. Recorded in telemetry as ``graph_enforced`` with the
+        ``referenced_study_backstop`` reason, never as a model decision.
+        """
+        hits: list[dict[str, Any]] = []
+        envelopes: list[dict[str, Any]] = []
+        bounded = list(anchors[:2])
+        for anchor in bounded:
+            papers_env = self._registry.list_papers(
+                ListPapersInput(document_version_key=anchor, limit=1), scope
+            )
+            envelopes.append(papers_env.model_dump(mode="json"))
+            title = ""
+            if papers_env.ok and papers_env.payload is not None:
+                papers = cast("list[dict[str, Any]]", papers_env.payload.get("papers", []))
+                if papers:
+                    title = str(papers[0].get("title", ""))
+            if not title:
+                continue
+            search_env = self._registry.hybrid_search(
+                HybridSearchInput(query=title, document_version_keys=(anchor,), limit=2),
+                scope,
+            )
+            envelopes.append(search_env.model_dump(mode="json"))
+            if search_env.ok and search_env.payload is not None:
+                hits.extend(cast("list[dict[str, Any]]", search_env.payload.get("hits", [])))
+        emit(
+            RunEventType.TOOL_CALLED,
+            {
+                "tool_name": ToolName.HYBRID_SEARCH.value,
+                "origin": ToolOrigin.GRAPH_ENFORCED.value,
+                "reason": "referenced_study_backstop",
+                "referenced_version_keys": bounded,
+                "calls": len(envelopes),
+            },
+        )
+        emit(
+            RunEventType.TOOL_COMPLETED,
+            {
+                "tool_name": ToolName.HYBRID_SEARCH.value,
+                "ok": bool(hits),
+                "origin": ToolOrigin.GRAPH_ENFORCED.value,
+                "reason": "referenced_study_backstop",
+                "retrieved_passage_keys": [str(hit.get("passage_key", "")) for hit in hits],
+            },
+        )
+        return hits, envelopes
 
     def _node_acquire_literature(
         self, state: ResearchAgentState, config: RunnableConfig
@@ -1651,11 +1832,12 @@ class ConversationalResearchOrchestrator:
                 ver_keys.append(vk)
 
         if len(ver_keys) < 2:
+            excluded_versions = set(state.get("excluded_version_keys", []))
             papers_env = self._registry.list_papers(ListPapersInput(limit=6), scope)
             if papers_env.ok and papers_env.payload is not None:
                 for p in cast("list[dict[str, Any]]", papers_env.payload.get("papers", [])):
                     vk = str(p.get("document_version_key", ""))
-                    if len(vk) == 64 and vk not in ver_keys:
+                    if len(vk) == 64 and vk not in ver_keys and vk not in excluded_versions:
                         ver_keys.append(vk)
 
         if len(ver_keys) < 2:
@@ -1864,6 +2046,7 @@ class ConversationalResearchOrchestrator:
                 for item in verified
             ),
             context=prior_user_context,
+            referenced_document_keys=state.get("comparison_anchor_version_keys", ()),
         )
         self._store.append_event(
             run_id,
@@ -2170,17 +2353,21 @@ class ConversationalResearchOrchestrator:
             verified_claims_count=len(verified),
             abstained=abstained,
         )
+        excluded_now = set(state.get("excluded_version_keys", []))
+        cited_active = tuple(dict.fromkeys(cited_vks)) or tuple(
+            state.get("prior_active_version_keys", [])
+        )
         context = ThreadContextUpdate(
             # The active scope is the study the latest answer actually cited. It
             # is not cumulative: a pronoun follow-up must refer to the most recent
             # answered study, not to every study ever cited in the thread. If the
-            # latest turn abstained, retain the last successful active scope.
-            active_version_keys=(
-                tuple(dict.fromkeys(cited_vks)) or tuple(state.get("prior_active_version_keys", []))
-            ),
+            # latest turn abstained, retain the last successful active scope. A
+            # user-excluded study is never a conversational referent again.
+            active_version_keys=tuple(key for key in cited_active if key not in excluded_now),
             active_passage_keys=(
                 tuple(dict.fromkeys(cited_pks)) or tuple(state.get("active_passage_keys", []))
             ),
+            excluded_version_keys=tuple(state.get("excluded_version_keys", [])),
             conversation_summary=(
                 f"Last question: {question[:200]} | Verified citations: {len(verified)}"
             ),

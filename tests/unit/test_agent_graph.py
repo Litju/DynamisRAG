@@ -486,15 +486,85 @@ def test_possessive_comparison_followup_is_scoped_to_the_latest_study(
         idempotency_key="pc-second",
     )
     assert second.status == RunStatus.COMPLETED
+    latest_versions = {
+        str(citation["document_version_key"]) for citation in second.verified_citations
+    }
     third = orchestrator.execute_run(
         thread_id=thread.thread_id,
         user_id="possessive-compare",
         question="How does its jump height compare with the other studies?",
         idempotency_key="pc-third",
     )
-    assert third.status == RunStatus.ABSTAINED
-    assert third.verified_citations == ()
-    assert third.study_comparison is None
+    # RES-726: a comparative follow-up that references the latest study must be
+    # answerable — the relevance gate used to hard-abstain on the framing word
+    # "other" and drop the referenced study for lacking the new subject's
+    # vocabulary. The referenced study must now be cited (not silently replaced)
+    # alongside the other studies' jump-height evidence.
+    assert third.status == RunStatus.COMPLETED
+    cited_versions = {
+        str(citation["document_version_key"]) for citation in third.verified_citations
+    }
+    assert latest_versions <= cited_versions
+    assert len(cited_versions - latest_versions) >= 1
+    assert third.study_comparison is not None
+
+
+def test_exclusion_directive_persists_and_bars_the_study_from_later_analysis(
+    graph_engine_and_studies: tuple[
+        Engine, dict[str, tuple[str, tuple[str, ...], tuple[str, ...]]]
+    ],
+) -> None:
+    engine, studies = graph_engine_and_studies
+    registry = ScientificToolRegistry(engine)
+    store = InMemoryAgentConversationStore()
+    runtime = build_agent_model_runtime(AgentModelConfig(provider=AgentProviderKind.DETERMINISTIC))
+    orchestrator = ConversationalResearchOrchestrator(
+        tool_registry=registry,
+        store=store,
+        model_runtime=runtime,
+    )
+    thread = store.create_thread(owner_id="exclusion-user", title="Exclusion correction")
+    first = orchestrator.execute_run(
+        thread_id=thread.thread_id,
+        user_id="exclusion-user",
+        question="How many participants were in the basketball study?",
+        idempotency_key="ex-first",
+    )
+    assert first.status == RunStatus.COMPLETED
+    basketball = {str(citation["document_version_key"]) for citation in first.verified_citations}
+    assert basketball == {studies["PMC10680285"][0]}
+
+    # The user's conversational correction: "that paper" (the study just
+    # discussed) is excluded from the next analysis. The turn itself is not a
+    # scientific question, so it abstains — but the exclusion must persist.
+    second = orchestrator.execute_run(
+        thread_id=thread.thread_id,
+        user_id="exclusion-user",
+        question="Exclude that paper from the next analysis.",
+        idempotency_key="ex-second",
+    )
+    assert second.status == RunStatus.ABSTAINED
+    after = store.get_thread(thread.thread_id, user_id="exclusion-user")
+    assert set(after.excluded_version_keys) == basketball
+    assert basketball.isdisjoint(after.active_version_keys)
+
+    # The next analysis runs over the corpus minus the excluded study. The
+    # excluded basketball study is itself about plyometric conditioning, so a
+    # completed answer here proves the exclusion is enforced, not avoided.
+    third = orchestrator.execute_run(
+        thread_id=thread.thread_id,
+        user_id="exclusion-user",
+        question="What do the available studies report about plyometric training?",
+        idempotency_key="ex-third",
+    )
+    assert third.status == RunStatus.COMPLETED
+    cited = {str(citation["document_version_key"]) for citation in third.verified_citations}
+    assert basketball.isdisjoint(cited)
+    assert cited == {studies["PMC10780924"][0], studies["PMC5263151"][0]}
+    joined = " ".join(str(c["verbatim_quote"]) for c in third.verified_citations)
+    assert "Forty-two" not in joined
+    # The immutable authorization allowlist is untouched by the correction.
+    assert store.get_thread(thread.thread_id, user_id="exclusion-user").allowed_version_keys == ()
 
 
 def test_abstention_on_out_of_corpus_and_prompt_injection(
