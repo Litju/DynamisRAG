@@ -239,7 +239,7 @@ _EXCLUSION_DIRECTIVE: Final[re.Pattern[str]] = re.compile(
     r"(?:exclude|remove|drop|ignore|disregard|leave\s+out|rule\s+out)\s+"
     r"(?:that|this|the|those|these)\s+"
     r"(?P<kind>paper|papers|study|studies|article|articles|source|sources|document|documents)"
-    r"(?:\s+from\s+(?:the|this|our)\s+(?:(?:next|current|future|remaining)\s+)?"
+    r"(?:\s+from\s+(?:the|our)\s+(?:(?:next|future|remaining)\s+)?"
     r"(?:analysis|research|comparison|synthesis|review))?\s*[.!?]?\s*$",
     re.IGNORECASE,
 )
@@ -1008,36 +1008,26 @@ class ConversationalResearchOrchestrator:
                 anchors_all_required or _SINGULAR_COMPARISON_REFERENCE.search(question) is not None
             )
         )
-        ambiguous_anchor = False
-        if comparison_anchors:
-            plural_reference = COMPARISON_PLURAL_REFERENCE.search(question)
-            if plural_reference is None:
-                ambiguous_anchor = (
-                    len(comparison_anchors) > 1
-                    and _SINGULAR_COMPARISON_REFERENCE.search(question) is not None
+        ambiguous_anchor = (
+            len(comparison_anchors) > 1
+            and not anchors_all_required
+            and _SINGULAR_COMPARISON_REFERENCE.search(question) is not None
+        )
+        if comparison_anchors and anchors_all_required:
+            size = len(comparison_anchors)
+            number_words = ("zero", "one", "two", "three", "four", "five", "six", "seven", "eight")
+            valid_counts = {str(size)}
+            if size < len(number_words):
+                valid_counts.add(number_words[size])
+            for reference in COMPARISON_PLURAL_REFERENCE.finditer(question):
+                stated_count = (
+                    reference.group("count")
+                    or reference.group("demonstrative_count")
+                    or ("two" if reference.group("both") else None)
                 )
-            elif plural_reference.group("both") is not None:
-                ambiguous_anchor = len(comparison_anchors) != 2
-            elif count := (
-                plural_reference.group("count") or plural_reference.group("demonstrative_count")
-            ):
-                named_counts = (
-                    "zero",
-                    "one",
-                    "two",
-                    "three",
-                    "four",
-                    "five",
-                    "six",
-                    "seven",
-                    "eight",
-                )
-                ambiguous_anchor = count.lower() not in {
-                    str(len(comparison_anchors)),
-                    named_counts[len(comparison_anchors)]
-                    if len(comparison_anchors) < len(named_counts)
-                    else "",
-                }
+                if stated_count is not None and stated_count.lower() not in valid_counts:
+                    ambiguous_anchor = True
+                    break
         if (has_coref and not thread.active_version_keys and thread.messages) or ambiguous_anchor:
             # A pronoun/demonstrative after a prior turn has no antecedent in the
             # thread's verified evidence. Answering from another authorized study

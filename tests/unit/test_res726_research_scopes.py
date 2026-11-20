@@ -278,6 +278,8 @@ def test_exclusion_directive_requires_both_a_directive_verb_and_a_study_referenc
         "Exclude that study\u2019s control group.",
         "Exclude that paper, or keep it for sensitivity analysis?",
         "Please exclude that paper from Fig. 2 but retain it in the review.",
+        "Exclude that paper from this comparison.",
+        "Exclude that paper from the current analysis.",
     ):
         assert exclude(question, (A,)) == []
     assert exclude("Could you please drop that paper?", (A,)) == [A]

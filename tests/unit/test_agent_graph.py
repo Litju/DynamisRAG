@@ -692,7 +692,11 @@ def test_comparison_rebuilds_a_model_matrix_that_omits_the_referenced_study(
     )
 
     for index, ambiguous_question in enumerate(
-        (question, "Compare the four studies with the available training studies.")
+        (
+            question,
+            "Compare the four studies with the available training studies.",
+            "How do they compare across these four trials on plyometric training?",
+        )
     ):
         ambiguous = orchestrator.execute_run(
             thread_id=thread.thread_id,
