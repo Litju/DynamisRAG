@@ -467,7 +467,8 @@ def _acquisition_markdown(acquisition: dict[str, Any] | None) -> str:
         f"Status `{acquisition.get('status')}` · {acquisition.get('discovered_records', 0)} "
         f"records → {acquisition.get('unique_works', 0)} unique works (DOI/PMID/PMCID) · "
         f"{len(ingested)} permitted full texts ingested · "
-        f"{len(acquisition.get('rejected') or [])} rejected · 0 model requests.",
+        f"{len(acquisition.get('rejected') or [])} rejected · "
+        f"{len(acquisition.get('deferred') or [])} deferred · 0 model requests.",
     ]
     for paper in ingested:
         lines.append(
