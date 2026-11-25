@@ -31,7 +31,7 @@ def _c(key: str, doc: str, title: str, text: str) -> EvidenceCandidate:
 
 def test_enumerated_aspects_are_any_one_not_all_and_framing_words_carry_no_topic() -> None:
     profile = build_query_profile(INITIAL)
-    assert profile.aspects == ("validi", "reliab", "applic", "limita")
+    assert profile.aspects == ("measurement_validity", "reliab", "applic", "limita")
     assert "us" not in profile.facets  # "using" is a question word, not a topic
     reliability = _c(
         "a",
@@ -45,8 +45,17 @@ def test_enumerated_aspects_are_any_one_not_all_and_framing_words_carry_no_topic
     assert decision.answerable
     assert decision.accepted_passage_keys == (reliability.passage_key,)
     payload = decision.to_payload()
-    assert payload["aspect_coverage"] == {"validi": 0, "reliab": 1, "applic": 0, "limita": 0}
-    assert set(cast("list[str]", payload["uncovered_aspects"])) == {"applic", "limita", "validi"}
+    assert payload["aspect_coverage"] == {
+        "measurement_validity": 0,
+        "reliab": 1,
+        "applic": 0,
+        "limita": 0,
+    }
+    assert set(cast("list[str]", payload["uncovered_aspects"])) == {
+        "applic",
+        "limita",
+        "measurement_validity",
+    }
 
 
 def test_a_core_topic_absent_everywhere_still_abstains() -> None:
