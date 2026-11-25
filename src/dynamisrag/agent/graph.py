@@ -1708,6 +1708,8 @@ class ConversationalResearchOrchestrator:
             "ingested": receipt.get("ingested", []),
             "already_in_corpus": receipt.get("already_in_corpus", [])[:20],
             "rejected": receipt.get("rejected", [])[:20],
+            "deferred": receipt.get("deferred", [])[:20],
+            "publication_state": receipt.get("publication_state"),
             "projection": receipt.get("projection"),
             "error_class": receipt.get("error_class"),
             "origin": origin.value,
@@ -1724,6 +1726,7 @@ class ConversationalResearchOrchestrator:
                 "status": status,
                 "ingested": len(summary["ingested"]),
                 "already_in_corpus": len(summary["already_in_corpus"]),
+                "deferred": len(summary["deferred"]),
             },
         )
         # A model request was already counted as a model-directed call by the tool loop.
