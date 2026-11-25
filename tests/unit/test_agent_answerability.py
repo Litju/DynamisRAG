@@ -22,6 +22,7 @@ from dynamisrag.agent.answerability import (
     assess_claims,
     assess_retrieval,
     build_query_profile,
+    salient_terms,
 )
 
 _FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "answerability"
@@ -337,6 +338,43 @@ def test_resolved_multi_turn_reference_can_be_answerable() -> None:
     )
     assert decision.answerable
     assert build_query_profile(resolved).kind == "factual"
+
+
+def test_multi_aspect_list_before_the_scientific_topic_remains_a_set_of_aspects() -> None:
+    question = (
+        "What does the evidence say about the validity, reliability, practical applications "
+        "and limitations of force-velocity profiling using linear position transducers in "
+        "resistance training?"
+    )
+
+    profile = build_query_profile(question)
+
+    assert profile.aspects == ("validi", "reliab", "applic", "limita")
+    assert "say" not in salient_terms(profile)
+    passages = (
+        "Linear position transducers measured force velocity profiles; resistance "
+        "measures showed validity.",
+        "Linear position transducers measured force velocity profiles; test reliability "
+        "was examined.",
+        "Linear position transducers measured force velocity profiles; practical "
+        "applications were considered.",
+        "Linear position transducers measured force velocity profiles in training; "
+        "limitations were discussed.",
+    )
+    candidates = tuple(
+        EvidenceCandidate(
+            passage_key=f"{index:064x}",
+            document_version_key=f"{index + 10:064x}",
+            title="Force-velocity profiling",
+            text=passage,
+        )
+        for index, passage in enumerate(passages, start=1)
+    )
+
+    decision = assess_retrieval(question, candidates)
+
+    assert decision.answerable
+    assert all(count for _, count in decision.aspect_coverage)
 
 
 def test_retrieval_never_upgrades_noncanonical_evidence() -> None:

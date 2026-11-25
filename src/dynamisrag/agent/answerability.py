@@ -162,6 +162,7 @@ _GENERIC_QUERY_TERMS: Final[frozenset[str]] = frozenset(
         "evaluate",
         "literature",
         "scientific",
+        "say",
         # Follow-up determiners and quantifiers ("other reference systems", "find
         # additional primary research", "any further evidence", "more studies").
         # They frame how much evidence is wanted, never which study or which
@@ -748,7 +749,8 @@ def _entities(question: str) -> tuple[tuple[str, ...], ...]:
 _ENUM_WORD: Final = r"[a-z][a-z\-]*"
 _ENUMERATION: Final = re.compile(
     rf"((?:{_ENUM_WORD}\s+){{0,2}}{_ENUM_WORD}(?:\s*,\s*(?:{_ENUM_WORD}\s+){{0,2}}{_ENUM_WORD})+"
-    rf"\s*,?\s+(?:and|or)\s+(?:{_ENUM_WORD}\s+){{0,2}}{_ENUM_WORD})\s*$"
+    # Keep a following topic phrase (for example, "limitations of profiling") out of the list.
+    rf"\s*,?\s+(?:and|or)\s+(?:{_ENUM_WORD}\s+){{0,2}}?{_ENUM_WORD})"
 )
 _ACRONYM_DEFINITION: Final = re.compile(
     r"((?:[A-Za-z][\w-]*\s+){1,5}?[A-Za-z][\w-]*)\s*\(\s*([A-Z][A-Z0-9]{1,7})s?\s*\)"
