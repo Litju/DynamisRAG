@@ -4,6 +4,8 @@
 
 No `release-blocker.json` is present in the checkout or retained RES-726 evidence directory. The diagnosis below uses the original event captures and run records already committed; those artifacts are left unchanged.
 
+The current isolated preview agent store was queried read-only on 2026-11-25. Its `agent_v2.checkpoints`, `agent_v2.agent_runs` and `agent_v2.agent_threads` tables exist, but each returned zero rows for the archived thread IDs `thread-8f5cf852d3a74d5a`, `thread-05c14e1c506149b5` and `thread-6302e37585df4de6`. The historical LangGraph checkpoint bytes are therefore unavailable in the mounted store; the original run events remain the replay evidence.
+
 | Artifact | SHA-256 | Finding |
 | --- | --- | --- |
 | `res638-research-workflow/browser/turn1-events.sse` | `68aa58910b49563b6b687f00bf5380255d57beae8c7c1a0666ec94c8100b8a9d` | Four licensed works were projected to 111 passages. The provider authorization gate refused model calls, so graph fallback searched once before and once after discovery. Retrieval returned canonical passages, then the evidence gate abstained with `insufficient_query_coverage`. |
