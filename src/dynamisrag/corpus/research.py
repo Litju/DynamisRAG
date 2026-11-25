@@ -138,7 +138,10 @@ class AcquisitionLimits(BaseModel):
     target_candidates: int = Field(default=12, ge=1, le=50)
     max_fulltext_requests: int = Field(default=8, ge=1, le=16)
     max_papers: int = Field(default=5, ge=1, le=10)
+    # Per-acquisition budget for newly acquired passages (embedding/projection cost),
+    # distinct from the cumulative corpus size and from LLM context budgets.
     max_passages: int = Field(default=400, ge=10, le=1500)
+    max_new_passages: int | None = Field(default=None, ge=10, le=1500)
     min_request_interval_seconds: float = Field(default=1.0, ge=0.2, le=10.0)
     max_retry_after_seconds: float = Field(default=15.0, ge=0.0, le=60.0)
     deadline_seconds: float = Field(default=900.0, ge=30.0, le=3600.0)
@@ -720,10 +723,13 @@ class LiteratureAcquisition:
             receipt["status"] = "stopped"
             return receipt
         with _LOCK:  # one canonical writer and one Qdrant publisher per process
-            ingested, rejected, present = self._ingest(groups, raw_epmc, started, should_stop)
+            ingested, rejected, present, deferred = self._ingest(
+                groups, raw_epmc, started, should_stop
+            )
             receipt["ingested"] = ingested
             receipt["rejected"] = rejected
             receipt["already_in_corpus"] = present
+            receipt["deferred"] = deferred
             progress(
                 "literature.ingested",
                 {
@@ -736,14 +742,27 @@ class LiteratureAcquisition:
                     ],
                     "rejected": len(rejected),
                     "already_in_corpus": len(present),
+                    "deferred": len(deferred),
                 },
             )
-            if not ingested:
-                # Discovered works that are already canonical are still evidence to retrieve.
-                receipt["status"] = "already_in_corpus" if present else "nothing_ingested"
+            if not ingested and not present:
+                if deferred:
+                    receipt["status"] = "deferred"
+                    receipt["deferred_work"] = deferred
+                else:
+                    receipt["status"] = "nothing_ingested"
                 return receipt
-            receipt["projection"] = self._project(started)
-            progress("corpus.projected", receipt["projection"])
+            if should_stop():
+                receipt["status"] = "stopped"
+                return receipt
+            # A previous run may have committed a canonical paper before publishing its vectors.
+            projection = self._project(started, if_changed=not ingested)
+            if projection is None:
+                receipt["status"] = "already_in_corpus"
+                return receipt
+            receipt["projection"] = projection
+            receipt["publication_state"] = "published"
+            progress("corpus.projected", projection)
         receipt["status"] = "completed"
         receipt["duration_seconds"] = round(time.monotonic() - started, 3)
         return receipt
@@ -834,19 +853,29 @@ class LiteratureAcquisition:
 
     # -- ingestion ------------------------------------------------------------------------
 
-    def _ingest(
+    def _ingest(  # noqa: PLR0915 - ingestion and budget admission are one transactional flow
         self,
         groups: Sequence[list[DiscoveredRecord]],
         raw_epmc: dict[str, dict[str, Any]],
         started: float,
         should_stop: Callable[[], bool],
-    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    ) -> tuple[
+        list[dict[str, Any]],
+        list[dict[str, Any]],
+        list[dict[str, Any]],
+        list[dict[str, Any]],
+    ]:
         limits = self.limits
+        passage_budget = (
+            limits.max_new_passages if limits.max_new_passages is not None else limits.max_passages
+        )
         ingested: list[dict[str, Any]] = []
         rejected: list[dict[str, Any]] = []
         present: list[dict[str, Any]] = []
+        deferred: list[dict[str, Any]] = []
         existing = self._existing_identifiers()
         fetches = 0
+        new_passages = 0
         store = FileSystemObjectStore(self.store_root / "sources")
         fulltext = self._fulltext_factory()
         try:
@@ -861,7 +890,8 @@ class LiteratureAcquisition:
                     present.append(identity)
                     continue
                 if len(ingested) >= limits.max_papers:
-                    break
+                    deferred.append({**identity, "reason": "paper_budget_exceeded"})
+                    continue
                 if should_stop() or time.monotonic() - started > limits.deadline_seconds:
                     rejected.append({**identity, "reason": "stopped_or_deadline"})
                     break
@@ -888,7 +918,20 @@ class LiteratureAcquisition:
                         {**identity, "stage": "original_article", "reason": str(error)[:240]}
                     )
                     continue
-                paper = self._import(payload, EuropePmcAcquisition(fulltext, store))
+                try:
+                    paper = self._import(
+                        payload,
+                        EuropePmcAcquisition(fulltext, store),
+                        passage_budget_remaining=passage_budget - new_passages,
+                    )
+                except AcquisitionError as error:
+                    if error.code == "passage_budget_exceeded":
+                        deferred.append({**identity, "reason": "passage_budget_exceeded"})
+                        continue
+                    rejected.append(
+                        {**identity, "stage": "canonical_import", "reason": str(error)[:240]}
+                    )
+                    continue
                 ingested.append(
                     {
                         **identity,
@@ -900,9 +943,10 @@ class LiteratureAcquisition:
                         "article_url": f"https://europepmc.org/article/PMC/{pmcid}",
                     }
                 )
+                new_passages += int(paper.get("passages", 0))
         finally:
             fulltext.close()
-        return ingested, rejected, present
+        return ingested, rejected, present, deferred
 
     def _existing_identifiers(self) -> set[tuple[str, str]]:
         with Session(self.ingest_engine) as session:
@@ -912,44 +956,58 @@ class LiteratureAcquisition:
         return {(str(kind), str(value).lower()) for kind, value in rows}
 
     def _import(
-        self, payload: AcquiredFulltext, acquisition: EuropePmcAcquisition
+        self,
+        payload: AcquiredFulltext,
+        acquisition: EuropePmcAcquisition,
+        *,
+        passage_budget_remaining: int,
     ) -> dict[str, Any]:
         """Persist the exact verified bytes; the importer is idempotent per source digest."""
-        with Session(self.ingest_engine) as session, session.begin():
-            acquired = acquisition.acquire_payload(session, payload)
-            result = JatsCanonicalImporter(session).import_artifact(
-                acquired.artifact, payload.content
-            )
-            sections = [
-                section_from_record(r, version_key=result.version.version_key)
-                for r in list_sections(session, result.version.id)
-            ]
-            paragraphs = [
-                paragraph_from_record(r, version_key=result.version.version_key)
-                for r in list_paragraphs(session, result.version.id)
-            ]
-            manifest = StructureAwareChunker().plan(result.version, sections, paragraphs)
-            if manifest.chunker_revision != self.chunker_revision:
-                raise AcquisitionError("chunker_revision_mismatch")
-            materialized = PassageMaterializer(session).materialize(result.version, manifest)
-            return {
-                "document_version_key": result.version.version_key,
-                "canonical_title": result.version.title[:300],
-                "passages": len(materialized.passages),
-                "import_created": result.created,
-                "passage_manifest_sha256": manifest.manifest_sha256,
-            }
+        with Session(self.ingest_engine) as session:
+            try:
+                with session.begin():
+                    acquired = acquisition.acquire_payload(session, payload)
+                    result = JatsCanonicalImporter(session).import_artifact(
+                        acquired.artifact, payload.content
+                    )
+                    sections = [
+                        section_from_record(r, version_key=result.version.version_key)
+                        for r in list_sections(session, result.version.id)
+                    ]
+                    paragraphs = [
+                        paragraph_from_record(r, version_key=result.version.version_key)
+                        for r in list_paragraphs(session, result.version.id)
+                    ]
+                    manifest = StructureAwareChunker().plan(result.version, sections, paragraphs)
+                    if manifest.chunker_revision != self.chunker_revision:
+                        raise AcquisitionError("chunker_revision_mismatch")
+                    materialized = PassageMaterializer(session).materialize(
+                        result.version, manifest
+                    )
+                    if len(materialized.passages) > passage_budget_remaining:
+                        raise AcquisitionError("passage_budget_exceeded")
+                    return {
+                        "document_version_key": result.version.version_key,
+                        "canonical_title": result.version.title[:300],
+                        "passages": len(materialized.passages),
+                        "import_created": result.created,
+                        "passage_manifest_sha256": manifest.manifest_sha256,
+                    }
+            except Exception:
+                session.rollback()
+                raise
 
     # -- projection -----------------------------------------------------------------------
 
-    def _project(self, started: float) -> dict[str, Any]:
+    def _project(self, started: float, *, if_changed: bool = False) -> dict[str, Any] | None:
         with Session(self.ingest_engine) as session:
             records = tuple(
                 list_passage_projection_records(session, chunker_revision=self.chunker_revision)
             )
         passages = build_projection_manifest(records, chunker_revision=self.chunker_revision)
-        if passages.document_count > self.limits.max_passages:
-            raise AcquisitionError("passage_budget_exceeded")
+        # Cumulative corpus size is not a per-run budget: the projection publishes
+        # the entire canonical corpus, while per-acquisition growth is bounded in
+        # _ingest. Publication state below is explicit in the returned receipt.
         previous_name = self.qdrant.aliases().get(self.alias)
         reusable: dict[tuple[str, str], tuple[float, ...]] = {}
         if previous_name is not None:
@@ -960,6 +1018,8 @@ class LiteratureAcquisition:
                     previous_name,
                     chunker_revision=self.chunker_revision,
                 )
+                if if_changed and previous.passages.projection_sha256 == passages.projection_sha256:
+                    return None
                 reusable = {
                     (e.passage_key, e.content_sha256): e.values for e in previous.embeddings.entries
                 }

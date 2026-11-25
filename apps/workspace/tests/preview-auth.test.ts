@@ -93,3 +93,41 @@ test("self-hosted production reaches Eve on loopback without forwarding browser 
   assert.equal(response.status, 503);
   assert.deepEqual(seen, [{ origin: "http://127.0.0.1:4274", cookie: null }]);
 });
+
+test("Vercel's runtime identity stays on the deployed Eve service", async (t) => {
+  const previous = { ...process.env };
+  t.after(() => { process.env = previous; });
+  Object.assign(process.env, {
+    VERCEL: "1",
+    VERCEL_URL: "preview.example",
+    DYNAMISRAG_AGENT_IDENTITY_SECRET: "preview-test-secret-0123456789abcdef",
+    DYNAMISRAG_API_ORIGIN: "https://python.example",
+    WORKSPACE_ACCOUNTS: JSON.stringify({
+      alice: "salt:" + scryptSync("password", "salt", 64).toString("hex"),
+    }),
+  });
+  const hops: [string, string | null][] = [];
+  t.mock.method(globalThis, "fetch", async (url: URL, init: RequestInit) => {
+    hops.push([url.origin, new Headers(init.headers).get("x-vercel-trusted-oidc-idp-token")]);
+    if (url.host === "python.example") return Response.json({ thread_id: "thread-1" });
+    return Response.json({ sessionId: "session-1" }, { status: 202 });
+  });
+  const call = () => POST(new Request("https://preview.example/api/conversation/eve/v1/session", {
+    method: "POST", body: "{}",
+    headers: {
+      authorization: "Basic " + Buffer.from("alice:password").toString("base64"),
+      origin: "https://preview.example",
+      "x-vercel-oidc-token": "fixture-runtime-token",
+    },
+  }), { params: Promise.resolve({ path: ["eve", "v1", "session"] }) });
+
+  assert.equal((await call()).status, 202);
+  process.env.EVE_INTERNAL_ORIGIN = "https://external-eve.example";
+  assert.equal((await call()).status, 202);
+  assert.deepEqual(hops, [
+    ["https://preview.example", "fixture-runtime-token"],
+    ["https://python.example", null],
+    ["https://external-eve.example", null],
+    ["https://python.example", null],
+  ]);
+});

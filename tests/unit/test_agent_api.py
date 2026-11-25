@@ -110,6 +110,20 @@ def test_run_is_enqueued_then_executed_by_a_worker_and_events_replay() -> None:
         assert len(done["verified_citations"]) >= 1
         assert done["attempt"] == 1
 
+        url = f"/api/v2/threads/{thread_id}/runs"
+        assert client.get(url, headers=headers).json() == [
+            {
+                "run_id": run_id,
+                "question": QUESTION,
+                "status": "completed",
+                "cancel_requested": False,
+                "created_at": done["created_at"],
+            }
+        ]
+        assert client.get(f"{url}?offset=1", headers=headers).json() == []
+        assert client.get(url, headers=auth_headers("other-user")).status_code == 403
+        assert client.get(url).status_code == 401
+
         sse = client.get(f"/api/v2/runs/{run_id}/events", headers=headers)
         assert sse.status_code == 200
         assert "text/event-stream" in sse.headers["content-type"]

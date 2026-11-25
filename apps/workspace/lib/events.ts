@@ -1,4 +1,20 @@
-export type ResearchEvent = { seq: number; event_type: string; stage: string };
+export type ResearchEvent = {
+  seq: number;
+  event_type: string;
+  stage: string;
+  payload?: Record<string, unknown>;
+};
+
+export function parseResearchEvent(value: unknown): ResearchEvent {
+  if (!value || typeof value !== "object") throw new Error("Invalid research event");
+  const { seq, event_type, stage, payload } = value as Record<string, unknown>;
+  if (typeof seq !== "number" || !Number.isSafeInteger(seq) || seq < 1 ||
+      typeof event_type !== "string" || typeof stage !== "string" ||
+      (payload !== undefined && (!payload || typeof payload !== "object" || Array.isArray(payload))))
+    throw new Error("Invalid research event");
+  return { seq, event_type, stage, ...(payload === undefined ? {} : { payload: payload as Record<string, unknown> }) };
+}
+
 
 export async function* researchEvents(
   response: Response,
@@ -38,15 +54,7 @@ export async function* researchEvents(
         if (eventName === "stream.end") continue;
         const event = JSON.parse(data) as Record<string, unknown>;
         if (event.event_type === "stream.end") continue;
-        if (
-          typeof event.seq !== "number" ||
-          !Number.isSafeInteger(event.seq) ||
-          event.seq < 1 ||
-          typeof event.event_type !== "string" ||
-          typeof event.stage !== "string"
-        )
-          throw new Error("Invalid research stream event");
-        yield event as unknown as ResearchEvent;
+        yield parseResearchEvent(event);
       }
       if (done) break;
     }

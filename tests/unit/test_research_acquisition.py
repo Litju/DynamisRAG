@@ -151,7 +151,7 @@ def _epmc(pmcid: str, doi: str, license_name: str, pmid: str) -> dict[str, Any]:
     }
 
 
-def test_acquisition_discovers_deduplicates_gates_rights_and_imports_exact_jats(
+def test_acquisition_discovers_deduplicates_gates_rights_and_imports_exact_jats(  # noqa: PLR0915
     tmp_path: Path,
 ) -> None:
     content = (SAMPLE / "PMC10780924.xml").read_bytes()
@@ -212,7 +212,26 @@ def test_acquisition_discovers_deduplicates_gates_rights_and_imports_exact_jats(
         fulltext_factory=lambda: EuropePmcClient(transport=transport),
         sleep=lambda _s: None,
     )
-    acquisition._project = lambda _started: {"collection": "c"}  # type: ignore[method-assign]
+    checks: list[bool] = []
+
+    def project(_started: float, *, if_changed: bool = False) -> dict[str, str] | None:
+        checks.append(if_changed)
+        if len(checks) == 3:
+            return None
+        if len(checks) == 1:
+            raise PermissionError("publication temporarily unavailable")
+        return {"collection": "c"}
+
+    acquisition._project = project  # type: ignore[method-assign]
+    admitted: list[dict[str, Any]] = []
+
+    def save_ingestion(stage: str, payload: dict[str, Any]) -> None:
+        if stage == "literature.ingested":
+            admitted.extend(payload["ingested"])
+
+    with pytest.raises(PermissionError, match="publication temporarily unavailable"):
+        acquisition.acquire(QUESTION, progress=save_ingestion)
+    search_queries.clear()
     events: list[str] = []
     receipt = acquisition.acquire(QUESTION, progress=lambda stage, _payload: events.append(stage))
 
@@ -222,7 +241,15 @@ def test_acquisition_discovers_deduplicates_gates_rights_and_imports_exact_jats(
     assert receipt["discovered_records"] == 3 and receipt["unique_works"] == 2
     merged = next(w for w in receipt["works"] if w["pmcid"] == "PMC10780924")
     assert merged["providers"] == ["europe_pmc", "openalex"] and merged["pmid"] == "38202906"
-    [paper] = receipt["ingested"]
+    assert checks == [False, True]
+    assert receipt["ingested"] == []
+    assert [work["pmcid"] for work in receipt["already_in_corpus"]] == ["PMC10780924"]
+    unchanged = acquisition.acquire(QUESTION)
+    assert unchanged["status"] == "already_in_corpus"
+    assert "projection" not in unchanged
+    assert checks == [False, True, True]
+    # Inspect the initial ingest receipt captured before the simulated publication failure.
+    [paper] = admitted
     assert paper["doi"] == "10.3390/s24010044"
     assert paper["license_uri"] == "https://creativecommons.org/licenses/by/4.0/"
     assert paper["passages"] > 0

@@ -120,6 +120,7 @@ class DataScope(AgentContract):
     thread_id: SafeShortText
     run_id: SafeShortText
     allowed_version_keys: tuple[Sha256Hex, ...] = ()
+    excluded_version_keys: tuple[Sha256Hex, ...] = ()
     allow_opensearch_projection: bool = True
     allow_external_discovery: bool = False
     max_passages_per_call: int = Field(default=10, ge=1, le=25)
@@ -127,9 +128,9 @@ class DataScope(AgentContract):
     timeout_seconds: float = Field(default=15.0, gt=0.0, le=120.0)
 
     def allows_version(self, version_key: str) -> bool:
-        if not self.allowed_version_keys:
-            return True
-        return version_key in self.allowed_version_keys
+        return version_key not in self.excluded_version_keys and (
+            not self.allowed_version_keys or version_key in self.allowed_version_keys
+        )
 
 
 class ToolProvenance(AgentContract):

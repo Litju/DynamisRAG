@@ -1,0 +1,89 @@
+{
+  "schema": "res726-contextual-failure-reproduction-v1",
+  "observed_at": "2026-11-25T13:42:29Z",
+  "deployment": {
+    "environment": "preview",
+    "protection": "vercel_authentication",
+    "source_revision": "648a1acd5a8a761a4057ff5b57f36321a00e8068",
+    "url": "https://dynamisrag-45met3hpn-julitocrztuga-2084s-projects.vercel.app"
+  },
+  "thread_id": "thread-d53ee59ed7964dda",
+  "run_id": "run-9ac286ec42f74eb4",
+  "question": "In the force-plate and linear-position-transducer validation study cited earlier, what ICC did the authors report for the LPT’s countermovement-jump velocity measurement?",
+  "context": {
+    "resolution_source": "none_needed",
+    "resolved_question_matches_current_turn": true,
+    "scoped_version_count": 0,
+    "allowed_version_count": 0
+  },
+  "model": {
+    "provider": "opencode_go",
+    "id": "deepseek-v4.1-flash",
+    "calls": 6,
+    "total_tokens": 44404,
+    "estimated_cost_usd": 0.0076956
+  },
+  "model_selected_searches": [
+    "intraclass correlation coefficient ICC countermovement jump velocity linear position transducer",
+    "LPT CMV ICC 0.863 countermovement velocity reliability",
+    "intraclass correlation coefficient ICC linear position transducer countermovement jump velocity",
+    "reliability ICC force plates linear position transducer countermovement depth",
+    "LPT CMV ICC 0.863 95% CI 0.704 0.937 MDC 0.12"
+  ],
+  "literature_discovery": {
+    "status": "already_in_corpus",
+    "records": 40,
+    "unique_works": 33,
+    "search_requests": 3,
+    "provider_failures": 1,
+    "ingested": 0,
+    "already_in_corpus": 1,
+    "rejected": 10
+  },
+  "gate": {
+    "status": "abstained",
+    "reason": "evidence_gate:insufficient_query_coverage",
+    "verdict": "ABSTAIN",
+    "detail": "Inventory/metadata evidence does not support the question's named entities or topical qualifier.",
+    "first_assessment_seq": 10,
+    "post_discovery_assessment_seq": 21,
+    "question_kind": "metadata"
+  },
+  "canonical_retrieval": {
+    "passage_key": "8ea5d3a3df48e18e2e0fa0d9c92122baaf9287609c9b8dbf84b4032d30a274ec",
+    "document_version_key": "86d7c3d57c7a744f8cc79f4c6dbfd5dd198be11fdfd873a4801d73e460c2368b",
+    "pmcid": "PMC12608286",
+    "doi": "10.3390/s25216542",
+    "title": "The Validity and Reliability of the Force Plates and the Linear Position Transducer in Measuring Countermovement Depth and Velocity During Countermovement Jump",
+    "section": "3.2. Test–Retest Reliability",
+    "canonical_verified": true,
+    "candidate_query_relevance": 0.6027,
+    "candidate_gate_reasons": [],
+    "gate_accepted_passage_count": 0,
+    "prior_canonical_quote_receipt": "../res638-research-workflow/flash-v3/turn2-run.json"
+  },
+  "citation_verification": {
+    "reached": false,
+    "verified_count": 0,
+    "rejected_count": 0
+  },
+  "checkpoint": {
+    "table": "agent_v2.checkpoints",
+    "thread_key": "thread-d53ee59ed7964dda:run-9ac286ec42f74eb4",
+    "namespace": "",
+    "count": 8,
+    "step_range": [-1, 6],
+    "latest_step": 6,
+    "latest_source": "loop",
+    "question": "In the force-plate and linear-position-transducer validation study cited earlier, what ICC did the authors report for the LPT’s countermovement-jump velocity measurement?",
+    "resolved_question_matches_current_turn": true,
+    "context_resolution_source": "none_needed",
+    "scoped_version_count": 0,
+    "answerability_code": "insufficient_query_coverage",
+    "accepted_passage_count": 0,
+    "retrieval_candidate_count": 8,
+    "verified_citations_count": 0,
+    "rejected_citations_count": 0
+  },
+  "established_cause": "The question contains 'authors report', which the previous _METADATA pattern treated as an author-metadata query. The inventory/metadata structural route then required every topical qualifier to occur in one passage, even though a canonical candidate with the requested ICC was retrieved and marked canonical_verified. No synthesis or citation verification was attempted."
+}

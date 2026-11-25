@@ -1,0 +1,2123 @@
+[
+  {
+    "run_id": "run-0efac6b4ce824e77",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 1,
+    "event_type": "run.queued",
+    "stage": "queued",
+    "payload": {},
+    "created_at": "2026-11-20T12:29:15.157618+00:00"
+  },
+  {
+    "run_id": "run-0efac6b4ce824e77",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 2,
+    "event_type": "run.started",
+    "stage": "resolve_conversation_context",
+    "payload": {
+      "require_confirmation": false
+    },
+    "created_at": "2026-11-20T12:29:15.283985+00:00"
+  },
+  {
+    "run_id": "run-0efac6b4ce824e77",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 3,
+    "event_type": "plan.created",
+    "stage": "interpret_and_plan",
+    "payload": {
+      "intent": "evidence_synthesis",
+      "needs_comparison": false,
+      "context_resolution": "none_needed",
+      "scoped_version_count": 0,
+      "confirmation_required": false,
+      "excluded_version_count": 0,
+      "needs_context_expansion": false
+    },
+    "created_at": "2026-11-20T12:29:15.302824+00:00"
+  },
+  {
+    "run_id": "run-0efac6b4ce824e77",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 4,
+    "event_type": "tool.called",
+    "stage": "model_tool_execution",
+    "payload": {
+      "args": {
+        "limit": 50
+      },
+      "round": 0,
+      "origin": "model_directed",
+      "tool_name": "list_papers",
+      "scope_defaulted": false
+    },
+    "created_at": "2026-11-20T12:29:24.380604+00:00"
+  },
+  {
+    "run_id": "run-0efac6b4ce824e77",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 5,
+    "event_type": "tool.completed",
+    "stage": "model_tool_execution",
+    "payload": {
+      "ok": true,
+      "origin": "model_directed",
+      "trace_id": "trace-81ff8cde66544873",
+      "tool_name": "list_papers",
+      "duration_ms": 31.628
+    },
+    "created_at": "2026-11-20T12:29:24.417556+00:00"
+  },
+  {
+    "run_id": "run-0efac6b4ce824e77",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 6,
+    "event_type": "tool.called",
+    "stage": "model_tool_execution",
+    "payload": {
+      "args": {
+        "limit": 10,
+        "query": "force-velocity profile linear position transducer validity"
+      },
+      "round": 0,
+      "origin": "model_directed",
+      "tool_name": "hybrid_search",
+      "scope_defaulted": false
+    },
+    "created_at": "2026-11-20T12:29:24.421899+00:00"
+  },
+  {
+    "run_id": "run-0efac6b4ce824e77",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 7,
+    "event_type": "tool.completed",
+    "stage": "model_tool_execution",
+    "payload": {
+      "ok": true,
+      "origin": "model_directed",
+      "trace_id": "trace-9f15155195db47f3",
+      "tool_name": "hybrid_search",
+      "duration_ms": 1606.115
+    },
+    "created_at": "2026-11-20T12:29:26.033219+00:00"
+  },
+  {
+    "run_id": "run-0efac6b4ce824e77",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 8,
+    "event_type": "tool.called",
+    "stage": "model_tool_execution",
+    "payload": {
+      "args": {
+        "limit": 10,
+        "query": "reliability of load-velocity relationship linear position transducer"
+      },
+      "round": 0,
+      "origin": "model_directed",
+      "tool_name": "hybrid_search",
+      "scope_defaulted": false
+    },
+    "created_at": "2026-11-20T12:29:26.036771+00:00"
+  },
+  {
+    "run_id": "run-0efac6b4ce824e77",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 9,
+    "event_type": "tool.completed",
+    "stage": "model_tool_execution",
+    "payload": {
+      "ok": true,
+      "origin": "model_directed",
+      "trace_id": "trace-6dd4b1d033644ad6",
+      "tool_name": "hybrid_search",
+      "duration_ms": 1565.4
+    },
+    "created_at": "2026-11-20T12:29:27.605843+00:00"
+  },
+  {
+    "run_id": "run-0efac6b4ce824e77",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 10,
+    "event_type": "tool.called",
+    "stage": "model_tool_execution",
+    "payload": {
+      "args": {
+        "limit": 10,
+        "query": "application of force-velocity profiling to individualize resistance training load prescription"
+      },
+      "round": 0,
+      "origin": "model_directed",
+      "tool_name": "hybrid_search",
+      "scope_defaulted": false
+    },
+    "created_at": "2026-11-20T12:29:27.610472+00:00"
+  },
+  {
+    "run_id": "run-0efac6b4ce824e77",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 11,
+    "event_type": "tool.completed",
+    "stage": "model_tool_execution",
+    "payload": {
+      "ok": false,
+      "origin": "model_directed",
+      "trace_id": "trace-4c94550b1bfa476a",
+      "tool_name": "hybrid_search",
+      "duration_ms": 2251.731
+    },
+    "created_at": "2026-11-20T12:29:29.865738+00:00"
+  },
+  {
+    "run_id": "run-0efac6b4ce824e77",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 12,
+    "event_type": "tool.called",
+    "stage": "model_tool_execution",
+    "payload": {
+      "args": {
+        "limit": 10,
+        "query": "limitations of force-velocity profiling one-repetition maximum prediction"
+      },
+      "round": 0,
+      "origin": "model_directed",
+      "tool_name": "hybrid_search",
+      "scope_defaulted": false
+    },
+    "created_at": "2026-11-20T12:29:29.869053+00:00"
+  },
+  {
+    "run_id": "run-0efac6b4ce824e77",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 13,
+    "event_type": "tool.completed",
+    "stage": "model_tool_execution",
+    "payload": {
+      "ok": false,
+      "origin": "model_directed",
+      "trace_id": "trace-5dbe29acf8ef4064",
+      "tool_name": "hybrid_search",
+      "duration_ms": 1193.394
+    },
+    "created_at": "2026-11-20T12:29:31.066074+00:00"
+  },
+  {
+    "run_id": "run-0efac6b4ce824e77",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 14,
+    "event_type": "tool.called",
+    "stage": "model_tool_execution",
+    "payload": {
+      "args": {
+        "limit": 5,
+        "query": "strength-velocity imbalance FV profile individual training prescription",
+        "document_version_keys": [
+          "b8c0e801ffdf664356efe5c40c1e1ad72140fbcc1a9696065e4c666cb2ac83b6"
+        ]
+      },
+      "round": 1,
+      "origin": "model_directed",
+      "tool_name": "hybrid_search",
+      "scope_defaulted": false
+    },
+    "created_at": "2026-11-20T12:29:43.068838+00:00"
+  },
+  {
+    "run_id": "run-0efac6b4ce824e77",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 15,
+    "event_type": "tool.completed",
+    "stage": "model_tool_execution",
+    "payload": {
+      "ok": true,
+      "origin": "model_directed",
+      "trace_id": "trace-cf3d6b8b27534d06",
+      "tool_name": "hybrid_search",
+      "duration_ms": 1228.227
+    },
+    "created_at": "2026-11-20T12:29:44.301816+00:00"
+  },
+  {
+    "run_id": "run-0efac6b4ce824e77",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 16,
+    "event_type": "tool.called",
+    "stage": "model_tool_execution",
+    "payload": {
+      "args": {
+        "limit": 5,
+        "query": "agreement across methods force platform linear position transducer systematic bias F0 V0 Pmax",
+        "document_version_keys": [
+          "b8c0e801ffdf664356efe5c40c1e1ad72140fbcc1a9696065e4c666cb2ac83b6"
+        ]
+      },
+      "round": 1,
+      "origin": "model_directed",
+      "tool_name": "hybrid_search",
+      "scope_defaulted": false
+    },
+    "created_at": "2026-11-20T12:29:44.305819+00:00"
+  },
+  {
+    "run_id": "run-0efac6b4ce824e77",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 17,
+    "event_type": "tool.completed",
+    "stage": "model_tool_execution",
+    "payload": {
+      "ok": true,
+      "origin": "model_directed",
+      "trace_id": "trace-72750e649e684a3e",
+      "tool_name": "hybrid_search",
+      "duration_ms": 2381.697
+    },
+    "created_at": "2026-11-20T12:29:44.923500+00:00"
+  },
+  {
+    "run_id": "run-0efac6b4ce824e77",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 18,
+    "event_type": "tool.called",
+    "stage": "model_tool_execution",
+    "payload": {
+      "args": {
+        "limit": 5,
+        "query": "study limitations sample size equipment sampling frequency recommendations",
+        "document_version_keys": [
+          "b8c0e801ffdf664356efe5c40c1e1ad72140fbcc1a9696065e4c666cb2ac83b6"
+        ]
+      },
+      "round": 1,
+      "origin": "model_directed",
+      "tool_name": "hybrid_search",
+      "scope_defaulted": false
+    },
+    "created_at": "2026-11-20T12:29:44.928313+00:00"
+  },
+  {
+    "run_id": "run-0efac6b4ce824e77",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 19,
+    "event_type": "tool.completed",
+    "stage": "model_tool_execution",
+    "payload": {
+      "ok": true,
+      "origin": "model_directed",
+      "trace_id": "trace-0eeb1716101a4aa9",
+      "tool_name": "hybrid_search",
+      "duration_ms": 1017.043
+    },
+    "created_at": "2026-11-20T12:29:45.949857+00:00"
+  },
+  {
+    "run_id": "run-0efac6b4ce824e77",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 20,
+    "event_type": "tool.called",
+    "stage": "model_tool_execution",
+    "payload": {
+      "args": {
+        "limit": 5,
+        "query": "validity of linear position transducer power output underreporting systematic bias",
+        "document_version_keys": [
+          "99b26a7d02271728f40d8d3f8156ca2ae3156d2e291f0803c2f50b7d4d9cc26b"
+        ]
+      },
+      "round": 1,
+      "origin": "model_directed",
+      "tool_name": "hybrid_search",
+      "scope_defaulted": false
+    },
+    "created_at": "2026-11-20T12:29:45.952914+00:00"
+  },
+  {
+    "run_id": "run-0efac6b4ce824e77",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 21,
+    "event_type": "tool.completed",
+    "stage": "model_tool_execution",
+    "payload": {
+      "ok": true,
+      "origin": "model_directed",
+      "trace_id": "trace-784e65bd633a469e",
+      "tool_name": "hybrid_search",
+      "duration_ms": 1220.713
+    },
+    "created_at": "2026-11-20T12:29:47.177442+00:00"
+  },
+  {
+    "run_id": "run-0efac6b4ce824e77",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 22,
+    "event_type": "tool.called",
+    "stage": "model_tool_execution",
+    "payload": {
+      "args": {
+        "limit": 5,
+        "query": "test-retest reliability ICC CV F0 V0 Pmax SFV results percent",
+        "document_version_keys": [
+          "b8c0e801ffdf664356efe5c40c1e1ad72140fbcc1a9696065e4c666cb2ac83b6"
+        ]
+      },
+      "round": 2,
+      "origin": "model_directed",
+      "tool_name": "hybrid_search",
+      "scope_defaulted": false
+    },
+    "created_at": "2026-11-20T12:29:56.526592+00:00"
+  },
+  {
+    "run_id": "run-0efac6b4ce824e77",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 23,
+    "event_type": "tool.completed",
+    "stage": "model_tool_execution",
+    "payload": {
+      "ok": true,
+      "origin": "model_directed",
+      "trace_id": "trace-079dc49810194774",
+      "tool_name": "hybrid_search",
+      "duration_ms": 1263.158
+    },
+    "created_at": "2026-11-20T12:29:57.797098+00:00"
+  },
+  {
+    "run_id": "run-0efac6b4ce824e77",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 24,
+    "event_type": "tool.called",
+    "stage": "model_tool_execution",
+    "payload": {
+      "args": {
+        "limit": 5,
+        "query": "results validity systematic bias power velocity compared to motion capture force plate conclusions",
+        "document_version_keys": [
+          "99b26a7d02271728f40d8d3f8156ca2ae3156d2e291f0803c2f50b7d4d9cc26b"
+        ]
+      },
+      "round": 2,
+      "origin": "model_directed",
+      "tool_name": "hybrid_search",
+      "scope_defaulted": false
+    },
+    "created_at": "2026-11-20T12:29:57.800178+00:00"
+  },
+  {
+    "run_id": "run-0efac6b4ce824e77",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 25,
+    "event_type": "tool.completed",
+    "stage": "model_tool_execution",
+    "payload": {
+      "ok": true,
+      "origin": "model_directed",
+      "trace_id": "trace-28b10168310d40bb",
+      "tool_name": "hybrid_search",
+      "duration_ms": 1251.934
+    },
+    "created_at": "2026-11-20T12:29:59.056314+00:00"
+  },
+  {
+    "run_id": "run-0efac6b4ce824e77",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 26,
+    "event_type": "tool.called",
+    "stage": "model_tool_execution",
+    "payload": {
+      "args": {
+        "limit": 5,
+        "query": "LPT concurrent validity velocity compared motion capture results conclusions",
+        "document_version_keys": [
+          "86d7c3d57c7a744f8cc79f4c6dbfd5dd198be11fdfd873a4801d73e460c2368b"
+        ]
+      },
+      "round": 2,
+      "origin": "model_directed",
+      "tool_name": "hybrid_search",
+      "scope_defaulted": false
+    },
+    "created_at": "2026-11-20T12:29:59.060113+00:00"
+  },
+  {
+    "run_id": "run-0efac6b4ce824e77",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 27,
+    "event_type": "tool.completed",
+    "stage": "model_tool_execution",
+    "payload": {
+      "ok": true,
+      "origin": "model_directed",
+      "trace_id": "trace-766c9f2170af44c7",
+      "tool_name": "hybrid_search",
+      "duration_ms": 1048.952
+    },
+    "created_at": "2026-11-20T12:30:00.113218+00:00"
+  },
+  {
+    "run_id": "run-0efac6b4ce824e77",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 28,
+    "event_type": "tool.called",
+    "stage": "model_tool_execution",
+    "payload": {
+      "args": {
+        "limit": 5,
+        "query": "1RM prediction accuracy error load-velocity profile results conclusions",
+        "document_version_keys": [
+          "ba05c078eed42d22e38db65f1ef25214e999fd5c501769c846c32e2f761a0ce4"
+        ]
+      },
+      "round": 2,
+      "origin": "model_directed",
+      "tool_name": "hybrid_search",
+      "scope_defaulted": false
+    },
+    "created_at": "2026-11-20T12:30:00.117241+00:00"
+  },
+  {
+    "run_id": "run-0efac6b4ce824e77",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 29,
+    "event_type": "tool.completed",
+    "stage": "model_tool_execution",
+    "payload": {
+      "ok": true,
+      "origin": "model_directed",
+      "trace_id": "trace-474aadea20404608",
+      "tool_name": "hybrid_search",
+      "duration_ms": 1021.141
+    },
+    "created_at": "2026-11-20T12:30:01.142118+00:00"
+  },
+  {
+    "run_id": "run-0efac6b4ce824e77",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 30,
+    "event_type": "evidence.relevance_assessed",
+    "stage": "model_tool_execution",
+    "payload": {
+      "code": "evidence_relevant_and_answerable",
+      "detail": "Admissible evidence covers the question's entities and facets; this is a lexical/structural gate, not semantic entailment.",
+      "verdict": "ANSWERABLE",
+      "ambiguous": false,
+      "candidates": [
+        {
+          "reasons": [],
+          "admissible": true,
+          "passage_key": "f65799b0cd6521e359a52f33b8faf26a13876926b36321346a79cbfa279ba3cc",
+          "matched_terms": [
+            "force",
+            "linear",
+            "measur",
+            "positi",
+            "reliab",
+            "train",
+            "transd",
+            "validi"
+          ],
+          "missing_terms": [
+            "applic",
+            "limita",
+            "profil",
+            "resist",
+            "establ",
+            "evalua",
+            "litera"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.7442,
+          "missing_entities": [],
+          "lexical_similarity": 0.7442
+        },
+        {
+          "reasons": [],
+          "admissible": true,
+          "passage_key": "e1da4408859798817cfa018a768044af64e053c3c38681b450f9fd0d34c6d5b4",
+          "matched_terms": [
+            "force",
+            "linear",
+            "measur",
+            "positi",
+            "reliab",
+            "transd",
+            "validi",
+            "veloci"
+          ],
+          "missing_terms": [
+            "applic",
+            "limita",
+            "profil",
+            "resist",
+            "train",
+            "establ",
+            "evalua",
+            "litera"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.6512,
+          "missing_entities": [],
+          "lexical_similarity": 0.6512
+        },
+        {
+          "reasons": [],
+          "admissible": true,
+          "passage_key": "8fd59cbc9dce8677031f609f280febe45a436723974fa4795a3cd8c8107b340a",
+          "matched_terms": [
+            "linear",
+            "measur",
+            "positi",
+            "profil",
+            "reliab",
+            "resist",
+            "train",
+            "transd"
+          ],
+          "missing_terms": [
+            "applic",
+            "force",
+            "limita",
+            "evalua",
+            "litera"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.8605,
+          "missing_entities": [],
+          "lexical_similarity": 0.8605
+        },
+        {
+          "reasons": [],
+          "admissible": true,
+          "passage_key": "013d60ac4bc7ae8870fbb9e9cc7354b419ee39e1da5f2691532c0dc242251c14",
+          "matched_terms": [
+            "linear",
+            "measur",
+            "positi",
+            "profil",
+            "reliab",
+            "transd",
+            "veloci"
+          ],
+          "missing_terms": [
+            "applic",
+            "force",
+            "limita",
+            "resist",
+            "train",
+            "validi",
+            "establ",
+            "evalua"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.6512,
+          "missing_entities": [],
+          "lexical_similarity": 0.6512
+        },
+        {
+          "reasons": [],
+          "admissible": true,
+          "passage_key": "8ea5d3a3df48e18e2e0fa0d9c92122baaf9287609c9b8dbf84b4032d30a274ec",
+          "matched_terms": [
+            "force",
+            "linear",
+            "measur",
+            "positi",
+            "reliab",
+            "transd",
+            "validi",
+            "veloci"
+          ],
+          "missing_terms": [
+            "applic",
+            "limita",
+            "profil",
+            "resist",
+            "train",
+            "establ",
+            "evalua",
+            "litera"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.6512,
+          "missing_entities": [],
+          "lexical_similarity": 0.6512
+        },
+        {
+          "reasons": [],
+          "admissible": true,
+          "passage_key": "eb7e26587b7eba69bc7eceb2af3c5cc43b0cb0a847c3b706349751fe215f87f0",
+          "matched_terms": [
+            "force",
+            "linear",
+            "measur",
+            "positi",
+            "reliab",
+            "resist",
+            "train",
+            "transd"
+          ],
+          "missing_terms": [
+            "applic",
+            "limita",
+            "profil",
+            "establ",
+            "evalua",
+            "litera"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.8372,
+          "missing_entities": [],
+          "lexical_similarity": 0.8372
+        },
+        {
+          "reasons": [],
+          "admissible": true,
+          "passage_key": "0b19ca4b0107ae4246011ddff1b5616969c832ba35a5e1ea3c3b17a86d0302ea",
+          "matched_terms": [
+            "force",
+            "linear",
+            "measur",
+            "positi",
+            "reliab",
+            "transd",
+            "validi",
+            "veloci"
+          ],
+          "missing_terms": [
+            "applic",
+            "limita",
+            "profil",
+            "resist",
+            "train",
+            "establ",
+            "evalua",
+            "litera"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.6512,
+          "missing_entities": [],
+          "lexical_similarity": 0.6512
+        },
+        {
+          "reasons": [],
+          "admissible": true,
+          "passage_key": "f347e0ec19481826cdf6d6f53ea1d3d22618a4f37b95ca022b0f20e04b0ec8e7",
+          "matched_terms": [
+            "force",
+            "linear",
+            "measur",
+            "positi",
+            "profil",
+            "reliab",
+            "resist",
+            "train"
+          ],
+          "missing_terms": [
+            "applic",
+            "limita",
+            "validi",
+            "establ",
+            "litera"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.9535,
+          "missing_entities": [],
+          "lexical_similarity": 0.9535
+        },
+        {
+          "reasons": [],
+          "admissible": true,
+          "passage_key": "045e13fb280017ad68fd50aa92d27a78b526c371db1e3c3b09dc7e5252aec0d3",
+          "matched_terms": [
+            "force",
+            "linear",
+            "measur",
+            "positi",
+            "profil",
+            "reliab",
+            "train",
+            "transd"
+          ],
+          "missing_terms": [
+            "applic",
+            "limita",
+            "resist",
+            "validi",
+            "establ",
+            "evalua"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.8605,
+          "missing_entities": [],
+          "lexical_similarity": 0.8605
+        },
+        {
+          "reasons": [],
+          "admissible": true,
+          "passage_key": "013d4c6a155cedbf97579c8b255a9d6bb8822f53b95ac7d48f31e5d2e292643a",
+          "matched_terms": [
+            "linear",
+            "measur",
+            "positi",
+            "profil",
+            "train",
+            "transd",
+            "veloci"
+          ],
+          "missing_terms": [
+            "applic",
+            "force",
+            "limita",
+            "reliab",
+            "resist",
+            "validi",
+            "establ",
+            "evalua"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.6512,
+          "missing_entities": [],
+          "lexical_similarity": 0.6512
+        },
+        {
+          "reasons": [],
+          "admissible": true,
+          "passage_key": "fe9825406d9483a7f2e2d3c1a923b2044080d7df654b734980c5f3c9d0c20037",
+          "matched_terms": [
+            "applic",
+            "linear",
+            "measur",
+            "positi",
+            "profil",
+            "reliab",
+            "transd",
+            "validi"
+          ],
+          "missing_terms": [
+            "force",
+            "limita",
+            "resist",
+            "train",
+            "evalua"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.6977,
+          "missing_entities": [],
+          "lexical_similarity": 0.6977
+        },
+        {
+          "reasons": [],
+          "admissible": true,
+          "passage_key": "2843708e2438ef7353821f590738b8a1696e1698c40b069c2fa65315eaa89f94",
+          "matched_terms": [
+            "force",
+            "linear",
+            "measur",
+            "profil",
+            "reliab",
+            "train",
+            "veloci"
+          ],
+          "missing_terms": [
+            "applic",
+            "limita",
+            "positi",
+            "resist",
+            "transd",
+            "validi",
+            "establ",
+            "evalua"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.6512,
+          "missing_entities": [],
+          "lexical_similarity": 0.6512
+        },
+        {
+          "reasons": [],
+          "admissible": true,
+          "passage_key": "0c9c07edfa38bdb99b68bacfe70e1a8763cb686a4b5d6aae4ab73925ed6f2c6a",
+          "matched_terms": [
+            "force",
+            "linear",
+            "measur",
+            "positi",
+            "profil",
+            "reliab",
+            "veloci"
+          ],
+          "missing_terms": [
+            "applic",
+            "limita",
+            "resist",
+            "train",
+            "transd",
+            "validi",
+            "establ",
+            "evalua"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.6512,
+          "missing_entities": [],
+          "lexical_similarity": 0.6512
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage"
+          ],
+          "admissible": false,
+          "passage_key": "b5727c224fd4fd780802cec78e7525f99b1dcf2f8d006eff4abdd6bde7534a7b",
+          "matched_terms": [
+            "applic",
+            "force",
+            "measur",
+            "profil",
+            "reliab",
+            "train",
+            "veloci"
+          ],
+          "missing_terms": [
+            "limita",
+            "linear",
+            "positi",
+            "resist",
+            "transd",
+            "validi",
+            "establ",
+            "evalua"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.5581,
+          "missing_entities": [],
+          "lexical_similarity": 0.5581
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage"
+          ],
+          "admissible": false,
+          "passage_key": "44de1dada15c0941b994e1dd94d9ed6268bb1f08f99dfec04436fd642e605015",
+          "matched_terms": [
+            "force",
+            "measur",
+            "profil",
+            "reliab",
+            "veloci"
+          ],
+          "missing_terms": [
+            "applic",
+            "limita",
+            "linear",
+            "positi",
+            "resist",
+            "train",
+            "transd",
+            "validi"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.4651,
+          "missing_entities": [],
+          "lexical_similarity": 0.4651
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage"
+          ],
+          "admissible": false,
+          "passage_key": "40b35c879b956f11b8123f55178da1c034a502fdda92e9d881b3ecc352c7a272",
+          "matched_terms": [
+            "force",
+            "measur",
+            "profil",
+            "reliab",
+            "resist",
+            "veloci"
+          ],
+          "missing_terms": [
+            "applic",
+            "limita",
+            "linear",
+            "positi",
+            "train",
+            "transd",
+            "validi",
+            "establ"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.5581,
+          "missing_entities": [],
+          "lexical_similarity": 0.5581
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage"
+          ],
+          "admissible": false,
+          "passage_key": "ccedbc09c6e37d7382124cdb0b50124647d9b29bccc6ae9d5d5e200990a9bea5",
+          "matched_terms": [
+            "force",
+            "linear",
+            "measur",
+            "profil",
+            "reliab",
+            "validi",
+            "veloci"
+          ],
+          "missing_terms": [
+            "applic",
+            "limita",
+            "positi",
+            "resist",
+            "train",
+            "transd",
+            "establ",
+            "evalua"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.5581,
+          "missing_entities": [],
+          "lexical_similarity": 0.5581
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage"
+          ],
+          "admissible": false,
+          "passage_key": "2f5b247f5c0225259d2fb842878633534bc9b1173da7d09cd54d77ae7512c76d",
+          "matched_terms": [
+            "force",
+            "linear",
+            "measur",
+            "profil",
+            "reliab",
+            "veloci"
+          ],
+          "missing_terms": [
+            "applic",
+            "limita",
+            "positi",
+            "resist",
+            "train",
+            "transd",
+            "validi",
+            "establ"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.5581,
+          "missing_entities": [],
+          "lexical_similarity": 0.5581
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage"
+          ],
+          "admissible": false,
+          "passage_key": "781464485ed63a18c35e39bc6b1ef34992ee7ddf1df4552672b5068022b6fd03",
+          "matched_terms": [
+            "force",
+            "measur",
+            "profil",
+            "reliab",
+            "train",
+            "veloci"
+          ],
+          "missing_terms": [
+            "applic",
+            "limita",
+            "linear",
+            "positi",
+            "resist",
+            "transd",
+            "validi",
+            "establ"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.5581,
+          "missing_entities": [],
+          "lexical_similarity": 0.5581
+        },
+        {
+          "reasons": [],
+          "admissible": true,
+          "passage_key": "0d9fe984e7b6e8b752defa3029a9f12dd4d791d0a5aa440590b7264d24171309",
+          "matched_terms": [
+            "force",
+            "limita",
+            "linear",
+            "measur",
+            "positi",
+            "profil",
+            "reliab",
+            "validi"
+          ],
+          "missing_terms": [
+            "applic",
+            "resist",
+            "train",
+            "transd",
+            "establ",
+            "evalua",
+            "litera"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.6512,
+          "missing_entities": [],
+          "lexical_similarity": 0.6512
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage"
+          ],
+          "admissible": false,
+          "passage_key": "2c81638e044db6c7b2882ae88f915c7fc216c576698af8efc8301bfcc0ffbe5c",
+          "matched_terms": [
+            "force",
+            "limita",
+            "profil",
+            "reliab",
+            "validi",
+            "veloci"
+          ],
+          "missing_terms": [
+            "applic",
+            "linear",
+            "measur",
+            "positi",
+            "resist",
+            "train",
+            "transd",
+            "establ"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.3721,
+          "missing_entities": [],
+          "lexical_similarity": 0.3721
+        },
+        {
+          "reasons": [],
+          "admissible": true,
+          "passage_key": "12cea5b0fedce5974db731a9d20593c6c387b1f227782c3bf72fc081fe023fe9",
+          "matched_terms": [
+            "applic",
+            "force",
+            "limita",
+            "linear",
+            "measur",
+            "profil",
+            "reliab",
+            "resist"
+          ],
+          "missing_terms": [
+            "positi",
+            "transd",
+            "establ",
+            "evalua",
+            "litera"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.7442,
+          "missing_entities": [],
+          "lexical_similarity": 0.7442
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage"
+          ],
+          "admissible": false,
+          "passage_key": "b9e177c7c228e04dbc06b3d6410bfa9fde6ad18c1d3c943ae8dde2aa4f7b3b10",
+          "matched_terms": [
+            "force",
+            "limita",
+            "measur",
+            "profil",
+            "reliab",
+            "veloci"
+          ],
+          "missing_terms": [
+            "applic",
+            "linear",
+            "positi",
+            "resist",
+            "train",
+            "transd",
+            "validi",
+            "establ"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.4651,
+          "missing_entities": [],
+          "lexical_similarity": 0.4651
+        },
+        {
+          "reasons": [],
+          "admissible": true,
+          "passage_key": "4e6fe52b2323c9206a52fc2e2e91a8890ffd4e3f41868c1db86255dcb55119f5",
+          "matched_terms": [
+            "force",
+            "linear",
+            "measur",
+            "positi",
+            "reliab",
+            "train",
+            "transd",
+            "validi"
+          ],
+          "missing_terms": [
+            "applic",
+            "limita",
+            "profil",
+            "resist",
+            "establ",
+            "evalua",
+            "litera"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.7442,
+          "missing_entities": [],
+          "lexical_similarity": 0.7442
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage"
+          ],
+          "admissible": false,
+          "passage_key": "6891496b072028b50c8f331a4278ad85bf01d1d23de8c3d5e5dd84cf7e1a4cfd",
+          "matched_terms": [
+            "force",
+            "linear",
+            "positi",
+            "reliab",
+            "transd",
+            "validi",
+            "veloci"
+          ],
+          "missing_terms": [
+            "applic",
+            "limita",
+            "measur",
+            "profil",
+            "resist",
+            "train",
+            "establ",
+            "evalua"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.5581,
+          "missing_entities": [],
+          "lexical_similarity": 0.5581
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage"
+          ],
+          "admissible": false,
+          "passage_key": "57accce9ba79fa81141e5d67cd5685cb3ec65cb643ef1abb83a8f61b35ea8a8c",
+          "matched_terms": [
+            "force",
+            "positi",
+            "profil",
+            "reliab",
+            "train",
+            "veloci"
+          ],
+          "missing_terms": [
+            "applic",
+            "limita",
+            "linear",
+            "measur",
+            "resist",
+            "transd",
+            "validi",
+            "establ"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.5581,
+          "missing_entities": [],
+          "lexical_similarity": 0.5581
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage"
+          ],
+          "admissible": false,
+          "passage_key": "027810b6ef3acf0efcfd2d2b0b7b1d5f7357e5771cfdfe5e477ddfd0dc956b6b",
+          "matched_terms": [
+            "force",
+            "linear",
+            "measur",
+            "profil",
+            "reliab",
+            "veloci"
+          ],
+          "missing_terms": [
+            "applic",
+            "limita",
+            "positi",
+            "resist",
+            "train",
+            "transd",
+            "validi",
+            "establ"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.5581,
+          "missing_entities": [],
+          "lexical_similarity": 0.5581
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage"
+          ],
+          "admissible": false,
+          "passage_key": "4dc0f43727de4b2aed5a5886eefdf84f4de52955076d538e6daead922392926a",
+          "matched_terms": [
+            "force",
+            "linear",
+            "measur",
+            "profil",
+            "reliab",
+            "veloci"
+          ],
+          "missing_terms": [
+            "applic",
+            "limita",
+            "positi",
+            "resist",
+            "train",
+            "transd",
+            "validi",
+            "establ"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.5581,
+          "missing_entities": [],
+          "lexical_similarity": 0.5581
+        },
+        {
+          "reasons": [],
+          "admissible": true,
+          "passage_key": "0b0df0e5770cef4880baa7c881885f279a47c8bbfd851f44b95d72c1b8531bbf",
+          "matched_terms": [
+            "force",
+            "linear",
+            "measur",
+            "positi",
+            "reliab",
+            "transd",
+            "validi",
+            "veloci"
+          ],
+          "missing_terms": [
+            "applic",
+            "limita",
+            "profil",
+            "resist",
+            "train",
+            "establ",
+            "evalua",
+            "litera"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.6512,
+          "missing_entities": [],
+          "lexical_similarity": 0.6512
+        },
+        {
+          "reasons": [],
+          "admissible": true,
+          "passage_key": "aac7806cff27b519c5a42e0ed99bc0f5f6c22c19775302393a14d2ab53baff2e",
+          "matched_terms": [
+            "force",
+            "linear",
+            "measur",
+            "positi",
+            "reliab",
+            "transd",
+            "validi",
+            "veloci"
+          ],
+          "missing_terms": [
+            "applic",
+            "limita",
+            "profil",
+            "resist",
+            "train",
+            "establ",
+            "litera"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.6744,
+          "missing_entities": [],
+          "lexical_similarity": 0.6744
+        },
+        {
+          "reasons": [],
+          "admissible": true,
+          "passage_key": "e48a5c8b5883e095a25b8c275819b37767fb354fc1ce75c25a64dcb4d47b32d9",
+          "matched_terms": [
+            "force",
+            "linear",
+            "measur",
+            "positi",
+            "reliab",
+            "transd",
+            "validi",
+            "veloci"
+          ],
+          "missing_terms": [
+            "applic",
+            "limita",
+            "profil",
+            "resist",
+            "train",
+            "establ",
+            "litera"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.6744,
+          "missing_entities": [],
+          "lexical_similarity": 0.6744
+        },
+        {
+          "reasons": [],
+          "admissible": true,
+          "passage_key": "1717bcc0e2358bfb8628b7188159987d4f77e6fe645d48abafbe568f42a05bec",
+          "matched_terms": [
+            "force",
+            "linear",
+            "measur",
+            "positi",
+            "reliab",
+            "transd",
+            "validi",
+            "veloci"
+          ],
+          "missing_terms": [
+            "applic",
+            "limita",
+            "profil",
+            "resist",
+            "train",
+            "evalua",
+            "litera"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.6744,
+          "missing_entities": [],
+          "lexical_similarity": 0.6744
+        },
+        {
+          "reasons": [],
+          "admissible": true,
+          "passage_key": "d14e026823ddb084534f666370f8ad2913c3d9f3c74f4a0a6c24c3321a778e9e",
+          "matched_terms": [
+            "force",
+            "linear",
+            "measur",
+            "positi",
+            "reliab",
+            "transd",
+            "validi",
+            "veloci"
+          ],
+          "missing_terms": [
+            "applic",
+            "limita",
+            "profil",
+            "resist",
+            "train",
+            "establ",
+            "litera"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.6744,
+          "missing_entities": [],
+          "lexical_similarity": 0.6744
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage"
+          ],
+          "admissible": false,
+          "passage_key": "f96f6f16eea8bff4cc1776fed5e8f00dd16ba2d0732ca0d4ac9d7b48f33f0670",
+          "matched_terms": [
+            "applic",
+            "limita",
+            "linear",
+            "measur",
+            "profil",
+            "veloci"
+          ],
+          "missing_terms": [
+            "force",
+            "positi",
+            "reliab",
+            "resist",
+            "train",
+            "transd",
+            "validi",
+            "establ"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.4651,
+          "missing_entities": [],
+          "lexical_similarity": 0.4651
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage"
+          ],
+          "admissible": false,
+          "passage_key": "09b3fe9e8df9b1ed0459352c8b0840bd28daeaab87ab240c8bef811c0439074e",
+          "matched_terms": [
+            "linear",
+            "profil",
+            "veloci"
+          ],
+          "missing_terms": [
+            "applic",
+            "force",
+            "limita",
+            "measur",
+            "positi",
+            "reliab",
+            "resist",
+            "train"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.2791,
+          "missing_entities": [],
+          "lexical_similarity": 0.2791
+        },
+        {
+          "reasons": [
+            "insufficient_query_facet_coverage"
+          ],
+          "admissible": false,
+          "passage_key": "2b222de1e0857a1d8cc02034419ec3c854a75ed826cc72667a3730a0a2142cc5",
+          "matched_terms": [
+            "linear",
+            "profil",
+            "veloci",
+            "evalua"
+          ],
+          "missing_terms": [
+            "applic",
+            "force",
+            "limita",
+            "measur",
+            "positi",
+            "reliab",
+            "resist",
+            "train"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.3023,
+          "missing_entities": [],
+          "lexical_similarity": 0.3023
+        }
+      ],
+      "gate_version": "structured-evidence-gate-v1",
+      "claim_support": "NOT_ASSESSED",
+      "contradictory": false,
+      "question_kind": "factual",
+      "aspect_coverage": {
+        "applic": 2,
+        "limita": 2,
+        "reliab": 20,
+        "validi": 15
+      },
+      "required_coverage": 0.6,
+      "uncovered_aspects": [],
+      "accepted_passage_keys": [
+        "f65799b0cd6521e359a52f33b8faf26a13876926b36321346a79cbfa279ba3cc",
+        "e1da4408859798817cfa018a768044af64e053c3c38681b450f9fd0d34c6d5b4",
+        "8fd59cbc9dce8677031f609f280febe45a436723974fa4795a3cd8c8107b340a",
+        "013d60ac4bc7ae8870fbb9e9cc7354b419ee39e1da5f2691532c0dc242251c14",
+        "8ea5d3a3df48e18e2e0fa0d9c92122baaf9287609c9b8dbf84b4032d30a274ec",
+        "eb7e26587b7eba69bc7eceb2af3c5cc43b0cb0a847c3b706349751fe215f87f0",
+        "0b19ca4b0107ae4246011ddff1b5616969c832ba35a5e1ea3c3b17a86d0302ea",
+        "f347e0ec19481826cdf6d6f53ea1d3d22618a4f37b95ca022b0f20e04b0ec8e7",
+        "045e13fb280017ad68fd50aa92d27a78b526c371db1e3c3b09dc7e5252aec0d3",
+        "013d4c6a155cedbf97579c8b255a9d6bb8822f53b95ac7d48f31e5d2e292643a",
+        "fe9825406d9483a7f2e2d3c1a923b2044080d7df654b734980c5f3c9d0c20037",
+        "2843708e2438ef7353821f590738b8a1696e1698c40b069c2fa65315eaa89f94",
+        "0c9c07edfa38bdb99b68bacfe70e1a8763cb686a4b5d6aae4ab73925ed6f2c6a",
+        "0d9fe984e7b6e8b752defa3029a9f12dd4d791d0a5aa440590b7264d24171309",
+        "12cea5b0fedce5974db731a9d20593c6c387b1f227782c3bf72fc081fe023fe9",
+        "4e6fe52b2323c9206a52fc2e2e91a8890ffd4e3f41868c1db86255dcb55119f5",
+        "0b0df0e5770cef4880baa7c881885f279a47c8bbfd851f44b95d72c1b8531bbf",
+        "aac7806cff27b519c5a42e0ed99bc0f5f6c22c19775302393a14d2ab53baff2e",
+        "e48a5c8b5883e095a25b8c275819b37767fb354fc1ce75c25a64dcb4d47b32d9",
+        "1717bcc0e2358bfb8628b7188159987d4f77e6fe645d48abafbe568f42a05bec",
+        "d14e026823ddb084534f666370f8ad2913c3d9f3c74f4a0a6c24c3321a778e9e"
+      ],
+      "rejected_passage_keys": [
+        "b5727c224fd4fd780802cec78e7525f99b1dcf2f8d006eff4abdd6bde7534a7b",
+        "44de1dada15c0941b994e1dd94d9ed6268bb1f08f99dfec04436fd642e605015",
+        "40b35c879b956f11b8123f55178da1c034a502fdda92e9d881b3ecc352c7a272",
+        "ccedbc09c6e37d7382124cdb0b50124647d9b29bccc6ae9d5d5e200990a9bea5",
+        "2f5b247f5c0225259d2fb842878633534bc9b1173da7d09cd54d77ae7512c76d",
+        "781464485ed63a18c35e39bc6b1ef34992ee7ddf1df4552672b5068022b6fd03",
+        "2c81638e044db6c7b2882ae88f915c7fc216c576698af8efc8301bfcc0ffbe5c",
+        "b9e177c7c228e04dbc06b3d6410bfa9fde6ad18c1d3c943ae8dde2aa4f7b3b10",
+        "6891496b072028b50c8f331a4278ad85bf01d1d23de8c3d5e5dd84cf7e1a4cfd",
+        "57accce9ba79fa81141e5d67cd5685cb3ec65cb643ef1abb83a8f61b35ea8a8c",
+        "027810b6ef3acf0efcfd2d2b0b7b1d5f7357e5771cfdfe5e477ddfd0dc956b6b",
+        "4dc0f43727de4b2aed5a5886eefdf84f4de52955076d538e6daead922392926a",
+        "f96f6f16eea8bff4cc1776fed5e8f00dd16ba2d0732ca0d4ac9d7b48f33f0670",
+        "09b3fe9e8df9b1ed0459352c8b0840bd28daeaab87ab240c8bef811c0439074e",
+        "2b222de1e0857a1d8cc02034419ec3c854a75ed826cc72667a3730a0a2142cc5"
+      ],
+      "accepted_claim_indexes": [],
+      "comparison_document_count": 4
+    },
+    "created_at": "2026-11-20T12:30:01.377638+00:00"
+  },
+  {
+    "run_id": "run-0efac6b4ce824e77",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 31,
+    "event_type": "findings.extracted",
+    "stage": "extract_study_findings",
+    "payload": {
+      "origin": "graph_enforced",
+      "findings_count": 10
+    },
+    "created_at": "2026-11-20T12:30:01.419002+00:00"
+  },
+  {
+    "run_id": "run-0efac6b4ce824e77",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 32,
+    "event_type": "synthesis.completed",
+    "stage": "synthesize_provisional_answer",
+    "payload": {
+      "source": "model",
+      "abstain_reason": null,
+      "claims_proposed": 7,
+      "fallback_reason": null
+    },
+    "created_at": "2026-11-20T12:31:12.000520+00:00"
+  },
+  {
+    "run_id": "run-0efac6b4ce824e77",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 33,
+    "event_type": "evidence.relevance_assessed",
+    "stage": "verify_canonical_citations",
+    "payload": {
+      "code": "claims_relevant_and_answerable",
+      "detail": "Verified quotations cover the question's entities and facets; the gate is lexical/structural, not entailment.",
+      "verdict": "ANSWERABLE",
+      "ambiguous": false,
+      "candidates": [
+        {
+          "reasons": [],
+          "admissible": true,
+          "passage_key": "f65799b0cd6521e359a52f33b8faf26a13876926b36321346a79cbfa279ba3cc",
+          "matched_terms": [
+            "linear",
+            "positi",
+            "reliab",
+            "transd",
+            "validi",
+            "veloci"
+          ],
+          "missing_terms": [
+            "applic",
+            "force",
+            "limita",
+            "measur",
+            "profil",
+            "resist",
+            "train",
+            "establ"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.4,
+          "missing_entities": [],
+          "lexical_similarity": 0.4
+        },
+        {
+          "reasons": [],
+          "admissible": true,
+          "passage_key": "8fd59cbc9dce8677031f609f280febe45a436723974fa4795a3cd8c8107b340a",
+          "matched_terms": [
+            "linear",
+            "measur",
+            "positi",
+            "profil",
+            "reliab",
+            "transd",
+            "validi",
+            "veloci"
+          ],
+          "missing_terms": [
+            "applic",
+            "force",
+            "limita",
+            "resist",
+            "train",
+            "establ",
+            "evalua",
+            "litera"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.56,
+          "missing_entities": [],
+          "lexical_similarity": 0.56
+        },
+        {
+          "reasons": [],
+          "admissible": true,
+          "passage_key": "8ea5d3a3df48e18e2e0fa0d9c92122baaf9287609c9b8dbf84b4032d30a274ec",
+          "matched_terms": [
+            "force",
+            "linear",
+            "measur",
+            "positi",
+            "reliab",
+            "transd",
+            "validi",
+            "veloci"
+          ],
+          "missing_terms": [
+            "applic",
+            "limita",
+            "profil",
+            "resist",
+            "train",
+            "establ",
+            "evalua",
+            "litera"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.56,
+          "missing_entities": [],
+          "lexical_similarity": 0.56
+        },
+        {
+          "reasons": [],
+          "admissible": true,
+          "passage_key": "8ea5d3a3df48e18e2e0fa0d9c92122baaf9287609c9b8dbf84b4032d30a274ec",
+          "matched_terms": [
+            "force",
+            "linear",
+            "measur",
+            "positi",
+            "reliab",
+            "transd",
+            "validi",
+            "veloci"
+          ],
+          "missing_terms": [
+            "applic",
+            "limita",
+            "profil",
+            "resist",
+            "train",
+            "establ",
+            "evalua",
+            "litera"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.56,
+          "missing_entities": [],
+          "lexical_similarity": 0.56
+        },
+        {
+          "reasons": [],
+          "admissible": true,
+          "passage_key": "f347e0ec19481826cdf6d6f53ea1d3d22618a4f37b95ca022b0f20e04b0ec8e7",
+          "matched_terms": [
+            "force",
+            "linear",
+            "positi",
+            "profil",
+            "reliab",
+            "resist",
+            "transd",
+            "veloci"
+          ],
+          "missing_terms": [
+            "applic",
+            "limita",
+            "measur",
+            "train",
+            "validi",
+            "establ",
+            "evalua",
+            "litera"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.64,
+          "missing_entities": [],
+          "lexical_similarity": 0.64
+        },
+        {
+          "reasons": [],
+          "admissible": true,
+          "passage_key": "f347e0ec19481826cdf6d6f53ea1d3d22618a4f37b95ca022b0f20e04b0ec8e7",
+          "matched_terms": [
+            "force",
+            "profil",
+            "reliab",
+            "train",
+            "veloci"
+          ],
+          "missing_terms": [
+            "applic",
+            "limita",
+            "linear",
+            "measur",
+            "positi",
+            "resist",
+            "transd",
+            "validi"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.4,
+          "missing_entities": [],
+          "lexical_similarity": 0.4
+        },
+        {
+          "reasons": [
+            "no_asked_aspect_in_quotation"
+          ],
+          "admissible": false,
+          "passage_key": "8fd59cbc9dce8677031f609f280febe45a436723974fa4795a3cd8c8107b340a",
+          "matched_terms": [
+            "linear",
+            "measur",
+            "positi",
+            "profil",
+            "transd",
+            "veloci"
+          ],
+          "missing_terms": [
+            "applic",
+            "force",
+            "limita",
+            "reliab",
+            "resist",
+            "train",
+            "validi",
+            "establ"
+          ],
+          "entity_support": 1,
+          "query_relevance": 0.48,
+          "missing_entities": [],
+          "lexical_similarity": 0.48
+        }
+      ],
+      "gate_version": "structured-evidence-gate-v1",
+      "claim_support": "SUPPORTED_BY_STRUCTURED_EVIDENCE_GATE",
+      "contradictory": false,
+      "question_kind": "factual",
+      "aspect_coverage": {
+        "applic": 0,
+        "limita": 0,
+        "reliab": 6,
+        "validi": 4
+      },
+      "required_coverage": 0.6,
+      "uncovered_aspects": [
+        "applic",
+        "limita"
+      ],
+      "accepted_passage_keys": [
+        "f65799b0cd6521e359a52f33b8faf26a13876926b36321346a79cbfa279ba3cc",
+        "8fd59cbc9dce8677031f609f280febe45a436723974fa4795a3cd8c8107b340a",
+        "8ea5d3a3df48e18e2e0fa0d9c92122baaf9287609c9b8dbf84b4032d30a274ec",
+        "8ea5d3a3df48e18e2e0fa0d9c92122baaf9287609c9b8dbf84b4032d30a274ec",
+        "f347e0ec19481826cdf6d6f53ea1d3d22618a4f37b95ca022b0f20e04b0ec8e7",
+        "f347e0ec19481826cdf6d6f53ea1d3d22618a4f37b95ca022b0f20e04b0ec8e7"
+      ],
+      "rejected_passage_keys": [],
+      "accepted_claim_indexes": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "comparison_document_count": 4
+    },
+    "created_at": "2026-11-20T12:31:12.123186+00:00"
+  },
+  {
+    "run_id": "run-0efac6b4ce824e77",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 34,
+    "event_type": "verification.completed",
+    "stage": "verify_canonical_citations",
+    "payload": {
+      "origin": "graph_enforced",
+      "answerability": {
+        "code": "claims_relevant_and_answerable",
+        "detail": "Verified quotations cover the question's entities and facets; the gate is lexical/structural, not entailment.",
+        "verdict": "ANSWERABLE",
+        "ambiguous": false,
+        "candidates": [
+          {
+            "reasons": [],
+            "admissible": true,
+            "passage_key": "f65799b0cd6521e359a52f33b8faf26a13876926b36321346a79cbfa279ba3cc",
+            "matched_terms": [
+              "linear",
+              "positi",
+              "reliab",
+              "transd",
+              "validi",
+              "veloci"
+            ],
+            "missing_terms": [
+              "applic",
+              "force",
+              "limita",
+              "measur",
+              "profil",
+              "resist",
+              "train",
+              "establ"
+            ],
+            "entity_support": 1,
+            "query_relevance": 0.4,
+            "missing_entities": [],
+            "lexical_similarity": 0.4
+          },
+          {
+            "reasons": [],
+            "admissible": true,
+            "passage_key": "8fd59cbc9dce8677031f609f280febe45a436723974fa4795a3cd8c8107b340a",
+            "matched_terms": [
+              "linear",
+              "measur",
+              "positi",
+              "profil",
+              "reliab",
+              "transd",
+              "validi",
+              "veloci"
+            ],
+            "missing_terms": [
+              "applic",
+              "force",
+              "limita",
+              "resist",
+              "train",
+              "establ",
+              "evalua",
+              "litera"
+            ],
+            "entity_support": 1,
+            "query_relevance": 0.56,
+            "missing_entities": [],
+            "lexical_similarity": 0.56
+          },
+          {
+            "reasons": [],
+            "admissible": true,
+            "passage_key": "8ea5d3a3df48e18e2e0fa0d9c92122baaf9287609c9b8dbf84b4032d30a274ec",
+            "matched_terms": [
+              "force",
+              "linear",
+              "measur",
+              "positi",
+              "reliab",
+              "transd",
+              "validi",
+              "veloci"
+            ],
+            "missing_terms": [
+              "applic",
+              "limita",
+              "profil",
+              "resist",
+              "train",
+              "establ",
+              "evalua",
+              "litera"
+            ],
+            "entity_support": 1,
+            "query_relevance": 0.56,
+            "missing_entities": [],
+            "lexical_similarity": 0.56
+          },
+          {
+            "reasons": [],
+            "admissible": true,
+            "passage_key": "8ea5d3a3df48e18e2e0fa0d9c92122baaf9287609c9b8dbf84b4032d30a274ec",
+            "matched_terms": [
+              "force",
+              "linear",
+              "measur",
+              "positi",
+              "reliab",
+              "transd",
+              "validi",
+              "veloci"
+            ],
+            "missing_terms": [
+              "applic",
+              "limita",
+              "profil",
+              "resist",
+              "train",
+              "establ",
+              "evalua",
+              "litera"
+            ],
+            "entity_support": 1,
+            "query_relevance": 0.56,
+            "missing_entities": [],
+            "lexical_similarity": 0.56
+          },
+          {
+            "reasons": [],
+            "admissible": true,
+            "passage_key": "f347e0ec19481826cdf6d6f53ea1d3d22618a4f37b95ca022b0f20e04b0ec8e7",
+            "matched_terms": [
+              "force",
+              "linear",
+              "positi",
+              "profil",
+              "reliab",
+              "resist",
+              "transd",
+              "veloci"
+            ],
+            "missing_terms": [
+              "applic",
+              "limita",
+              "measur",
+              "train",
+              "validi",
+              "establ",
+              "evalua",
+              "litera"
+            ],
+            "entity_support": 1,
+            "query_relevance": 0.64,
+            "missing_entities": [],
+            "lexical_similarity": 0.64
+          },
+          {
+            "reasons": [],
+            "admissible": true,
+            "passage_key": "f347e0ec19481826cdf6d6f53ea1d3d22618a4f37b95ca022b0f20e04b0ec8e7",
+            "matched_terms": [
+              "force",
+              "profil",
+              "reliab",
+              "train",
+              "veloci"
+            ],
+            "missing_terms": [
+              "applic",
+              "limita",
+              "linear",
+              "measur",
+              "positi",
+              "resist",
+              "transd",
+              "validi"
+            ],
+            "entity_support": 1,
+            "query_relevance": 0.4,
+            "missing_entities": [],
+            "lexical_similarity": 0.4
+          },
+          {
+            "reasons": [
+              "no_asked_aspect_in_quotation"
+            ],
+            "admissible": false,
+            "passage_key": "8fd59cbc9dce8677031f609f280febe45a436723974fa4795a3cd8c8107b340a",
+            "matched_terms": [
+              "linear",
+              "measur",
+              "positi",
+              "profil",
+              "transd",
+              "veloci"
+            ],
+            "missing_terms": [
+              "applic",
+              "force",
+              "limita",
+              "reliab",
+              "resist",
+              "train",
+              "validi",
+              "establ"
+            ],
+            "entity_support": 1,
+            "query_relevance": 0.48,
+            "missing_entities": [],
+            "lexical_similarity": 0.48
+          }
+        ],
+        "gate_version": "structured-evidence-gate-v1",
+        "claim_support": "SUPPORTED_BY_STRUCTURED_EVIDENCE_GATE",
+        "contradictory": false,
+        "question_kind": "factual",
+        "aspect_coverage": {
+          "applic": 0,
+          "limita": 0,
+          "reliab": 6,
+          "validi": 4
+        },
+        "required_coverage": 0.6,
+        "uncovered_aspects": [
+          "applic",
+          "limita"
+        ],
+        "accepted_passage_keys": [
+          "f65799b0cd6521e359a52f33b8faf26a13876926b36321346a79cbfa279ba3cc",
+          "8fd59cbc9dce8677031f609f280febe45a436723974fa4795a3cd8c8107b340a",
+          "8ea5d3a3df48e18e2e0fa0d9c92122baaf9287609c9b8dbf84b4032d30a274ec",
+          "8ea5d3a3df48e18e2e0fa0d9c92122baaf9287609c9b8dbf84b4032d30a274ec",
+          "f347e0ec19481826cdf6d6f53ea1d3d22618a4f37b95ca022b0f20e04b0ec8e7",
+          "f347e0ec19481826cdf6d6f53ea1d3d22618a4f37b95ca022b0f20e04b0ec8e7"
+        ],
+        "rejected_passage_keys": [],
+        "accepted_claim_indexes": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "comparison_document_count": 4
+      },
+      "rejected_count": 1,
+      "verified_count": 6,
+      "evidence_set_key": "1d54c710169db0daecd69382afd2812f3d9e79148b435fde18a137113c5c565d",
+      "rejection_reasons": [
+        "answerability_gate:claim_not_relevant_to_question"
+      ],
+      "evidence_graph_key": "6f7e99be7b6684e3ec9098a15079129fdac13e939ba72cc6cae1cd54b607eb52"
+    },
+    "created_at": "2026-11-20T12:31:12.152669+00:00"
+  },
+  {
+    "run_id": "run-0efac6b4ce824e77",
+    "thread_id": "thread-8f5cf852d3a74d5a",
+    "seq": 35,
+    "event_type": "run.completed",
+    "stage": "finalize",
+    "payload": {
+      "status": "completed",
+      "abstained": false,
+      "abstention_reason": null,
+      "verified_citations_count": 6
+    },
+    "created_at": "2026-11-20T12:31:12.493098+00:00"
+  },
+  {
+    "status": "completed",
+    "last_seq": 35
+  }
+]

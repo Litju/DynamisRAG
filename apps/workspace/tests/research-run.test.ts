@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import researchTool from "../agent/tools/research_ask";
 
-function context() {
+function context(signal = new AbortController().signal) {
   return {
     session: {
       id: "session-1",
@@ -12,7 +12,7 @@ function context() {
         initiator: { principalId: "alice" },
       },
     },
-    abortSignal: new AbortController().signal,
+    abortSignal: signal,
   } as Parameters<typeof researchTool.execute>[1];
 }
 
@@ -45,13 +45,13 @@ test("one failed status request is retried and delivers the completed answer", a
   assert.equal(outputs.at(-1)?.answer, "Completed after retry");
 });
 
-test("exhausted status retries check the bodiless cancellation response", async (t) => {
+test("exhausted status retries leave the durable run available for reconnection", async (t) => {
   process.env.DYNAMISRAG_API_ORIGIN = "https://python.example";
   process.env.DYNAMISRAG_AGENT_IDENTITY_SECRET =
     "test-secret-01234567890123456789012345";
   let statuses = 0,
     cancellations = 0;
-  t.mock.method(globalThis, "fetch", async (url: URL, init: RequestInit) => {
+  t.mock.method(globalThis, "fetch", async (url: URL) => {
     if (url.pathname === "/api/v2/threads")
       return Response.json([
         { thread_id: "thread-1", external_ref: "eve:session-1" },
@@ -60,11 +60,7 @@ test("exhausted status retries check the bodiless cancellation response", async 
       return Response.json({ run_id: "run-1" });
     if (url.pathname.endsWith("/cancel")) {
       cancellations++;
-      assert.equal(
-        new Headers(init.headers).get("content-type"),
-        "application/json",
-      );
-      return new Response(null, { status: 415 });
+      return Response.json({ status: "cancelled" });
     }
     statuses++;
     return new Response(null, { status: 503 });
@@ -76,7 +72,33 @@ test("exhausted status retries check the bodiless cancellation response", async 
     );
     assert.ok(Symbol.asyncIterator in stream);
     for await (const ignored of stream) void ignored;
-  }, /415/);
+  }, /503/);
   assert.equal(statuses, 3);
-  assert.equal(cancellations, 1);
+  assert.equal(cancellations, 0);
+});
+
+test("explicit Eve abort still cancels the Python run", async (t) => {
+  process.env.DYNAMISRAG_API_ORIGIN = "https://python.example";
+  process.env.DYNAMISRAG_AGENT_IDENTITY_SECRET = "test-secret-01234567890123456789012345";
+  const controller = new AbortController();
+  let cancelled = false;
+  t.mock.method(globalThis, "fetch", async (url: URL, init: RequestInit) => {
+    if (url.pathname === "/api/v2/threads")
+      return Response.json([{ thread_id: "thread-1", external_ref: "eve:session-1" }]);
+    if (url.pathname.endsWith("/runs")) return Response.json({ run_id: "run-1" });
+    if (url.pathname.endsWith("/cancel")) {
+      cancelled = true;
+      assert.equal(new Headers(init.headers).get("content-type"), "application/json");
+      return Response.json({ status: "cancelled" });
+    }
+    controller.abort();
+    return new Response(null, { status: 503 });
+  });
+
+  await assert.rejects(async () => {
+    const stream = await researchTool.execute({ question: "question" }, context(controller.signal));
+    assert.ok(Symbol.asyncIterator in stream);
+    for await (const ignored of stream) void ignored;
+  }, /503/);
+  assert.equal(cancelled, true);
 });
