@@ -82,6 +82,7 @@ _GENERIC_QUERY_TERMS: Final[frozenset[str]] = frozenset(
         "according",
         "after",
         "available",
+        "author",
         "before",
         "behavior",
         "behaviors",
@@ -97,6 +98,7 @@ _GENERIC_QUERY_TERMS: Final[frozenset[str]] = frozenset(
         "comparison",
         "concern",
         "concerns",
+        "cited",
         "corpus",
         "describe",
         "detail",
@@ -159,6 +161,7 @@ _GENERIC_QUERY_TERMS: Final[frozenset[str]] = frozenset(
         "assess",
         "establish",
         "established",
+        "earlier",
         "evaluate",
         "literature",
         "scientific",
@@ -330,6 +333,10 @@ _CONCEPT_ALIASES: Final[tuple[tuple[re.Pattern[str], str], ...]] = (
         "range_of_motion",
     ),
     (
+        re.compile(r"\b(?:validity|validation)\b", re.IGNORECASE),
+        "measurement_validity",
+    ),
+    (
         # Measurement-science wording for the instrument a device is validated against.
         re.compile(
             r"\b(?:reference\s+(?:[a-z]+\s+)?(?:standards?|systems?|methods?|devices?|"
@@ -353,7 +360,9 @@ _CONCEPT_ALIASES: Final[tuple[tuple[re.Pattern[str], str], ...]] = (
     ),
 )
 
-_SUBSUMING_CONCEPTS: Final[frozenset[str]] = frozenset({"reference_standard"})
+_SUBSUMING_CONCEPTS: Final[frozenset[str]] = frozenset(
+    {"measurement_validity", "reference_standard"}
+)
 
 _DESIGNATION: Final = re.compile(
     r"\b[A-Z][A-Za-z]*(?:[-\u2013]?\d+[A-Za-z0-9]*(?:[-\u2013][A-Za-z0-9]+)*)\b"
@@ -383,7 +392,10 @@ _INVENTORY: Final = re.compile(
     re.IGNORECASE,
 )
 _METADATA: Final = re.compile(
-    r"\b(?:identifiers?|doi|pmid|pmcid|section\s+titles?|metadata|authors?|journal)\b",
+    r"\b(?:identifiers?|doi|pmid|pmcid|section\s+titles?|metadata|journal)\b|"
+    r"\b(?:who|which|what)\s+(?:(?:are|were|is|was)\s+(?:the\s+)?)?authors?\b|"
+    r"\b(?:list|name|identify)\s+(?:the\s+)?authors?\b|"
+    r"\bauthors?\s+(?:names?|affiliations?)\b|\bwho\s+(?:wrote|authored)\b",
     re.IGNORECASE,
 )
 _SINGLE_VALUE: Final = re.compile(
@@ -688,8 +700,7 @@ def _weighted_facets(  # noqa: PLR0912 - explicit facet weighting branches
     for pattern, concept in _CONCEPT_ALIASES:
         match = pattern.search(folded_question)
         if match is not None and concept in _SUBSUMING_CONCEPTS:
-            # The concept replaces its own wording: "reference measurement systems" is met by a
-            # "criterion" or "gold standard" passage, not by the words "reference" and "system".
+            # Use one facet for equivalent measurement-science wording on both sides.
             for word in _WORD.findall(match.group(0)):
                 terms.pop(_stem(word), None)
         if match is not None and concept not in entity_stems:
@@ -768,7 +779,14 @@ def _enumerated_aspects(question: str) -> tuple[str, ...]:
         items = [i for i in re.split(r"\s*,\s*|\s+(?:and|or)\s+", match.group(1)) if i.strip()]
         heads = tuple(
             dict.fromkeys(
-                _stem(item.split()[-1])
+                next(
+                    (
+                        concept
+                        for pattern, concept in _CONCEPT_ALIASES
+                        if pattern.search(_fold(item)) or pattern.search(_fold(item.split()[-1]))
+                    ),
+                    _stem(item.split()[-1]),
+                )
                 for item in items
                 if item.split() and item.split()[-1] not in _QUESTION_WORDS
             )

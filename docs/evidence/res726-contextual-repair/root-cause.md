@@ -15,6 +15,7 @@ The current isolated preview agent store was queried read-only on 2026-11-25. It
 | `res638-research-workflow/flash-v3/turn1-run.json` | `5b19a96146a27baa7f4d0b84584988b73885a9b8821cfcee8a03190aa0da9a51` | Later DeepSeek V4.1 Flash run produced seven independently verified citations from canonical passages. |
 | `res638-research-workflow/flash-v3/turn2-run.json` | `b5a4234140ab8513fac4f40f602d4840879f90cc8115343ab0514c3fb4e4b489` | The focused contextual comparison produced four verified citations, including the primary study's stated comparison against force plates and motion capture. It correctly described the motion-capture result as an aim rather than a result. |
 | `res726-autonomous-research/turn-2-events.json` | `f867d43d9a89f8be4e1af88bfbf9029614b44def23cf794163771f99cd122a57` | A later authorized model-directed follow-up retrieved the canonical PMC7850492 passage explicitly mentioning force plates and 3D motion capture; the run completed with four verified citations. |
+| `res726-contextual-repair/hosted-failure-reproduction.json` | `f0fdd87ce257d6970dc1fd20de9b6aceb69ebfa9717aedabd2c5cc6587a9bbb5` | Fresh hosted DeepSeek V4.1 Flash follow-up on the retained conversation. The graph checkpoint shows no context rewrite; the model retrieved canonical PMC12608286 evidence, but the metadata route rejected all passages before synthesis. |
 
 ## Established causes
 
@@ -28,7 +29,13 @@ The failed run events begin at `resolve_conversation_context`; the comparison tu
 
 The citation-failure record contains the model name, generated claim text, submitted passage keys, quote text and verifier rejection reasons. Submitted keys resolve to canonical passages, but the generated claims add or change meaning. In the accepted DeepSeek Flash v3 record, the four comparison citations map to canonical passage/span keys; the answer distinguishes a study aim from a reported result. No change to citation ID handling or canonical verification is warranted.
 
-The historical failures had multiple independent causes. The repair changes question-shape recognition only. It does not lower relevance thresholds, relax canonical citation checks, or convert the failed fallback run into evidence of supported scientific claims.
+The historical failures had multiple independent causes. The first repair changes aspect-list recognition only. It does not lower relevance thresholds, relax canonical citation checks, or convert the failed fallback run into evidence of supported scientific claims.
+
+## Fresh hosted contextual blocker (2026-11-25)
+
+The retained owner conversation reproduced a second false abstention on the exact-context ICC follow-up. DeepSeek V4.1 Flash made focused canonical searches, including a query for `LPT CMV ICC 0.863`, and retrieved passage `8ea5d3…` from the already-stored PMC12608286 test–retest results. That candidate was canonical-verified and individually admissible at relevance `0.6027`; literature discovery found the same work already present, so no new ingestion was needed. The run still abstained with zero accepted passages, no synthesis and no citation-verifier invocation.
+
+The saved LangGraph checkpoint contains the current question, an unchanged resolved question, `context_resolution_source=none_needed`, zero scoped or allowlisted documents, eight retrieved candidates and the metadata-route abstention. The history was present; the user had named the study sufficiently for the model to retrieve it. The defect was the broad `_METADATA` trigger: the ordinary finding sentence `what ICC did the authors report` selected the metadata/inventory route. Its structural coverage rule demanded all topical qualifiers on a single passage, despite a candidate that directly contains the asked ICC. The adjacent `cited earlier` and `validation study` wording also needs discourse/lexicon normalization so it does not become literal passage text that must be repeated. This is an implementation defect; the model behavior, canonical passage and quotation verifier are not the cause.
 
 ## Limits of this reconstruction
 

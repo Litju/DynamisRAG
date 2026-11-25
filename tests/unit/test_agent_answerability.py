@@ -349,7 +349,7 @@ def test_multi_aspect_list_before_the_scientific_topic_remains_a_set_of_aspects(
 
     profile = build_query_profile(question)
 
-    assert profile.aspects == ("validi", "reliab", "applic", "limita")
+    assert profile.aspects == ("measurement_validity", "reliab", "applic", "limita")
     assert "say" not in salient_terms(profile)
     passages = (
         "Linear position transducers measured force velocity profiles; resistance "
@@ -414,6 +414,45 @@ def test_metadata_route_accepts_a_supported_study_qualifier() -> None:
     assert decision.verdict == "ANSWERABLE"
     assert decision.code == "inventory_or_metadata_route"
     assert decision.accepted_passage_keys == (_DEPTH_JUMPING.passage_key,)
+
+
+def test_author_reporting_phrase_keeps_a_contextual_icc_question_factual() -> None:
+    question = (
+        "In the force-plate and linear-position-transducer validation study cited earlier, "
+        "what ICC did the authors report for the LPT's countermovement-jump velocity measurement?"
+    )
+    context = (
+        "What does the scientific literature establish about force-velocity profiling using "
+        "linear position transducers in resistance training?"
+    )
+    candidate = EvidenceCandidate(
+        passage_key="8ea5d3a3df48e18e2e0fa0d9c92122baaf9287609c9b8dbf84b4032d30a274ec",
+        document_version_key="86d7c3d57c7a744f8cc79f4c6dbfd5dd198be11fdfd873a4801d73e460c2368b",
+        title=(
+            "The Validity and Reliability of the Force Plates and the Linear Position "
+            "Transducer in Measuring Countermovement Depth and Velocity During Countermovement Jump"
+        ),
+        section_title="3.2. Test-Retest Reliability",
+        text=(
+            "The Force Plates and the Linear Position Transducer demonstrated good reliability "
+            "for daily measurements of countermovement depth (CMD) and velocity (CMV) "
+            "(ICCs > 0.70, p < 0.001). The linear position transducer (LPT) achieved the higher "
+            "ICC values for both parameters (CMD: ICC = 0.900, 95% CI = 0.783 to 0.954, "
+            "MDC = 4.73 cm, CV = 4.53%; CMV: ICC = 0.863, 95% CI = 0.704 to 0.937, "
+            "MDC = 0.12 m/s, CV = 6.68%)."
+        ),
+    )
+
+    profile = build_query_profile(question, context)
+    decision = assess_retrieval(question, (candidate,), context=context)
+
+    assert profile.kind == "factual"
+    assert "author" not in salient_terms(profile)
+    assert "cited" not in salient_terms(profile)
+    assert "earlier" not in salient_terms(profile)
+    assert decision.answerable
+    assert decision.accepted_passage_keys == (candidate.passage_key,)
+    assert build_query_profile("Who are the authors of the depth jumping study?").kind == "metadata"
 
 
 def test_inventory_route_rejects_an_absent_topical_qualifier() -> None:
