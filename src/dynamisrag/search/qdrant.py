@@ -160,25 +160,40 @@ def writer_lock() -> Generator[None]:
 
 
 class QdrantClient:
-    """Loopback HTTP only, bounded requests, no proxy inheritance or redirects."""
+    """Loopback by default; explicitly allowlisted hosted targets require TLS and a key."""
 
-    def __init__(self, url: str = "http://127.0.0.1:6333") -> None:
+    def __init__(
+        self,
+        url: str = "http://127.0.0.1:6333",
+        *,
+        api_key: str | None = None,
+        allowed_remote_host: str | None = None,
+    ) -> None:
         parsed = urlsplit(url)
+        local = parsed.hostname == "127.0.0.1" and parsed.scheme == "http"
+        hosted = (
+            allowed_remote_host is not None
+            and parsed.hostname == allowed_remote_host.casefold()
+            and parsed.scheme == "https"
+            and bool(api_key)
+        )
         if (
-            parsed.scheme != "http"
-            or parsed.hostname != "127.0.0.1"
+            not (local or hosted)
             or parsed.username
             or parsed.password
             or parsed.path not in ("", "/")
             or parsed.query
             or parsed.fragment
         ):
-            raise ValueError("Qdrant must use a loopback http://127.0.0.1 URL")
+            raise ValueError(
+                "Qdrant requires loopback HTTP or an allowlisted HTTPS host with a key"
+            )
         self._http = httpx2.Client(
             base_url=url,
             timeout=60,
             trust_env=False,
             follow_redirects=False,
+            headers={"api-key": api_key} if api_key else {},
         )
 
     def close(self) -> None:

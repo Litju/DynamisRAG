@@ -1,0 +1,13 @@
+**
+!agent/
+!agent/**
+!app/
+!app/**
+!lib/
+!lib/**
+!Dockerfile
+!next.config.ts
+!package.json
+!package-lock.json
+!proxy.ts
+!tsconfig.json

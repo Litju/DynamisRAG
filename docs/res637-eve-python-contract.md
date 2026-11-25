@@ -30,8 +30,9 @@ read, and the formal terms were unavailable. **We therefore do not deploy it.** 
 
 - `agent_provider=opencode_go` exists as a *configurable, contract-tested adapter* only.
 - Settings validation **refuses** it unless `DYNAMISRAG_AGENT_OPENCODE_GO_USAGE_APPROVED=true`,
-  which must be set only after the owner obtains written confirmation from OpenCode that this use
-  is permitted. The provider builder re-checks the flag (defence in depth).
+  which the account owner sets only after recording the usage basis against OpenCode's published
+  terms (RES-638: [authorization record](evidence/res638-research-workflow/opencode-go-authorization.json);
+  the terms require no written confirmation). The provider builder re-checks the flag (defence in depth).
 - No credential is hard-coded or fabricated; the key is read from `DYNAMISRAG_AGENT_MODEL_API_KEY`
   (a `SecretStr`, never logged). Go is a *per-workspace single-member subscription*; its credentials
   must not be shared into a multi-tenant service without that written approval.

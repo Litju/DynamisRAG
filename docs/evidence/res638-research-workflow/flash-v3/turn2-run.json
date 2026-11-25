@@ -1,0 +1,1402 @@
+{
+ "run_id": "run-0517280ac5894444",
+ "thread_id": "thread-6302e37585df4de6",
+ "owner_id": "alice",
+ "idempotency_key": "turn_1",
+ "question": "How do LPT measurements compare with reference measurement systems?",
+ "status": "completed",
+ "require_confirmation": false,
+ "cancel_requested": false,
+ "attempt": 1,
+ "max_attempts": 3,
+ "worker_id": null,
+ "lease_expires_at": null,
+ "resume_payload": null,
+ "abort_reason": null,
+ "answer_markdown": "### Source-Verified Evidence (`MODEL_PROPOSED`, not expert-reviewed)\n\n1. **The Validity and Reliability of the Force Plates and the Linear Position Transducer in Measuring Countermovement Depth and Velocity During Countermovement Jump** (`PMC12608286`, passage `e1da44088597...`, anchor `jats:/body[1]/sec[1]/p[3]` chars `0..219`): \"Therefore, this study aimed to determine the concurrent validity of depth and velocity of countermovement measured by the force plates (FP) and the linear position transducer (LPT) by comparing with motion capture (MC).\"\n   - Aspect `validity_vs_reference` · proposed support label `author_interpretation` (MODEL_PROPOSED: a verified quotation is not by itself scientific support for the claim)\n   - Model paraphrase (NOT independently verified; rely on the quotation above): One study aimed to determine the concurrent validity of countermovement depth and velocity measured by LPT and force plates by comparing them with motion capture.\n   - Checks: source quotation `VERIFIED` · numbers `NOT_APPLICABLE` · wording `SUPPORTED_BY_LEXICAL_HEURISTIC` (heuristic, not entailment) · expert review `NOT_REVIEWED`\n2. **The Validity and Reliability of the Force Plates and the Linear Position Transducer in Measuring Countermovement Depth and Velocity During Countermovement Jump** (`PMC12608286`, passage `8ea5d3a3df48...`, anchor `jats:/body[1]/sec[3]/sec[2]/p[1]` chars `0..180`): \"The Force Plates and the Linear Position Transducer demonstrated good reliability for daily measurements of countermovement depth (CMD) and velocity (CMV) (ICCs > 0.70, p < 0.001).\"\n   - Aspect `reliability` · proposed support label `study_finding` (MODEL_PROPOSED: a verified quotation is not by itself scientific support for the claim)\n   - Model paraphrase (NOT independently verified; rely on the quotation above): In one study, both force plates and the LPT demonstrated good reliability for daily measurements of countermovement depth and velocity (ICCs > 0.70).\n   - Checks: source quotation `VERIFIED` · numbers `VERIFIED` · wording `SUPPORTED_BY_LEXICAL_HEURISTIC` (heuristic, not entailment) · expert review `NOT_REVIEWED`\n3. **The Validity and Reliability of the Force Plates and the Linear Position Transducer in Measuring Countermovement Depth and Velocity During Countermovement Jump** (`PMC12608286`, passage `8ea5d3a3df48...`, anchor `jats:/body[1]/sec[3]/sec[2]/p[1]` chars `181..411`): \"The linear position transducer (LPT) achieved the higher ICC values for both parameters (CMD: ICC = 0.900, 95% CI = 0.783 to 0.954, MDC = 4.73 cm, CV = 4.53%; CMV: ICC = 0.863, 95% CI = 0.704 to 0.937, MDC = 0.12 m/s, CV = 6.68%).\"\n   - Aspect `reliability` · proposed support label `study_finding` (MODEL_PROPOSED: a verified quotation is not by itself scientific support for the claim)\n   - Model paraphrase (NOT independently verified; rely on the quotation above): The LPT achieved higher ICC values for both countermovement depth and velocity parameters, with ICC = 0.900 for CMD and ICC = 0.863 for CMV.\n   - Checks: source quotation `VERIFIED` · numbers `VERIFIED` · wording `SUPPORTED_BY_LEXICAL_HEURISTIC` (heuristic, not entailment) · expert review `NOT_REVIEWED`\n4. **Validity and Reliability of a Commercially-Available Velocity and Power Testing Device** (`PMC6316018`, passage `f65799b0cd65...`, anchor `jats:/body[1]/sec[1]/p[3]` chars `265..477`): \"While some authors report that linear position transducers are a viable option that satisfies the accuracy requirements of an athletic setting [1], others question the validity and reliability of the systems [7].\"\n   - Aspect `validity` · proposed support label `background_citation` (MODEL_PROPOSED: a verified quotation is not by itself scientific support for the claim)\n   - Model paraphrase (NOT independently verified; rely on the quotation above): Reviewed literature is described as divided on LPTs, with some authors reporting they are viable and satisfy athletic-setting accuracy requirements, while others question their validity and reliability.\n   - Checks: source quotation `VERIFIED` · numbers `NOT_APPLICABLE` · wording `SUPPORTED_BY_LEXICAL_HEURISTIC` (heuristic, not entailment) · expert review `NOT_REVIEWED`\n\n#### Gaps and tensions (`MODEL_PROPOSED`)\n- Gap: No candidate passage reports the actual concurrent-validity or agreement results (e.g., bias, limits of agreement, correlation) for LPT versus motion capture; one study only states this as its aim.\n- Gap: Comparative reliability evidence is limited to LPT versus force plates in one study and does not establish criterion validity against motion capture.\n- Gap: No candidate passage directly compares LPT with a designated reference measurement system in PMC12526633; its selected quotes concern inertial measurement unit/angular velocity and general device use.\n- Tension (f65799b0cd65..., 8ea5d3a3df48...): One paper's cited literature reports disagreement about LPT validity/reliability, while a separate study reports good daily reliability and higher ICCs for LPT-derived CMD/CMV; reliability is not the same as criterion validity, and the passages do not resolve accuracy against motion capture.\n\n#### Cross-Study Comparison (`INCOMPATIBLE_OUTCOMES_OR_UNITS`)\nThe studies share no outcome terms and no explicit measurement unit; numerical pooling or direct effect-size equivalence is not supported by the extracted evidence.\n\n#### Literature search (Europe PMC / OpenAlex, open access only)\nStatus `completed` · 44 records → 38 unique works (DOI/PMID/PMCID) · 2 permitted full texts ingested · 2 rejected · 0 model requests.\n- The Validity and Reliability of the Force Plates and the Linear Position Transducer in Measuring Countermovement Depth and Velocity During Countermovement Jump. — DOI `10.3390/s25216542`, `PMC12608286`, PMID `41228765`, 29 passages, licence https://creativecommons.org/licenses/by/4.0/\n- Validity and Reliability of a Commercially-Available Velocity and Power Testing Device. — DOI `10.3390/sports6040170`, `PMC6316018`, PMID `30544687`, 19 passages, licence http://creativecommons.org/licenses/by/4.0/\n- Qdrant collection `qdrant-passages-v1-76a2a8ee2a2a7943c00b9fb698d8e4e5f4c68756fc32bee3942c93827da45f5c` (125 passages, alias `dynamisrag-research-workspace`)\n\n\n---\n*All study findings, comparisons, and synthesized claims are MODEL_PROPOSED / PROPOSED. Exact quotation and canonical source-span checks verify text provenance only and do not establish scientific entailment, study validity, clinical applicability, or expert review.*",
+ "abstention_reason": null,
+ "verified_citations": [
+  {
+   "doi": "10.3390/s25216542",
+   "pmcid": "PMC12608286",
+   "origin": "MODEL_PROPOSED",
+   "end_char": 219,
+   "span_key": "4ca43b324910ed44e6a8167407b2c512536722a71580774985ed0eef4ed4d3c8",
+   "verified": true,
+   "claim_text": "One study aimed to determine the concurrent validity of countermovement depth and velocity measured by LPT and force plates by comparing them with motion capture.",
+   "start_char": 0,
+   "claim_index": 0,
+   "passage_key": "e1da4408859798817cfa018a768044af64e053c3c38681b450f9fd0d34c6d5b4",
+   "review_state": "PROPOSED",
+   "expert_review": "NOT_REVIEWED",
+   "paragraph_key": "36f4136bdd2ca0c36145e114d790fd5216e3bd0d785a8145818068d50eeff8d3",
+   "document_title": "The Validity and Reliability of the Force Plates and the Linear Position Transducer in Measuring Countermovement Depth and Velocity During Countermovement Jump",
+   "quote_verified": true,
+   "verbatim_quote": "Therefore, this study aimed to determine the concurrent validity of depth and velocity of countermovement measured by the force plates (FP) and the linear position transducer (LPT) by comparing with motion capture (MC).",
+   "rejection_reason": null,
+   "semantic_support": "SUPPORTED_BY_LEXICAL_HEURISTIC",
+   "semantic_assessor": "lexical-consistency-v1",
+   "numeric_provenance": "NOT_APPLICABLE",
+   "document_version_key": "86d7c3d57c7a744f8cc79f4c6dbfd5dd198be11fdfd873a4801d73e460c2368b",
+   "semantic_support_score": 0.929,
+   "paragraph_source_anchor": "jats:/body[1]/sec[1]/p[3]",
+   "semantic_support_reasons": []
+  },
+  {
+   "doi": "10.3390/s25216542",
+   "pmcid": "PMC12608286",
+   "origin": "MODEL_PROPOSED",
+   "end_char": 180,
+   "span_key": "d629800a67b2b15839d142eecb6dd918e9c5cff2f345cb538092f3cc4ad9f9f8",
+   "verified": true,
+   "claim_text": "In one study, both force plates and the LPT demonstrated good reliability for daily measurements of countermovement depth and velocity (ICCs > 0.70).",
+   "start_char": 0,
+   "claim_index": 1,
+   "passage_key": "8ea5d3a3df48e18e2e0fa0d9c92122baaf9287609c9b8dbf84b4032d30a274ec",
+   "review_state": "PROPOSED",
+   "expert_review": "NOT_REVIEWED",
+   "paragraph_key": "51f53ccffa88f4681fea38d5a7c0b2def404cc4fad1643dcc0ce6d486607ea19",
+   "document_title": "The Validity and Reliability of the Force Plates and the Linear Position Transducer in Measuring Countermovement Depth and Velocity During Countermovement Jump",
+   "quote_verified": true,
+   "verbatim_quote": "The Force Plates and the Linear Position Transducer demonstrated good reliability for daily measurements of countermovement depth (CMD) and velocity (CMV) (ICCs > 0.70, p < 0.001).",
+   "rejection_reason": null,
+   "semantic_support": "SUPPORTED_BY_LEXICAL_HEURISTIC",
+   "semantic_assessor": "lexical-consistency-v1",
+   "numeric_provenance": "VERIFIED",
+   "document_version_key": "86d7c3d57c7a744f8cc79f4c6dbfd5dd198be11fdfd873a4801d73e460c2368b",
+   "semantic_support_score": 0.917,
+   "paragraph_source_anchor": "jats:/body[1]/sec[3]/sec[2]/p[1]",
+   "semantic_support_reasons": []
+  },
+  {
+   "doi": "10.3390/s25216542",
+   "pmcid": "PMC12608286",
+   "origin": "MODEL_PROPOSED",
+   "end_char": 411,
+   "span_key": "d629800a67b2b15839d142eecb6dd918e9c5cff2f345cb538092f3cc4ad9f9f8",
+   "verified": true,
+   "claim_text": "The LPT achieved higher ICC values for both countermovement depth and velocity parameters, with ICC = 0.900 for CMD and ICC = 0.863 for CMV.",
+   "start_char": 181,
+   "claim_index": 2,
+   "passage_key": "8ea5d3a3df48e18e2e0fa0d9c92122baaf9287609c9b8dbf84b4032d30a274ec",
+   "review_state": "PROPOSED",
+   "expert_review": "NOT_REVIEWED",
+   "paragraph_key": "51f53ccffa88f4681fea38d5a7c0b2def404cc4fad1643dcc0ce6d486607ea19",
+   "document_title": "The Validity and Reliability of the Force Plates and the Linear Position Transducer in Measuring Countermovement Depth and Velocity During Countermovement Jump",
+   "quote_verified": true,
+   "verbatim_quote": "The linear position transducer (LPT) achieved the higher ICC values for both parameters (CMD: ICC = 0.900, 95% CI = 0.783 to 0.954, MDC = 4.73 cm, CV = 4.53%; CMV: ICC = 0.863, 95% CI = 0.704 to 0.937, MDC = 0.12 m/s, CV = 6.68%).",
+   "rejection_reason": null,
+   "semantic_support": "SUPPORTED_BY_LEXICAL_HEURISTIC",
+   "semantic_assessor": "lexical-consistency-v1",
+   "numeric_provenance": "VERIFIED",
+   "document_version_key": "86d7c3d57c7a744f8cc79f4c6dbfd5dd198be11fdfd873a4801d73e460c2368b",
+   "semantic_support_score": 0.625,
+   "paragraph_source_anchor": "jats:/body[1]/sec[3]/sec[2]/p[1]",
+   "semantic_support_reasons": []
+  },
+  {
+   "doi": "10.3390/sports6040170",
+   "pmcid": "PMC6316018",
+   "origin": "MODEL_PROPOSED",
+   "end_char": 477,
+   "span_key": "7ec80b64a7b4a57c09030bc4c27e784a8f158af25fcf05732b3686fc638cccb3",
+   "verified": true,
+   "claim_text": "Reviewed literature is described as divided on LPTs, with some authors reporting they are viable and satisfy athletic-setting accuracy requirements, while others question their validity and reliability.",
+   "start_char": 265,
+   "claim_index": 3,
+   "passage_key": "f65799b0cd6521e359a52f33b8faf26a13876926b36321346a79cbfa279ba3cc",
+   "review_state": "PROPOSED",
+   "expert_review": "NOT_REVIEWED",
+   "paragraph_key": "bfdbddb1b4d850e5b789b182b253bf49a6fd0a49b10c632251973158e1cc1a81",
+   "document_title": "Validity and Reliability of a Commercially-Available Velocity and Power Testing Device",
+   "quote_verified": true,
+   "verbatim_quote": "While some authors report that linear position transducers are a viable option that satisfies the accuracy requirements of an athletic setting [1], others question the validity and reliability of the systems [7].",
+   "rejection_reason": null,
+   "semantic_support": "SUPPORTED_BY_LEXICAL_HEURISTIC",
+   "semantic_assessor": "lexical-consistency-v1",
+   "numeric_provenance": "NOT_APPLICABLE",
+   "document_version_key": "99b26a7d02271728f40d8d3f8156ca2ae3156d2e291f0803c2f50b7d4d9cc26b",
+   "semantic_support_score": 0.647,
+   "paragraph_source_anchor": "jats:/body[1]/sec[1]/p[3]",
+   "semantic_support_reasons": []
+  }
+ ],
+ "rejected_citations": [],
+ "proposed_findings": [
+  {
+   "doi": "10.3390/sports6040170",
+   "pmcid": "PMC6316018",
+   "units": null,
+   "origin": "MODEL_PROPOSED",
+   "category": "DESCRIPTIVE",
+   "end_char": 477,
+   "span_key": "7ec80b64a7b4a57c09030bc4c27e784a8f158af25fcf05732b3686fc638cccb3",
+   "comparator": null,
+   "finding_id": "26920cc485914803c03d4ac65bfc9eefcacd1c22251a1a56cfb8af154708880c",
+   "population": null,
+   "start_char": 265,
+   "passage_key": "f65799b0cd6521e359a52f33b8faf26a13876926b36321346a79cbfa279ba3cc",
+   "intervention": null,
+   "review_state": "PROPOSED",
+   "study_design": "experimental biomechanical study",
+   "paragraph_key": "bfdbddb1b4d850e5b789b182b253bf49a6fd0a49b10c632251973158e1cc1a81",
+   "document_title": "Validity and Reliability of a Commercially-Available Velocity and Power Testing Device",
+   "verbatim_quote": "While some authors report that linear position transducers are a viable option that satisfies the accuracy requirements of an athletic setting [1], others question the validity and reliability of the systems [7].",
+   "outcome_measures": [],
+   "uncertainty_notes": [
+    "MODEL_PROPOSED extraction from a single passage span; requires full-study context and expert adjudication."
+   ],
+   "missing_information": [
+    "sample_population_not_stated_in_passage",
+    "exact_effect_size_or_p_value_not_in_sentence"
+   ],
+   "reported_statistics": [],
+   "document_version_key": "99b26a7d02271728f40d8d3f8156ca2ae3156d2e291f0803c2f50b7d4d9cc26b",
+   "measurement_protocol": null,
+   "structurally_verified": true,
+   "paragraph_source_anchor": "jats:/body[1]/sec[1]/p[3]"
+  },
+  {
+   "doi": "10.3390/sports6040170",
+   "pmcid": "PMC6316018",
+   "units": null,
+   "origin": "MODEL_PROPOSED",
+   "category": "DESCRIPTIVE",
+   "end_char": 264,
+   "span_key": "7ec80b64a7b4a57c09030bc4c27e784a8f158af25fcf05732b3686fc638cccb3",
+   "comparator": null,
+   "finding_id": "201a1c40cb13dd8d1b050dd05e1c678a968a19fd6d00df09a4f25c3a86702bbf",
+   "population": null,
+   "start_char": 0,
+   "passage_key": "f65799b0cd6521e359a52f33b8faf26a13876926b36321346a79cbfa279ba3cc",
+   "intervention": null,
+   "review_state": "PROPOSED",
+   "study_design": "experimental biomechanical study",
+   "paragraph_key": "bfdbddb1b4d850e5b789b182b253bf49a6fd0a49b10c632251973158e1cc1a81",
+   "document_title": "Validity and Reliability of a Commercially-Available Velocity and Power Testing Device",
+   "verbatim_quote": "In an athletic setting, small changes in power production or velocity can have an impactful effect in competition [6]; therefore, accuracy of tools used to measure kinetic and kinematic data is critical for the successful implementation of velocity-based training.",
+   "outcome_measures": [],
+   "uncertainty_notes": [
+    "MODEL_PROPOSED extraction from a single passage span; requires full-study context and expert adjudication."
+   ],
+   "missing_information": [
+    "sample_population_not_stated_in_passage",
+    "exact_effect_size_or_p_value_not_in_sentence"
+   ],
+   "reported_statistics": [],
+   "document_version_key": "99b26a7d02271728f40d8d3f8156ca2ae3156d2e291f0803c2f50b7d4d9cc26b",
+   "measurement_protocol": null,
+   "structurally_verified": true,
+   "paragraph_source_anchor": "jats:/body[1]/sec[1]/p[3]"
+  },
+  {
+   "doi": "10.3390/s25216542",
+   "pmcid": "PMC12608286",
+   "units": null,
+   "origin": "MODEL_PROPOSED",
+   "category": "DESCRIPTIVE",
+   "end_char": 866,
+   "span_key": "4ca43b324910ed44e6a8167407b2c512536722a71580774985ed0eef4ed4d3c8",
+   "comparator": "within-subject angle/condition comparison or control group",
+   "finding_id": "ef8fc5b66248b387d68f3f3394159b1a80684e41b48d7998f627daa6434193a6",
+   "population": null,
+   "start_char": 714,
+   "passage_key": "e1da4408859798817cfa018a768044af64e053c3c38681b450f9fd0d34c6d5b4",
+   "intervention": null,
+   "review_state": "PROPOSED",
+   "study_design": null,
+   "paragraph_key": "36f4136bdd2ca0c36145e114d790fd5216e3bd0d785a8145818068d50eeff8d3",
+   "document_title": "The Validity and Reliability of the Force Plates and the Linear Position Transducer in Measuring Countermovement Depth and Velocity During Countermovement Jump",
+   "verbatim_quote": "The second hypothesis was that both the FP and the LPT would demonstrate good to excellent between-day reliability in their measurements of CMD and CMV.",
+   "outcome_measures": [],
+   "uncertainty_notes": [
+    "MODEL_PROPOSED extraction from a single passage span; requires full-study context and expert adjudication."
+   ],
+   "missing_information": [
+    "sample_population_not_stated_in_passage",
+    "exact_effect_size_or_p_value_not_in_sentence"
+   ],
+   "reported_statistics": [],
+   "document_version_key": "86d7c3d57c7a744f8cc79f4c6dbfd5dd198be11fdfd873a4801d73e460c2368b",
+   "measurement_protocol": "force plates (FP) and the linear position transducer (LPT) by comparing with motion capture",
+   "structurally_verified": true,
+   "paragraph_source_anchor": "jats:/body[1]/sec[1]/p[3]"
+  },
+  {
+   "doi": "10.3390/s25216542",
+   "pmcid": "PMC12608286",
+   "units": null,
+   "origin": "MODEL_PROPOSED",
+   "category": "DESCRIPTIVE",
+   "end_char": 219,
+   "span_key": "4ca43b324910ed44e6a8167407b2c512536722a71580774985ed0eef4ed4d3c8",
+   "comparator": null,
+   "finding_id": "4c319bc6018182808ba73219c41799519ee91c5bbd344671c413235943c2b434",
+   "population": null,
+   "start_char": 0,
+   "passage_key": "e1da4408859798817cfa018a768044af64e053c3c38681b450f9fd0d34c6d5b4",
+   "intervention": null,
+   "review_state": "PROPOSED",
+   "study_design": null,
+   "paragraph_key": "36f4136bdd2ca0c36145e114d790fd5216e3bd0d785a8145818068d50eeff8d3",
+   "document_title": "The Validity and Reliability of the Force Plates and the Linear Position Transducer in Measuring Countermovement Depth and Velocity During Countermovement Jump",
+   "verbatim_quote": "Therefore, this study aimed to determine the concurrent validity of depth and velocity of countermovement measured by the force plates (FP) and the linear position transducer (LPT) by comparing with motion capture (MC).",
+   "outcome_measures": [],
+   "uncertainty_notes": [
+    "MODEL_PROPOSED extraction from a single passage span; requires full-study context and expert adjudication."
+   ],
+   "missing_information": [
+    "sample_population_not_stated_in_passage",
+    "exact_effect_size_or_p_value_not_in_sentence"
+   ],
+   "reported_statistics": [],
+   "document_version_key": "86d7c3d57c7a744f8cc79f4c6dbfd5dd198be11fdfd873a4801d73e460c2368b",
+   "measurement_protocol": "force plates (FP) and the linear position transducer (LPT) by comparing with motion capture",
+   "structurally_verified": true,
+   "paragraph_source_anchor": "jats:/body[1]/sec[1]/p[3]"
+  },
+  {
+   "doi": "10.3390/s25196047",
+   "pmcid": "PMC12526633",
+   "units": null,
+   "origin": "MODEL_PROPOSED",
+   "category": "DESCRIPTIVE",
+   "end_char": 753,
+   "span_key": "b38eac23d90773e25286b95f266b3d7399e2fede3ca1b6e886c8313834f8b8e4",
+   "comparator": "within-subject angle/condition comparison or control group",
+   "finding_id": "53c1f39218827c8c5d1178ba1f10cebcc69ad4e1d89c0dd9c36c0f320e20bf06",
+   "population": null,
+   "start_char": 521,
+   "passage_key": "013d60ac4bc7ae8870fbb9e9cc7354b419ee39e1da5f2691532c0dc242251c14",
+   "intervention": null,
+   "review_state": "PROPOSED",
+   "study_design": null,
+   "paragraph_key": "d51a2f0d9db6a8f28c61e785cc27c6b42b5789b485b8ebd749eef35b70549bc5",
+   "document_title": "The Utility of Angular Velocity During Back Squat to Predict 1RM and Load–Velocity Profiling",
+   "verbatim_quote": "Angular velocity was measured using an inertial measurement unit (Output Sports, Dublin, Ireland) attached to the lateral aspect of the thigh at 2/3rd the distance between the greater trochanter and the lateral condyle of the femur.",
+   "outcome_measures": [],
+   "uncertainty_notes": [
+    "MODEL_PROPOSED extraction from a single passage span; requires full-study context and expert adjudication."
+   ],
+   "missing_information": [
+    "sample_population_not_stated_in_passage",
+    "exact_effect_size_or_p_value_not_in_sentence"
+   ],
+   "reported_statistics": [],
+   "document_version_key": "ba05c078eed42d22e38db65f1ef25214e999fd5c501769c846c32e2f761a0ce4",
+   "measurement_protocol": null,
+   "structurally_verified": true,
+   "paragraph_source_anchor": "jats:/body[1]/sec[2]/sec[7]/p[1]"
+  },
+  {
+   "doi": "10.3390/s25196047",
+   "pmcid": "PMC12526633",
+   "units": null,
+   "origin": "MODEL_PROPOSED",
+   "category": "DESCRIPTIVE",
+   "end_char": 885,
+   "span_key": "b38eac23d90773e25286b95f266b3d7399e2fede3ca1b6e886c8313834f8b8e4",
+   "comparator": null,
+   "finding_id": "99627ec275421490963213c52022c8ebfe45268e3a7088e70f76f9b717dc72bf",
+   "population": null,
+   "start_char": 754,
+   "passage_key": "013d60ac4bc7ae8870fbb9e9cc7354b419ee39e1da5f2691532c0dc242251c14",
+   "intervention": null,
+   "review_state": "PROPOSED",
+   "study_design": null,
+   "paragraph_key": "d51a2f0d9db6a8f28c61e785cc27c6b42b5789b485b8ebd749eef35b70549bc5",
+   "document_title": "The Utility of Angular Velocity During Back Squat to Predict 1RM and Load–Velocity Profiling",
+   "verbatim_quote": "The inertial measurement unit measured the change in orientation (°) throughout the repetition over the time of the repetition (s).",
+   "outcome_measures": [],
+   "uncertainty_notes": [
+    "MODEL_PROPOSED extraction from a single passage span; requires full-study context and expert adjudication."
+   ],
+   "missing_information": [
+    "sample_population_not_stated_in_passage",
+    "exact_effect_size_or_p_value_not_in_sentence"
+   ],
+   "reported_statistics": [],
+   "document_version_key": "ba05c078eed42d22e38db65f1ef25214e999fd5c501769c846c32e2f761a0ce4",
+   "measurement_protocol": null,
+   "structurally_verified": true,
+   "paragraph_source_anchor": "jats:/body[1]/sec[2]/sec[7]/p[1]"
+  },
+  {
+   "doi": "10.3390/s25216542",
+   "pmcid": "PMC12608286",
+   "units": null,
+   "origin": "MODEL_PROPOSED",
+   "category": "QUANTITATIVE",
+   "end_char": 180,
+   "span_key": "d629800a67b2b15839d142eecb6dd918e9c5cff2f345cb538092f3cc4ad9f9f8",
+   "comparator": null,
+   "finding_id": "d239f020ff91cacc6ec75d6624b1c13dfecbc6c6d2bc4a6189f8a9d3cbf25653",
+   "population": null,
+   "start_char": 0,
+   "passage_key": "8ea5d3a3df48e18e2e0fa0d9c92122baaf9287609c9b8dbf84b4032d30a274ec",
+   "intervention": null,
+   "review_state": "PROPOSED",
+   "study_design": null,
+   "paragraph_key": "51f53ccffa88f4681fea38d5a7c0b2def404cc4fad1643dcc0ce6d486607ea19",
+   "document_title": "The Validity and Reliability of the Force Plates and the Linear Position Transducer in Measuring Countermovement Depth and Velocity During Countermovement Jump",
+   "verbatim_quote": "The Force Plates and the Linear Position Transducer demonstrated good reliability for daily measurements of countermovement depth (CMD) and velocity (CMV) (ICCs > 0.70, p < 0.001).",
+   "outcome_measures": [],
+   "uncertainty_notes": [
+    "MODEL_PROPOSED extraction from a single passage span; requires full-study context and expert adjudication."
+   ],
+   "missing_information": [
+    "sample_population_not_stated_in_passage"
+   ],
+   "reported_statistics": [
+    "p < 0.001"
+   ],
+   "document_version_key": "86d7c3d57c7a744f8cc79f4c6dbfd5dd198be11fdfd873a4801d73e460c2368b",
+   "measurement_protocol": "Force Plates and the Linear Position Transducer demonstrated good reliability for daily meas",
+   "structurally_verified": true,
+   "paragraph_source_anchor": "jats:/body[1]/sec[3]/sec[2]/p[1]"
+  },
+  {
+   "doi": "10.3390/s25216542",
+   "pmcid": "PMC12608286",
+   "units": "%, cm, m/s",
+   "origin": "MODEL_PROPOSED",
+   "category": "QUANTITATIVE",
+   "end_char": 411,
+   "span_key": "d629800a67b2b15839d142eecb6dd918e9c5cff2f345cb538092f3cc4ad9f9f8",
+   "comparator": null,
+   "finding_id": "8328ce79c6dc7a9cb5461eea4ebd050fe27a1f820049e469165ec0dfaf01408e",
+   "population": null,
+   "start_char": 181,
+   "passage_key": "8ea5d3a3df48e18e2e0fa0d9c92122baaf9287609c9b8dbf84b4032d30a274ec",
+   "intervention": null,
+   "review_state": "PROPOSED",
+   "study_design": null,
+   "paragraph_key": "51f53ccffa88f4681fea38d5a7c0b2def404cc4fad1643dcc0ce6d486607ea19",
+   "document_title": "The Validity and Reliability of the Force Plates and the Linear Position Transducer in Measuring Countermovement Depth and Velocity During Countermovement Jump",
+   "verbatim_quote": "The linear position transducer (LPT) achieved the higher ICC values for both parameters (CMD: ICC = 0.900, 95% CI = 0.783 to 0.954, MDC = 4.73 cm, CV = 4.53%; CMV: ICC = 0.863, 95% CI = 0.704 to 0.937, MDC = 0.12 m/s, CV = 6.68%).",
+   "outcome_measures": [],
+   "uncertainty_notes": [
+    "MODEL_PROPOSED extraction from a single passage span; requires full-study context and expert adjudication."
+   ],
+   "missing_information": [
+    "sample_population_not_stated_in_passage"
+   ],
+   "reported_statistics": [
+    "95%",
+    "4.73 cm",
+    "4.53%",
+    "0.12 m/s",
+    "6.68%"
+   ],
+   "document_version_key": "86d7c3d57c7a744f8cc79f4c6dbfd5dd198be11fdfd873a4801d73e460c2368b",
+   "measurement_protocol": "Force Plates and the Linear Position Transducer demonstrated good reliability for daily meas",
+   "structurally_verified": true,
+   "paragraph_source_anchor": "jats:/body[1]/sec[3]/sec[2]/p[1]"
+  },
+  {
+   "doi": "10.3390/s25196047",
+   "pmcid": "PMC12526633",
+   "units": null,
+   "origin": "MODEL_PROPOSED",
+   "category": "DESCRIPTIVE",
+   "end_char": 197,
+   "span_key": "a607a22fc9a5e06eb83d7aef65f8f275b6a47ac8feafadef4026a820ea892069",
+   "comparator": null,
+   "finding_id": "c4c59619952166fa08517fbbfe291eaf395980880c67d300c1c4036ada2eff65",
+   "population": null,
+   "start_char": 0,
+   "passage_key": "8fd59cbc9dce8677031f609f280febe45a436723974fa4795a3cd8c8107b340a",
+   "intervention": null,
+   "review_state": "PROPOSED",
+   "study_design": null,
+   "paragraph_key": "7a10537c91dc653358ce6e820e4bcf6999db698ef2ee3ef0bfa328247d2a33c3",
+   "document_title": "The Utility of Angular Velocity During Back Squat to Predict 1RM and Load–Velocity Profiling",
+   "verbatim_quote": "The measurement of barbell velocity during resistance training exercises is a common technique used in strength and conditioning practice typically referred to as velocity-based training (VBT) [1].",
+   "outcome_measures": [],
+   "uncertainty_notes": [
+    "MODEL_PROPOSED extraction from a single passage span; requires full-study context and expert adjudication."
+   ],
+   "missing_information": [
+    "sample_population_not_stated_in_passage",
+    "exact_effect_size_or_p_value_not_in_sentence"
+   ],
+   "reported_statistics": [],
+   "document_version_key": "ba05c078eed42d22e38db65f1ef25214e999fd5c501769c846c32e2f761a0ce4",
+   "measurement_protocol": null,
+   "structurally_verified": true,
+   "paragraph_source_anchor": "jats:/body[1]/sec[1]/p[1]"
+  },
+  {
+   "doi": "10.3390/s25196047",
+   "pmcid": "PMC12526633",
+   "units": null,
+   "origin": "MODEL_PROPOSED",
+   "category": "DESCRIPTIVE",
+   "end_char": 556,
+   "span_key": "c8abab29b0a3809fd5246e07952a4022df3e68a6557eb311a3c48fd72a9aef1c",
+   "comparator": null,
+   "finding_id": "26c1a4f825806ecda56784235814ddb5de025a55e4a763c421fcccc40b717b12",
+   "population": null,
+   "start_char": 379,
+   "passage_key": "8fd59cbc9dce8677031f609f280febe45a436723974fa4795a3cd8c8107b340a",
+   "intervention": null,
+   "review_state": "PROPOSED",
+   "study_design": null,
+   "paragraph_key": "c52242121d88957e4affac8732b6803ab5692953e19fc35bbafc8d7c6c31ce97",
+   "document_title": "The Utility of Angular Velocity During Back Squat to Predict 1RM and Load–Velocity Profiling",
+   "verbatim_quote": "Mean velocity can be measured through a variety of devices including linear position transducers (i.e., GymAware, Tendo) or inertial measurement units (i.e., OUTPUT, Enode) [1].",
+   "outcome_measures": [],
+   "uncertainty_notes": [
+    "MODEL_PROPOSED extraction from a single passage span; requires full-study context and expert adjudication."
+   ],
+   "missing_information": [
+    "sample_population_not_stated_in_passage",
+    "exact_effect_size_or_p_value_not_in_sentence"
+   ],
+   "reported_statistics": [],
+   "document_version_key": "ba05c078eed42d22e38db65f1ef25214e999fd5c501769c846c32e2f761a0ce4",
+   "measurement_protocol": null,
+   "structurally_verified": true,
+   "paragraph_source_anchor": "jats:/body[1]/sec[1]/p[2]"
+  }
+ ],
+ "study_comparison": {
+  "origin": "MODEL_PROPOSED",
+  "studies": [
+   {
+    "doi": "10.3390/sports6040170",
+    "pmcid": "PMC6316018",
+    "title": "Validity and Reliability of a Commercially-Available Velocity and Power Testing Device",
+    "units": [
+     "%"
+    ],
+    "outcomes": [
+     "Reported neuromuscular / performance outcomes"
+    ],
+    "population": "participants were consented and familiarized with the experimental equipment and procedures",
+    "intervention": "Plyometric / neuromuscular exercise protocol",
+    "study_design": "crossover / repeated-measures design",
+    "reported_results": [
+     "A repeated-measures, crossover design was utilized in order to assess the reliability and validity of the linear position transducer.",
+     "For the initial visit, participants were consented and familiarized with the experimental equipment and procedures then completed one-repetition maximum (1 RM) testing in the back squat exercise.",
+     "Following 72 h of rest, participants returned to the laboratory for four experimental sessions, each separated by at least 48 h."
+    ],
+    "missing_information": [],
+    "document_version_key": "99b26a7d02271728f40d8d3f8156ca2ae3156d2e291f0803c2f50b7d4d9cc26b",
+    "measurement_protocol": "motion capture and integrated bipedal force platforms and a commercially-available linear posi",
+    "supporting_span_keys": [
+     "6ffb882715a412a6299fdb94c25bedffa8f2ca0049e93bb24e47cba3d10fc0ac",
+     "7df249fc111dfcd48f1221431634afb8fbac29af182d2496b10dc60aa189cddf",
+     "cbc9c93544c9d44a00c7386b8af4c6724fd8a89e692cd9cb1b3bcc051938afb9",
+     "7ec80b64a7b4a57c09030bc4c27e784a8f158af25fcf05732b3686fc638cccb3"
+    ],
+    "control_or_comparator": "Within-subject condition / angle / pre-post comparison",
+    "supporting_passage_keys": [
+     "0b19ca4b0107ae4246011ddff1b5616969c832ba35a5e1ea3c3b17a86d0302ea",
+     "4e6fe52b2323c9206a52fc2e2e91a8890ffd4e3f41868c1db86255dcb55119f5",
+     "eb7e26587b7eba69bc7eceb2af3c5cc43b0cb0a847c3b706349751fe215f87f0",
+     "f65799b0cd6521e359a52f33b8faf26a13876926b36321346a79cbfa279ba3cc"
+    ]
+   },
+   {
+    "doi": "10.3390/s25216542",
+    "pmcid": "PMC12608286",
+    "title": "The Validity and Reliability of the Force Plates and the Linear Position Transducer in Measuring Countermovement Depth and Velocity During Countermovement Jump",
+    "units": [
+     "cm",
+     "%",
+     "m/s"
+    ],
+    "outcomes": [
+     "jump height during CMJ tests [15,18,38,39], and the DI method via FP co"
+    ],
+    "population": "Not explicitly stated in inspected passages",
+    "intervention": "Plyometric / neuromuscular exercise protocol",
+    "study_design": "crossover / repeated-measures design",
+    "reported_results": [
+     "This study aimed to establish the concurrent validity and reliability of force plates (FP) and linear position transducer (LPT) systems for measuring countermovement depth and velocity during the countermovement jump (CMJ), using motion capture (MC) as the reference standard.",
+     "Our first hypothesis was not supported.",
+     "Contrary to our expectations, both FP and LPT systematically underestimated CMD and CMV compared to the motion capture (MC)."
+    ],
+    "missing_information": [
+     "complete_demographic_inclusion_criteria"
+    ],
+    "document_version_key": "86d7c3d57c7a744f8cc79f4c6dbfd5dd198be11fdfd873a4801d73e460c2368b",
+    "measurement_protocol": "Force Plates and the Linear Position Transducer in Measuring Countermovement Depth and Veloc",
+    "supporting_span_keys": [
+     "d8738b13c4cea23cd2915f5520e075eed3c3e9a7613254722ad7d91ac6fd08dc",
+     "498dc37a4aafcf2a64fe7d0b567050b519c381c84ff66034a4373555c619627e",
+     "d629800a67b2b15839d142eecb6dd918e9c5cff2f345cb538092f3cc4ad9f9f8",
+     "4ca43b324910ed44e6a8167407b2c512536722a71580774985ed0eef4ed4d3c8"
+    ],
+    "control_or_comparator": "Within-subject condition / angle / pre-post comparison",
+    "supporting_passage_keys": [
+     "1717bcc0e2358bfb8628b7188159987d4f77e6fe645d48abafbe568f42a05bec",
+     "4d027fdb946508780d0f74d5dea6324a8b17aadd8583c978a895bc5b4ce740c3",
+     "8ea5d3a3df48e18e2e0fa0d9c92122baaf9287609c9b8dbf84b4032d30a274ec",
+     "e1da4408859798817cfa018a768044af64e053c3c38681b450f9fd0d34c6d5b4"
+    ]
+   },
+   {
+    "doi": "10.3390/s25196047",
+    "pmcid": "PMC12526633",
+    "title": "The Utility of Angular Velocity During Back Squat to Predict 1RM and Load–Velocity Profiling",
+    "units": [
+     "unit_not_explicit"
+    ],
+    "outcomes": [
+     "Reported neuromuscular / performance outcomes"
+    ],
+    "population": "Not explicitly stated in inspected passages",
+    "intervention": "Plyometric / neuromuscular exercise protocol",
+    "study_design": "Experimental sports/biomechanics study (exact design not fully specified)",
+    "reported_results": [
+     "During the 1RM and submaximal testing, average linear velocity and angular velocity were measured for each repetition.",
+     "Linear velocity was measured using a linear position transducer (Tendo Weightlifting Analyzer, TENDO Sports Machines, Trenchin, Slovak Republic) positioned directly beneath the right collar of the barbell with a retractable cord attached to the collar.",
+     "The linear position transducer measured the change in displacement of the barbell (m) throughout the repetition over the time of the repetition (s)."
+    ],
+    "missing_information": [
+     "complete_demographic_inclusion_criteria",
+     "explicit_measurement_units_in_selected_passages"
+    ],
+    "document_version_key": "ba05c078eed42d22e38db65f1ef25214e999fd5c501769c846c32e2f761a0ce4",
+    "measurement_protocol": "Biomechanical / performance testing protocol",
+    "supporting_span_keys": [
+     "b38eac23d90773e25286b95f266b3d7399e2fede3ca1b6e886c8313834f8b8e4"
+    ],
+    "control_or_comparator": "Within-subject condition / angle / pre-post comparison",
+    "supporting_passage_keys": [
+     "013d60ac4bc7ae8870fbb9e9cc7354b419ee39e1da5f2691532c0dc242251c14"
+    ]
+   }
+  ],
+  "review_state": "PROPOSED",
+  "comparison_id": "7dd33300bf5e0db2ab335e733ed5d74a4eb8585c2de027e71a480e2997a07740",
+  "limitation_notice": "All study findings, comparisons, and synthesized claims are MODEL_PROPOSED / PROPOSED. Exact quotation and canonical source-span checks verify text provenance only and do not establish scientific entailment, study validity, clinical applicability, or expert review.",
+  "shared_constructs": [],
+  "uncertainty_and_gaps": [
+   "Cross-paper comparisons are MODEL_PROPOSED / PROPOSED syntheses over canonical passages; heterogeneous interventions and measurement scales must not be numerically combined."
+  ],
+  "evidence_compatibility": "INCOMPATIBLE_OUTCOMES_OR_UNITS",
+  "compatibility_rationale": "The studies share no outcome terms and no explicit measurement unit; numerical pooling or direct effect-size equivalence is not supported by the extracted evidence.",
+  "methodology_differences": [
+   "PMC6316018: design='crossover / repeated-measures design', population='participants were consented and familiarized with the experimental equipment and procedures', protocol='motion capture and integrated bipedal force platforms and a commercially-available linear posi'",
+   "PMC12608286: design='crossover / repeated-measures design', population='Not explicitly stated in inspected passages', protocol='Force Plates and the Linear Position Transducer in Measuring Countermovement Depth and Veloc'",
+   "PMC12526633: design='Experimental sports/biomechanics study (exact design not fully specified)', population='Not explicitly stated in inspected passages', protocol='Biomechanical / performance testing protocol'"
+  ],
+  "outcome_and_unit_differences": [
+   "PMC6316018: outcomes=['Reported neuromuscular / performance outcomes'], units=['%']",
+   "PMC12608286: outcomes=['jump height during CMJ tests [15,18,38,39], and the DI method via FP co'], units=['cm', '%', 'm/s']",
+   "PMC12526633: outcomes=['Reported neuromuscular / performance outcomes'], units=['unit_not_explicit']"
+  ],
+  "unfounded_pooling_prohibited": true
+ },
+ "evidence_set_key": "494d7e0ab9f69b48994527b84bfae61dad20c589c979863aede1044c3983c0db",
+ "evidence_graph_key": "faa33578f8fdf71186976b79f16d94efe9c74db31ab0717fe212849a7d306780",
+ "telemetry": {
+  "calls": [
+   {
+    "role": "fast",
+    "stage": "model_tool_execution:0",
+    "call_id": "llm-d3a05bc9c189",
+    "outcome": "ok",
+    "endpoint": "chat_completions",
+    "provider": "opencode_go",
+    "escalated": false,
+    "latency_ms": 6265.452,
+    "model_name": "deepseek-v4.1-flash",
+    "error_class": null,
+    "total_tokens": 2563,
+    "prompt_tokens": 2304,
+    "model_revision": null,
+    "selection_reason": "stage:model_tool_execution",
+    "completion_tokens": 259,
+    "estimated_cost_usd": 0.000501,
+    "tool_calls_requested": 4
+   },
+   {
+    "role": "fast",
+    "stage": "model_tool_execution:1",
+    "call_id": "llm-7ea7bdd91db0",
+    "outcome": "ok",
+    "endpoint": "chat_completions",
+    "provider": "opencode_go",
+    "escalated": false,
+    "latency_ms": 11928.829,
+    "model_name": "deepseek-v4.1-flash",
+    "error_class": null,
+    "total_tokens": 11784,
+    "prompt_tokens": 11124,
+    "model_revision": null,
+    "selection_reason": "stage:model_tool_execution",
+    "completion_tokens": 660,
+    "estimated_cost_usd": 0.0020646,
+    "tool_calls_requested": 4
+   },
+   {
+    "role": "fast",
+    "stage": "model_tool_execution:2",
+    "call_id": "llm-151287817c1c",
+    "outcome": "ok",
+    "endpoint": "chat_completions",
+    "provider": "opencode_go",
+    "escalated": false,
+    "latency_ms": 14185.352,
+    "model_name": "deepseek-v4.1-flash",
+    "error_class": null,
+    "total_tokens": 19599,
+    "prompt_tokens": 18743,
+    "model_revision": null,
+    "selection_reason": "stage:model_tool_execution",
+    "completion_tokens": 856,
+    "estimated_cost_usd": 0.00332505,
+    "tool_calls_requested": 2
+   },
+   {
+    "role": "fast",
+    "stage": "model_tool_execution:0",
+    "call_id": "llm-2a9449763a15",
+    "outcome": "ok",
+    "endpoint": "chat_completions",
+    "provider": "opencode_go",
+    "escalated": false,
+    "latency_ms": 5023.056,
+    "model_name": "deepseek-v4.1-flash",
+    "error_class": null,
+    "total_tokens": 2209,
+    "prompt_tokens": 1944,
+    "model_revision": null,
+    "selection_reason": "stage:model_tool_execution",
+    "completion_tokens": 265,
+    "estimated_cost_usd": 0.0004506,
+    "tool_calls_requested": 4
+   },
+   {
+    "role": "pro",
+    "stage": "synthesize_provisional_answer",
+    "call_id": "llm-5f55a32b933b",
+    "outcome": "ok",
+    "endpoint": "chat_completions",
+    "provider": "opencode_go",
+    "escalated": true,
+    "latency_ms": 81511.499,
+    "model_name": "deepseek-v4.1-flash",
+    "error_class": null,
+    "total_tokens": 10957,
+    "prompt_tokens": 5364,
+    "model_revision": null,
+    "selection_reason": "escalation:contradictory_evidence",
+    "completion_tokens": 5593,
+    "estimated_cost_usd": 0.0041604,
+    "tool_calls_requested": 0
+   }
+  ],
+  "models": [
+   {
+    "role": "fast",
+    "endpoint": "chat_completions",
+    "requests": 4,
+    "latency_ms": 37402.689,
+    "model_name": "deepseek-v4.1-flash",
+    "prompt_tokens": 34115,
+    "failed_requests": 0,
+    "completion_tokens": 2040,
+    "estimated_cost_usd": 0.00634125
+   },
+   {
+    "role": "coordinator",
+    "endpoint": "chat_completions",
+    "requests": 0,
+    "latency_ms": 0,
+    "model_name": "deepseek-v4.1-flash",
+    "prompt_tokens": 0,
+    "failed_requests": 0,
+    "completion_tokens": 0,
+    "estimated_cost_usd": 0
+   },
+   {
+    "role": "pro",
+    "endpoint": "chat_completions",
+    "requests": 1,
+    "latency_ms": 81511.499,
+    "model_name": "deepseek-v4.1-flash",
+    "prompt_tokens": 5364,
+    "failed_requests": 0,
+    "completion_tokens": 5593,
+    "estimated_cost_usd": 0.0041604
+   }
+  ],
+  "provider": "opencode_go",
+  "model_name": "deepseek-v4.1-flash",
+  "tool_calls": 17,
+  "model_calls": 5,
+  "tool_origins": {
+   "graph_enforced": 3,
+   "graph_fallback": 0,
+   "model_directed": 14
+  },
+  "total_tokens": 47112,
+  "prompt_tokens": 39479,
+  "model_revision": null,
+  "routing_events": [
+   "escalated_to_pro:contradictory_evidence"
+  ],
+  "pro_escalations": 1,
+  "synthesis_source": "model",
+  "total_latency_ms": 118914.188,
+  "completion_tokens": 7633,
+  "estimated_cost_usd": 0.01050165,
+  "retrieved_evidence": [
+   {
+    "doi": "10.3390/sports6040170",
+    "pmid": "30544687",
+    "rank": 6,
+    "pmcid": "PMC6316018",
+    "title": "Validity and Reliability of a Commercially-Available Velocity and Power Testing Device",
+    "excerpt": "In an athletic setting, small changes in power production or velocity can have an impactful effect in competition [6]; therefore, accuracy of tools used to measure kinetic and kinematic data is critical for the successful implementation of velocity-based training. While some",
+    "passage_key": "f65799b0cd6521e359a52f33b8faf26a13876926b36321346a79cbfa279ba3cc",
+    "section_title": "1. Introduction",
+    "retrieval_mode": "qdrant_hybrid_rrf",
+    "canonical_verified": true,
+    "document_version_key": "99b26a7d02271728f40d8d3f8156ca2ae3156d2e291f0803c2f50b7d4d9cc26b"
+   },
+   {
+    "doi": "10.3390/s25216542",
+    "pmid": "41228765",
+    "rank": 4,
+    "pmcid": "PMC12608286",
+    "title": "The Validity and Reliability of the Force Plates and the Linear Position Transducer in Measuring Countermovement Depth and Velocity During Countermovement Jump",
+    "excerpt": "Therefore, this study aimed to determine the concurrent validity of depth and velocity of countermovement measured by the force plates (FP) and the linear position transducer (LPT) by comparing with motion capture (MC). Meanwhile, the reliability of depth and velocity of",
+    "passage_key": "e1da4408859798817cfa018a768044af64e053c3c38681b450f9fd0d34c6d5b4",
+    "section_title": "1. Introduction",
+    "retrieval_mode": "qdrant_hybrid_rrf",
+    "canonical_verified": true,
+    "document_version_key": "86d7c3d57c7a744f8cc79f4c6dbfd5dd198be11fdfd873a4801d73e460c2368b"
+   },
+   {
+    "doi": "10.3390/sports6040170",
+    "pmid": "30544687",
+    "rank": 2,
+    "pmcid": "PMC6316018",
+    "title": "Validity and Reliability of a Commercially-Available Velocity and Power Testing Device",
+    "excerpt": "Correspondence: jonathan.oliver@tcu.edu; Tel.: +1-817-257-5623  Given the relationship between explosive-type training and power adaptation, tracking movement velocity has become popular. However, unlike previous variables, tracking velocity necessitates the use of a valid and",
+    "passage_key": "eb7e26587b7eba69bc7eceb2af3c5cc43b0cb0a847c3b706349751fe215f87f0",
+    "section_title": null,
+    "retrieval_mode": "qdrant_hybrid_rrf",
+    "canonical_verified": true,
+    "document_version_key": "99b26a7d02271728f40d8d3f8156ca2ae3156d2e291f0803c2f50b7d4d9cc26b"
+   },
+   {
+    "doi": "10.3390/s25216542",
+    "pmid": "41228765",
+    "rank": 7,
+    "pmcid": "PMC12608286",
+    "title": "The Validity and Reliability of the Force Plates and the Linear Position Transducer in Measuring Countermovement Depth and Velocity During Countermovement Jump",
+    "excerpt": "The Force Plates and the Linear Position Transducer demonstrated good reliability for daily measurements of countermovement depth (CMD) and velocity (CMV) (ICCs > 0.70, p < 0.001). The linear position transducer (LPT) achieved the higher ICC values for both parameters (CMD: ICC",
+    "passage_key": "8ea5d3a3df48e18e2e0fa0d9c92122baaf9287609c9b8dbf84b4032d30a274ec",
+    "section_title": "3.2. Test–Retest Reliability",
+    "retrieval_mode": "qdrant_hybrid_rrf",
+    "canonical_verified": true,
+    "document_version_key": "86d7c3d57c7a744f8cc79f4c6dbfd5dd198be11fdfd873a4801d73e460c2368b"
+   },
+   {
+    "doi": "10.3390/s25216542",
+    "pmid": "41228765",
+    "rank": 7,
+    "pmcid": "PMC12608286",
+    "title": "The Validity and Reliability of the Force Plates and the Linear Position Transducer in Measuring Countermovement Depth and Velocity During Countermovement Jump",
+    "excerpt": "This study aimed to establish the concurrent validity and reliability of force plates (FP) and linear position transducer (LPT) systems for measuring countermovement depth and velocity during the countermovement jump (CMJ), using motion capture (MC) as the reference standard.",
+    "passage_key": "1717bcc0e2358bfb8628b7188159987d4f77e6fe645d48abafbe568f42a05bec",
+    "section_title": "4. Discussion",
+    "retrieval_mode": "qdrant_hybrid_rrf",
+    "canonical_verified": true,
+    "document_version_key": "86d7c3d57c7a744f8cc79f4c6dbfd5dd198be11fdfd873a4801d73e460c2368b"
+   },
+   {
+    "doi": "10.3390/sports6040170",
+    "pmid": "30544687",
+    "rank": 6,
+    "pmcid": "PMC6316018",
+    "title": "Validity and Reliability of a Commercially-Available Velocity and Power Testing Device",
+    "excerpt": "A repeated-measures, crossover design was utilized in order to assess the reliability and validity of the linear position transducer. For the initial visit, participants were consented and familiarized with the experimental equipment and procedures then completed one-repetition",
+    "passage_key": "0b19ca4b0107ae4246011ddff1b5616969c832ba35a5e1ea3c3b17a86d0302ea",
+    "section_title": "2.1. Experimental Approach to the Problem",
+    "retrieval_mode": "qdrant_hybrid_rrf",
+    "canonical_verified": true,
+    "document_version_key": "99b26a7d02271728f40d8d3f8156ca2ae3156d2e291f0803c2f50b7d4d9cc26b"
+   },
+   {
+    "doi": "10.3390/s25216542",
+    "pmid": "41228765",
+    "rank": 8,
+    "pmcid": "PMC12608286",
+    "title": "The Validity and Reliability of the Force Plates and the Linear Position Transducer in Measuring Countermovement Depth and Velocity During Countermovement Jump",
+    "excerpt": "Results from the one-way ANOVA with repeated measures showed a statistically significant difference between the three devices for both CMD (F = 254.62; p < 0.001; η2 = 0.822) and CMV (F = 142.54; p < 0.001; η2 = 0.722) (Table 1). A post hoc comparison (Table 2 and Figure 3)",
+    "passage_key": "e48a5c8b5883e095a25b8c275819b37767fb354fc1ce75c25a64dcb4d47b32d9",
+    "section_title": "3.1. Validity",
+    "retrieval_mode": "qdrant_hybrid_rrf",
+    "canonical_verified": true,
+    "document_version_key": "86d7c3d57c7a744f8cc79f4c6dbfd5dd198be11fdfd873a4801d73e460c2368b"
+   },
+   {
+    "doi": "10.3390/s25196047",
+    "pmid": "41094870",
+    "rank": 1,
+    "pmcid": "PMC12526633",
+    "title": "The Utility of Angular Velocity During Back Squat to Predict 1RM and Load–Velocity Profiling",
+    "excerpt": "During the 1RM and submaximal testing, average linear velocity and angular velocity were measured for each repetition. Linear velocity was measured using a linear position transducer (Tendo Weightlifting Analyzer, TENDO Sports Machines, Trenchin, Slovak Republic) positioned",
+    "passage_key": "013d60ac4bc7ae8870fbb9e9cc7354b419ee39e1da5f2691532c0dc242251c14",
+    "section_title": "2.7. Linear and Angular Velocity Measurements",
+    "retrieval_mode": "qdrant_hybrid_rrf",
+    "canonical_verified": true,
+    "document_version_key": "ba05c078eed42d22e38db65f1ef25214e999fd5c501769c846c32e2f761a0ce4"
+   }
+  ],
+  "retrieval_candidates": [
+   {
+    "doi": "10.3390/sports6040170",
+    "pmid": "30544687",
+    "rank": 6,
+    "pmcid": "PMC6316018",
+    "title": "Validity and Reliability of a Commercially-Available Velocity and Power Testing Device",
+    "excerpt": "In an athletic setting, small changes in power production or velocity can have an impactful effect in competition [6]; therefore, accuracy of tools used to measure kinetic and kinematic data is critical for the successful implementation of velocity-based training. While some",
+    "admitted": true,
+    "passage_key": "f65799b0cd6521e359a52f33b8faf26a13876926b36321346a79cbfa279ba3cc",
+    "gate_reasons": [],
+    "section_title": "1. Introduction",
+    "retrieval_mode": "qdrant_hybrid_rrf",
+    "query_relevance": 0.5,
+    "canonical_verified": true,
+    "document_version_key": "99b26a7d02271728f40d8d3f8156ca2ae3156d2e291f0803c2f50b7d4d9cc26b"
+   },
+   {
+    "doi": "10.3390/s25216542",
+    "pmid": "41228765",
+    "rank": 4,
+    "pmcid": "PMC12608286",
+    "title": "The Validity and Reliability of the Force Plates and the Linear Position Transducer in Measuring Countermovement Depth and Velocity During Countermovement Jump",
+    "excerpt": "Therefore, this study aimed to determine the concurrent validity of depth and velocity of countermovement measured by the force plates (FP) and the linear position transducer (LPT) by comparing with motion capture (MC). Meanwhile, the reliability of depth and velocity of",
+    "admitted": true,
+    "passage_key": "e1da4408859798817cfa018a768044af64e053c3c38681b450f9fd0d34c6d5b4",
+    "gate_reasons": [],
+    "section_title": "1. Introduction",
+    "retrieval_mode": "qdrant_hybrid_rrf",
+    "query_relevance": 1,
+    "canonical_verified": true,
+    "document_version_key": "86d7c3d57c7a744f8cc79f4c6dbfd5dd198be11fdfd873a4801d73e460c2368b"
+   },
+   {
+    "doi": "10.3390/sports6040170",
+    "pmid": "30544687",
+    "rank": 2,
+    "pmcid": "PMC6316018",
+    "title": "Validity and Reliability of a Commercially-Available Velocity and Power Testing Device",
+    "excerpt": "Correspondence: jonathan.oliver@tcu.edu; Tel.: +1-817-257-5623  Given the relationship between explosive-type training and power adaptation, tracking movement velocity has become popular. However, unlike previous variables, tracking velocity necessitates the use of a valid and",
+    "admitted": true,
+    "passage_key": "eb7e26587b7eba69bc7eceb2af3c5cc43b0cb0a847c3b706349751fe215f87f0",
+    "gate_reasons": [],
+    "section_title": null,
+    "retrieval_mode": "qdrant_hybrid_rrf",
+    "query_relevance": 0.4,
+    "canonical_verified": true,
+    "document_version_key": "99b26a7d02271728f40d8d3f8156ca2ae3156d2e291f0803c2f50b7d4d9cc26b"
+   },
+   {
+    "doi": "10.3390/s25216542",
+    "pmid": "41228765",
+    "rank": 7,
+    "pmcid": "PMC12608286",
+    "title": "The Validity and Reliability of the Force Plates and the Linear Position Transducer in Measuring Countermovement Depth and Velocity During Countermovement Jump",
+    "excerpt": "The Force Plates and the Linear Position Transducer demonstrated good reliability for daily measurements of countermovement depth (CMD) and velocity (CMV) (ICCs > 0.70, p < 0.001). The linear position transducer (LPT) achieved the higher ICC values for both parameters (CMD: ICC",
+    "admitted": true,
+    "passage_key": "8ea5d3a3df48e18e2e0fa0d9c92122baaf9287609c9b8dbf84b4032d30a274ec",
+    "gate_reasons": [],
+    "section_title": "3.2. Test–Retest Reliability",
+    "retrieval_mode": "qdrant_hybrid_rrf",
+    "query_relevance": 0.4,
+    "canonical_verified": true,
+    "document_version_key": "86d7c3d57c7a744f8cc79f4c6dbfd5dd198be11fdfd873a4801d73e460c2368b"
+   },
+   {
+    "doi": "10.3390/s25216542",
+    "pmid": "41228765",
+    "rank": 7,
+    "pmcid": "PMC12608286",
+    "title": "The Validity and Reliability of the Force Plates and the Linear Position Transducer in Measuring Countermovement Depth and Velocity During Countermovement Jump",
+    "excerpt": "This study aimed to establish the concurrent validity and reliability of force plates (FP) and linear position transducer (LPT) systems for measuring countermovement depth and velocity during the countermovement jump (CMJ), using motion capture (MC) as the reference standard.",
+    "admitted": true,
+    "passage_key": "1717bcc0e2358bfb8628b7188159987d4f77e6fe645d48abafbe568f42a05bec",
+    "gate_reasons": [],
+    "section_title": "4. Discussion",
+    "retrieval_mode": "qdrant_hybrid_rrf",
+    "query_relevance": 1,
+    "canonical_verified": true,
+    "document_version_key": "86d7c3d57c7a744f8cc79f4c6dbfd5dd198be11fdfd873a4801d73e460c2368b"
+   },
+   {
+    "doi": "10.3390/sports6040170",
+    "pmid": "30544687",
+    "rank": 6,
+    "pmcid": "PMC6316018",
+    "title": "Validity and Reliability of a Commercially-Available Velocity and Power Testing Device",
+    "excerpt": "A repeated-measures, crossover design was utilized in order to assess the reliability and validity of the linear position transducer. For the initial visit, participants were consented and familiarized with the experimental equipment and procedures then completed one-repetition",
+    "admitted": true,
+    "passage_key": "0b19ca4b0107ae4246011ddff1b5616969c832ba35a5e1ea3c3b17a86d0302ea",
+    "gate_reasons": [],
+    "section_title": "2.1. Experimental Approach to the Problem",
+    "retrieval_mode": "qdrant_hybrid_rrf",
+    "query_relevance": 0.4,
+    "canonical_verified": true,
+    "document_version_key": "99b26a7d02271728f40d8d3f8156ca2ae3156d2e291f0803c2f50b7d4d9cc26b"
+   },
+   {
+    "doi": "10.3390/s25216542",
+    "pmid": "41228765",
+    "rank": 8,
+    "pmcid": "PMC12608286",
+    "title": "The Validity and Reliability of the Force Plates and the Linear Position Transducer in Measuring Countermovement Depth and Velocity During Countermovement Jump",
+    "excerpt": "Results from the one-way ANOVA with repeated measures showed a statistically significant difference between the three devices for both CMD (F = 254.62; p < 0.001; η2 = 0.822) and CMV (F = 142.54; p < 0.001; η2 = 0.722) (Table 1). A post hoc comparison (Table 2 and Figure 3)",
+    "admitted": true,
+    "passage_key": "e48a5c8b5883e095a25b8c275819b37767fb354fc1ce75c25a64dcb4d47b32d9",
+    "gate_reasons": [],
+    "section_title": "3.1. Validity",
+    "retrieval_mode": "qdrant_hybrid_rrf",
+    "query_relevance": 0.5,
+    "canonical_verified": true,
+    "document_version_key": "86d7c3d57c7a744f8cc79f4c6dbfd5dd198be11fdfd873a4801d73e460c2368b"
+   },
+   {
+    "doi": "10.3390/s25196047",
+    "pmid": "41094870",
+    "rank": 1,
+    "pmcid": "PMC12526633",
+    "title": "The Utility of Angular Velocity During Back Squat to Predict 1RM and Load–Velocity Profiling",
+    "excerpt": "During the 1RM and submaximal testing, average linear velocity and angular velocity were measured for each repetition. Linear velocity was measured using a linear position transducer (Tendo Weightlifting Analyzer, TENDO Sports Machines, Trenchin, Slovak Republic) positioned",
+    "admitted": true,
+    "passage_key": "013d60ac4bc7ae8870fbb9e9cc7354b419ee39e1da5f2691532c0dc242251c14",
+    "gate_reasons": [],
+    "section_title": "2.7. Linear and Angular Velocity Measurements",
+    "retrieval_mode": "qdrant_hybrid_rrf",
+    "query_relevance": 0.4,
+    "canonical_verified": true,
+    "document_version_key": "ba05c078eed42d22e38db65f1ef25214e999fd5c501769c846c32e2f761a0ce4"
+   }
+  ],
+  "literature_acquisition": {
+   "works": [
+    {
+     "doi": "10.3390/s25216542",
+     "pmid": "41228765",
+     "year": 2025,
+     "pmcid": "PMC12608286",
+     "title": "The Validity and Reliability of the Force Plates and the Linear Position Transducer in Measuring Countermovement Depth and Velocity During Countermovement Jump.",
+     "providers": [
+      "europe_pmc",
+      "openalex"
+     ],
+     "topical_score": 3,
+     "europe_pmc_license": "cc by"
+    },
+    {
+     "doi": "10.5114/biolsport.2022.104918",
+     "pmid": "35309537",
+     "year": 2021,
+     "pmcid": "PMC8919875",
+     "title": "Does a linear position transducer placed on a stick and belt provide sufficient validity and reliability of countermovement jump performance outcomes?",
+     "providers": [
+      "europe_pmc",
+      "openalex"
+     ],
+     "topical_score": 3,
+     "europe_pmc_license": "cc by-nc-nd"
+    },
+    {
+     "doi": "10.3390/sports6040177",
+     "pmid": "30572577",
+     "year": 2018,
+     "pmcid": "PMC6316460",
+     "title": "Validity and Reliability of the GymAware Linear Position Transducer for Squat Jump and Counter-Movement Jump Height.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "topical_score": 3,
+     "europe_pmc_license": "cc by"
+    },
+    {
+     "doi": "10.3390/sports6040170",
+     "pmid": "30544687",
+     "year": 2018,
+     "pmcid": "PMC6316018",
+     "title": "Validity and Reliability of a Commercially-Available Velocity and Power Testing Device.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "topical_score": 3,
+     "europe_pmc_license": "cc by"
+    },
+    {
+     "doi": "10.1371/journal.pone.0245791",
+     "pmid": "33524058",
+     "year": 2021,
+     "pmcid": "PMC7850492",
+     "title": "Force-velocity profiling in athletes: Reliability and agreement across methods.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "topical_score": 3,
+     "europe_pmc_license": "cc by"
+    },
+    {
+     "doi": "10.26603/001c.153965",
+     "pmid": "41488379",
+     "year": 2026,
+     "pmcid": "PMC12758929",
+     "title": "Comparing Quantification Methodologies for the Single-Leg Heel-Rise in Patients Following Operative and Non-Operative Management for Achilles Tendon Rupture.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "topical_score": 3,
+     "europe_pmc_license": "cc by-nc"
+    },
+    {
+     "doi": "10.3390/ijerph18179170",
+     "pmid": "34501761",
+     "year": 2021,
+     "pmcid": "PMC8431394",
+     "title": "Valid and Reliable Barbell Velocity Estimation Using an Inertial Measurement Unit.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "topical_score": 2,
+     "europe_pmc_license": "cc by"
+    },
+    {
+     "doi": "10.3390/sports14070263",
+     "pmid": "42506808",
+     "year": 2026,
+     "pmcid": "PMC13416992",
+     "title": "Concurrent Validity and Between-Session Reproducibility of Agreement of GPath for Mean Propulsive Velocity Assessment During the Bench Press Exercise.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "topical_score": 2,
+     "europe_pmc_license": "cc by"
+    },
+    {
+     "doi": "10.3390/jfmk11020197",
+     "pmid": "42200903",
+     "year": 2026,
+     "pmcid": "PMC13214824",
+     "title": "Comparison of the MetricVBT App and the Vitruve Linear Position Transducer for Assessing Execution Velocity and ROM.",
+     "providers": [
+      "europe_pmc",
+      "openalex"
+     ],
+     "topical_score": 2,
+     "europe_pmc_license": "cc by"
+    },
+    {
+     "doi": "10.1186/s40798-026-01102-0",
+     "pmid": "42690493",
+     "year": 2026,
+     "pmcid": "PMC13542044",
+     "title": "Reliability, Device Agreement and Validity of Load-Velocity Profiles: A Systematic Review with Meta-analysis.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "topical_score": 2,
+     "europe_pmc_license": "cc by"
+    },
+    {
+     "doi": "10.3390/healthcare13080905",
+     "pmid": "40281854",
+     "year": 2025,
+     "pmcid": "PMC12026825",
+     "title": "Evaluating the Agreement and Associations with Physical Function Between Equation- and Linear Position Transducer-Estimated Sit-to-Stand Muscle Power in Aging Adults.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "topical_score": 2,
+     "europe_pmc_license": "cc by"
+    },
+    {
+     "doi": "10.3390/s26206466",
+     "pmid": "42944328",
+     "year": 2026,
+     "pmcid": "PMC13709254",
+     "title": "Comparing Repetition-Velocity Output from a Motor-Integrated Magnetic Sensing System with That of a Linear Position Transducer Across Resistance Exercises and Loads: A Human Trial Experiment.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "topical_score": 2,
+     "europe_pmc_license": "cc by"
+    },
+    {
+     "doi": "10.3390/s24196444",
+     "pmid": "39409484",
+     "year": 2024,
+     "pmcid": "PMC11479257",
+     "title": "Validity and Concordance of a Linear Position Transducer (Vitruve) for Measuring Movement Velocity during Resistance Training.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "topical_score": 2,
+     "europe_pmc_license": "cc by"
+    },
+    {
+     "doi": "10.3390/s26041305",
+     "pmid": "41755244",
+     "year": 2026,
+     "pmcid": "PMC12944470",
+     "title": "Exploring the Validity of the Velocity Matters Linear Position Transducer in the Back Squat and Bench Press.",
+     "providers": [
+      "europe_pmc",
+      "openalex"
+     ],
+     "topical_score": 2,
+     "europe_pmc_license": "cc by"
+    },
+    {
+     "doi": "10.3390/jfmk10020178",
+     "pmid": "40407462",
+     "year": 2025,
+     "pmcid": "PMC12101428",
+     "title": "Effects of Transducer Placement on Load-Velocity Relationships in Smith Machine and Free Weight Squats in Trained Women.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "topical_score": 2,
+     "europe_pmc_license": "cc by"
+    },
+    {
+     "doi": "10.1371/journal.pone.0324606",
+     "pmid": "40920738",
+     "year": 2025,
+     "pmcid": "PMC12416690",
+     "title": "A systematic review using a multi-layered criteria framework for assessing the validity and reliability of velocity monitoring devices in resistance training.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "topical_score": 2,
+     "europe_pmc_license": "cc by"
+    },
+    {
+     "doi": "10.7717/peerj.15863",
+     "pmid": "37601249",
+     "year": 2023,
+     "pmcid": "PMC10437032",
+     "title": "Repetition velocity as a measure of loading intensity in the free weight and Smith machine Bulgarian split squat.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "topical_score": 2,
+     "europe_pmc_license": "cc by"
+    },
+    {
+     "doi": "10.3390/s21030925",
+     "pmid": "33573170",
+     "year": 2021,
+     "pmcid": "PMC7866505",
+     "title": "Video-Based System for Automatic Measurement of Barbell Velocity in Back Squat.",
+     "providers": [
+      "europe_pmc",
+      "openalex"
+     ],
+     "topical_score": 2,
+     "europe_pmc_license": "cc by"
+    },
+    {
+     "doi": "10.1186/s13071-026-07335-y",
+     "pmid": "41877226",
+     "year": 2026,
+     "pmcid": "PMC13023114",
+     "title": "Comprehensive validation of the rapid tick exposure test (RaTexT®): accuracy, reproducibility and comparative performance to detect acaricide resistance in livestock ticks.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "topical_score": 1,
+     "europe_pmc_license": "cc by"
+    },
+    {
+     "doi": "10.1016/j.heliyon.2023.e19242",
+     "pmid": "37662805",
+     "year": 2023,
+     "pmcid": "PMC10471999",
+     "title": "Comparing [3H] thymidine LPT and CFSE assay to assess lymphocyte proliferation in beryllium-exposed sarcoidosis patients.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "topical_score": 1,
+     "europe_pmc_license": "cc by-nc-nd"
+    }
+   ],
+   "origin": "model_directed",
+   "status": "completed",
+   "ingested": [
+    {
+     "doi": "10.3390/s25216542",
+     "pmid": "41228765",
+     "year": 2025,
+     "pmcid": "PMC12608286",
+     "title": "The Validity and Reliability of the Force Plates and the Linear Position Transducer in Measuring Countermovement Depth and Velocity During Countermovement Jump.",
+     "passages": 29,
+     "providers": [
+      "europe_pmc",
+      "openalex"
+     ],
+     "article_url": "https://europepmc.org/article/PMC/PMC12608286",
+     "license_uri": "https://creativecommons.org/licenses/by/4.0/",
+     "article_type": "research-article",
+     "source_sha256": "b15b583bbb4bcc92dbc022dc8ebd59cd5e4f7446a83e07c74441513dee690667",
+     "topical_score": 3,
+     "import_created": true,
+     "license_family": "cc by",
+     "canonical_title": "The Validity and Reliability of the Force Plates and the Linear Position Transducer in Measuring Countermovement Depth and Velocity During Countermovement Jump",
+     "europe_pmc_license": "cc by",
+     "document_version_key": "86d7c3d57c7a744f8cc79f4c6dbfd5dd198be11fdfd873a4801d73e460c2368b",
+     "passage_manifest_sha256": "bf3a2e6d6cca5888b280ec9468609ddfc7d6e0fa73d07e4f1475768811bc49aa"
+    },
+    {
+     "doi": "10.3390/sports6040170",
+     "pmid": "30544687",
+     "year": 2018,
+     "pmcid": "PMC6316018",
+     "title": "Validity and Reliability of a Commercially-Available Velocity and Power Testing Device.",
+     "passages": 19,
+     "providers": [
+      "europe_pmc"
+     ],
+     "article_url": "https://europepmc.org/article/PMC/PMC6316018",
+     "license_uri": "http://creativecommons.org/licenses/by/4.0/",
+     "article_type": "research-article",
+     "source_sha256": "699824f50a4f4201aebecdf0e1c0e25f6df0d0e47a87b876b57dbbeb27610404",
+     "topical_score": 3,
+     "import_created": true,
+     "license_family": "cc by",
+     "canonical_title": "Validity and Reliability of a Commercially-Available Velocity and Power Testing Device",
+     "europe_pmc_license": "cc by",
+     "document_version_key": "99b26a7d02271728f40d8d3f8156ca2ae3156d2e291f0803c2f50b7d4d9cc26b",
+     "passage_manifest_sha256": "1734916b76d9447e14f7b1288f576de3146680c19edbbaf1d0e87eac17a249d4"
+    }
+   ],
+   "rejected": [
+    {
+     "doi": "10.5114/biolsport.2022.104918",
+     "pmid": "35309537",
+     "year": 2021,
+     "pmcid": "PMC8919875",
+     "stage": "repository_rights",
+     "title": "Does a linear position transducer placed on a stick and belt provide sufficient validity and reliability of countermovement jump performance outcomes?",
+     "reason": "repository rights absent, restrictive or conflicting",
+     "providers": [
+      "europe_pmc",
+      "openalex"
+     ],
+     "topical_score": 3,
+     "europe_pmc_license": "cc by-nc-nd"
+    },
+    {
+     "doi": "10.3390/sports6040177",
+     "pmid": "30572577",
+     "year": 2018,
+     "pmcid": "PMC6316460",
+     "stage": "original_article",
+     "title": "Validity and Reliability of the GymAware Linear Position Transducer for Squat Jump and Counter-Movement Jump Height.",
+     "reason": "original human population evidence absent",
+     "providers": [
+      "europe_pmc"
+     ],
+     "topical_score": 3,
+     "europe_pmc_license": "cc by"
+    }
+   ],
+   "projection": {
+    "alias": "dynamisrag-research-workspace",
+    "model_id": "Qwen/Qwen3-Embedding-0.6B",
+    "dimension": 512,
+    "collection": "qdrant-passages-v1-76a2a8ee2a2a7943c00b9fb698d8e4e5f4c68756fc32bee3942c93827da45f5c",
+    "embedded_now": 48,
+    "published_at": "2026-11-17T14:42:54.556778+00:00",
+    "passage_count": 125,
+    "document_count": 4,
+    "model_revision": "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
+    "reused_vectors": 77,
+    "elapsed_seconds": 241.937,
+    "embedding_seconds": 228.579,
+    "projection_sha256": "7cb5f40cdea997cf4e76418d38e34856b7652d6076d016410e6403f362a616ec",
+    "collection_identity": {
+     "model_id": "Qwen/Qwen3-Embedding-0.6B",
+     "schema_sha256": "b83e0682ea5a90589e4411c2964703bcf3fd57203176729275818db13f0aaca1",
+     "expected_count": 125,
+     "model_revision": "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
+     "schema_revision": "qdrant-passages-v1",
+     "projection_sha256": "7cb5f40cdea997cf4e76418d38e34856b7652d6076d016410e6403f362a616ec",
+     "embedding_config_sha256": "8438d37d8e8c8f975f62cbc6f6c644abc27304b18b7a330d9157a70f21c9c1f7",
+     "embedding_manifest_sha256": "474022f1815d80680da86876b15e0dece73294eee742d310fd956eee02874e8b"
+    },
+    "previous_collection": "qdrant-passages-v1-ba6ba89b8e742b58727dd06d9df6aba92df2b12a56ea5d194cdd752e2938f84b",
+    "embedding_config_sha256": "8438d37d8e8c8f975f62cbc6f6c644abc27304b18b7a330d9157a70f21c9c1f7",
+    "embedding_manifest_file": "qdrant-passages-v1-76a2a8ee2a2a7943c00b9fb698d8e4e5f4c68756fc32bee3942c93827da45f5c.embeddings.json",
+    "embedding_manifest_sha256": "474022f1815d80680da86876b15e0dece73294eee742d310fd956eee02874e8b"
+   },
+   "error_class": null,
+   "query_ladder": [
+    {
+     "level": 1,
+     "origin": "model_directed",
+     "openalex": "linear position transducer validity force plate",
+     "europe_pmc": "(TITLE_ABS:\"linear position transducer\" OR TITLE_ABS:\"linear encoder\" OR TITLE_ABS:\"cable encoder\" OR TITLE_ABS:\"position transducer\") AND (TITLE_ABS:\"validity\" OR TITLE_ABS:\"concurrent validity\" OR TITLE_ABS:\"agreement\" OR TITLE_ABS:\"criterion validity\") AND (TITLE_ABS:\"force plate\" OR TITLE_ABS:\"force platform\" OR TITLE_ABS:\"motion capture\" OR TITLE_ABS:\"optical motion capture\") AND OPEN_ACCESS:Y"
+    },
+    {
+     "level": 2,
+     "origin": "model_directed",
+     "openalex": "linear position transducer barbell velocity force plate",
+     "europe_pmc": "(TITLE_ABS:\"linear position transducer\" OR TITLE_ABS:\"linear encoder\") AND (TITLE_ABS:\"barbell velocity\" OR TITLE_ABS:\"movement velocity\" OR TITLE_ABS:\"velocity measurement\") AND (TITLE_ABS:\"force plate\" OR TITLE_ABS:\"video analysis\" OR TITLE_ABS:\"motion capture\") AND OPEN_ACCESS:Y"
+    },
+    {
+     "level": 3,
+     "origin": "model_directed",
+     "openalex": "linear position transducer reliability force plate",
+     "europe_pmc": "(TITLE_ABS:\"linear position transducer\" OR TITLE_ABS:\"linear encoder\") AND (TITLE_ABS:\"reliability\" OR TITLE_ABS:\"measurement error\" OR TITLE_ABS:\"repeatability\") AND (TITLE_ABS:\"force plate\" OR TITLE_ABS:\"inertial measurement unit\" OR TITLE_ABS:\"accelerometer\") AND OPEN_ACCESS:Y"
+    },
+    {
+     "level": 4,
+     "origin": "fixed_rule",
+     "openalex": "linear position transducer criterion",
+     "europe_pmc": "(TITLE_ABS:\"linear position transducer\" OR TITLE_ABS:\"LPT\") AND (TITLE_ABS:\"criterion\" OR TITLE_ABS:\"gold standard\" OR TITLE_ABS:\"concurrent validity\" OR TITLE_ABS:\"agreement\") AND OPEN_ACCESS:Y"
+    },
+    {
+     "level": 5,
+     "origin": "fixed_rule",
+     "openalex": "linear position transducer",
+     "europe_pmc": "(TITLE_ABS:\"linear position transducer\" OR TITLE_ABS:\"LPT\") AND OPEN_ACCESS:Y"
+    }
+   ],
+   "unique_works": 38,
+   "model_requests": 0,
+   "model_rationale": "The corpus contains only two studies; neither is a dedicated criterion-validity study of linear position transducers against force plates or motion capture. External evidence is needed to answer how LPT measurements compare with reference systems.",
+   "search_requests": 5,
+   "already_in_corpus": [
+    {
+     "doi": "10.1371/journal.pone.0245791",
+     "pmid": "33524058",
+     "year": 2021,
+     "pmcid": "PMC7850492",
+     "title": "Force-velocity profiling in athletes: Reliability and agreement across methods.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "topical_score": 3,
+     "europe_pmc_license": "cc by"
+    }
+   ],
+   "provider_failures": [],
+   "discovered_records": 44
+  },
+  "autonomous_tool_decisions": 14,
+  "synthesis_fallback_reason": null
+ },
+ "error_message": null,
+ "created_at": "2026-11-17T14:38:14.623514+00:00",
+ "updated_at": "2026-11-17T14:44:38.852106+00:00"
+}

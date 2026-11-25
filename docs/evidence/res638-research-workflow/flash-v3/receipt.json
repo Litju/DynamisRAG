@@ -1,0 +1,894 @@
+{
+ "schema": "res638-flash-live-v3",
+ "final_status": "REAL_RESEARCH_WORKFLOW_OPERATIONAL",
+ "full_acceptance": true,
+ "provider": "opencode_go",
+ "sole_model": "deepseek-v4.1-flash",
+ "authorization": "Owner explicitly authorized paid Flash API use on 2026-11-17",
+ "store": false,
+ "project": "dynamisrag-res638-accept6",
+ "code_revision_under_test": "df50b3e",
+ "prior_attempts": [
+  {
+   "project": "dynamisrag-res638-accept4",
+   "result": "failed",
+   "papers": 4,
+   "passages": 135,
+   "failures": [
+    "LengthFinishReasonError at 2048 output tokens",
+    "OpenAITimeoutError with a 60-second synthesis timeout",
+    "browser session expired after 15 minutes"
+   ]
+  },
+  {
+   "project": "dynamisrag-res638-accept5",
+   "result": "abstained",
+   "recorded_cost_usd": 0.00091425,
+   "failure": "TEI describe called before warmup completed; health check added"
+  }
+ ],
+ "initial_corpus": {
+  "papers": 0
+ },
+ "questions": [
+  "What does the scientific literature establish about force–velocity profiling using linear position transducers in resistance training? Evaluate measurement validity, reliability, applications and limitations.",
+  "How do LPT measurements compare with reference measurement systems?"
+ ],
+ "turns": [
+  {
+   "run_id": "run-5f6e20b9e9af4873",
+   "status": "completed",
+   "citations": 7,
+   "model_calls": 6,
+   "estimated_cost_usd": 0.0083523,
+   "tools": {
+    "graph_enforced": 2,
+    "graph_fallback": 0,
+    "model_directed": 14
+   },
+   "acquisition": {
+    "works": [
+     {
+      "doi": "10.3390/s25196047",
+      "pmid": "41094870",
+      "year": 2025,
+      "pmcid": "PMC12526633",
+      "title": "The Utility of Angular Velocity During Back Squat to Predict 1RM and Load-Velocity Profiling.",
+      "providers": [
+       "europe_pmc"
+      ],
+      "topical_score": 3,
+      "europe_pmc_license": "cc by"
+     },
+     {
+      "doi": "10.1371/journal.pone.0245791",
+      "pmid": "33524058",
+      "year": 2021,
+      "pmcid": "PMC7850492",
+      "title": "Force-velocity profiling in athletes: Reliability and agreement across methods.",
+      "providers": [
+       "europe_pmc",
+       "openalex"
+      ],
+      "topical_score": 3,
+      "europe_pmc_license": "cc by"
+     },
+     {
+      "doi": "10.3390/jfmk10020178",
+      "pmid": "40407462",
+      "year": 2025,
+      "pmcid": "PMC12101428",
+      "title": "Effects of Transducer Placement on Load-Velocity Relationships in Smith Machine and Free Weight Squats in Trained Women.",
+      "providers": [
+       "europe_pmc"
+      ],
+      "topical_score": 2,
+      "europe_pmc_license": "cc by"
+     },
+     {
+      "doi": "10.7717/peerj.15863",
+      "pmid": "37601249",
+      "year": 2023,
+      "pmcid": "PMC10437032",
+      "title": "Repetition velocity as a measure of loading intensity in the free weight and Smith machine Bulgarian split squat.",
+      "providers": [
+       "europe_pmc"
+      ],
+      "topical_score": 2,
+      "europe_pmc_license": "cc by"
+     },
+     {
+      "doi": "10.3390/sports14070263",
+      "pmid": "42506808",
+      "year": 2026,
+      "pmcid": "PMC13416992",
+      "title": "Concurrent Validity and Between-Session Reproducibility of Agreement of GPath for Mean Propulsive Velocity Assessment During the Bench Press Exercise.",
+      "providers": [
+       "europe_pmc"
+      ],
+      "topical_score": 2,
+      "europe_pmc_license": "cc by"
+     },
+     {
+      "doi": "10.3390/sports14080339",
+      "pmid": "42646877",
+      "year": 2026,
+      "pmcid": "PMC13517742",
+      "title": "Reliability of Sprint Time and Force-Velocity Profiles During Sprint Acceleration in Elite Rugby Union Players: Inter-Trial Reliability of Linear Encoder, GPS, Timing Gates and Video Analysis.",
+      "providers": [
+       "europe_pmc"
+      ],
+      "topical_score": 1,
+      "europe_pmc_license": "cc by"
+     },
+     {
+      "doi": "10.1002/ejsc.12309",
+      "pmid": "40299706",
+      "year": 2025,
+      "pmcid": "PMC12039844",
+      "title": "Reliability and Acute Changes in the Load-Velocity Profile During Countermovement Jump Exercise Following Different Velocity-Based Resistance Training Protocols in Recreational Runners.",
+      "providers": [
+       "europe_pmc"
+      ],
+      "topical_score": 1,
+      "europe_pmc_license": "cc by"
+     },
+     {
+      "doi": "10.3389/fpubh.2025.1579291",
+      "pmid": "40520287",
+      "year": 2025,
+      "pmcid": "PMC12162595",
+      "title": "An investigation of the load-velocity relationship between flywheel eccentric and barbell training methods.",
+      "providers": [
+       "europe_pmc"
+      ],
+      "topical_score": 1,
+      "europe_pmc_license": "cc by"
+     },
+     {
+      "doi": "10.1515/hukin-2015-0061",
+      "pmid": "26557190",
+      "year": 2015,
+      "pmcid": "PMC4633267",
+      "title": "Reliability Analysis of Traditional and Ballistic Bench Press Exercises at Different Loads.",
+      "providers": [
+       "europe_pmc"
+      ],
+      "topical_score": 1,
+      "europe_pmc_license": "cc by"
+     },
+     {
+      "doi": "10.1002/ejsc.70254",
+      "pmid": "42998302",
+      "year": 2026,
+      "pmcid": "PMC13744422",
+      "title": "Predicting the Free-Weight Back Squat 1-Repetition Maximum: Comparing Regression Models and Minimum Velocity Thresholds Across Sexes.",
+      "providers": [
+       "europe_pmc"
+      ],
+      "topical_score": 1,
+      "europe_pmc_license": "cc by-nc-nd"
+     },
+     {
+      "doi": "10.3390/sports14060226",
+      "pmid": "42347450",
+      "year": 2026,
+      "pmcid": "PMC13307458",
+      "title": "Effects of Velocity-Based French Contrast Training on Lower-Limb Power and Delivery Kinetics in Medium-Fast Cricket Bowlers: A Randomized Controlled Trial.",
+      "providers": [
+       "europe_pmc"
+      ],
+      "topical_score": 1,
+      "europe_pmc_license": "cc by"
+     },
+     {
+      "doi": "10.3389/fspor.2026.1893029",
+      "pmid": "42564784",
+      "year": 2026,
+      "pmcid": "PMC13446129",
+      "title": "Limitations of linear load-velocity modeling for bench press performance in youth elite athletes.",
+      "providers": [
+       "europe_pmc"
+      ],
+      "topical_score": 1,
+      "europe_pmc_license": "cc by"
+     },
+     {
+      "doi": "10.3390/sports14050181",
+      "pmid": "42188557",
+      "year": 2026,
+      "pmcid": "PMC13211293",
+      "title": "Combining Multisensory Cueing and Velocity-Based Training to Enhance Shot Put Performance in an F12 Para-Athlete: A Case Report.",
+      "providers": [
+       "europe_pmc"
+      ],
+      "topical_score": 1,
+      "europe_pmc_license": "cc by"
+     },
+     {
+      "doi": "10.3390/jfmk10030284",
+      "pmid": "40843815",
+      "year": 2025,
+      "pmcid": "PMC12372150",
+      "title": "Sex Differences in Bench Press Strength and Power: A Velocity-Based Analysis Adjusted for Body Composition.",
+      "providers": [
+       "europe_pmc"
+      ],
+      "topical_score": 1,
+      "europe_pmc_license": "cc by"
+     },
+     {
+      "doi": "10.3390/s24237422",
+      "pmid": "39685958",
+      "year": 2024,
+      "pmcid": "PMC11644249",
+      "title": "Comparison of Velocity and Estimated One Repetition Maximum Measured with Different Measuring Tools in Bench Presses and Squats.",
+      "providers": [
+       "europe_pmc"
+      ],
+      "topical_score": 1,
+      "europe_pmc_license": "cc by"
+     },
+     {
+      "doi": "10.1186/s13102-026-01687-9",
+      "pmid": "41975529",
+      "year": 2026,
+      "pmcid": "PMC13195979",
+      "title": "Effects of resistance training applied with a velocity-based approach on selected motor skills.",
+      "providers": [
+       "europe_pmc"
+      ],
+      "topical_score": 0,
+      "europe_pmc_license": "cc by-nc-nd"
+     },
+     {
+      "doi": "10.1111/sms.70392",
+      "pmid": "42954324",
+      "year": 2026,
+      "pmcid": "PMC13717707",
+      "title": "The Effects of Force-Velocity Profile-Based Load Prescription on Muscle Power and Functional Performance in Velocity-Deficient Older Adults.",
+      "providers": [
+       "europe_pmc"
+      ],
+      "topical_score": 0,
+      "europe_pmc_license": "cc by-nc-nd"
+     },
+     {
+      "doi": "10.3390/sports14100464",
+      "pmid": "42931601",
+      "year": 2026,
+      "pmcid": "PMC13709544",
+      "title": "Power Training Methods Across the Load-Velocity Continuum: Mechanisms, Applications, and Periodization.",
+      "providers": [
+       "europe_pmc"
+      ],
+      "topical_score": 0,
+      "europe_pmc_license": "cc by"
+     },
+     {
+      "doi": "10.3389/fphys.2026.1823323",
+      "pmid": "42454076",
+      "year": 2026,
+      "pmcid": "PMC13364572",
+      "title": "Relative effectiveness of different resistance training modalities on lower-body strength and explosive power: a systematic review and network meta-analysis.",
+      "providers": [
+       "europe_pmc"
+      ],
+      "topical_score": 0,
+      "europe_pmc_license": "cc by"
+     },
+     {
+      "doi": "10.70252/dfmz2015",
+      "pmid": "41079535",
+      "year": 2025,
+      "pmcid": "PMC12510699",
+      "title": "Effect of Velocity-Based Training on Vertical Jump Performance by Beach Volleyball Players.",
+      "providers": [
+       "europe_pmc"
+      ],
+      "topical_score": 0,
+      "europe_pmc_license": "cc by-nd"
+     }
+    ],
+    "origin": "model_directed",
+    "status": "completed",
+    "ingested": [
+     {
+      "doi": "10.3390/s25196047",
+      "pmid": "41094870",
+      "year": 2025,
+      "pmcid": "PMC12526633",
+      "title": "The Utility of Angular Velocity During Back Squat to Predict 1RM and Load-Velocity Profiling.",
+      "passages": 27,
+      "providers": [
+       "europe_pmc"
+      ],
+      "article_url": "https://europepmc.org/article/PMC/PMC12526633",
+      "license_uri": "https://creativecommons.org/licenses/by/4.0/",
+      "article_type": "research-article",
+      "source_sha256": "d1bddba09e2940d9f8b671c0d4730722bf3d591d62d75a2bef365c0b066f7d63",
+      "topical_score": 3,
+      "import_created": true,
+      "license_family": "cc by",
+      "canonical_title": "The Utility of Angular Velocity During Back Squat to Predict 1RM and Load–Velocity Profiling",
+      "europe_pmc_license": "cc by",
+      "document_version_key": "ba05c078eed42d22e38db65f1ef25214e999fd5c501769c846c32e2f761a0ce4",
+      "passage_manifest_sha256": "ccbb0508e8a0132b6a3d8a2eea8e66bf1305e20ff0a291eee74633c0f351605f"
+     },
+     {
+      "doi": "10.1371/journal.pone.0245791",
+      "pmid": "33524058",
+      "year": 2021,
+      "pmcid": "PMC7850492",
+      "title": "Force-velocity profiling in athletes: Reliability and agreement across methods.",
+      "passages": 50,
+      "providers": [
+       "europe_pmc",
+       "openalex"
+      ],
+      "article_url": "https://europepmc.org/article/PMC/PMC7850492",
+      "license_uri": "http://creativecommons.org/licenses/by/4.0/",
+      "article_type": "research-article",
+      "source_sha256": "9592358a141b8c819bc7e53e4d01d000f6e21c569510a4ed44eff7c32ce8e555",
+      "topical_score": 3,
+      "import_created": true,
+      "license_family": "cc by",
+      "canonical_title": "Force-velocity profiling in athletes: Reliability and agreement across methods",
+      "europe_pmc_license": "cc by",
+      "document_version_key": "b8c0e801ffdf664356efe5c40c1e1ad72140fbcc1a9696065e4c666cb2ac83b6",
+      "passage_manifest_sha256": "674d10bc0f1aef7134d2edbfbc3e4f16df08e521140f2db245b66268cc6d1039"
+     }
+    ],
+    "rejected": [],
+    "projection": {
+     "alias": "dynamisrag-research-workspace",
+     "model_id": "Qwen/Qwen3-Embedding-0.6B",
+     "dimension": 512,
+     "collection": "qdrant-passages-v1-ba6ba89b8e742b58727dd06d9df6aba92df2b12a56ea5d194cdd752e2938f84b",
+     "embedded_now": 77,
+     "published_at": "2026-11-17T14:36:26.687723+00:00",
+     "passage_count": 77,
+     "document_count": 2,
+     "model_revision": "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
+     "reused_vectors": 0,
+     "elapsed_seconds": 333.188,
+     "embedding_seconds": 312.157,
+     "projection_sha256": "822afef92f8e33fd0e0e604e72b5600c62e523d509f116b93eb9787a344363ae",
+     "collection_identity": {
+      "model_id": "Qwen/Qwen3-Embedding-0.6B",
+      "schema_sha256": "b83e0682ea5a90589e4411c2964703bcf3fd57203176729275818db13f0aaca1",
+      "expected_count": 77,
+      "model_revision": "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
+      "schema_revision": "qdrant-passages-v1",
+      "projection_sha256": "822afef92f8e33fd0e0e604e72b5600c62e523d509f116b93eb9787a344363ae",
+      "embedding_config_sha256": "8438d37d8e8c8f975f62cbc6f6c644abc27304b18b7a330d9157a70f21c9c1f7",
+      "embedding_manifest_sha256": "26b631006e8e8fc0a54fbbac095214cdd1e6b281c579f0049c41ed73ded0b50e"
+     },
+     "previous_collection": null,
+     "embedding_config_sha256": "8438d37d8e8c8f975f62cbc6f6c644abc27304b18b7a330d9157a70f21c9c1f7",
+     "embedding_manifest_file": "qdrant-passages-v1-ba6ba89b8e742b58727dd06d9df6aba92df2b12a56ea5d194cdd752e2938f84b.embeddings.json",
+     "embedding_manifest_sha256": "26b631006e8e8fc0a54fbbac095214cdd1e6b281c579f0049c41ed73ded0b50e"
+    },
+    "error_class": null,
+    "query_ladder": [
+     {
+      "level": 1,
+      "origin": "model_directed",
+      "openalex": "force velocity profile linear position transducer validity",
+      "europe_pmc": "(TITLE_ABS:\"force velocity profile\" OR TITLE_ABS:\"force-velocity profiling\" OR TITLE_ABS:\"load velocity relationship\" OR TITLE_ABS:\"load-velocity profile\") AND (TITLE_ABS:\"linear position transducer\" OR TITLE_ABS:\"linear encoder\" OR TITLE_ABS:\"linear transducer\") AND (TITLE_ABS:\"validity\" OR TITLE_ABS:\"valid\" OR TITLE_ABS:\"agreement\" OR TITLE_ABS:\"force plate\" OR TITLE_ABS:\"concurrent validity\") AND OPEN_ACCESS:Y"
+     },
+     {
+      "level": 2,
+      "origin": "model_directed",
+      "openalex": "force velocity profile linear position transducer reliability",
+      "europe_pmc": "(TITLE_ABS:\"force velocity profile\" OR TITLE_ABS:\"force-velocity relationship\" OR TITLE_ABS:\"load-velocity relationship\") AND (TITLE_ABS:\"linear position transducer\" OR TITLE_ABS:\"linear encoder\" OR TITLE_ABS:\"velocity based training\" OR TITLE_ABS:\"velocity-based training\") AND (TITLE_ABS:\"reliability\" OR TITLE_ABS:\"reproducibility\" OR TITLE_ABS:\"reliability intraclass\" OR TITLE_ABS:\"test retest\") AND OPEN_ACCESS:Y"
+     },
+     {
+      "level": 3,
+      "origin": "model_directed",
+      "openalex": "force velocity profile resistance training training prescription",
+      "europe_pmc": "(TITLE_ABS:\"force velocity profile\" OR TITLE_ABS:\"load-velocity relationship\" OR TITLE_ABS:\"velocity based training\" OR TITLE_ABS:\"velocity-based training\") AND (TITLE_ABS:\"resistance training\" OR TITLE_ABS:\"strength training\" OR TITLE_ABS:\"squat\" OR TITLE_ABS:\"bench press\") AND (TITLE_ABS:\"training prescription\" OR TITLE_ABS:\"load prescription\" OR TITLE_ABS:\"1RM prediction\" OR TITLE_ABS:\"athlete monitoring\" OR TITLE_ABS:\"performance\") AND OPEN_ACCESS:Y"
+     },
+     {
+      "level": 4,
+      "origin": "model_directed",
+      "openalex": "force velocity profile limitations",
+      "europe_pmc": "(TITLE_ABS:\"force velocity profile\" OR TITLE_ABS:\"load-velocity relationship\" OR TITLE_ABS:\"linear position transducer\" OR TITLE_ABS:\"velocity based training\") AND (TITLE_ABS:\"limitations\" OR TITLE_ABS:\"caveats\" OR TITLE_ABS:\"measurement error\" OR TITLE_ABS:\"individual variation\" OR TITLE_ABS:\"methodological considerations\") AND OPEN_ACCESS:Y"
+     },
+     {
+      "level": 5,
+      "origin": "fixed_rule",
+      "openalex": "force-velocity linear position transducer validity",
+      "europe_pmc": "(TITLE_ABS:\"force-velocity\") AND (TITLE_ABS:\"linear position transducer\") AND (TITLE_ABS:\"validity\" OR TITLE_ABS:\"reliability\") AND OPEN_ACCESS:Y"
+     },
+     {
+      "level": 6,
+      "origin": "fixed_rule",
+      "openalex": "force-velocity validity",
+      "europe_pmc": "(TITLE_ABS:\"force-velocity\") AND (TITLE_ABS:\"validity\" OR TITLE_ABS:\"reliability\") AND OPEN_ACCESS:Y"
+     },
+     {
+      "level": 7,
+      "origin": "fixed_rule",
+      "openalex": "force-velocity linear position transducer",
+      "europe_pmc": "(TITLE_ABS:\"force-velocity\") AND (TITLE_ABS:\"linear position transducer\") AND OPEN_ACCESS:Y"
+     },
+     {
+      "level": 8,
+      "origin": "fixed_rule",
+      "openalex": "force-velocity resistance training",
+      "europe_pmc": "(TITLE_ABS:\"force-velocity\") AND (TITLE_ABS:\"resistance training\") AND OPEN_ACCESS:Y"
+     },
+     {
+      "level": 9,
+      "origin": "fixed_rule",
+      "openalex": "force-velocity",
+      "europe_pmc": "(TITLE_ABS:\"force-velocity\") AND OPEN_ACCESS:Y"
+     }
+    ],
+    "unique_works": 44,
+    "model_requests": 0,
+    "model_rationale": "The canonical corpus contains no papers at all, so external open-access literature must be ingested to address force–velocity profiling with linear position transducers: validity versus force plates, reliability, training applications, and limitations.",
+    "search_requests": 4,
+    "already_in_corpus": [],
+    "provider_failures": [],
+    "discovered_records": 47
+   }
+  },
+  {
+   "run_id": "run-0517280ac5894444",
+   "status": "completed",
+   "citations": 4,
+   "model_calls": 5,
+   "estimated_cost_usd": 0.01050165,
+   "tools": {
+    "graph_enforced": 3,
+    "graph_fallback": 0,
+    "model_directed": 14
+   },
+   "acquisition": {
+    "works": [
+     {
+      "doi": "10.3390/s25216542",
+      "pmid": "41228765",
+      "year": 2025,
+      "pmcid": "PMC12608286",
+      "title": "The Validity and Reliability of the Force Plates and the Linear Position Transducer in Measuring Countermovement Depth and Velocity During Countermovement Jump.",
+      "providers": [
+       "europe_pmc",
+       "openalex"
+      ],
+      "topical_score": 3,
+      "europe_pmc_license": "cc by"
+     },
+     {
+      "doi": "10.5114/biolsport.2022.104918",
+      "pmid": "35309537",
+      "year": 2021,
+      "pmcid": "PMC8919875",
+      "title": "Does a linear position transducer placed on a stick and belt provide sufficient validity and reliability of countermovement jump performance outcomes?",
+      "providers": [
+       "europe_pmc",
+       "openalex"
+      ],
+      "topical_score": 3,
+      "europe_pmc_license": "cc by-nc-nd"
+     },
+     {
+      "doi": "10.3390/sports6040177",
+      "pmid": "30572577",
+      "year": 2018,
+      "pmcid": "PMC6316460",
+      "title": "Validity and Reliability of the GymAware Linear Position Transducer for Squat Jump and Counter-Movement Jump Height.",
+      "providers": [
+       "europe_pmc"
+      ],
+      "topical_score": 3,
+      "europe_pmc_license": "cc by"
+     },
+     {
+      "doi": "10.3390/sports6040170",
+      "pmid": "30544687",
+      "year": 2018,
+      "pmcid": "PMC6316018",
+      "title": "Validity and Reliability of a Commercially-Available Velocity and Power Testing Device.",
+      "providers": [
+       "europe_pmc"
+      ],
+      "topical_score": 3,
+      "europe_pmc_license": "cc by"
+     },
+     {
+      "doi": "10.1371/journal.pone.0245791",
+      "pmid": "33524058",
+      "year": 2021,
+      "pmcid": "PMC7850492",
+      "title": "Force-velocity profiling in athletes: Reliability and agreement across methods.",
+      "providers": [
+       "europe_pmc"
+      ],
+      "topical_score": 3,
+      "europe_pmc_license": "cc by"
+     },
+     {
+      "doi": "10.26603/001c.153965",
+      "pmid": "41488379",
+      "year": 2026,
+      "pmcid": "PMC12758929",
+      "title": "Comparing Quantification Methodologies for the Single-Leg Heel-Rise in Patients Following Operative and Non-Operative Management for Achilles Tendon Rupture.",
+      "providers": [
+       "europe_pmc"
+      ],
+      "topical_score": 3,
+      "europe_pmc_license": "cc by-nc"
+     },
+     {
+      "doi": "10.3390/ijerph18179170",
+      "pmid": "34501761",
+      "year": 2021,
+      "pmcid": "PMC8431394",
+      "title": "Valid and Reliable Barbell Velocity Estimation Using an Inertial Measurement Unit.",
+      "providers": [
+       "europe_pmc"
+      ],
+      "topical_score": 2,
+      "europe_pmc_license": "cc by"
+     },
+     {
+      "doi": "10.3390/sports14070263",
+      "pmid": "42506808",
+      "year": 2026,
+      "pmcid": "PMC13416992",
+      "title": "Concurrent Validity and Between-Session Reproducibility of Agreement of GPath for Mean Propulsive Velocity Assessment During the Bench Press Exercise.",
+      "providers": [
+       "europe_pmc"
+      ],
+      "topical_score": 2,
+      "europe_pmc_license": "cc by"
+     },
+     {
+      "doi": "10.3390/jfmk11020197",
+      "pmid": "42200903",
+      "year": 2026,
+      "pmcid": "PMC13214824",
+      "title": "Comparison of the MetricVBT App and the Vitruve Linear Position Transducer for Assessing Execution Velocity and ROM.",
+      "providers": [
+       "europe_pmc",
+       "openalex"
+      ],
+      "topical_score": 2,
+      "europe_pmc_license": "cc by"
+     },
+     {
+      "doi": "10.1186/s40798-026-01102-0",
+      "pmid": "42690493",
+      "year": 2026,
+      "pmcid": "PMC13542044",
+      "title": "Reliability, Device Agreement and Validity of Load-Velocity Profiles: A Systematic Review with Meta-analysis.",
+      "providers": [
+       "europe_pmc"
+      ],
+      "topical_score": 2,
+      "europe_pmc_license": "cc by"
+     },
+     {
+      "doi": "10.3390/healthcare13080905",
+      "pmid": "40281854",
+      "year": 2025,
+      "pmcid": "PMC12026825",
+      "title": "Evaluating the Agreement and Associations with Physical Function Between Equation- and Linear Position Transducer-Estimated Sit-to-Stand Muscle Power in Aging Adults.",
+      "providers": [
+       "europe_pmc"
+      ],
+      "topical_score": 2,
+      "europe_pmc_license": "cc by"
+     },
+     {
+      "doi": "10.3390/s26206466",
+      "pmid": "42944328",
+      "year": 2026,
+      "pmcid": "PMC13709254",
+      "title": "Comparing Repetition-Velocity Output from a Motor-Integrated Magnetic Sensing System with That of a Linear Position Transducer Across Resistance Exercises and Loads: A Human Trial Experiment.",
+      "providers": [
+       "europe_pmc"
+      ],
+      "topical_score": 2,
+      "europe_pmc_license": "cc by"
+     },
+     {
+      "doi": "10.3390/s24196444",
+      "pmid": "39409484",
+      "year": 2024,
+      "pmcid": "PMC11479257",
+      "title": "Validity and Concordance of a Linear Position Transducer (Vitruve) for Measuring Movement Velocity during Resistance Training.",
+      "providers": [
+       "europe_pmc"
+      ],
+      "topical_score": 2,
+      "europe_pmc_license": "cc by"
+     },
+     {
+      "doi": "10.3390/s26041305",
+      "pmid": "41755244",
+      "year": 2026,
+      "pmcid": "PMC12944470",
+      "title": "Exploring the Validity of the Velocity Matters Linear Position Transducer in the Back Squat and Bench Press.",
+      "providers": [
+       "europe_pmc",
+       "openalex"
+      ],
+      "topical_score": 2,
+      "europe_pmc_license": "cc by"
+     },
+     {
+      "doi": "10.3390/jfmk10020178",
+      "pmid": "40407462",
+      "year": 2025,
+      "pmcid": "PMC12101428",
+      "title": "Effects of Transducer Placement on Load-Velocity Relationships in Smith Machine and Free Weight Squats in Trained Women.",
+      "providers": [
+       "europe_pmc"
+      ],
+      "topical_score": 2,
+      "europe_pmc_license": "cc by"
+     },
+     {
+      "doi": "10.1371/journal.pone.0324606",
+      "pmid": "40920738",
+      "year": 2025,
+      "pmcid": "PMC12416690",
+      "title": "A systematic review using a multi-layered criteria framework for assessing the validity and reliability of velocity monitoring devices in resistance training.",
+      "providers": [
+       "europe_pmc"
+      ],
+      "topical_score": 2,
+      "europe_pmc_license": "cc by"
+     },
+     {
+      "doi": "10.7717/peerj.15863",
+      "pmid": "37601249",
+      "year": 2023,
+      "pmcid": "PMC10437032",
+      "title": "Repetition velocity as a measure of loading intensity in the free weight and Smith machine Bulgarian split squat.",
+      "providers": [
+       "europe_pmc"
+      ],
+      "topical_score": 2,
+      "europe_pmc_license": "cc by"
+     },
+     {
+      "doi": "10.3390/s21030925",
+      "pmid": "33573170",
+      "year": 2021,
+      "pmcid": "PMC7866505",
+      "title": "Video-Based System for Automatic Measurement of Barbell Velocity in Back Squat.",
+      "providers": [
+       "europe_pmc",
+       "openalex"
+      ],
+      "topical_score": 2,
+      "europe_pmc_license": "cc by"
+     },
+     {
+      "doi": "10.1186/s13071-026-07335-y",
+      "pmid": "41877226",
+      "year": 2026,
+      "pmcid": "PMC13023114",
+      "title": "Comprehensive validation of the rapid tick exposure test (RaTexT®): accuracy, reproducibility and comparative performance to detect acaricide resistance in livestock ticks.",
+      "providers": [
+       "europe_pmc"
+      ],
+      "topical_score": 1,
+      "europe_pmc_license": "cc by"
+     },
+     {
+      "doi": "10.1016/j.heliyon.2023.e19242",
+      "pmid": "37662805",
+      "year": 2023,
+      "pmcid": "PMC10471999",
+      "title": "Comparing [3H] thymidine LPT and CFSE assay to assess lymphocyte proliferation in beryllium-exposed sarcoidosis patients.",
+      "providers": [
+       "europe_pmc"
+      ],
+      "topical_score": 1,
+      "europe_pmc_license": "cc by-nc-nd"
+     }
+    ],
+    "origin": "model_directed",
+    "status": "completed",
+    "ingested": [
+     {
+      "doi": "10.3390/s25216542",
+      "pmid": "41228765",
+      "year": 2025,
+      "pmcid": "PMC12608286",
+      "title": "The Validity and Reliability of the Force Plates and the Linear Position Transducer in Measuring Countermovement Depth and Velocity During Countermovement Jump.",
+      "passages": 29,
+      "providers": [
+       "europe_pmc",
+       "openalex"
+      ],
+      "article_url": "https://europepmc.org/article/PMC/PMC12608286",
+      "license_uri": "https://creativecommons.org/licenses/by/4.0/",
+      "article_type": "research-article",
+      "source_sha256": "b15b583bbb4bcc92dbc022dc8ebd59cd5e4f7446a83e07c74441513dee690667",
+      "topical_score": 3,
+      "import_created": true,
+      "license_family": "cc by",
+      "canonical_title": "The Validity and Reliability of the Force Plates and the Linear Position Transducer in Measuring Countermovement Depth and Velocity During Countermovement Jump",
+      "europe_pmc_license": "cc by",
+      "document_version_key": "86d7c3d57c7a744f8cc79f4c6dbfd5dd198be11fdfd873a4801d73e460c2368b",
+      "passage_manifest_sha256": "bf3a2e6d6cca5888b280ec9468609ddfc7d6e0fa73d07e4f1475768811bc49aa"
+     },
+     {
+      "doi": "10.3390/sports6040170",
+      "pmid": "30544687",
+      "year": 2018,
+      "pmcid": "PMC6316018",
+      "title": "Validity and Reliability of a Commercially-Available Velocity and Power Testing Device.",
+      "passages": 19,
+      "providers": [
+       "europe_pmc"
+      ],
+      "article_url": "https://europepmc.org/article/PMC/PMC6316018",
+      "license_uri": "http://creativecommons.org/licenses/by/4.0/",
+      "article_type": "research-article",
+      "source_sha256": "699824f50a4f4201aebecdf0e1c0e25f6df0d0e47a87b876b57dbbeb27610404",
+      "topical_score": 3,
+      "import_created": true,
+      "license_family": "cc by",
+      "canonical_title": "Validity and Reliability of a Commercially-Available Velocity and Power Testing Device",
+      "europe_pmc_license": "cc by",
+      "document_version_key": "99b26a7d02271728f40d8d3f8156ca2ae3156d2e291f0803c2f50b7d4d9cc26b",
+      "passage_manifest_sha256": "1734916b76d9447e14f7b1288f576de3146680c19edbbaf1d0e87eac17a249d4"
+     }
+    ],
+    "rejected": [
+     {
+      "doi": "10.5114/biolsport.2022.104918",
+      "pmid": "35309537",
+      "year": 2021,
+      "pmcid": "PMC8919875",
+      "stage": "repository_rights",
+      "title": "Does a linear position transducer placed on a stick and belt provide sufficient validity and reliability of countermovement jump performance outcomes?",
+      "reason": "repository rights absent, restrictive or conflicting",
+      "providers": [
+       "europe_pmc",
+       "openalex"
+      ],
+      "topical_score": 3,
+      "europe_pmc_license": "cc by-nc-nd"
+     },
+     {
+      "doi": "10.3390/sports6040177",
+      "pmid": "30572577",
+      "year": 2018,
+      "pmcid": "PMC6316460",
+      "stage": "original_article",
+      "title": "Validity and Reliability of the GymAware Linear Position Transducer for Squat Jump and Counter-Movement Jump Height.",
+      "reason": "original human population evidence absent",
+      "providers": [
+       "europe_pmc"
+      ],
+      "topical_score": 3,
+      "europe_pmc_license": "cc by"
+     }
+    ],
+    "projection": {
+     "alias": "dynamisrag-research-workspace",
+     "model_id": "Qwen/Qwen3-Embedding-0.6B",
+     "dimension": 512,
+     "collection": "qdrant-passages-v1-76a2a8ee2a2a7943c00b9fb698d8e4e5f4c68756fc32bee3942c93827da45f5c",
+     "embedded_now": 48,
+     "published_at": "2026-11-17T14:42:54.556778+00:00",
+     "passage_count": 125,
+     "document_count": 4,
+     "model_revision": "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
+     "reused_vectors": 77,
+     "elapsed_seconds": 241.937,
+     "embedding_seconds": 228.579,
+     "projection_sha256": "7cb5f40cdea997cf4e76418d38e34856b7652d6076d016410e6403f362a616ec",
+     "collection_identity": {
+      "model_id": "Qwen/Qwen3-Embedding-0.6B",
+      "schema_sha256": "b83e0682ea5a90589e4411c2964703bcf3fd57203176729275818db13f0aaca1",
+      "expected_count": 125,
+      "model_revision": "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
+      "schema_revision": "qdrant-passages-v1",
+      "projection_sha256": "7cb5f40cdea997cf4e76418d38e34856b7652d6076d016410e6403f362a616ec",
+      "embedding_config_sha256": "8438d37d8e8c8f975f62cbc6f6c644abc27304b18b7a330d9157a70f21c9c1f7",
+      "embedding_manifest_sha256": "474022f1815d80680da86876b15e0dece73294eee742d310fd956eee02874e8b"
+     },
+     "previous_collection": "qdrant-passages-v1-ba6ba89b8e742b58727dd06d9df6aba92df2b12a56ea5d194cdd752e2938f84b",
+     "embedding_config_sha256": "8438d37d8e8c8f975f62cbc6f6c644abc27304b18b7a330d9157a70f21c9c1f7",
+     "embedding_manifest_file": "qdrant-passages-v1-76a2a8ee2a2a7943c00b9fb698d8e4e5f4c68756fc32bee3942c93827da45f5c.embeddings.json",
+     "embedding_manifest_sha256": "474022f1815d80680da86876b15e0dece73294eee742d310fd956eee02874e8b"
+    },
+    "error_class": null,
+    "query_ladder": [
+     {
+      "level": 1,
+      "origin": "model_directed",
+      "openalex": "linear position transducer validity force plate",
+      "europe_pmc": "(TITLE_ABS:\"linear position transducer\" OR TITLE_ABS:\"linear encoder\" OR TITLE_ABS:\"cable encoder\" OR TITLE_ABS:\"position transducer\") AND (TITLE_ABS:\"validity\" OR TITLE_ABS:\"concurrent validity\" OR TITLE_ABS:\"agreement\" OR TITLE_ABS:\"criterion validity\") AND (TITLE_ABS:\"force plate\" OR TITLE_ABS:\"force platform\" OR TITLE_ABS:\"motion capture\" OR TITLE_ABS:\"optical motion capture\") AND OPEN_ACCESS:Y"
+     },
+     {
+      "level": 2,
+      "origin": "model_directed",
+      "openalex": "linear position transducer barbell velocity force plate",
+      "europe_pmc": "(TITLE_ABS:\"linear position transducer\" OR TITLE_ABS:\"linear encoder\") AND (TITLE_ABS:\"barbell velocity\" OR TITLE_ABS:\"movement velocity\" OR TITLE_ABS:\"velocity measurement\") AND (TITLE_ABS:\"force plate\" OR TITLE_ABS:\"video analysis\" OR TITLE_ABS:\"motion capture\") AND OPEN_ACCESS:Y"
+     },
+     {
+      "level": 3,
+      "origin": "model_directed",
+      "openalex": "linear position transducer reliability force plate",
+      "europe_pmc": "(TITLE_ABS:\"linear position transducer\" OR TITLE_ABS:\"linear encoder\") AND (TITLE_ABS:\"reliability\" OR TITLE_ABS:\"measurement error\" OR TITLE_ABS:\"repeatability\") AND (TITLE_ABS:\"force plate\" OR TITLE_ABS:\"inertial measurement unit\" OR TITLE_ABS:\"accelerometer\") AND OPEN_ACCESS:Y"
+     },
+     {
+      "level": 4,
+      "origin": "fixed_rule",
+      "openalex": "linear position transducer criterion",
+      "europe_pmc": "(TITLE_ABS:\"linear position transducer\" OR TITLE_ABS:\"LPT\") AND (TITLE_ABS:\"criterion\" OR TITLE_ABS:\"gold standard\" OR TITLE_ABS:\"concurrent validity\" OR TITLE_ABS:\"agreement\") AND OPEN_ACCESS:Y"
+     },
+     {
+      "level": 5,
+      "origin": "fixed_rule",
+      "openalex": "linear position transducer",
+      "europe_pmc": "(TITLE_ABS:\"linear position transducer\" OR TITLE_ABS:\"LPT\") AND OPEN_ACCESS:Y"
+     }
+    ],
+    "unique_works": 38,
+    "model_requests": 0,
+    "model_rationale": "The corpus contains only two studies; neither is a dedicated criterion-validity study of linear position transducers against force plates or motion capture. External evidence is needed to answer how LPT measurements compare with reference systems.",
+    "search_requests": 5,
+    "already_in_corpus": [
+     {
+      "doi": "10.1371/journal.pone.0245791",
+      "pmid": "33524058",
+      "year": 2021,
+      "pmcid": "PMC7850492",
+      "title": "Force-velocity profiling in athletes: Reliability and agreement across methods.",
+      "providers": [
+       "europe_pmc"
+      ],
+      "topical_score": 3,
+      "europe_pmc_license": "cc by"
+     }
+    ],
+    "provider_failures": [],
+    "discovered_records": 44
+   }
+  }
+ ],
+ "recorded_run_cost_usd": 0.01885395,
+ "billing_limitations": "Nominal usage estimates, not an OpenCode billing receipt. Earlier failed/aborted attempts incurred additional usage; timeout charges cannot be measured exactly from client telemetry.",
+ "files": [
+  {
+   "file": "2-source-inspection.png",
+   "sha256": "fd832ccf2fc18fff7c63011dd850c7544dfe6373b32f61cc5f703e0486b7fae4"
+  },
+  {
+   "file": "acceptance.json",
+   "sha256": "938ca69eba080be3abe583975685b4966c73c7b4935a34c09c11e533fdd39e48"
+  },
+  {
+   "file": "initial-library.json",
+   "sha256": "7d29531466dbd21cad83062eaba0ebaf165a150dbc93641666026383ca245296"
+  },
+  {
+   "file": "turn1-events.sse",
+   "sha256": "b18aefcb728733b17806c7570e0b846399f92761239858eb3d09b96214af5779"
+  },
+  {
+   "file": "turn1-run.json",
+   "sha256": "5b19a96146a27baa7f4d0b84584988b73885a9b8821cfcee8a03190aa0da9a51"
+  },
+  {
+   "file": "turn2-events.sse",
+   "sha256": "2146fb665953e49e33a366fd0e2f884a7be50d4ee884d98bad52f7e047f47ab4"
+  },
+  {
+   "file": "turn2-run.json",
+   "sha256": "b5a4234140ab8513fac4f40f602d4840879f90cc8115343ab0514c3fb4e4b489"
+  }
+ ]
+}

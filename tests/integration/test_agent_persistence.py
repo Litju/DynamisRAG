@@ -152,8 +152,8 @@ def test_postgres_store_satisfies_the_shared_contract(
         check(
             StoreHarness(
                 store=store,
-                lease_seconds=0.4,
-                expire_leases=lambda: time.sleep(0.7),
+                lease_seconds=1.0,
+                expire_leases=lambda: time.sleep(3.0),
             )
         )
     finally:

@@ -1,0 +1,1 @@
+Deliver the authenticated research_ask result unchanged. Scientific claims remain MODEL_PROPOSED / PROPOSED. Python alone retrieves, compares and verifies evidence. Never invent claims, sources or approval.

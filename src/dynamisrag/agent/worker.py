@@ -20,6 +20,7 @@ import os
 import signal
 import threading
 import time
+from pathlib import Path
 from types import FrameType, TracebackType
 from uuid import uuid4
 
@@ -170,6 +171,10 @@ def main() -> None:
     from dynamisrag.config import load_settings
     from dynamisrag.logging_config import configure_logging
 
+    ready_name = os.environ.get("DYNAMISRAG_LOCAL_WORKER_READY_FILE")
+    ready_file = Path(ready_name) if ready_name else None
+    if ready_file is not None:
+        ready_file.unlink(missing_ok=True)
     settings = load_settings()
     configure_logging(settings.log_level)
     if not settings.agent_enabled or settings.agent_database_url is None:
@@ -187,8 +192,12 @@ def main() -> None:
     signal.signal(signal.SIGINT, _request_stop)
     pool.start()
     try:
+        if ready_file is not None:
+            ready_file.touch()
         stop.wait()
     finally:
+        if ready_file is not None:
+            ready_file.unlink(missing_ok=True)
         pool.stop()
         runtime.close()
 

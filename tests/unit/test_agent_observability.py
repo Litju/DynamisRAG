@@ -34,7 +34,7 @@ from dynamisrag.agent.providers import (
 from tests.agent_stack import build_stack
 
 FAKE_LS_KEY = "lsv2_pt_FAKE_TEST_KEY_0123456789abcdef"
-QUESTION_CANARY = "zebra-canary-91"
+QUESTION_CANARY = "Achilles tendon stiffness during depth jumping"
 USER_CANARY = "trace-user-777@example.org"
 ARTICLE_TEXT = "Achilles tendon stiffness increased by 24.5%"
 

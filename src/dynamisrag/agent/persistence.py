@@ -107,7 +107,11 @@ class RunEventType(StrEnum):
     TOOL_COMPLETED = "tool.completed"
     TOOL_REJECTED = "tool.rejected"
     FALLBACK_APPLIED = "fallback.applied"
+    LITERATURE_DISCOVERED = "literature.discovered"
+    LITERATURE_INGESTED = "literature.ingested"
+    CORPUS_PROJECTED = "corpus.projected"
     EVIDENCE_INSPECTED = "evidence.inspected"
+    EVIDENCE_RELEVANCE_ASSESSED = "evidence.relevance_assessed"
     FINDINGS_EXTRACTED = "findings.extracted"
     STUDIES_COMPARED = "studies.compared"
     SYNTHESIS_COMPLETED = "synthesis.completed"
@@ -280,6 +284,10 @@ class AgentConversationStore(Protocol):
         thread_id: str | None = None,
         external_ref: str | None = None,
     ) -> ThreadRecord: ...
+
+    def list_threads(
+        self, *, user_id: str, limit: int = 100, external_ref: str | None = None
+    ) -> tuple[ThreadRecord, ...]: ...
 
     def get_thread(self, thread_id: str, *, user_id: str) -> ThreadRecord: ...
 
@@ -471,6 +479,20 @@ class InMemoryAgentConversationStore:
             if external_ref is not None:
                 self._external[(owner_id, external_ref)] = tid
             return rec
+
+    def list_threads(
+        self, *, user_id: str, limit: int = 100, external_ref: str | None = None
+    ) -> tuple[ThreadRecord, ...]:
+        with self._lock:
+            owned = (
+                t
+                for t in self._threads.values()
+                if t.owner_id == user_id
+                and (external_ref is None or t.external_ref == external_ref)
+            )
+            return tuple(
+                sorted(owned, key=lambda t: (t.updated_at, t.thread_id), reverse=True)[:limit]
+            )
 
     def get_thread(self, thread_id: str, *, user_id: str) -> ThreadRecord:
         with self._lock:
@@ -909,6 +931,15 @@ _RUN_COLUMNS: Final[tuple[tuple[str, str], ...]] = (
 )
 
 
+# Advisory-lock key for one-at-a-time agent schema setup (ASCII "DRAGSETU").
+_SETUP_LOCK_KEY: Final[int] = 0x4452414753455455
+
+
+def _try_lock(connection: Any) -> bool:  # noqa: ANN401 - psycopg connection with dict rows
+    row = connection.execute("SELECT pg_try_advisory_lock(%s) AS ok", (_SETUP_LOCK_KEY,)).fetchone()
+    return bool(row and row["ok"])
+
+
 class PostgresAgentConversationStore:
     """PostgreSQL-backed :class:`AgentConversationStore` in a dedicated agent database."""
 
@@ -947,8 +978,18 @@ class PostgresAgentConversationStore:
         )
         try:
             self._checkpointer = PostgresSaver(self._pool)
-            self._checkpointer.setup()
-            self._setup_agent_tables()
+            # API and worker may start together: serialize schema setup on one advisory lock
+            # (concurrent CREATE INDEX deadlocked live in RES-638). Waiters poll with
+            # pg_try_advisory_lock between statements: a blocked pg_advisory_lock call is an
+            # open snapshot that CREATE INDEX CONCURRENTLY in the holder would wait for.
+            with self._control_pool.connection() as lock:
+                while not _try_lock(lock):
+                    time.sleep(0.2)
+                try:
+                    self._checkpointer.setup()
+                    self._setup_agent_tables()
+                finally:
+                    lock.execute("SELECT pg_advisory_unlock(%s)", (_SETUP_LOCK_KEY,))
         except BaseException:
             self._control_pool.close()
             self._pool.close()
@@ -956,21 +997,20 @@ class PostgresAgentConversationStore:
 
     # -- setup ------------------------------------------------------------------
     @staticmethod
-    def _fingerprint(database_url: str) -> tuple[str, str, int]:
+    def _fingerprint(database_url: str) -> tuple[str, str]:
         import psycopg
 
         conninfo = database_url.replace("postgresql+psycopg://", "postgresql://", 1)
         with psycopg.connect(conninfo, autocommit=True) as conn:
             row = conn.execute(
-                "SELECT current_database(), pg_postmaster_start_time()::text, "
-                "COALESCE(inet_server_port(), 0)"
+                "SELECT current_database(), system_identifier::text FROM pg_control_system()"
             ).fetchone()
         assert row is not None  # noqa: S101
-        return str(row[0]), str(row[1]), int(row[2])
+        return str(row[0]), str(row[1])
 
     @classmethod
     def _assert_distinct_server_database(cls, agent_url: str, protected_url: str) -> None:
-        """Live check: same database name on the same running server is the same database."""
+        """Cluster identity survives aliases/restarts; simultaneous starts are not identity."""
         agent = cls._fingerprint(agent_url)
         protected = cls._fingerprint(protected_url)
         if agent == protected:
@@ -993,7 +1033,14 @@ class PostgresAgentConversationStore:
             boot_pool.connection() as conn,
         ):
             stmt = sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(sql.Identifier(schema_name))
-            conn.execute(stmt)
+            while not conn.execute(
+                "SELECT pg_try_advisory_lock(%s)", (_SETUP_LOCK_KEY,)
+            ).fetchone()[0]:  # type: ignore[index]
+                time.sleep(0.2)  # concurrent IF NOT EXISTS still races on the catalog
+            try:
+                conn.execute(stmt)
+            finally:
+                conn.execute("SELECT pg_advisory_unlock(%s)", (_SETUP_LOCK_KEY,))
 
     def _setup_agent_tables(self) -> None:
         with self._pool.connection() as conn, conn.transaction():
@@ -1120,6 +1167,18 @@ class PostgresAgentConversationStore:
                     tuple(row.get("allowed_version_keys_json") or ()), allowed_version_keys
                 )
         return self._row_to_thread(row)
+
+    def list_threads(
+        self, *, user_id: str, limit: int = 100, external_ref: str | None = None
+    ) -> tuple[ThreadRecord, ...]:
+        with self._pool.connection() as conn:
+            rows = conn.execute(
+                "SELECT * FROM agent_threads WHERE owner_id = %s "
+                "AND (%s::text IS NULL OR external_ref = %s) "
+                "ORDER BY updated_at DESC, thread_id DESC LIMIT %s",
+                (user_id, external_ref, external_ref, limit),
+            ).fetchall()
+        return tuple(self._row_to_thread(row) for row in rows)
 
     def get_thread(self, thread_id: str, *, user_id: str) -> ThreadRecord:
         with self._pool.connection() as conn:

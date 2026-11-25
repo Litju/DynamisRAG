@@ -177,7 +177,7 @@ def test_roster_matches_the_three_mandated_models_and_endpoints() -> None:
 
 
 def test_build_refuses_without_approval_key_or_verified_model() -> None:
-    with pytest.raises(ProviderConfigurationError, match="unverified"):
+    with pytest.raises(ProviderConfigurationError, match="not approved"):
         build_opencode_go_runtime(_config(usage_approved=False))
     with pytest.raises(ProviderConfigurationError, match="API key"):
         build_opencode_go_runtime(_config(api_key=None))
@@ -185,6 +185,63 @@ def test_build_refuses_without_approval_key_or_verified_model() -> None:
         build_opencode_go_runtime(_config(pro_model="kimi-k3"))
     with pytest.raises(ProviderConfigurationError, match="distinct"):
         build_opencode_go_runtime(_config(pro_model="deepseek-v4.1-flash"))
+
+
+def test_sole_luna_roster_uses_one_model_on_its_native_responses_endpoint() -> None:
+    wire = _Wire()
+    runtime = _runtime(
+        wire, fast_model="gpt-6-luna", coordinator_model="gpt-6-luna", pro_model="gpt-6-luna"
+    )
+    assert {s.model_name for s in runtime.specs.values()} == {"gpt-6-luna"}
+    assert {s.endpoint.value for s in runtime.specs.values()} == {"responses"}
+    assert runtime.specs[ModelRole.PRO].budget.max_requests == 1
+    runtime.invoke_with_tools(
+        [HumanMessage(content="q")], [_tool()], stage="model_tool_execution:0", run_id="r"
+    )
+    runtime.invoke_plain(
+        [HumanMessage(content="q")],
+        stage="synthesize_provisional_answer",
+        run_id="r",
+        escalate=EscalationReason.CROSS_STUDY_COMPARISON,
+    )
+    assert [r.url.path for r in wire.requests] == ["/inference/go/openai/v1/responses"] * 2
+    for index in range(2):
+        body = wire.body(index)
+        assert body["model"] == "gpt-6-luna"
+        assert body["store"] is False
+        assert len(wire.requests[index].headers["x-opencode-session"]) == 32
+    assert wire.body(0)["tools"][0]["name"] == "hybrid_search"
+    summary = runtime.summarize("r", tool_calls_count=1)
+    assert {m.model_name for m in summary.models} == {"gpt-6-luna"}
+
+
+def test_sole_flash_uses_chat_tools_and_supported_reasoning_without_storage() -> None:
+    wire = _Wire()
+    wire.chat_replies = [_chat_response(tool_call=True), _chat_response(tool_call=False)]
+    runtime = _runtime(
+        wire,
+        fast_model="deepseek-v4.1-flash",
+        coordinator_model="deepseek-v4.1-flash",
+        pro_model="deepseek-v4.1-flash",
+    )
+    assert {s.model_name for s in runtime.specs.values()} == {"deepseek-v4.1-flash"}
+    assert runtime.specs[ModelRole.FAST].max_output_tokens == 2048
+    assert runtime.specs[ModelRole.COORDINATOR].max_output_tokens == 8192
+    runtime.invoke_with_tools(
+        [HumanMessage(content="q")], [_tool()], stage="model_tool_execution:0", run_id="r"
+    )
+    runtime.invoke_plain(
+        [HumanMessage(content="q")],
+        stage="synthesize_provisional_answer",
+        run_id="r",
+        escalate=EscalationReason.CROSS_STUDY_COMPARISON,
+    )
+    for index in range(2):
+        assert wire.requests[index].url.path.endswith("/chat/completions")
+        assert wire.body(index)["model"] == "deepseek-v4.1-flash"
+        assert wire.body(index)["reasoning_effort"] == "low"
+        assert wire.body(index)["store"] is False
+        assert wire.requests[index].headers["x-opencode-session"]
 
 
 def test_roster_verification_checks_catalogue_and_endpoint() -> None:
@@ -539,4 +596,8 @@ def test_provider_failure_is_sanitized_and_never_substituted() -> None:
     summary = runtime.summarize("run-4", tool_calls_count=0)
     assert [c.outcome for c in summary.calls] == ["error"]
     assert summary.models[1].failed_requests == 1
+    assert (
+        summary.calls[0].completion_tokens
+        == DEFAULT_ROSTER[ModelRole.COORDINATOR].max_output_tokens
+    )
     assert summary.pro_escalations == 0

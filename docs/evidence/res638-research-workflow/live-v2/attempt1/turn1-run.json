@@ -1,0 +1,1254 @@
+{
+ "run_id": "run-0042080711ba4aec",
+ "thread_id": "thread-280c9c9a71324278",
+ "owner_id": "alice",
+ "idempotency_key": "turn_0",
+ "question": "What does the scientific literature establish about force–velocity profiling using linear position transducers in resistance training? Evaluate measurement validity, reliability, applications and limitations.",
+ "status": "abstained",
+ "require_confirmation": false,
+ "cancel_requested": false,
+ "attempt": 1,
+ "max_attempts": 3,
+ "worker_id": null,
+ "lease_expires_at": null,
+ "resume_payload": null,
+ "abort_reason": null,
+ "answer_markdown": "**Abstained from Scientific Synthesis (`canonical_citation_verification_failed`)**\n\nThe agent could not verify canonical source spans supporting a scientific answer within the authorized corpus.\n\n#### Literature search (Europe PMC / OpenAlex, open access only)\nStatus `completed` · 41 records → 38 unique works (DOI/PMID/PMCID) · 4 permitted full texts ingested · 2 rejected · 0 model requests.\n- Eccentric Force-Velocity Characteristics during a Novel Squat Protocol in Trained Rugby Union Athletes-Pilot Study. — DOI `10.3390/jfmk6020032`, `PMC8103256`, PMID `33808291`, 24 passages, licence https://creativecommons.org/licenses/by/4.0/\n- Reliability of Sprint Time and Force-Velocity Profiles During Sprint Acceleration in Elite Rugby Union Players: Inter-Trial Reliability of Linear Encoder, GPS, Timing Gates and Video Analysis. — DOI `10.3390/sports14080339`, `PMC13517742`, PMID `42646877`, 22 passages, licence https://creativecommons.org/licenses/by/4.0/\n- Optimal two-point loading strategy for accurate leg press force-velocity assessment. — DOI `10.1371/journal.pone.0356566`, `PMC13505900`, PMID `42640920`, 46 passages, licence https://creativecommons.org/licenses/by/4.0/\n- The Validity and Reliability of the My Jump Lab App for the Measurement of Vertical Jump Performance Using Artificial Intelligence. — DOI `10.3390/s24247897`, `PMC11679296`, PMID `39771636`, 15 passages, licence https://creativecommons.org/licenses/by/4.0/\n- Qdrant collection `qdrant-passages-v1-56c6358c6a1abca7e88c379f315fb0273717bd80836a45ebe67e5a3182ca7fd8` (107 passages, alias `dynamisrag-research-workspace`)\n\n*All study findings, comparisons, and synthesized claims are MODEL_PROPOSED / PROPOSED. Exact quotation and canonical source-span checks verify text provenance only and do not establish scientific entailment, study validity, clinical applicability, or expert review.*",
+ "abstention_reason": "canonical_citation_verification_failed",
+ "verified_citations": [],
+ "rejected_citations": [
+  {
+   "doi": "10.3390/sports14080339",
+   "pmcid": "PMC13517742",
+   "origin": "MODEL_PROPOSED",
+   "end_char": 214,
+   "span_key": "6cd8362dc7c1176ad4c343a91d6472359f622c8dd152caff11682a81afb6084a",
+   "verified": false,
+   "claim_text": "In sprint acceleration testing with elite rugby union players, the study reported high reliability for the linear encoder’s force–velocity variables; this is not a direct finding about resistance-training profiling.",
+   "start_char": 0,
+   "claim_index": 0,
+   "passage_key": "37a136a6d17e01145f8d2f1c462978814d789476986f62cb983ce287449c9def",
+   "review_state": "PROPOSED",
+   "expert_review": "NOT_REVIEWED",
+   "paragraph_key": "ec46ee73ca07bd7f0caf4b0262f819d5c869c9ff18b439697a9e2ab00f7774c0",
+   "document_title": "Reliability of Sprint Time and Force—Velocity Profiles During Sprint Acceleration in Elite Rugby Union Players: Inter-Trial Reliability of Linear Encoder, GPS, Timing Gates and Video Analysis",
+   "quote_verified": true,
+   "verbatim_quote": "This study demonstrated that the most recent version of the 1080 Motion linear encoder presents high reliability for measuring sprint time and force–velocity variables, most likely due to a high sampling frequency.",
+   "rejection_reason": "claim_not_supported_by_quoted_span: content_not_in_quote:accele,direct,elite,findin,player,profil; negation_mismatch; hedge_dropped",
+   "semantic_support": "UNSUPPORTED",
+   "semantic_assessor": "lexical-consistency-v1",
+   "numeric_provenance": "NOT_APPLICABLE",
+   "document_version_key": "836c2cb1f2485ff32f748014d9615583577e7bc41ec112ad5bc83bb51540afb2",
+   "semantic_support_score": 0.444,
+   "paragraph_source_anchor": "jats:/body[1]/sec[5]/p[1]",
+   "semantic_support_reasons": [
+    "content_not_in_quote:accele,direct,elite,findin,player,profil",
+    "negation_mismatch",
+    "hedge_dropped"
+   ]
+  },
+  {
+   "doi": "10.1371/journal.pone.0356566",
+   "pmcid": "PMC13505900",
+   "origin": "MODEL_PROPOSED",
+   "end_char": 907,
+   "span_key": "da991c7b1dc069efd0d80aba84f2b4b32860cc6751e044deed20aa58adb27669",
+   "verified": false,
+   "claim_text": "A leg-press paper describes force–velocity profile parameters as having been used to identify individual weaknesses and inform training programs, but this passage does not establish that those applications were evaluated with a linear position transducer.",
+   "start_char": 644,
+   "claim_index": 1,
+   "passage_key": "9c219ddfbb45c3519dcad040860eed3fd005bf79164eecacead6ab922e72ef9f",
+   "review_state": "PROPOSED",
+   "expert_review": "NOT_REVIEWED",
+   "paragraph_key": "8bd3da678fbe4b0534f4905f9e2e03844f7f815a99ca361937b7cca1de41706a",
+   "document_title": "Optimal two-point loading strategy for accurate leg press force–velocity assessment",
+   "quote_verified": true,
+   "verbatim_quote": "Parameters such as the theoretical maximum force (F0), velocity (V0), power (Pmax), and slope of the linear F–V relationship (SFv) obtained through F–V profiling have been used to identify individual weaknesses and develop more effective training programs [8,14].",
+   "rejection_reason": "claim_not_supported_by_quoted_span: content_not_in_quote:applic,descri,does,establ,evalua,having; negation_mismatch",
+   "semantic_support": "UNSUPPORTED",
+   "semantic_assessor": "lexical-consistency-v1",
+   "numeric_provenance": "NOT_APPLICABLE",
+   "document_version_key": "a5c1ac5f5b99b8cae68bc060140d10de5fff8029bd2a86cfb1540c55ef7283f1",
+   "semantic_support_score": 0.5,
+   "paragraph_source_anchor": "jats:/body[1]/sec[1]/p[2]",
+   "semantic_support_reasons": [
+    "content_not_in_quote:applic,descri,does,establ,evalua,having",
+    "negation_mismatch"
+   ]
+  }
+ ],
+ "proposed_findings": [
+  {
+   "doi": "10.3390/sports14080339",
+   "pmcid": "PMC13517742",
+   "units": "kg",
+   "origin": "MODEL_PROPOSED",
+   "category": "DESCRIPTIVE",
+   "end_char": 411,
+   "span_key": "a4bcd5741d73795d9dc9bff8d481787ee9fae1db3e99ff74b10b13298c19304e",
+   "comparator": "within-subject angle/condition comparison or control group",
+   "finding_id": "03991870a8594d74e9618a85ebbc6a89d207fa6d73010fd048a76cdf689f7e25",
+   "population": null,
+   "start_char": 280,
+   "passage_key": "d216795b289e8821959c6e8bbbbfde8e050c96611077d9768914971979d5a017",
+   "intervention": null,
+   "review_state": "PROPOSED",
+   "study_design": null,
+   "paragraph_key": "d83f9ba5a4252452e958f80feeca3639d554961de8d15583e38c263e51041fd5",
+   "document_title": "Reliability of Sprint Time and Force—Velocity Profiles During Sprint Acceleration in Elite Rugby Union Players: Inter-Trial Reliability of Linear Encoder, GPS, Timing Gates and Video Analysis",
+   "verbatim_quote": "The 1 kg resistance did not affect the comparison between the different measurement tools, as all devices measured the same sprint.",
+   "outcome_measures": [
+    "Sprint 2 (1080 Motion, Lidingö, Sweden) is a motorized horizontal",
+    "sprint",
+    "sprint using the software provided by the manufacturer from the ve"
+   ],
+   "uncertainty_notes": [
+    "MODEL_PROPOSED extraction from a single passage span; requires full-study context and expert adjudication."
+   ],
+   "missing_information": [
+    "sample_population_not_stated_in_passage",
+    "exact_effect_size_or_p_value_not_in_sentence"
+   ],
+   "reported_statistics": [],
+   "document_version_key": "836c2cb1f2485ff32f748014d9615583577e7bc41ec112ad5bc83bb51540afb2",
+   "measurement_protocol": null,
+   "structurally_verified": true,
+   "paragraph_source_anchor": "jats:/body[1]/sec[2]/sec[3]/sec[1]/p[1]"
+  },
+  {
+   "doi": "10.3390/sports14080339",
+   "pmcid": "PMC13517742",
+   "units": null,
+   "origin": "MODEL_PROPOSED",
+   "category": "DESCRIPTIVE",
+   "end_char": 583,
+   "span_key": "a4bcd5741d73795d9dc9bff8d481787ee9fae1db3e99ff74b10b13298c19304e",
+   "comparator": null,
+   "finding_id": "1b40a7c0990d7fe1e8da005b1b34758f7bdb3655641f872ce5d0aea137407a73",
+   "population": null,
+   "start_char": 486,
+   "passage_key": "d216795b289e8821959c6e8bbbbfde8e050c96611077d9768914971979d5a017",
+   "intervention": null,
+   "review_state": "PROPOSED",
+   "study_design": null,
+   "paragraph_key": "d83f9ba5a4252452e958f80feeca3639d554961de8d15583e38c263e51041fd5",
+   "document_title": "Reliability of Sprint Time and Force—Velocity Profiles During Sprint Acceleration in Elite Rugby Union Players: Inter-Trial Reliability of Linear Encoder, GPS, Timing Gates and Video Analysis",
+   "verbatim_quote": "Power (in W), force (in N) and velocity (in m·s−1) were measured continuously during each sprint.",
+   "outcome_measures": [
+    "Sprint 2 (1080 Motion, Lidingö, Sweden) is a motorized horizontal",
+    "sprint",
+    "sprint using the software provided by the manufacturer from the ve"
+   ],
+   "uncertainty_notes": [
+    "MODEL_PROPOSED extraction from a single passage span; requires full-study context and expert adjudication."
+   ],
+   "missing_information": [
+    "sample_population_not_stated_in_passage",
+    "exact_effect_size_or_p_value_not_in_sentence"
+   ],
+   "reported_statistics": [],
+   "document_version_key": "836c2cb1f2485ff32f748014d9615583577e7bc41ec112ad5bc83bb51540afb2",
+   "measurement_protocol": null,
+   "structurally_verified": true,
+   "paragraph_source_anchor": "jats:/body[1]/sec[2]/sec[3]/sec[1]/p[1]"
+  },
+  {
+   "doi": "10.1371/journal.pone.0356566",
+   "pmcid": "PMC13505900",
+   "units": null,
+   "origin": "MODEL_PROPOSED",
+   "category": "DESCRIPTIVE",
+   "end_char": 907,
+   "span_key": "da991c7b1dc069efd0d80aba84f2b4b32860cc6751e044deed20aa58adb27669",
+   "comparator": null,
+   "finding_id": "03fefeacc81d6a007298b79747ce2cb0d8c51a4baa70faa1d3baaad87878bd4b",
+   "population": null,
+   "start_char": 644,
+   "passage_key": "9c219ddfbb45c3519dcad040860eed3fd005bf79164eecacead6ab922e72ef9f",
+   "intervention": null,
+   "review_state": "PROPOSED",
+   "study_design": null,
+   "paragraph_key": "8bd3da678fbe4b0534f4905f9e2e03844f7f815a99ca361937b7cca1de41706a",
+   "document_title": "Optimal two-point loading strategy for accurate leg press force–velocity assessment",
+   "verbatim_quote": "Parameters such as the theoretical maximum force (F0), velocity (V0), power (Pmax), and slope of the linear F–V relationship (SFv) obtained through F–V profiling have been used to identify individual weaknesses and develop more effective training programs [8,14].",
+   "outcome_measures": [
+    "sprint running [1,2], and horizontal dynamic leg press exercises a",
+    "sprinting—relies heavily on maximum power production during leg ex"
+   ],
+   "uncertainty_notes": [
+    "MODEL_PROPOSED extraction from a single passage span; requires full-study context and expert adjudication."
+   ],
+   "missing_information": [
+    "sample_population_not_stated_in_passage",
+    "exact_effect_size_or_p_value_not_in_sentence"
+   ],
+   "reported_statistics": [],
+   "document_version_key": "a5c1ac5f5b99b8cae68bc060140d10de5fff8029bd2a86cfb1540c55ef7283f1",
+   "measurement_protocol": "vertical jumps and sprint running [1,2], and horizontal dynamic leg press exercises are widel",
+   "structurally_verified": true,
+   "paragraph_source_anchor": "jats:/body[1]/sec[1]/p[2]"
+  },
+  {
+   "doi": "10.1371/journal.pone.0356566",
+   "pmcid": "PMC13505900",
+   "units": null,
+   "origin": "MODEL_PROPOSED",
+   "category": "DESCRIPTIVE",
+   "end_char": 588,
+   "span_key": "def0285dc5d84733f6b535e029a0647b2f44e9b7d57c0e76238ba327212fe38b",
+   "comparator": null,
+   "finding_id": "7296bf8055a6a43ce458419a05f6e12f233e5aa6375ee20ba6197d732656fec7",
+   "population": null,
+   "start_char": 230,
+   "passage_key": "9c219ddfbb45c3519dcad040860eed3fd005bf79164eecacead6ab922e72ef9f",
+   "intervention": null,
+   "review_state": "PROPOSED",
+   "study_design": null,
+   "paragraph_key": "e5bb315a5f5bd8174cfdcd9283c20c6a906dfc92640906c2ecfd7216afe18000",
+   "document_title": "Optimal two-point loading strategy for accurate leg press force–velocity assessment",
+   "verbatim_quote": "Our research team recently reported high reliability in measuring force, velocity, and power during the horizontal dynamic leg press exercise using a device equipped with pneumatic artificial muscles (ddrobotec® System ELITE mk4, Dynamic Devices, Zurich, Switzerland), with some variables showing higher reliability than those measured in vertical jumps [1].",
+   "outcome_measures": [
+    "sprint running [1,2], and horizontal dynamic leg press exercises a",
+    "sprinting—relies heavily on maximum power production during leg ex"
+   ],
+   "uncertainty_notes": [
+    "MODEL_PROPOSED extraction from a single passage span; requires full-study context and expert adjudication."
+   ],
+   "missing_information": [
+    "sample_population_not_stated_in_passage",
+    "exact_effect_size_or_p_value_not_in_sentence"
+   ],
+   "reported_statistics": [],
+   "document_version_key": "a5c1ac5f5b99b8cae68bc060140d10de5fff8029bd2a86cfb1540c55ef7283f1",
+   "measurement_protocol": "vertical jumps and sprint running [1,2], and horizontal dynamic leg press exercises are widel",
+   "structurally_verified": true,
+   "paragraph_source_anchor": "jats:/body[1]/sec[1]/p[1]"
+  },
+  {
+   "doi": "10.3390/sports14080339",
+   "pmcid": "PMC13517742",
+   "units": null,
+   "origin": "MODEL_PROPOSED",
+   "category": "DESCRIPTIVE",
+   "end_char": 685,
+   "span_key": "8c848f8a9627d35909fa4233e12cf274d640c7b239d64abce12462f04d4b9f8b",
+   "comparator": null,
+   "finding_id": "a87106293e893ace851d7bf939eba8528843a6c1c359a67dec0da84d1188ecf5",
+   "population": "participants from different sports and performance levels [6]",
+   "start_char": 445,
+   "passage_key": "9a6afabfeef318ebfdac5a7367dca6b6fafe582bede0588c97328692ab7d8033",
+   "intervention": null,
+   "review_state": "PROPOSED",
+   "study_design": null,
+   "paragraph_key": "7351c41fd8b812f1fe307cabc609fa472a9371667b9e1fa5019b5eaf5618e2fc",
+   "document_title": "Reliability of Sprint Time and Force—Velocity Profiles During Sprint Acceleration in Elite Rugby Union Players: Inter-Trial Reliability of Linear Encoder, GPS, Timing Gates and Video Analysis",
+   "verbatim_quote": "In addition, linear encoder’s metrological properties for FVP have been studied, by testing the interchangeability with a radar [22], and by testing validity and reliability against GPS, timing gates, radar and laser technologies [6,16,22].",
+   "outcome_measures": [
+    "sprint testing [17] and training monitoring [18]",
+    "sprint time on 30 m [19], change of direction [20], and the ground",
+    "sprinting [21]",
+    "Sprint device, but it is less portable and less powerful than the"
+   ],
+   "uncertainty_notes": [
+    "MODEL_PROPOSED extraction from a single passage span; requires full-study context and expert adjudication."
+   ],
+   "missing_information": [
+    "exact_effect_size_or_p_value_not_in_sentence"
+   ],
+   "reported_statistics": [],
+   "document_version_key": "836c2cb1f2485ff32f748014d9615583577e7bc41ec112ad5bc83bb51540afb2",
+   "measurement_protocol": null,
+   "structurally_verified": true,
+   "paragraph_source_anchor": "jats:/body[1]/sec[1]/p[3]"
+  },
+  {
+   "doi": "10.3390/sports14080339",
+   "pmcid": "PMC13517742",
+   "units": null,
+   "origin": "MODEL_PROPOSED",
+   "category": "DESCRIPTIVE",
+   "end_char": 276,
+   "span_key": "00adca44f39e19a8d9595a83a38b3a055675062ac381b6cd5b2511d2a6e03bb8",
+   "comparator": null,
+   "finding_id": "b792573f090339da990f16050c2438e4e80f750760f84e0107533f165941db50",
+   "population": "participants from different sports and performance levels [6]",
+   "start_char": 125,
+   "passage_key": "9a6afabfeef318ebfdac5a7367dca6b6fafe582bede0588c97328692ab7d8033",
+   "intervention": null,
+   "review_state": "PROPOSED",
+   "study_design": null,
+   "paragraph_key": "63e589325c24be99c32c0aca21989e13fd54985a50501daeb706cb98c257f3f2",
+   "document_title": "Reliability of Sprint Time and Force—Velocity Profiles During Sprint Acceleration in Elite Rugby Union Players: Inter-Trial Reliability of Linear Encoder, GPS, Timing Gates and Video Analysis",
+   "verbatim_quote": "However, there is a lack of data concerning the reliability of the newest version of the linear encoder (1080 Sprint 2) with elite rugby union players.",
+   "outcome_measures": [
+    "sprint testing [17] and training monitoring [18]",
+    "sprint time on 30 m [19], change of direction [20], and the ground",
+    "sprinting [21]",
+    "Sprint device, but it is less portable and less powerful than the"
+   ],
+   "uncertainty_notes": [
+    "MODEL_PROPOSED extraction from a single passage span; requires full-study context and expert adjudication."
+   ],
+   "missing_information": [
+    "exact_effect_size_or_p_value_not_in_sentence"
+   ],
+   "reported_statistics": [],
+   "document_version_key": "836c2cb1f2485ff32f748014d9615583577e7bc41ec112ad5bc83bb51540afb2",
+   "measurement_protocol": null,
+   "structurally_verified": true,
+   "paragraph_source_anchor": "jats:/body[1]/sec[1]/p[4]"
+  },
+  {
+   "doi": "10.3390/sports14080339",
+   "pmcid": "PMC13517742",
+   "units": null,
+   "origin": "MODEL_PROPOSED",
+   "category": "DESCRIPTIVE",
+   "end_char": 214,
+   "span_key": "6cd8362dc7c1176ad4c343a91d6472359f622c8dd152caff11682a81afb6084a",
+   "comparator": null,
+   "finding_id": "592f1c0911f1bb1c4196e2af0a98c91af33dc917183aad55b6f7b772bc1c68c2",
+   "population": "athletes",
+   "start_char": 0,
+   "passage_key": "37a136a6d17e01145f8d2f1c462978814d789476986f62cb983ce287449c9def",
+   "intervention": null,
+   "review_state": "PROPOSED",
+   "study_design": null,
+   "paragraph_key": "ec46ee73ca07bd7f0caf4b0262f819d5c869c9ff18b439697a9e2ab00f7774c0",
+   "document_title": "Reliability of Sprint Time and Force—Velocity Profiles During Sprint Acceleration in Elite Rugby Union Players: Inter-Trial Reliability of Linear Encoder, GPS, Timing Gates and Video Analysis",
+   "verbatim_quote": "This study demonstrated that the most recent version of the 1080 Motion linear encoder presents high reliability for measuring sprint time and force–velocity variables, most likely due to a high sampling frequency.",
+   "outcome_measures": [
+    "sprint time and force–velocity variables, most likely due to a hig"
+   ],
+   "uncertainty_notes": [
+    "MODEL_PROPOSED extraction from a single passage span; requires full-study context and expert adjudication."
+   ],
+   "missing_information": [
+    "exact_effect_size_or_p_value_not_in_sentence"
+   ],
+   "reported_statistics": [],
+   "document_version_key": "836c2cb1f2485ff32f748014d9615583577e7bc41ec112ad5bc83bb51540afb2",
+   "measurement_protocol": null,
+   "structurally_verified": true,
+   "paragraph_source_anchor": "jats:/body[1]/sec[5]/p[1]"
+  },
+  {
+   "doi": "10.3390/sports14080339",
+   "pmcid": "PMC13517742",
+   "units": null,
+   "origin": "MODEL_PROPOSED",
+   "category": "DESCRIPTIVE",
+   "end_char": 399,
+   "span_key": "6cd8362dc7c1176ad4c343a91d6472359f622c8dd152caff11682a81afb6084a",
+   "comparator": null,
+   "finding_id": "44bbf135aab5221c6b570dda83c8e6c7297ba9bf4aca1948de31cf4c7d4dfbf0",
+   "population": "athletes",
+   "start_char": 215,
+   "passage_key": "37a136a6d17e01145f8d2f1c462978814d789476986f62cb983ce287449c9def",
+   "intervention": null,
+   "review_state": "PROPOSED",
+   "study_design": null,
+   "paragraph_key": "ec46ee73ca07bd7f0caf4b0262f819d5c869c9ff18b439697a9e2ab00f7774c0",
+   "document_title": "Reliability of Sprint Time and Force—Velocity Profiles During Sprint Acceleration in Elite Rugby Union Players: Inter-Trial Reliability of Linear Encoder, GPS, Timing Gates and Video Analysis",
+   "verbatim_quote": "Other devices tested (GPS, timing gates, video analysis) present lower reliability, showing the influence of the human intervention in setting up the equipment and processing the data.",
+   "outcome_measures": [
+    "sprint time and force–velocity variables, most likely due to a hig"
+   ],
+   "uncertainty_notes": [
+    "MODEL_PROPOSED extraction from a single passage span; requires full-study context and expert adjudication."
+   ],
+   "missing_information": [
+    "exact_effect_size_or_p_value_not_in_sentence"
+   ],
+   "reported_statistics": [],
+   "document_version_key": "836c2cb1f2485ff32f748014d9615583577e7bc41ec112ad5bc83bb51540afb2",
+   "measurement_protocol": null,
+   "structurally_verified": true,
+   "paragraph_source_anchor": "jats:/body[1]/sec[5]/p[1]"
+  },
+  {
+   "doi": "10.3390/sports14080339",
+   "pmcid": "PMC13517742",
+   "units": null,
+   "origin": "MODEL_PROPOSED",
+   "category": "DESCRIPTIVE",
+   "end_char": 387,
+   "span_key": "a071c9ff8b612fb1176c371d581153c537926ded04ac834b246c56ee2eb311b5",
+   "comparator": null,
+   "finding_id": "3d870287a0c7cf6d5ead8b4dc288d4e8f78b5ac07eb33ac3e695cebaebe267ce",
+   "population": "players",
+   "start_char": 164,
+   "passage_key": "d50c2e0142795822c5608eb76d768c3625bbf0a84b4b109df34a1870c88c036a",
+   "intervention": null,
+   "review_state": "PROPOSED",
+   "study_design": null,
+   "paragraph_key": "5ba58ffb52f47409e68ad13ae4ee1079ce02793950f2dcd00bc04e056be8238c",
+   "document_title": "Reliability of Sprint Time and Force—Velocity Profiles During Sprint Acceleration in Elite Rugby Union Players: Inter-Trial Reliability of Linear Encoder, GPS, Timing Gates and Video Analysis",
+   "verbatim_quote": "The main results were that (1) linear encoder and video analysis present high and very-high relative and absolute reliability to measure sprint time, and (2) linear encoder was the most reliable device to establish the FVP.",
+   "outcome_measures": [
+    "sprint time and FVPs during three experimental sessions in elite r",
+    "sprint time, and (2) linear encoder was the most reliable device t",
+    "sprint times and on FVP variables",
+    "sprint times across the sessions, as significant differences were"
+   ],
+   "uncertainty_notes": [
+    "MODEL_PROPOSED extraction from a single passage span; requires full-study context and expert adjudication."
+   ],
+   "missing_information": [
+    "exact_effect_size_or_p_value_not_in_sentence"
+   ],
+   "reported_statistics": [],
+   "document_version_key": "836c2cb1f2485ff32f748014d9615583577e7bc41ec112ad5bc83bb51540afb2",
+   "measurement_protocol": null,
+   "structurally_verified": true,
+   "paragraph_source_anchor": "jats:/body[1]/sec[4]/p[1]"
+  },
+  {
+   "doi": "10.3390/sports14080339",
+   "pmcid": "PMC13517742",
+   "units": null,
+   "origin": "MODEL_PROPOSED",
+   "category": "DESCRIPTIVE",
+   "end_char": 196,
+   "span_key": "843af6b215af374e8dc4b95c98d73b9165fd6f38b9dd60ed02aa68b321dfce0b",
+   "comparator": null,
+   "finding_id": "b615387c231c67e8da30c330a207dd1b2238684ab302234bee5cda9c28ab8153",
+   "population": "players",
+   "start_char": 0,
+   "passage_key": "d50c2e0142795822c5608eb76d768c3625bbf0a84b4b109df34a1870c88c036a",
+   "intervention": null,
+   "review_state": "PROPOSED",
+   "study_design": null,
+   "paragraph_key": "8dac0289438f03e70218ecdfbbc51f55fafe0f86bfe47679c79233b63a3218e4",
+   "document_title": "Reliability of Sprint Time and Force—Velocity Profiles During Sprint Acceleration in Elite Rugby Union Players: Inter-Trial Reliability of Linear Encoder, GPS, Timing Gates and Video Analysis",
+   "verbatim_quote": "High-to-very-high relative reliability was observed for sprint time measurements with the linear encoder, whereas a moderate-to-very-high relative reliability was observed with the video analysis.",
+   "outcome_measures": [
+    "sprint time and FVPs during three experimental sessions in elite r",
+    "sprint time, and (2) linear encoder was the most reliable device t",
+    "sprint times and on FVP variables",
+    "sprint times across the sessions, as significant differences were"
+   ],
+   "uncertainty_notes": [
+    "MODEL_PROPOSED extraction from a single passage span; requires full-study context and expert adjudication."
+   ],
+   "missing_information": [
+    "exact_effect_size_or_p_value_not_in_sentence"
+   ],
+   "reported_statistics": [],
+   "document_version_key": "836c2cb1f2485ff32f748014d9615583577e7bc41ec112ad5bc83bb51540afb2",
+   "measurement_protocol": null,
+   "structurally_verified": true,
+   "paragraph_source_anchor": "jats:/body[1]/sec[4]/p[3]"
+  }
+ ],
+ "study_comparison": null,
+ "evidence_set_key": null,
+ "evidence_graph_key": null,
+ "telemetry": {
+  "calls": [
+   {
+    "role": "fast",
+    "stage": "model_tool_execution:0",
+    "call_id": "llm-13a064d8c9ed",
+    "outcome": "ok",
+    "endpoint": "responses",
+    "provider": "opencode_go",
+    "escalated": false,
+    "latency_ms": 2402.992,
+    "model_name": "gpt-6-luna",
+    "error_class": null,
+    "total_tokens": 1277,
+    "prompt_tokens": 1235,
+    "model_revision": null,
+    "selection_reason": "stage:model_tool_execution",
+    "completion_tokens": 42,
+    "estimated_cost_usd": 0.0001445,
+    "tool_calls_requested": 1
+   },
+   {
+    "role": "fast",
+    "stage": "model_tool_execution:1",
+    "call_id": "llm-347624c370ae",
+    "outcome": "ok",
+    "endpoint": "responses",
+    "provider": "opencode_go",
+    "escalated": false,
+    "latency_ms": 3042.65,
+    "model_name": "gpt-6-luna",
+    "error_class": null,
+    "total_tokens": 1472,
+    "prompt_tokens": 1314,
+    "model_revision": null,
+    "selection_reason": "stage:model_tool_execution",
+    "completion_tokens": 158,
+    "estimated_cost_usd": 0.0002104,
+    "tool_calls_requested": 1
+   },
+   {
+    "role": "fast",
+    "stage": "model_tool_execution:0",
+    "call_id": "llm-aaba7326105b",
+    "outcome": "ok",
+    "endpoint": "responses",
+    "provider": "opencode_go",
+    "escalated": false,
+    "latency_ms": 3803.631,
+    "model_name": "gpt-6-luna",
+    "error_class": null,
+    "total_tokens": 1214,
+    "prompt_tokens": 1009,
+    "model_revision": null,
+    "selection_reason": "stage:model_tool_execution",
+    "completion_tokens": 205,
+    "estimated_cost_usd": 0.0002034,
+    "tool_calls_requested": 4
+   },
+   {
+    "role": "fast",
+    "stage": "model_tool_execution:1",
+    "call_id": "llm-a8f24da33b78",
+    "outcome": "ok",
+    "endpoint": "responses",
+    "provider": "opencode_go",
+    "escalated": false,
+    "latency_ms": 9279.564,
+    "model_name": "gpt-6-luna",
+    "error_class": null,
+    "total_tokens": 8571,
+    "prompt_tokens": 7609,
+    "model_revision": null,
+    "selection_reason": "stage:model_tool_execution",
+    "completion_tokens": 962,
+    "estimated_cost_usd": 0.0012419,
+    "tool_calls_requested": 0
+   },
+   {
+    "role": "coordinator",
+    "stage": "synthesize_provisional_answer",
+    "call_id": "llm-62df545a0cf7",
+    "outcome": "ok",
+    "endpoint": "responses",
+    "provider": "opencode_go",
+    "escalated": false,
+    "latency_ms": 7525.642,
+    "model_name": "gpt-6-luna",
+    "error_class": null,
+    "total_tokens": 3407,
+    "prompt_tokens": 2654,
+    "model_revision": null,
+    "selection_reason": "stage:synthesize_provisional_answer",
+    "completion_tokens": 753,
+    "estimated_cost_usd": 0.0006419,
+    "tool_calls_requested": 0
+   }
+  ],
+  "models": [
+   {
+    "role": "fast",
+    "endpoint": "responses",
+    "requests": 4,
+    "latency_ms": 18528.837,
+    "model_name": "gpt-6-luna",
+    "prompt_tokens": 11167,
+    "failed_requests": 0,
+    "completion_tokens": 1367,
+    "estimated_cost_usd": 0.0018002
+   },
+   {
+    "role": "coordinator",
+    "endpoint": "responses",
+    "requests": 1,
+    "latency_ms": 7525.642,
+    "model_name": "gpt-6-luna",
+    "prompt_tokens": 2654,
+    "failed_requests": 0,
+    "completion_tokens": 753,
+    "estimated_cost_usd": 0.0006419
+   },
+   {
+    "role": "pro",
+    "endpoint": "responses",
+    "requests": 0,
+    "latency_ms": 0,
+    "model_name": "gpt-6-luna",
+    "prompt_tokens": 0,
+    "failed_requests": 0,
+    "completion_tokens": 0,
+    "estimated_cost_usd": 0
+   }
+  ],
+  "provider": "opencode_go",
+  "model_name": "gpt-6-luna",
+  "tool_calls": 8,
+  "model_calls": 5,
+  "tool_origins": {
+   "graph_enforced": 2,
+   "graph_fallback": 0,
+   "model_directed": 6
+  },
+  "total_tokens": 15941,
+  "prompt_tokens": 13821,
+  "model_revision": null,
+  "routing_events": [],
+  "pro_escalations": 0,
+  "synthesis_source": "model",
+  "total_latency_ms": 26054.479,
+  "completion_tokens": 2120,
+  "estimated_cost_usd": 0.0024421,
+  "retrieved_evidence": [
+   {
+    "doi": "10.3390/sports14080339",
+    "pmid": "42646877",
+    "rank": 5,
+    "pmcid": "PMC13517742",
+    "title": "Reliability of Sprint Time and Force—Velocity Profiles During Sprint Acceleration in Elite Rugby Union Players: Inter-Trial Reliability of Linear Encoder, GPS, Timing Gates and Video Analysis",
+    "excerpt": "The 1080 Sprint 2 (1080 Motion, Lidingö, Sweden) is a motorized horizontal linear encoder with a sampling frequency of 200 Hz. The device was placed 5 m behind the starting line and set on the No Flying Weight (NFW) mode with a resistance of 1 kg to limit the slack of the cable.",
+    "passage_key": "d216795b289e8821959c6e8bbbbfde8e050c96611077d9768914971979d5a017",
+    "section_title": "2.3.1. Linear Encoder",
+    "retrieval_mode": "qdrant_hybrid_rrf",
+    "canonical_verified": true,
+    "document_version_key": "836c2cb1f2485ff32f748014d9615583577e7bc41ec112ad5bc83bb51540afb2"
+   },
+   {
+    "doi": "10.1371/journal.pone.0356566",
+    "pmid": "42640920",
+    "rank": 1,
+    "pmcid": "PMC13505900",
+    "title": "Optimal two-point loading strategy for accurate leg press force–velocity assessment",
+    "excerpt": "Leg extensions are performed during various athletic activities, such as vertical jumps and sprint running [1,2], and horizontal dynamic leg press exercises are widely used to train and evaluate leg extension performance [1,3–8]. Our research team recently reported high",
+    "passage_key": "9c219ddfbb45c3519dcad040860eed3fd005bf79164eecacead6ab922e72ef9f",
+    "section_title": "Introduction",
+    "retrieval_mode": "qdrant_hybrid_rrf",
+    "canonical_verified": true,
+    "document_version_key": "a5c1ac5f5b99b8cae68bc060140d10de5fff8029bd2a86cfb1540c55ef7283f1"
+   },
+   {
+    "doi": "10.3390/jfmk6020032",
+    "pmid": "33808291",
+    "rank": 4,
+    "pmcid": "PMC8103256",
+    "title": "Eccentric Force-Velocity Characteristics during a Novel Squat Protocol in Trained Rugby Union Athletes—Pilot Study",
+    "excerpt": "Correspondence: cmfm1@students.waikato.ac.nz  Eccentric strength characteristics have been shown to be important factors in physical performance. Many eccentric tests have been performed in isolation or with supramaximal loading. The purpose of this study was to investigate",
+    "passage_key": "939aa3606cecef358c1f4d49c09757ee6e95a247de682f8a9eff53401df7ac87",
+    "section_title": null,
+    "retrieval_mode": "qdrant_hybrid_rrf",
+    "canonical_verified": true,
+    "document_version_key": "833c6811dd1417456408b7e9b5c863c5e7c8db84d251a575b29a95a51f44bbae"
+   },
+   {
+    "doi": "10.3390/sports14080339",
+    "pmid": "42646877",
+    "rank": 5,
+    "pmcid": "PMC13517742",
+    "title": "Reliability of Sprint Time and Force—Velocity Profiles During Sprint Acceleration in Elite Rugby Union Players: Inter-Trial Reliability of Linear Encoder, GPS, Timing Gates and Video Analysis",
+    "excerpt": "Recently, technological advances have led to improvements in horizontal linear encoder devices, allowing FVP testing with a high sampling frequency (>200 Hz). Linear encoders have been used by strength and conditioning coaches for both sprint testing [17] and training monitoring",
+    "passage_key": "9a6afabfeef318ebfdac5a7367dca6b6fafe582bede0588c97328692ab7d8033",
+    "section_title": "1. Introduction",
+    "retrieval_mode": "qdrant_hybrid_rrf",
+    "canonical_verified": true,
+    "document_version_key": "836c2cb1f2485ff32f748014d9615583577e7bc41ec112ad5bc83bb51540afb2"
+   },
+   {
+    "doi": "10.3390/sports14080339",
+    "pmid": "42646877",
+    "rank": 7,
+    "pmcid": "PMC13517742",
+    "title": "Reliability of Sprint Time and Force—Velocity Profiles During Sprint Acceleration in Elite Rugby Union Players: Inter-Trial Reliability of Linear Encoder, GPS, Timing Gates and Video Analysis",
+    "excerpt": "This study demonstrated that the most recent version of the 1080 Motion linear encoder presents high reliability for measuring sprint time and force–velocity variables, most likely due to a high sampling frequency. Other devices tested (GPS, timing gates, video analysis) present",
+    "passage_key": "37a136a6d17e01145f8d2f1c462978814d789476986f62cb983ce287449c9def",
+    "section_title": "5. Conclusions",
+    "retrieval_mode": "qdrant_hybrid_rrf",
+    "canonical_verified": true,
+    "document_version_key": "836c2cb1f2485ff32f748014d9615583577e7bc41ec112ad5bc83bb51540afb2"
+   },
+   {
+    "doi": "10.3390/sports14080339",
+    "pmid": "42646877",
+    "rank": 8,
+    "pmcid": "PMC13517742",
+    "title": "Reliability of Sprint Time and Force—Velocity Profiles During Sprint Acceleration in Elite Rugby Union Players: Inter-Trial Reliability of Linear Encoder, GPS, Timing Gates and Video Analysis",
+    "excerpt": "The aim of this study was to assess the reliability of four devices to measure 30 m sprint time and FVPs during three experimental sessions in elite rugby players. The main results were that (1) linear encoder and video analysis present high and very-high relative and absolute",
+    "passage_key": "d50c2e0142795822c5608eb76d768c3625bbf0a84b4b109df34a1870c88c036a",
+    "section_title": "4. Discussion",
+    "retrieval_mode": "qdrant_hybrid_rrf",
+    "canonical_verified": true,
+    "document_version_key": "836c2cb1f2485ff32f748014d9615583577e7bc41ec112ad5bc83bb51540afb2"
+   }
+  ],
+  "retrieval_candidates": [
+   {
+    "doi": "10.3390/sports14080339",
+    "pmid": "42646877",
+    "rank": 5,
+    "pmcid": "PMC13517742",
+    "title": "Reliability of Sprint Time and Force—Velocity Profiles During Sprint Acceleration in Elite Rugby Union Players: Inter-Trial Reliability of Linear Encoder, GPS, Timing Gates and Video Analysis",
+    "excerpt": "The 1080 Sprint 2 (1080 Motion, Lidingö, Sweden) is a motorized horizontal linear encoder with a sampling frequency of 200 Hz. The device was placed 5 m behind the starting line and set on the No Flying Weight (NFW) mode with a resistance of 1 kg to limit the slack of the cable.",
+    "admitted": true,
+    "passage_key": "d216795b289e8821959c6e8bbbbfde8e050c96611077d9768914971979d5a017",
+    "gate_reasons": [],
+    "section_title": "2.3.1. Linear Encoder",
+    "retrieval_mode": "qdrant_hybrid_rrf",
+    "query_relevance": 0.6591,
+    "canonical_verified": true,
+    "document_version_key": "836c2cb1f2485ff32f748014d9615583577e7bc41ec112ad5bc83bb51540afb2"
+   },
+   {
+    "doi": "10.1371/journal.pone.0356566",
+    "pmid": "42640920",
+    "rank": 2,
+    "pmcid": "PMC13505900",
+    "title": "Optimal two-point loading strategy for accurate leg press force–velocity assessment",
+    "excerpt": "Please, add references.  Response: As you suggested, we have added some references.  “Pneumatic semi-isotonic resistance prevented maximal effort from producing ballistic action, and the entire push-off was performed with maximal intentional velocity [1,5,6].” (lines",
+    "admitted": false,
+    "passage_key": "93f0dd0d2967144504c61266fc4b48e32a4e70516988b6af5e66a9b7d18040e6",
+    "gate_reasons": [
+     "insufficient_query_facet_coverage"
+    ],
+    "section_title": null,
+    "retrieval_mode": "qdrant_hybrid_rrf",
+    "query_relevance": 0.5455,
+    "canonical_verified": true,
+    "document_version_key": "a5c1ac5f5b99b8cae68bc060140d10de5fff8029bd2a86cfb1540c55ef7283f1"
+   },
+   {
+    "doi": "10.1371/journal.pone.0356566",
+    "pmid": "42640920",
+    "rank": 3,
+    "pmcid": "PMC13505900",
+    "title": "Optimal two-point loading strategy for accurate leg press force–velocity assessment",
+    "excerpt": "These findings suggest that data points obtained under very high load conditions, where the mean velocity falls below approximately 0.5 m/s, should be excluded to enhance the reliability of leg press F–V profiling.  The F–V relationship parameters obtained using the two-point",
+    "admitted": false,
+    "passage_key": "e4b526a80b722eac0bccc7301cffc7b41da9f94eff1ad0085fa01220e4e3102f",
+    "gate_reasons": [
+     "insufficient_query_facet_coverage"
+    ],
+    "section_title": "Discussion",
+    "retrieval_mode": "qdrant_hybrid_rrf",
+    "query_relevance": 0.5455,
+    "canonical_verified": true,
+    "document_version_key": "a5c1ac5f5b99b8cae68bc060140d10de5fff8029bd2a86cfb1540c55ef7283f1"
+   },
+   {
+    "doi": "10.3390/s24247897",
+    "pmid": "39771636",
+    "rank": 4,
+    "pmcid": "PMC11679296",
+    "title": "The Validity and Reliability of the My Jump Lab App for the Measurement of Vertical Jump Performance Using Artificial Intelligence",
+    "excerpt": "When analyzing the concurrent validity of My Jump Lab for the measurement of CMJ height and mean propulsive force, velocity, and power in comparison with the force platform-derived metrics, almost perfect correlations were observed (r = 0.971–0.984, p < 0.001). The paired",
+    "admitted": false,
+    "passage_key": "bc20504637cd717ed646cdca3cb4401f9bda4ecbda28e36fd855f629341aab49",
+    "gate_reasons": [
+     "insufficient_query_facet_coverage"
+    ],
+    "section_title": "3.1. Concurrent Validity and Bias Determination",
+    "retrieval_mode": "qdrant_hybrid_rrf",
+    "query_relevance": 0.3636,
+    "canonical_verified": true,
+    "document_version_key": "a08e84975498204419f9a57eb3cc26e29a999a3749b401b03f4437a50536b938"
+   },
+   {
+    "doi": "10.1371/journal.pone.0356566",
+    "pmid": "42640920",
+    "rank": 5,
+    "pmcid": "PMC13505900",
+    "title": "Optimal two-point loading strategy for accurate leg press force–velocity assessment",
+    "excerpt": "This is grounded in the mathematics of linear regression rather than in device-specific properties [18]. However, the specific load combinations identified here may differ across devices and should be empirically confirmed on other systems. Finally, we investigated the",
+    "admitted": false,
+    "passage_key": "c952bacc844953eb2d3cfd130baea5ef1678af91c30118654ce85df5d1ee072c",
+    "gate_reasons": [
+     "insufficient_query_facet_coverage"
+    ],
+    "section_title": "Discussion",
+    "retrieval_mode": "qdrant_hybrid_rrf",
+    "query_relevance": 0.5455,
+    "canonical_verified": true,
+    "document_version_key": "a5c1ac5f5b99b8cae68bc060140d10de5fff8029bd2a86cfb1540c55ef7283f1"
+   },
+   {
+    "doi": "10.1371/journal.pone.0356566",
+    "pmid": "42640920",
+    "rank": 1,
+    "pmcid": "PMC13505900",
+    "title": "Optimal two-point loading strategy for accurate leg press force–velocity assessment",
+    "excerpt": "Leg extensions are performed during various athletic activities, such as vertical jumps and sprint running [1,2], and horizontal dynamic leg press exercises are widely used to train and evaluate leg extension performance [1,3–8]. Our research team recently reported high",
+    "admitted": true,
+    "passage_key": "9c219ddfbb45c3519dcad040860eed3fd005bf79164eecacead6ab922e72ef9f",
+    "gate_reasons": [],
+    "section_title": "Introduction",
+    "retrieval_mode": "qdrant_hybrid_rrf",
+    "query_relevance": 0.6591,
+    "canonical_verified": true,
+    "document_version_key": "a5c1ac5f5b99b8cae68bc060140d10de5fff8029bd2a86cfb1540c55ef7283f1"
+   },
+   {
+    "doi": "10.1371/journal.pone.0356566",
+    "pmid": "42640920",
+    "rank": 7,
+    "pmcid": "PMC13505900",
+    "title": "Optimal two-point loading strategy for accurate leg press force–velocity assessment",
+    "excerpt": "Summary of the manuscript  The study compares ten two-point approaches for estimating leg press F–V parameters with a multiple-point method based on eleven loads from 100% to 300% body weight. Sixteen young men performed maximal horizontal leg press actions on a device equipped",
+    "admitted": false,
+    "passage_key": "d3021d7de9f5d65db3574ac917d0391e23fd50b64599769313755b859dc04d76",
+    "gate_reasons": [
+     "insufficient_query_facet_coverage"
+    ],
+    "section_title": null,
+    "retrieval_mode": "qdrant_hybrid_rrf",
+    "query_relevance": 0.3864,
+    "canonical_verified": true,
+    "document_version_key": "a5c1ac5f5b99b8cae68bc060140d10de5fff8029bd2a86cfb1540c55ef7283f1"
+   },
+   {
+    "doi": "10.1371/journal.pone.0356566",
+    "pmid": "42640920",
+    "rank": 3,
+    "pmcid": "PMC13505900",
+    "title": "Optimal two-point loading strategy for accurate leg press force–velocity assessment",
+    "excerpt": "In the present study, all two-point methods were anchored at 100% BW as the lowest load, while only the heaviest load was varied from 120% to 300% BW. As a consequence of this design, the present findings identify the best-performing two-point loading combinations among those",
+    "admitted": false,
+    "passage_key": "e943768ff3a6bf7830e22f3b3a94d9040213bb5bcd875fc0c864095b218f23d8",
+    "gate_reasons": [
+     "insufficient_query_facet_coverage"
+    ],
+    "section_title": "Discussion",
+    "retrieval_mode": "qdrant_hybrid_rrf",
+    "query_relevance": 0.5682,
+    "canonical_verified": true,
+    "document_version_key": "a5c1ac5f5b99b8cae68bc060140d10de5fff8029bd2a86cfb1540c55ef7283f1"
+   }
+  ],
+  "literature_acquisition": {
+   "works": [
+    {
+     "doi": "10.3389/fpubh.2025.1579291",
+     "pmid": "40520287",
+     "year": 2025,
+     "pmcid": "PMC12162595",
+     "title": "An investigation of the load-velocity relationship between flywheel eccentric and barbell training methods.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "europe_pmc_license": "cc by"
+    },
+    {
+     "doi": "10.1371/journal.pone.0298291",
+     "pmid": "38319955",
+     "year": 2024,
+     "pmcid": "PMC10846725",
+     "title": "The reliability of a linear position transducer for measuring countermovement jump performance in national-level road cyclists.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "europe_pmc_license": "cc by"
+    },
+    {
+     "doi": "10.3390/jfmk6020032",
+     "pmid": "33808291",
+     "year": 2021,
+     "pmcid": "PMC8103256",
+     "title": "Eccentric Force-Velocity Characteristics during a Novel Squat Protocol in Trained Rugby Union Athletes-Pilot Study.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "europe_pmc_license": "cc by"
+    },
+    {
+     "doi": "10.3390/sports14080339",
+     "pmid": "42646877",
+     "year": 2026,
+     "pmcid": "PMC13517742",
+     "title": "Reliability of Sprint Time and Force-Velocity Profiles During Sprint Acceleration in Elite Rugby Union Players: Inter-Trial Reliability of Linear Encoder, GPS, Timing Gates and Video Analysis.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "europe_pmc_license": "cc by"
+    },
+    {
+     "doi": "10.1371/journal.pone.0356566",
+     "pmid": "42640920",
+     "year": 2026,
+     "pmcid": "PMC13505900",
+     "title": "Optimal two-point loading strategy for accurate leg press force-velocity assessment.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "europe_pmc_license": "cc by"
+    },
+    {
+     "doi": "10.3390/s24247897",
+     "pmid": "39771636",
+     "year": 2024,
+     "pmcid": "PMC11679296",
+     "title": "The Validity and Reliability of the My Jump Lab App for the Measurement of Vertical Jump Performance Using Artificial Intelligence.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "europe_pmc_license": "cc by"
+    },
+    {
+     "doi": "10.1371/journal.pone.0331671",
+     "pmid": "40892836",
+     "year": 2025,
+     "pmcid": "PMC12404365",
+     "title": "Comparison of intra-session reliability of force-velocity-power variables between a horizontal dynamic leg press device and vertical jump tests.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "europe_pmc_license": "cc by"
+    },
+    {
+     "doi": "10.1113/ep093294",
+     "pmid": "41706258",
+     "year": 2026,
+     "pmcid": "PMC13140293",
+     "title": "Combined multi-metric assessment of diaphragm contractile function in healthy humans: Feasibility, validity and reliability.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "europe_pmc_license": "cc by"
+    },
+    {
+     "doi": "10.1002/ejsc.12049",
+     "pmid": null,
+     "year": 2024,
+     "pmcid": "PMC11235626",
+     "title": "Reliability and validity of free‐weight countermovement jumps to characterize force‐velocity‐power profiles",
+     "providers": [
+      "europe_pmc",
+      "openalex"
+     ],
+     "europe_pmc_license": "cc by"
+    },
+    {
+     "doi": "10.1371/journal.pone.0325611",
+     "pmid": "40465815",
+     "year": 2025,
+     "pmcid": "PMC12136470",
+     "title": "Validity and reliability of sprint force-velocity profiling in elite football: Comparison of MySprint, GPS, and radar devices.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "europe_pmc_license": "cc by"
+    },
+    {
+     "doi": "10.3390/jfmk11010099",
+     "pmid": "41900506",
+     "year": 2026,
+     "pmcid": "PMC13028409",
+     "title": "Vertical Force-Velocity Profiling in Soccer: A Systematic Review of Evidence, Assumptions, and Limitations.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "europe_pmc_license": "cc by"
+    },
+    {
+     "doi": "10.3390/s23198189",
+     "pmid": "37837018",
+     "year": 2023,
+     "pmcid": "PMC10575115",
+     "title": "Concurrent Validity and Reliability of the Sprint Force-Velocity Profile Assessed with K-AI Wearable Tech.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "europe_pmc_license": "cc by"
+    },
+    {
+     "doi": "10.3390/jfmk11040421",
+     "pmid": "42924700",
+     "year": 2026,
+     "pmcid": "PMC13692336",
+     "title": "A Hybrid Ultra-Wideband and Inertial Measurement Unit Sensor System Can Accurately Measure the Sprinting Performance in Young Male Soccer Players.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "europe_pmc_license": "cc by"
+    },
+    {
+     "doi": "10.7717/peerj.18371",
+     "pmid": "39529626",
+     "year": 2024,
+     "pmcid": "PMC11552493",
+     "title": "Force-velocity-power variables derived from isometric and dynamic testing: metrics reliability and the relationship with jump performance.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "europe_pmc_license": "cc by"
+    },
+    {
+     "doi": "10.1519/jsc.0000000000004637",
+     "pmid": "37831781",
+     "year": 2024,
+     "pmcid": "PMC10880943",
+     "title": "Validity and Reliability of the Acceleration-Speed Profile for Assessing Running Kinematics' Variables Derived From the Force-Velocity Profile in Professional Soccer Players.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "europe_pmc_license": "cc by-nc-nd"
+    },
+    {
+     "doi": "10.7717/peerj.14558",
+     "pmid": "36718456",
+     "year": 2023,
+     "pmcid": "PMC9884043",
+     "title": "Evidence of validity and reliability of Jumpo 2 and MyJump 2 for estimating vertical jump variables.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "europe_pmc_license": "cc by"
+    },
+    {
+     "doi": "10.2478/hukin-2022-0065",
+     "pmid": "36196356",
+     "year": 2022,
+     "pmcid": "PMC9465720",
+     "title": "Assessing the Sprint Force-Velocity Profile in International Football Players with Cerebral Palsy: Validity, Reliability and Sport Class' Profiles.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "europe_pmc_license": "cc by-nc-nd"
+    },
+    {
+     "doi": "10.1038/s41598-025-92870-4",
+     "pmid": "40065008",
+     "year": 2025,
+     "pmcid": "PMC11893904",
+     "title": "Research and experiment on a mobile welding robot for expandable convoluted pipe.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "europe_pmc_license": "cc by-nc-nd"
+    },
+    {
+     "doi": "10.3390/s22228610",
+     "pmid": "36433206",
+     "year": 2022,
+     "pmcid": "PMC9698850",
+     "title": "Sprint Acceleration Mechanical Outputs Derived from Position- or Velocity-Time Data: A Multi-System Comparison Study.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "europe_pmc_license": "cc by"
+    },
+    {
+     "doi": "10.1186/s40798-023-00598-0",
+     "pmid": "37439876",
+     "year": 2023,
+     "pmcid": "PMC10344854",
+     "title": "Exploring the Low Force-High Velocity Domain of the Force-Velocity Relationship in Acyclic Lower-Limb Extensions.",
+     "providers": [
+      "europe_pmc"
+     ],
+     "europe_pmc_license": "cc by"
+    }
+   ],
+   "origin": "model_directed",
+   "status": "completed",
+   "ingested": [
+    {
+     "doi": "10.3390/jfmk6020032",
+     "pmid": "33808291",
+     "year": 2021,
+     "pmcid": "PMC8103256",
+     "title": "Eccentric Force-Velocity Characteristics during a Novel Squat Protocol in Trained Rugby Union Athletes-Pilot Study.",
+     "passages": 24,
+     "providers": [
+      "europe_pmc"
+     ],
+     "article_url": "https://europepmc.org/article/PMC/PMC8103256",
+     "license_uri": "https://creativecommons.org/licenses/by/4.0/",
+     "article_type": "research-article",
+     "source_sha256": "35c0ad20c12fd1e635f0309ecad3c5f027ff5138d08fcf7a622519bf76bf4f66",
+     "import_created": true,
+     "license_family": "cc by",
+     "canonical_title": "Eccentric Force-Velocity Characteristics during a Novel Squat Protocol in Trained Rugby Union Athletes—Pilot Study",
+     "europe_pmc_license": "cc by",
+     "document_version_key": "833c6811dd1417456408b7e9b5c863c5e7c8db84d251a575b29a95a51f44bbae",
+     "passage_manifest_sha256": "b2984d8cb2e66b719f4276987e1f98a7aca6a3e8609d04cf0c4470594caff306"
+    },
+    {
+     "doi": "10.3390/sports14080339",
+     "pmid": "42646877",
+     "year": 2026,
+     "pmcid": "PMC13517742",
+     "title": "Reliability of Sprint Time and Force-Velocity Profiles During Sprint Acceleration in Elite Rugby Union Players: Inter-Trial Reliability of Linear Encoder, GPS, Timing Gates and Video Analysis.",
+     "passages": 22,
+     "providers": [
+      "europe_pmc"
+     ],
+     "article_url": "https://europepmc.org/article/PMC/PMC13517742",
+     "license_uri": "https://creativecommons.org/licenses/by/4.0/",
+     "article_type": "research-article",
+     "source_sha256": "588fb4a42ae862053e62058611f1b9cc76e5f2b5deaee2ef77941cbbff16e2dd",
+     "import_created": true,
+     "license_family": "cc by",
+     "canonical_title": "Reliability of Sprint Time and Force—Velocity Profiles During Sprint Acceleration in Elite Rugby Union Players: Inter-Trial Reliability of Linear Encoder, GPS, Timing Gates and Video Analysis",
+     "europe_pmc_license": "cc by",
+     "document_version_key": "836c2cb1f2485ff32f748014d9615583577e7bc41ec112ad5bc83bb51540afb2",
+     "passage_manifest_sha256": "a0bbe3cadd82d04466330b2105e69048494ede3806312451d00699baacb7269f"
+    },
+    {
+     "doi": "10.1371/journal.pone.0356566",
+     "pmid": "42640920",
+     "year": 2026,
+     "pmcid": "PMC13505900",
+     "title": "Optimal two-point loading strategy for accurate leg press force-velocity assessment.",
+     "passages": 46,
+     "providers": [
+      "europe_pmc"
+     ],
+     "article_url": "https://europepmc.org/article/PMC/PMC13505900",
+     "license_uri": "https://creativecommons.org/licenses/by/4.0/",
+     "article_type": "research-article",
+     "source_sha256": "dabdbd1d52f401dfbedeb3a45984db02d1e155717b4362a5981ed110e4a81fe0",
+     "import_created": true,
+     "license_family": "cc by",
+     "canonical_title": "Optimal two-point loading strategy for accurate leg press force–velocity assessment",
+     "europe_pmc_license": "cc by",
+     "document_version_key": "a5c1ac5f5b99b8cae68bc060140d10de5fff8029bd2a86cfb1540c55ef7283f1",
+     "passage_manifest_sha256": "086cae2b9e43a1f930183e4a0ef612767950f26dbec8529c2b4b2bec18340cae"
+    },
+    {
+     "doi": "10.3390/s24247897",
+     "pmid": "39771636",
+     "year": 2024,
+     "pmcid": "PMC11679296",
+     "title": "The Validity and Reliability of the My Jump Lab App for the Measurement of Vertical Jump Performance Using Artificial Intelligence.",
+     "passages": 15,
+     "providers": [
+      "europe_pmc"
+     ],
+     "article_url": "https://europepmc.org/article/PMC/PMC11679296",
+     "license_uri": "https://creativecommons.org/licenses/by/4.0/",
+     "article_type": "research-article",
+     "source_sha256": "2c733371f5fe8a207561299a35908a6fb476bcd4036b7806f51a5c5115339894",
+     "import_created": true,
+     "license_family": "cc by",
+     "canonical_title": "The Validity and Reliability of the My Jump Lab App for the Measurement of Vertical Jump Performance Using Artificial Intelligence",
+     "europe_pmc_license": "cc by",
+     "document_version_key": "a08e84975498204419f9a57eb3cc26e29a999a3749b401b03f4437a50536b938",
+     "passage_manifest_sha256": "44489151b5e55de659fda3316c1ab85abfa0eb1617bcbbb8920293f308591eee"
+    }
+   ],
+   "rejected": [
+    {
+     "doi": "10.3389/fpubh.2025.1579291",
+     "pmid": "40520287",
+     "year": 2025,
+     "pmcid": "PMC12162595",
+     "stage": "original_article",
+     "title": "An investigation of the load-velocity relationship between flywheel eccentric and barbell training methods.",
+     "reason": "missing or ambiguous original license URI",
+     "providers": [
+      "europe_pmc"
+     ],
+     "europe_pmc_license": "cc by"
+    },
+    {
+     "doi": "10.1371/journal.pone.0298291",
+     "pmid": "38319955",
+     "year": 2024,
+     "pmcid": "PMC10846725",
+     "stage": "original_article",
+     "title": "The reliability of a linear position transducer for measuring countermovement jump performance in national-level road cyclists.",
+     "reason": "original human population evidence absent",
+     "providers": [
+      "europe_pmc"
+     ],
+     "europe_pmc_license": "cc by"
+    }
+   ],
+   "projection": {
+    "alias": "dynamisrag-research-workspace",
+    "model_id": "Qwen/Qwen3-Embedding-0.6B",
+    "dimension": 512,
+    "collection": "qdrant-passages-v1-56c6358c6a1abca7e88c379f315fb0273717bd80836a45ebe67e5a3182ca7fd8",
+    "embedded_now": 107,
+    "published_at": "2026-11-17T13:22:00.108639+00:00",
+    "passage_count": 107,
+    "document_count": 4,
+    "model_revision": "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
+    "reused_vectors": 0,
+    "elapsed_seconds": 450.438,
+    "embedding_seconds": 354.421,
+    "projection_sha256": "66876275ae0b08aa8284393314f8deb1b155726fa01fc8f203a6e9d3d6485de7",
+    "collection_identity": {
+     "model_id": "Qwen/Qwen3-Embedding-0.6B",
+     "schema_sha256": "b83e0682ea5a90589e4411c2964703bcf3fd57203176729275818db13f0aaca1",
+     "expected_count": 107,
+     "model_revision": "97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3",
+     "schema_revision": "qdrant-passages-v1",
+     "projection_sha256": "66876275ae0b08aa8284393314f8deb1b155726fa01fc8f203a6e9d3d6485de7",
+     "embedding_config_sha256": "8438d37d8e8c8f975f62cbc6f6c644abc27304b18b7a330d9157a70f21c9c1f7",
+     "embedding_manifest_sha256": "c25fe9c22f4195cc57dc1a6fba2d76d4c1da68beb9a18faccf7b7e288d6e0e05"
+    },
+    "previous_collection": null,
+    "embedding_config_sha256": "8438d37d8e8c8f975f62cbc6f6c644abc27304b18b7a330d9157a70f21c9c1f7",
+    "embedding_manifest_file": "qdrant-passages-v1-56c6358c6a1abca7e88c379f315fb0273717bd80836a45ebe67e5a3182ca7fd8.embeddings.json",
+    "embedding_manifest_sha256": "c25fe9c22f4195cc57dc1a6fba2d76d4c1da68beb9a18faccf7b7e288d6e0e05"
+   },
+   "error_class": null,
+   "query_ladder": [
+    {
+     "level": 1,
+     "origin": "model_directed",
+     "openalex": "force velocity profiling linear position transducer resistance training validity",
+     "europe_pmc": "(TITLE_ABS:\"force velocity profiling\" OR TITLE_ABS:\"force-velocity relationship\") AND (TITLE_ABS:\"linear position transducer\" OR TITLE_ABS:\"linear transducer\") AND (TITLE_ABS:\"resistance training\" OR TITLE_ABS:\"strength training\") AND (TITLE_ABS:\"validity\" OR TITLE_ABS:\"criterion validity\") AND OPEN_ACCESS:Y"
+    },
+    {
+     "level": 2,
+     "origin": "model_directed",
+     "openalex": "force velocity profiling linear position transducer reliability",
+     "europe_pmc": "(TITLE_ABS:\"force velocity profiling\" OR TITLE_ABS:\"load-velocity profiling\") AND (TITLE_ABS:\"linear position transducer\" OR TITLE_ABS:\"LPT\") AND (TITLE_ABS:\"reliability\" OR TITLE_ABS:\"measurement error\") AND OPEN_ACCESS:Y"
+    },
+    {
+     "level": 3,
+     "origin": "model_directed",
+     "openalex": "force velocity profiling resistance training applications",
+     "europe_pmc": "(TITLE_ABS:\"force velocity profiling\" OR TITLE_ABS:\"load velocity profile\") AND (TITLE_ABS:\"resistance training\") AND (TITLE_ABS:\"applications\" OR TITLE_ABS:\"training prescription\" OR TITLE_ABS:\"limitations\") AND OPEN_ACCESS:Y"
+    },
+    {
+     "level": 4,
+     "origin": "fixed_rule",
+     "openalex": "force-velocity linear position transducer validity",
+     "europe_pmc": "(TITLE_ABS:\"force-velocity\") AND (TITLE_ABS:\"linear position transducer\") AND (TITLE_ABS:\"validity\" OR TITLE_ABS:\"reliability\") AND OPEN_ACCESS:Y"
+    },
+    {
+     "level": 5,
+     "origin": "fixed_rule",
+     "openalex": "force-velocity validity",
+     "europe_pmc": "(TITLE_ABS:\"force-velocity\") AND (TITLE_ABS:\"validity\" OR TITLE_ABS:\"reliability\") AND OPEN_ACCESS:Y"
+    },
+    {
+     "level": 6,
+     "origin": "fixed_rule",
+     "openalex": "force-velocity linear position transducer",
+     "europe_pmc": "(TITLE_ABS:\"force-velocity\") AND (TITLE_ABS:\"linear position transducer\") AND OPEN_ACCESS:Y"
+    },
+    {
+     "level": 7,
+     "origin": "fixed_rule",
+     "openalex": "force-velocity resistance training",
+     "europe_pmc": "(TITLE_ABS:\"force-velocity\") AND (TITLE_ABS:\"resistance training\") AND OPEN_ACCESS:Y"
+    },
+    {
+     "level": 8,
+     "origin": "fixed_rule",
+     "openalex": "force-velocity",
+     "europe_pmc": "(TITLE_ABS:\"force-velocity\") AND OPEN_ACCESS:Y"
+    }
+   ],
+   "unique_works": 38,
+   "model_requests": 0,
+   "model_rationale": "The authorized corpus is empty. Search open-access literature directly addressing validity, reliability, practical applications, and limitations of resistance-training force–velocity profiling measured with linear position transducers.",
+   "search_requests": 6,
+   "already_in_corpus": [],
+   "provider_failures": [],
+   "discovered_records": 41
+  },
+  "autonomous_tool_decisions": 6,
+  "synthesis_fallback_reason": null
+ },
+ "error_message": null,
+ "created_at": "2026-11-17T13:14:26.374549+00:00",
+ "updated_at": "2026-11-17T13:22:32.356423+00:00"
+}

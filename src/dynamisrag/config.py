@@ -130,8 +130,30 @@ class Settings(BaseSettings):
     scientific_answers_enabled: bool = False
     scientific_ollama_url: AnyHttpUrl = AnyHttpUrl("http://127.0.0.1:11434")
     scientific_qdrant_url: AnyHttpUrl = AnyHttpUrl("http://127.0.0.1:6333")
+    scientific_qdrant_api_key: SecretStr | None = Field(default=None, repr=False)
+    scientific_qdrant_allowed_remote_host: str | None = None
     scientific_tei_url: AnyHttpUrl = AnyHttpUrl("http://127.0.0.1:8081")
     scientific_evidence_directory: Path = _PROJECT_ROOT / "docs/evidence/real-science-v1"
+
+    # ------------------------------------------------------------------
+    # Live literature acquisition for the research workspace (RES-638)
+    # ------------------------------------------------------------------
+    research_acquisition_enabled: bool = False
+    """Let a run that finds no relevant evidence search Europe PMC/OpenAlex once, ingest
+    permitted open-access JATS and publish a new versioned Qdrant projection."""
+    research_ingest_database_url: PostgresDsn | None = Field(default=None, repr=False)
+    """Canonical-corpus *owner* role, used only by the acquisition writer. Runtime retrieval keeps
+    the read-only ``database_url``."""
+    research_store_directory: Path = _PROJECT_ROOT / ".dynamisrag/research-workspace"
+    """Exact source bytes and retained embedding manifests of published projections."""
+    research_qdrant_url: AnyHttpUrl = AnyHttpUrl("http://127.0.0.1:6333")
+    research_qdrant_api_key: SecretStr | None = Field(default=None, repr=False)
+    research_qdrant_alias: str = Field(
+        default="dynamisrag-research-workspace", pattern=r"^[a-z0-9][a-z0-9-]{2,62}$"
+    )
+    research_tei_url: AnyHttpUrl = AnyHttpUrl("http://127.0.0.1:8081")
+    research_max_papers: int = Field(default=5, ge=1, le=10)
+    research_acquisition_deadline_seconds: float = Field(default=900.0, ge=30.0, le=3600.0)
 
     # ------------------------------------------------------------------
     # Conversational Scientific Research Agent (RES-637, /api/v2)
@@ -151,16 +173,21 @@ class Settings(BaseSettings):
     agent_model_api_key: SecretStr | None = Field(default=None, repr=False)
     agent_model_num_ctx: int = Field(default=8192, ge=2048, le=131072)
     agent_model_fast: str = Field(default="deepseek-v4.1-flash", min_length=1, max_length=200)
-    agent_model_coordinator: str = Field(default="gpt-6-luna", min_length=1, max_length=200)
-    agent_model_pro: str = Field(default="deepseek-v4-pro", min_length=1, max_length=200)
+    agent_model_coordinator: str = Field(
+        default="deepseek-v4.1-flash", min_length=1, max_length=200
+    )
+    agent_model_pro: str = Field(default="deepseek-v4.1-flash", min_length=1, max_length=200)
     agent_max_pro_escalations: int = Field(default=1, ge=0, le=3)
     agent_run_cost_budget_usd: float = Field(default=0.20, gt=0.0, le=100.0)
     agent_run_token_budget: int = Field(default=250_000, ge=1_000, le=4_000_000)
     agent_opencode_go_usage_approved: bool = False
     """Explicit owner acknowledgement that OpenCode Go may serve this deployment.
 
-    OpenCode Go documents itself as "designed for OpenCode and other coding agents"; use for a
-    public scientific assistant is *unverified*. The provider is refused unless this is true.
+    OpenCode Go documents itself as "designed for OpenCode and other coding agents" and its
+    Terms limit use to "your own internal use"; use for a scientific research workspace is
+    *unverified*. While this is false the runtime refuses every model call before any request is
+    sent (``ProviderBlockedRuntime``): retrieval and verification still run, synthesis abstains
+    with ``provider_authorization_blocked``.
     """
 
     agent_database_url: PostgresDsn | None = Field(default=None, repr=False)
@@ -226,13 +253,16 @@ class Settings(BaseSettings):
                 "agent_enabled requires DYNAMISRAG_AGENT_IDENTITY_SECRET (or the "
                 "non-production agent_dev_identity_header_enabled)"
             )
+        if self.research_acquisition_enabled and (
+            self.research_ingest_database_url is None
+            or str(self.research_ingest_database_url) == str(self.agent_database_url)
+        ):
+            raise ValueError(
+                "research_acquisition_enabled requires a separate canonical owner "
+                "research_ingest_database_url"
+            )
         if self.agent_provider == "deterministic" and production_like:
             raise ValueError("The deterministic scripted model is refused in staging/production")
-        if self.agent_provider == "opencode_go" and not self.agent_opencode_go_usage_approved:
-            raise ValueError(
-                "agent_provider=opencode_go requires agent_opencode_go_usage_approved=true: "
-                "OpenCode Go usage rights for this deployment are unverified"
-            )
         return self
 
     @field_validator("scientific_evidence_directory")
