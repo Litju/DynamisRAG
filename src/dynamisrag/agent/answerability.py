@@ -1162,7 +1162,10 @@ def _study_qualifier_terms(question: str) -> tuple[str, ...]:
         for word in reversed(prior):
             if word in _STUDY_QUALIFIER_STOP or len(word) <= 1:
                 break
-            term = _stem(word)
+            term = next(
+                (concept for pattern, concept in _CONCEPT_ALIASES if pattern.fullmatch(word)),
+                _stem(word),
+            )
             if term not in terms:
                 terms.insert(0, term)
             if len(terms) >= 3:

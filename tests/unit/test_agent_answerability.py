@@ -453,6 +453,26 @@ def test_author_reporting_phrase_keeps_a_contextual_icc_question_factual() -> No
     assert decision.answerable
     assert decision.accepted_passage_keys == (candidate.passage_key,)
     assert build_query_profile("Who are the authors of the depth jumping study?").kind == "metadata"
+    claim_decision = assess_claims(
+        question,
+        (
+            ClaimEvidence(
+                passage_key=candidate.passage_key,
+                document_version_key=candidate.document_version_key,
+                document_title=candidate.title,
+                claim_text="The LPT's CMV ICC was 0.863 (95% CI 0.704 to 0.937).",
+                verbatim_quote=(
+                    "The linear position transducer (LPT) achieved the higher ICC values "
+                    "for both parameters (CMD: ICC = 0.900, 95% CI = 0.783 to 0.954, "
+                    "MDC = 4.73 cm, CV = 4.53%; CMV: ICC = 0.863, 95% CI = 0.704 to "
+                    "0.937, MDC = 0.12 m/s, CV = 6.68%)."
+                ),
+            ),
+        ),
+        context=context,
+    )
+    assert claim_decision.answerable
+    assert claim_decision.accepted_claim_indexes == (0,)
 
 
 def test_inventory_route_rejects_an_absent_topical_qualifier() -> None:
